@@ -1,0 +1,345 @@
+/**
+ * Easy Agent Pilot - 动画系统
+ * 包含基础动画类和关键帧定义
+ */
+
+/* ========== 关键帧定义 ========== */
+
+/* 淡入淡出 */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* 缩放 */
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes scale-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+
+/* 从上方滑入 */
+@keyframes slide-in-top {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-out-top {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+
+/* 从下方滑入 */
+@keyframes slide-in-bottom {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-out-bottom {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+/* 从左侧滑入 */
+@keyframes slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-out-left {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+}
+
+/* 从右侧滑入 */
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-out-right {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+}
+
+/* 旋转 */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 脉冲 */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* 弹跳 */
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(0);
+    animation-timing-function: cubic-bezier(0.8, 0, 1, 1);
+  }
+  50% {
+    transform: translateY(-25%);
+    animation-timing-function: cubic-bezier(0, 0, 0.2, 1);
+  }
+}
+
+/* 摇晃 */
+@keyframes shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  10%, 30%, 50%, 70%, 90% {
+    transform: translateX(-4px);
+  }
+  20%, 40%, 60%, 80% {
+    transform: translateX(4px);
+  }
+}
+
+/* 闪烁 */
+@keyframes blink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+/* ========== 动画类 ========== */
+
+/* 基础过渡 */
+.transition-all {
+  transition: all var(--transition-normal) var(--easing-default);
+}
+
+.transition-colors {
+  transition: color var(--transition-fast) var(--easing-default),
+              background-color var(--transition-fast) var(--easing-default),
+              border-color var(--transition-fast) var(--easing-default);
+}
+
+.transition-opacity {
+  transition: opacity var(--transition-normal) var(--easing-default);
+}
+
+.transition-transform {
+  transition: transform var(--transition-normal) var(--easing-default);
+}
+
+.transition-shadow {
+  transition: box-shadow var(--transition-normal) var(--easing-default);
+}
+
+/* 淡入淡出 */
+.animate-fade-in {
+  animation: fade-in var(--transition-normal) var(--easing-out);
+}
+
+.animate-fade-out {
+  animation: fade-out var(--transition-normal) var(--easing-in);
+}
+
+/* 缩放 */
+.animate-scale-in {
+  animation: scale-in var(--transition-normal) var(--easing-out);
+}
+
+.animate-scale-out {
+  animation: scale-out var(--transition-normal) var(--easing-in);
+}
+
+/* 滑入 */
+.animate-slide-in-top {
+  animation: slide-in-top var(--transition-normal) var(--easing-out);
+}
+
+.animate-slide-in-bottom {
+  animation: slide-in-bottom var(--transition-normal) var(--easing-out);
+}
+
+.animate-slide-in-left {
+  animation: slide-in-left var(--transition-normal) var(--easing-out);
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right var(--transition-normal) var(--easing-out);
+}
+
+/* 滑出 */
+.animate-slide-out-top {
+  animation: slide-out-top var(--transition-normal) var(--easing-in);
+}
+
+.animate-slide-out-bottom {
+  animation: slide-out-bottom var(--transition-normal) var(--easing-in);
+}
+
+.animate-slide-out-left {
+  animation: slide-out-left var(--transition-normal) var(--easing-in);
+}
+
+.animate-slide-out-right {
+  animation: slide-out-right var(--transition-normal) var(--easing-in);
+}
+
+/* 特殊动画 */
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-bounce {
+  animation: bounce 1s infinite;
+}
+
+.animate-shake {
+  animation: shake 0.5s ease-in-out;
+}
+
+.animate-blink {
+  animation: blink 1s step-end infinite;
+}
+
+/* 动画持续时间 */
+.duration-fast {
+  animation-duration: var(--transition-fast);
+}
+
+.duration-normal {
+  animation-duration: var(--transition-normal);
+}
+
+.duration-slow {
+  animation-duration: var(--transition-slow);
+}
+
+/* 动画延迟 */
+.delay-0 {
+  animation-delay: 0ms;
+}
+
+.delay-100 {
+  animation-delay: 100ms;
+}
+
+.delay-200 {
+  animation-delay: 200ms;
+}
+
+.delay-300 {
+  animation-delay: 300ms;
+}
+
+.delay-500 {
+  animation-delay: 500ms;
+}
+
+/* 动画填充模式 */
+.fill-forwards {
+  animation-fill-mode: forwards;
+}
+
+.fill-backwards {
+  animation-fill-mode: backwards;
+}
+
+.fill-both {
+  animation-fill-mode: both;
+}
+
+/* 暂停动画 */
+.animate-paused {
+  animation-play-state: paused;
+}

@@ -1,0 +1,11 @@
+// 布局组件导出
+export { default as MainLayout } from './MainLayout.vue'
+export { default as AppHeader } from './AppHeader.vue'
+export { default as AppFooter } from './AppFooter.vue'
+export { default as PanelHeader } from './PanelHeader.vue'
+export { default as PanelResizer } from './PanelResizer.vue'
+export { default as ProjectPanel } from './ProjectPanel.vue'
+export { default as SessionPanel } from './SessionPanel.vue'
+export { default as MessageArea } from './MessageArea.vue'
+export { default as SideNavRail } from './SideNavRail.vue'
+export { default as PanelContainer } from './PanelContainer.vue'

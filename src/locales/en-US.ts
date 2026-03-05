@@ -1,0 +1,1052 @@
+export default {
+  // Welcome page
+  welcome: {
+    title: 'Easy Agent Pilot',
+    subtitle: 'Your AI Coding Assistant for More Efficient Development',
+    quickActions: {
+      importProject: 'Import Project',
+      importProjectDesc: 'Import an existing project from a local directory',
+      configureAgent: 'Configure Agent',
+      configureAgentDesc: 'Set up API keys and agent configurations',
+      viewDocs: 'Documentation',
+      viewDocsDesc: 'View detailed usage guide'
+    },
+    features: {
+      smartChat: 'Smart Chat',
+      smartChatDesc: 'Natural language conversations with Claude AI for coding assistance',
+      projectManagement: 'Project Management',
+      projectManagementDesc: 'Easily manage multiple projects and switch contexts',
+      versionControl: 'Version Control',
+      versionControlDesc: 'Integrated Git operations to track code changes',
+      terminalIntegration: 'Terminal Integration',
+      terminalIntegrationDesc: 'Execute commands directly in the application'
+    },
+    shortcuts: {
+      createProject: 'Press ⌘ + N to quickly create a project'
+    }
+  },
+
+  // Header
+  header: {
+    noAgentSelected: 'No Agent Selected'
+  },
+
+  // Error messages
+  error: {
+    networkError: 'Network request failed',
+    unknownError: 'Unknown error',
+    loadFailed: 'Failed to load',
+    saveFailed: 'Failed to save',
+    deleteFailed: 'Failed to delete',
+    createFailed: 'Failed to create',
+    updateFailed: 'Failed to update',
+    connectionFailed: 'Connection failed',
+    timeout: 'Request timeout',
+    // Error type messages
+    types: {
+      cliPathInvalid: 'CLI Path Invalid',
+      cliPathNotFound: 'CLI Path Not Found',
+      cliExecutionFailed: 'CLI Execution Failed',
+      apiAuthInvalid: 'API Authentication Failed',
+      apiKeyMissing: 'API Key Missing',
+      networkTimeout: 'Network Timeout',
+      networkConnectionFailed: 'Network Connection Failed',
+      mcpConnectionFailed: 'MCP Connection Failed',
+      mcpInitFailed: 'MCP Initialization Failed',
+      mcpToolsFailed: 'MCP Tools Failed',
+      databaseError: 'Database Error',
+      unknown: 'Unknown Error'
+    },
+    // User-friendly error messages
+    friendly: {
+      cliPathNotFound: 'The specified CLI tool was not found. Please check the path',
+      cliExecutionFailed: 'The CLI tool cannot be executed. Please check file permissions or reinstall',
+      apiAuthInvalid: 'API key is invalid or expired. Please check your configuration',
+      apiKeyMissing: 'Please configure your API key first',
+      networkTimeout: 'Request timed out. Please check your network connection and try again',
+      networkConnectionFailed: 'Unable to connect to server. Please check your network settings',
+      mcpConnectionFailed: 'MCP server connection failed. Please check if the service is running',
+      mcpInitFailed: 'MCP server initialization failed. Please check your configuration',
+      mcpToolsFailed: 'Unable to get MCP tools list. Please check server status'
+    },
+    operation: {
+      loadProjects: 'Loading projects',
+      loadSessions: 'Loading sessions',
+      loadMessages: 'Loading messages',
+      loadAgents: 'Loading agents',
+      createProject: 'Creating project',
+      createSession: 'Creating session',
+      deleteProject: 'Deleting project',
+      deleteSession: 'Deleting session',
+      updateProject: 'Updating project',
+      updateSession: 'Updating session',
+      testConnection: 'Testing connection',
+      exportData: 'Exporting data',
+      importData: 'Importing data',
+      clearData: 'Clearing data'
+    }
+  },
+
+  // Common
+  common: {
+    back: 'Back',
+    cancel: 'Cancel',
+    close: 'Close',
+    confirm: 'Confirm',
+    confirmDelete: 'Confirm Delete',
+    create: 'Create',
+    delete: 'Delete',
+    edit: 'Edit',
+    view: 'View',
+    save: 'Save',
+    search: 'Search',
+    clear: 'Clear',
+    clearSearch: 'Clear Search',
+    retry: 'Retry',
+    refresh: 'Refresh',
+    justNow: 'Just now',
+    minutesAgo: '{n} min ago',
+    hoursAgo: '{n}h ago',
+    daysAgo: '{n}d ago',
+    messages: '{n} messages',
+    loading: 'Loading...',
+    loadFailed: 'Failed to load',
+    clickRetry: 'Click to retry',
+    // Loading states
+    processing: 'Processing...',
+    operationInProgress: 'Operation in progress',
+    operationComplete: 'Operation complete',
+    operationCancelled: 'Operation cancelled',
+    operationFailed: 'Operation failed',
+    pleaseWait: 'Please wait...',
+    cancelling: 'Cancelling...'
+  },
+
+  // Token usage
+  token: {
+    used: 'Used',
+    limit: 'Limit',
+    percentage: 'Usage',
+    level: {
+      safe: 'Normal',
+      warning: 'Moderate',
+      danger: 'High',
+      critical: 'Critical'
+    },
+    compress: 'Compress',
+    compressTooltip: 'Compress session to free up token space',
+    contextWindow: 'Context Window',
+    contextWindowHint: 'Maximum context length of the model (in tokens)'
+  },
+
+  // Session compression
+  compression: {
+    title: 'Compress Session',
+    description: 'Compress session to free up token space while preserving key information',
+    strategy: 'Compression Strategy',
+    strategySimple: 'Simple Compression',
+    strategySimpleDesc: 'Clear message history directly',
+    strategySummary: 'AI Summary',
+    strategySummaryDesc: 'Generate conversation summary using AI, preserving key information',
+    confirmTitle: 'Confirm Compression',
+    confirmMessage: 'Are you sure you want to compress the current session? This will clear the message history and generate a summary. This action cannot be undone.',
+    currentUsage: 'Current Usage',
+    messageCount: 'Message Count',
+    processing: 'Compressing...',
+    success: 'Compression successful',
+    failed: 'Compression failed',
+    summaryTitle: 'Conversation Summary',
+    originalInfo: 'Original Info',
+    originalMessages: 'Original Messages',
+    originalTokens: 'Original Tokens',
+    compressedAt: 'Compressed At',
+    toolCallsSummary: 'Tool Calls',
+    noToolCalls: 'No tool calls',
+    expand: 'Expand',
+    collapse: 'Collapse'
+  },
+
+  // Panel titles
+  panel: {
+    projects: 'Projects',
+    sessions: 'Sessions',
+    workspace: 'Workspace'
+  },
+
+  // Unified panel
+  unified: {
+    sessions: 'Sessions',
+    files: 'Files',
+    all: 'All',
+    toggleExpand: 'Expand/Collapse'
+  },
+
+  // Project panel
+  project: {
+    noProjects: 'No projects yet',
+    noProjectsHint: 'Create your first project to start chatting with AI',
+    createProject: 'Create Project',
+    createFirstProject: 'Create First Project',
+    deleteProject: 'Delete Project',
+    confirmDeleteTitle: 'Confirm Delete Project',
+    confirmDeleteMessage: 'Are you sure you want to delete project "{name}"?\nThis will also delete all sessions in this project. This action cannot be undone.'
+  },
+
+  // Session panel
+  session: {
+    noProjectSelected: 'Please select a project first',
+    noSessions: 'No sessions yet',
+    createSession: 'Create Session',
+    searchSessions: 'Search sessions...',
+    noMatchingSessions: 'No matching sessions found',
+    confirmDeleteTitle: 'Confirm Delete Session',
+    confirmDeleteMessage: 'Are you sure you want to delete session "{name}"?\nThis will delete all messages in this session. This action cannot be undone.',
+    sessionName: 'Session Name',
+    enterSessionName: 'Enter session name',
+    pin: 'Pin',
+    unpin: 'Unpin',
+    // Status
+    statusIdle: 'Idle',
+    statusRunning: 'Running',
+    statusPaused: 'Paused',
+    statusError: 'Error',
+    statusCompleted: 'Completed',
+    // Actions
+    pause: 'Pause',
+    resume: 'Resume',
+    stop: 'Stop',
+    // Error related
+    viewErrorDetails: 'View Error Details',
+    errorDetails: 'Error Details',
+    noErrorMessage: 'No error message available',
+    // Completed related
+    viewSummary: 'View Summary',
+    executionSummary: 'Execution Summary',
+    rerun: 'Rerun',
+    summaryContent: 'Summary Content',
+    noSummaryAvailable: 'No summary available',
+    // Project selection
+    selectProject: 'Select Project'
+  },
+
+  // Session tabs bar
+  sessionTabs: {
+    close: 'Close tab',
+    closeOthers: 'Close other tabs',
+    closeAll: 'Close all tabs',
+    maxSessionsReached: 'Maximum {n} sessions can be open at the same time',
+    switchShortcut: 'Switch to session {n}'
+  },
+
+  // Message area
+  message: {
+    noSessionSelected: 'Select or create a session to start chatting',
+    startConversation: 'Start a new conversation',
+    inputPlaceholder: 'Type a message... ({shortcut} to send)',
+    sending: 'Sending...',
+    sent: 'Sent',
+    failed: 'Failed',
+    copy: 'Copy',
+    copied: 'Copied',
+    stop: 'Stop generating',
+    stopped: 'Stopped',
+    retry: 'Retry',
+    loadingMore: 'Loading history...',
+    scrollUpLoadMore: 'Scroll up to load more messages',
+    clearMessages: 'Clear Messages',
+    clearMessagesConfirm: 'Are you sure you want to clear all messages in this session? This action cannot be undone.',
+    clearMessagesSuccess: 'Messages cleared',
+    // Empty state
+    emptyWelcome: 'Welcome to Easy Agent Pilot',
+    emptyHint: 'Type your question in the input box below to start chatting with AI',
+    emptyTip1: 'Press Enter to send, Shift+Enter for new line',
+    emptyTip2: 'Use the left panel to switch projects or sessions',
+    scrollToBottom: 'Scroll to bottom'
+  },
+
+  // Settings navigation
+  settings: {
+    title: 'Settings',
+    nav: {
+      general: 'General',
+      cli: 'CLI Paths',
+      agents: 'Agent Config',
+      agentConfig: 'Skills Config',
+      integration: 'Agent Integration',
+      mcp: 'MCP Servers',
+      marketplace: 'Marketplace',
+      skills: 'Skills',
+      plugins: 'Plugins',
+      theme: 'Theme',
+      data: 'Data Management',
+      providerSwitch: 'Config Switch'
+    },
+    general: {
+      title: 'General Settings',
+      appSettings: 'App Settings',
+      language: 'Language',
+      languageDesc: 'Select the display language',
+      fontSize: 'Font Size',
+      fontSizeDesc: 'Adjust the interface font size (12-24px)',
+      behaviorSettings: 'Behavior Settings',
+      autoSave: 'Auto Save',
+      autoSaveDesc: 'Automatically save sessions and configurations',
+      autoSaveWarning: 'Auto save is disabled. Please remember to save your changes manually',
+      confirmBeforeDelete: 'Confirm Before Delete',
+      confirmBeforeDeleteDesc: 'Show confirmation dialog before deleting projects or sessions',
+      sendOnEnter: 'Send on Enter',
+      sendOnEnterDesc: 'When disabled, use Ctrl/Cmd+Enter to send',
+      editorSettings: 'Editor Settings',
+      editorFontSize: 'Editor Font Size',
+      editorFontSizeDesc: 'Font size for code editor',
+      tabWidth: 'Tab Width',
+      tabWidthDesc: 'Number of spaces for code indentation',
+      wordWrap: 'Word Wrap',
+      wordWrapDesc: 'Enable word wrap in code editor'
+    },
+    cli: {
+      title: 'CLI Path Settings',
+      autoDetect: 'Auto Detect',
+      scanning: 'Scanning for installed CLI tools...',
+      foundTools: 'Found {n} CLI tool(s)',
+      noToolsFound: 'No CLI tools found. Please ensure Claude CLI or Codex CLI is installed',
+      autoDetected: 'Auto Detected',
+      manualConfig: 'Manual Configuration',
+      addCli: 'Add CLI',
+      noCustomPaths: 'No custom CLI paths configured',
+      noCustomPathsHint: 'Click "Add CLI" to add CLI tools from non-standard paths',
+      scanPathsHelp: 'Scan Paths Info',
+      statusAvailable: 'Available',
+      statusNotFound: 'Not Found',
+      statusError: 'Version Error',
+      path: 'Path',
+      version: 'Version',
+      addCliTitle: 'Add CLI',
+      editCliTitle: 'Edit CLI',
+      cliName: 'CLI Name',
+      selectCli: 'Select CLI',
+      executablePath: 'Executable Path',
+      pathPlaceholder: 'Enter or select executable path',
+      browse: 'Browse',
+      validating: 'Validating...',
+      validationSuccess: 'Valid - {version}',
+      validationFailed: 'Invalid - Cannot execute or get version',
+      nameAndPathRequired: 'Please enter CLI name and path',
+      saveFailed: 'Save failed, please try again',
+      confirmDelete: 'Confirm Delete',
+      confirmDeleteMessage: 'Are you sure you want to delete CLI config "{name}"?',
+      verificationFailed: 'Verification Failed'
+    },
+    agent: {
+      title: 'Agent Configuration',
+      addAgent: 'Add Agent',
+      editAgent: 'Edit Agent',
+      noAgents: 'No agents configured',
+      noAgentsHint: 'Click the button above to add your first agent',
+      confirmDeleteMessage: 'Are you sure you want to delete this agent? This action cannot be undone.',
+      statusOnline: 'Online',
+      statusOffline: 'Offline',
+      statusError: 'Error',
+      statusTesting: 'Testing',
+      typeCustom: 'Custom',
+      modeCli: 'Command Line (CLI)',
+      modeApi: 'SDK',
+      // Provider options
+      providerClaudeCli: 'Claude CLI',
+      providerCodexCli: 'Codex CLI',
+      providerClaudeSdk: 'Claude SDK',
+      providerCodexSdk: 'Codex SDK',
+      provider: 'Provider',
+      apiUrl: 'API URL',
+      cliPath: 'CLI Path',
+      createdAt: 'Created',
+      updatedAt: 'Updated',
+      testConnection: 'Test Connection',
+      // Form fields
+      name: 'Name',
+      namePlaceholder: 'Enter agent name',
+      nameRequired: 'Please enter agent name',
+      type: 'Platform Type',
+      mode: 'Communication Mode',
+      apiKey: 'API Key',
+      apiKeyPlaceholder: 'Enter API Key',
+      baseUrl: 'API URL',
+      baseUrlPlaceholder: 'https://api.example.com',
+      baseUrlRequired: 'Please enter API URL',
+      model: 'Model Name',
+      selectModel: 'Select Model',
+      customModel: 'Custom Model',
+      customModelPlaceholder: 'Enter custom model ID',
+      modelPlaceholder: 'claude-3-opus-20240229',
+      cliPathPlaceholder: '/usr/local/bin/claude',
+      cliPathRequired: 'Please enter CLI path',
+      // Validation messages
+      validation: {
+        urlInvalid: 'Invalid URL format. Please enter a valid URL (e.g., https://api.example.com)',
+        urlProtocolRequired: 'URL must include a protocol (e.g., https://)',
+        cliPathNotFound: 'CLI path does not exist. Please check the path',
+        cliPathNotExecutable: 'CLI file is not executable. Please check file permissions',
+        cliPathValidationFailed: 'CLI path validation failed'
+      },
+      // Scan feature
+      scan: {
+        button: 'Scan Existing Config',
+        hint: 'Scan installed MCPs, Skills and Plugins from ~/.claude/ directory',
+        title: 'Scan Claude CLI Configuration',
+        scanning: 'Scanning configuration...',
+        serverName: 'Server Name',
+        transport: 'Transport',
+        scope: 'Scope',
+        commandOrUrl: 'Command/URL',
+        command: 'Command',
+        skillName: 'Skill Name',
+        description: 'Description',
+        subdirectories: 'Subdirs',
+        hasScripts: 'Has scripts directory',
+        hasReferences: 'Has references directory',
+        hasAssets: 'Has assets directory',
+        pluginName: 'Plugin Name',
+        version: 'Version',
+        components: 'Components',
+        hasAgents: 'Has agents directory',
+        hasCommands: 'Has commands directory',
+        hasSkills: 'Has skills directory',
+        hasHooks: 'Has hooks directory',
+        status: 'Status',
+        enabled: 'Enabled',
+        disabled: 'Disabled',
+        noMcpFound: 'No MCP servers found',
+        noSkillsFound: 'No Skills found',
+        noPluginsFound: 'No Plugins found',
+        selectedCount: '{n} item(s) selected',
+        noSelection: 'Please select items to import',
+        importSelected: 'Import Selected',
+        scopeTypes: {
+          user: 'User',
+          local: 'Local',
+          project: 'Project'
+        }
+      }
+    },
+    // Agent List Page
+    agentList: {
+      title: 'Agent Management',
+      searchPlaceholder: 'Search agents by name, provider, model...',
+      allTypes: 'All Types',
+      typeCli: 'CLI',
+      typeSdk: 'SDK',
+      allProviders: 'All Providers',
+      providerClaude: 'Claude',
+      providerCodex: 'Codex',
+      agentCount: '{n} agent(s) total',
+      noMatchingAgents: 'No matching agents found',
+      columnName: 'Name',
+      columnType: 'Type',
+      columnProvider: 'Provider',
+      columnModel: 'Model',
+      columnCreated: 'Created',
+      columnActions: 'Actions',
+      confirmDeleteMessage: 'Are you sure you want to delete agent "{name}"? This action cannot be undone.',
+      // Detected tools
+      detectedTools: 'Detected available CLI tools',
+      quickAdd: 'Quick Add',
+      // Migration related
+      migrationTitle: 'Configuration Migration',
+      migrationAvailable: 'Detected {n} CLI path configuration(s) to migrate',
+      migrationDescription: 'The system detected legacy CLI path configurations. These can be migrated to the new agent configuration format for better management.',
+      migrationButton: 'Migrate Now',
+      migrationLater: 'Later',
+      migrationProcessing: 'Migrating...',
+      migrationSuccess: 'Migration successful! Migrated {migrated} configuration(s), skipped {skipped} existing one(s)',
+      migrationNoNeeded: 'No migration needed',
+      migrationError: 'Migration failed'
+    },
+    agentConfig: {
+      title: 'MCP/Skills/Plugins Configuration',
+      description: 'Manage MCP servers, Skills and Plugins configurations for agents here. Select different agents to view and edit their configurations.',
+      selectAgent: 'Select Agent',
+      selectAgentPlaceholder: 'Please select an agent to configure',
+      cliAgents: 'CLI Agents',
+      sdkAgents: 'SDK Agents',
+      noAgents: 'No agents available',
+      noAgentsHint: 'Please add an agent in the "Agent Config" page first',
+      pleaseSelectAgent: 'Please select an agent from the dropdown above',
+      configSourceDb: 'Configuration stored in database',
+      configSourceFs: 'Configuration stored in file system',
+      cliConfigTitle: 'CLI Configuration Management',
+      cliConfigDescription: 'CLI agent configurations are stored in config files under ~/.claude/ directory. Click the scan button to import configurations from the file system.',
+      scanConfig: 'Scan Config',
+      cliConfigCardTitle: 'Edit in Config File',
+      cliConfigCardText: 'CLI agent MCP/Skills/Plugins configurations are stored in local config files. Click "Scan Config" button to scan and import selected configuration items.',
+      openInEditor: 'Open in Editor',
+      openInEditorTooltip: 'Open config file with system default editor'
+    },
+    sdkConfig: {
+      enable: 'Enable',
+      disable: 'Disable',
+      confirmDeleteMessage: 'Are you sure you want to delete this configuration? This action cannot be undone.',
+      mcp: {
+        title: 'MCP Configuration',
+        noConfigs: 'No MCP configurations yet. Click the button above to add.',
+        add: 'Add MCP Configuration',
+        edit: 'Edit MCP Configuration',
+        name: 'Configuration Name',
+        namePlaceholder: 'e.g., my-mcp-server',
+        transportType: 'Transport Type',
+        scope: 'Configuration Scope',
+        command: 'Command',
+        commandPlaceholder: 'e.g., npx or /path/to/mcp-server',
+        args: 'Arguments',
+        argsPlaceholder: 'e.g., -y @modelscope/server-name',
+        env: 'Environment Variables',
+        envPlaceholder: 'KEY=value\nKEY2=value2'
+      },
+      skills: {
+        title: 'Skills Configuration',
+        noConfigs: 'No Skills configurations yet. Click the button above to add.',
+        add: 'Add Skill Configuration',
+        edit: 'Edit Skill Configuration',
+        name: 'Skill Name',
+        namePlaceholder: 'e.g., my-skill',
+        description: 'Description',
+        descriptionPlaceholder: 'Brief description of this Skill',
+        path: 'Skill Path',
+        pathPlaceholder: '/path/to/skill/directory',
+        scriptsPath: 'Scripts Path',
+        scriptsPathPlaceholder: '/path/to/scripts',
+        referencesPath: 'References Path',
+        referencesPathPlaceholder: '/path/to/references',
+        assetsPath: 'Assets Path',
+        assetsPathPlaceholder: '/path/to/assets'
+      },
+      plugins: {
+        title: 'Plugins Configuration',
+        noConfigs: 'No Plugins configurations yet. Click the button above to add.',
+        add: 'Add Plugin Configuration',
+        edit: 'Edit Plugin Configuration',
+        name: 'Plugin Name',
+        namePlaceholder: 'e.g., my-plugin',
+        version: 'Version',
+        description: 'Description',
+        descriptionPlaceholder: 'Brief description of this Plugin',
+        path: 'Plugin Path',
+        pathPlaceholder: '/path/to/plugin/directory'
+      }
+    },
+    // Skills Management
+    skills: {
+      title: 'Skills Management',
+      references: 'Reference Files',
+      noReferences: 'No reference files',
+      noContent: 'No content',
+      viewDetail: 'View Details',
+      confirmDelete: 'Are you sure you want to delete this Skill? This will delete the Skill directory and all its files.',
+      deleteSuccess: 'Skill deleted successfully',
+      editPlaceholder: 'Edit Skill content here...',
+      saveSuccess: 'Saved successfully',
+      saveFailed: 'Failed to save'
+    },
+    marketplace: {
+      title: 'Marketplace Sources',
+      addSource: 'Add Source',
+      noSources: 'No marketplace sources configured',
+      noSourcesHint: 'Add marketplace sources to get more AI agent templates and resources',
+      loading: 'Loading...',
+      // Card info
+      typeGithub: 'GitHub Repo',
+      typeRemoteJson: 'Remote JSON',
+      typeLocalDir: 'Local Directory',
+      statusActive: 'Active',
+      statusInactive: 'Inactive',
+      statusError: 'Error',
+      lastSynced: 'Last synced',
+      neverSynced: 'Never synced',
+      // Actions
+      enable: 'Enable',
+      disable: 'Disable',
+      edit: 'Edit',
+      delete: 'Delete',
+      // Add/Edit form
+      editTitle: 'Edit Marketplace Source',
+      addTitle: 'Add Marketplace Source',
+      nameLabel: 'Name',
+      namePlaceholder: 'e.g., Official Market',
+      nameRequired: 'Name is required',
+      nameDuplicate: 'Name already exists, please use another name',
+      typeLabel: 'Type',
+      urlLabel: 'URL',
+      pathLabel: 'Directory Path',
+      urlOrPathRequired: 'URL/Path is required',
+      githubFormatError: 'GitHub format should be owner/repo',
+      githubHint: 'Enter GitHub repo in owner/repo format, system will read marketplace.json automatically',
+      selectDirectory: 'Select Directory',
+      testConnection: 'Test Connection',
+      testSuccess: 'Connection successful',
+      testFailed: 'Connection failed',
+      // Delete confirmation
+      confirmDelete: 'Confirm Delete',
+      confirmDeleteMessage: 'Are you sure you want to delete marketplace source "{name}"?'
+    },
+    plugins: {
+      // Tabs
+      tabInstalled: 'Installed',
+      tabMarket: 'Market',
+      // Installed list
+      installedTitle: 'Installed Plugins',
+      installPlugin: 'Install Plugin',
+      loading: 'Loading installed plugins...',
+      noInstalled: 'No plugins installed yet',
+      noInstalledHint: 'Discover and install feature packages from the market',
+      browseMarket: 'Browse Market',
+      // Card info
+      disabled: 'Disabled',
+      scopeGlobal: 'Global',
+      scopeProject: 'Project',
+      componentCount: '{n} components',
+      // Detail management
+      title: 'Plugins Management',
+      internalSkills: 'Internal Skills',
+      internalCommands: 'Internal Commands',
+      internalAgents: 'Internal Agents',
+      noInternalSkills: 'No internal Skills',
+      noInternalCommands: 'No internal Commands',
+      noInternalAgents: 'No internal Agents',
+      selectFromList: 'Select an item from the left list to view details',
+      installedFrom: 'Installed From',
+      author: 'Author',
+      path: 'Path',
+      installedPath: 'Installed Path',
+      confirmDelete: 'Are you sure you want to delete this Plugin? This will delete the Plugin directory and all its files.',
+      deleteSuccess: 'Plugin deleted successfully',
+      noContent: 'Unable to load content',
+      editPlaceholder: 'Edit content here...',
+      installedAt: 'Installed on {date}',
+      // Actions
+      uninstall: 'Uninstall',
+      // Market
+      market: {
+        categoryTitle: 'Component Type',
+        categoryAll: 'All',
+        categorySkill: 'Skills',
+        categoryMcp: 'MCP',
+        categoryPrompt: 'Prompts',
+        categoryAgent: 'Agents',
+        categoryWorkflow: 'Workflows',
+        searchPlaceholder: 'Search Plugins...',
+        empty: 'No plugins available',
+        emptyHint: 'Try adjusting your search or category filter',
+        loading: 'Loading...',
+        // Card info
+        author: 'Author',
+        downloads: 'Downloads',
+        rating: 'Rating',
+        source: 'Source'
+      },
+      // Detail modal
+      detail: {
+        loading: 'Loading details...',
+        tabOverview: 'Overview',
+        tabComponents: 'Components',
+        tabConfig: 'Configuration',
+        // Overview
+        description: 'Description',
+        fullDescription: 'Full Description',
+        authorLabel: 'Author',
+        license: 'License',
+        sourceLabel: 'Source',
+        downloadsLabel: 'Downloads',
+        ratingLabel: 'Rating',
+        versionHistory: 'Version History',
+        links: 'Links',
+        repository: 'Repository',
+        homepage: 'Homepage',
+        // Components
+        noComponents: 'No component information',
+        // Config
+        noConfig: 'This plugin requires no additional configuration',
+        required: 'Required',
+        defaultValue: 'Default value'
+      },
+      // Install dialog
+      install: {
+        title: 'Install Plugin',
+        targetCli: 'Target CLI',
+        noCliAvailable: 'No CLI available, please configure CLI paths first',
+        installScope: 'Install Scope',
+        scopeGlobal: 'Global',
+        scopeProject: 'Project',
+        selectProjectDir: 'Select project directory',
+        browse: 'Browse',
+        componentsToInstall: 'Components to install',
+        configOptions: 'Configuration Options',
+        configPreview: 'Configuration Preview',
+        installing: 'Installing...',
+        installButton: 'Install',
+        installSuccess: 'Installation successful',
+        installFailed: 'Installation failed'
+      },
+      // Uninstall confirm
+      confirmUninstall: 'Confirm Uninstall',
+      confirmUninstallMessage: 'Are you sure you want to uninstall this plugin? This will remove all installed component files.',
+      uninstalling: 'Uninstalling...',
+      confirmUninstallButton: 'Confirm Uninstall'
+    },
+    integration: {
+      title: 'Agent Integration Management',
+      description: 'Unified management of MCP Servers, Skills and Plugins for agents, with auto-detection and import support',
+      selectAgent: 'Select Agent',
+      selectAgentPlaceholder: 'Select an agent to view its integration config',
+      agentAll: 'All Agents',
+      autoDetect: 'Auto Detect',
+      autoDetectDesc: 'Scan for installed MCP/Skills/Plugins in the system',
+      autoDetecting: 'Detecting...',
+      importDetected: 'Import Detected',
+      detectResult: 'Detected the following configs',
+      fromClaudeConfig: 'Loaded from Claude global config',
+      loading: 'Loading...',
+      emptyMcp: 'No MCP Server configuration',
+      emptySkills: 'No Skills configuration',
+      emptyPlugins: 'No Plugins configuration',
+      tabs: {
+        mcp: 'MCP Servers',
+        skills: 'Skills',
+        plugins: 'Plugins'
+      },
+      status: {
+        enabled: 'Enabled',
+        disabled: 'Disabled',
+        online: 'Online',
+        offline: 'Offline',
+        error: 'Error'
+      },
+      actions: {
+        enable: 'Enable',
+        disable: 'Disable',
+        edit: 'Edit',
+        delete: 'Delete',
+        test: 'Test'
+      },
+      confirmDelete: 'Confirm Delete',
+      confirmDeleteMessage: 'Are you sure you want to delete this configuration? This action cannot be undone.'
+    },
+    theme: {
+      title: 'Theme',
+      appearance: 'Appearance',
+      themeMode: 'Theme Mode',
+      themeModeDesc: 'Choose the appearance of the application',
+      light: 'Light',
+      dark: 'Dark',
+      system: 'System',
+      customColors: 'Custom Colors',
+      customColorsHint: 'Custom colors and preset themes - Coming soon',
+      themeColor: 'Theme Color',
+      themeColorDesc: 'Select a preset theme color to personalize your experience',
+      themeColorApplied: 'Theme color applied successfully'
+    },
+    data: {
+      dataPath: 'Data Path',
+      dataLocation: 'Data Location',
+      change: 'Change',
+      exportImport: 'Export & Import',
+      exportData: 'Export Data',
+      exportDataDesc: 'Export all projects, sessions, messages and configurations',
+      export: 'Export',
+      exporting: 'Exporting...',
+      exportDialogTitle: 'Select location to save export file',
+      exportSuccess: 'Data exported successfully',
+      exportFailed: 'Export failed',
+      exportOptions: 'Select data types to export',
+      selectAll: 'Select All',
+      deselectAll: 'Deselect All',
+      exportNoSelection: 'Please select at least one data type',
+      importData: 'Import Data',
+      importDataDesc: 'Restore data from backup file',
+      import: 'Import',
+      importing: 'Importing...',
+      importDialogTitle: 'Select backup file to import',
+      importSuccess: 'Data imported successfully',
+      importFailed: 'Import failed',
+      invalidFormat: 'Invalid file format',
+      importStats: 'Import Statistics',
+      statsProjects: 'Projects',
+      statsSessions: 'Sessions',
+      statsMessages: 'Messages',
+      statsAgents: 'Agents',
+      statsMcpServers: 'MCP Servers',
+      statsCliPaths: 'CLI Paths',
+      statsMarketSources: 'Market Sources',
+      statsAppSettings: 'App Settings',
+      dangerZone: 'Danger Zone',
+      clearAllData: 'Clear All Data',
+      clearAllDataDesc: 'This action cannot be undone',
+      clearData: 'Clear Data',
+      clearConfirmTitle: 'Confirm Clear All Data',
+      clearConfirmWarning: 'This will delete all projects, sessions, messages and configuration data. This action cannot be undone. Please make sure you have exported a backup of your important data.',
+      clearConfirmHint: 'Type CLEAR below to confirm this action:',
+      clearConfirmLabel: 'Type CLEAR to confirm',
+      clearConfirmButton: 'Confirm Clear',
+      clearConfirmError: 'Please type CLEAR to confirm',
+      clearSuccess: 'All data has been cleared',
+      clearFailed: 'Failed to clear data'
+    },
+    installSessions: {
+      title: 'Install Sessions',
+      loading: 'Loading...',
+      empty: 'No pending install sessions',
+      statusActive: 'Active',
+      statusRollingBack: 'Rolling Back',
+      statusRolledBack: 'Rolled Back',
+      statusRollbackFailed: 'Rollback Failed',
+      statusCompleted: 'Completed',
+      statusCancelled: 'Cancelled',
+      statusCancelRollbackFailed: 'Cancel Rollback Failed',
+      operationCount: '{n} operations',
+      cancel: 'Cancel',
+      cleanup: 'Cleanup',
+      cancelSuccess: 'Install cancelled',
+      cancelFailed: 'Failed to cancel install',
+      cleanupSuccess: 'Session cleaned up',
+      cleanupFailed: 'Failed to cleanup session'
+    },
+    mcp: {
+      // Tabs
+      tabServers: 'MCP Servers',
+      tabInstalled: 'Installed',
+      tabMarket: 'Market',
+      tabHistory: 'History',
+      // MCP Servers list
+      serversTitle: 'MCP Servers',
+      noServers: 'No MCP servers yet',
+      noServersHint: 'Add an MCP server to get started',
+      deleteConfirm: 'Are you sure you want to delete this MCP server?',
+      // Installed list
+      installedTitle: 'Installed MCPs',
+      checkUpdates: 'Check Updates',
+      loading: 'Loading...',
+      noInstalled: 'No MCPs installed yet',
+      noInstalledHint: 'Install MCPs from the market to extend AI capabilities',
+      browseMarket: 'Browse Market',
+      // Card info
+      statusEnabled: 'Enabled',
+      statusDisabled: 'Disabled',
+      hasUpdate: 'Update available',
+      isLatest: 'Latest',
+      toolCount: '{n} tools',
+      scopeGlobal: 'Global',
+      scopeProject: 'Project',
+      // Actions
+      update: 'Update',
+      updating: 'Updating',
+      uninstall: 'Uninstall',
+      edit: 'Edit',
+      // Test Connection
+      testConnection: 'Test Connection',
+      testing: 'Testing',
+      testSuccess: 'Test Passed',
+      testFailed: 'Test Failed',
+      testTools: 'Test Tools',
+      // Tool Tester
+      toolTester: {
+        title: 'MCP Tool Tester',
+        loadingTools: 'Loading tools...',
+        noTools: 'No tools available',
+        availableTools: 'Available Tools',
+        selectTool: 'Select a tool from the left',
+        tabParams: 'Parameters',
+        tabResult: 'Result',
+        noParams: 'This tool requires no parameters',
+        optional: 'Optional',
+        enabled: 'Enabled',
+        paramPlaceholder: 'Enter parameter value',
+        jsonPlaceholder: 'Enter JSON value',
+        callTool: 'Execute Tool',
+        calling: 'Calling tool...',
+        noResult: 'Click "Execute Tool" to see results',
+        resultData: 'Result Data',
+        errorDetails: 'Error Details'
+      },
+      // Uninstall confirmation
+      confirmUninstall: 'Confirm Uninstall',
+      confirmUninstallMessage: 'Are you sure you want to uninstall MCP "{name}"?',
+      confirmUninstallHint: 'This will remove the MCP from {cli} config file',
+      // Categories
+      categoryAll: 'All',
+      categoryDatabase: 'Database',
+      categoryFileSystem: 'File System',
+      categoryNetwork: 'Network',
+      categoryDevTools: 'Dev Tools',
+      categoryOther: 'Other',
+      // Add Server
+      addServer: {
+        title: 'Add Server',
+        name: 'Name',
+        namePlaceholder: 'e.g., my-mcp-server',
+        nameRequired: 'Please enter server name',
+        serverType: 'Server Type',
+        command: 'Command',
+        commandPlaceholder: 'e.g., npx or /path/to/mcp-server',
+        commandHint: 'Executable command for the MCP server',
+        commandRequired: 'Please enter command',
+        args: 'Arguments',
+        argsPlaceholder: 'e.g., -y @modelscope/server-name',
+        argsHint: 'Command line arguments, separated by spaces',
+        url: 'URL',
+        urlPlaceholder: 'e.g., https://example.com/mcp',
+        urlHint: 'Full URL for HTTP MCP server',
+        urlRequired: 'Please enter URL',
+        headers: 'Headers (JSON)',
+        headersPlaceholder: '{\n  "Authorization": "Bearer token"\n}',
+        headersHint: 'Optional: Add custom headers in JSON format',
+        envVars: 'Environment Variables',
+        envKey: 'Key',
+        envValue: 'Value',
+        addEnvVar: 'Add Environment Variable',
+        addButton: 'Add',
+        addSuccess: 'Added successfully!',
+        addFailed: 'Failed to add server',
+        noCliAvailable: 'No CLI available, please configure in CLI settings first'
+      },
+      // Edit Server
+      editServer: {
+        title: 'Edit Server',
+        saveButton: 'Save',
+        editSuccess: 'Saved successfully!'
+      },
+      // Installation
+      install: {
+        rollbackSuccess: 'Automatically rolled back'
+      },
+      // Install History
+      history: {
+        title: 'Installation History',
+        loading: 'Loading history...',
+        empty: 'No installation history',
+        emptyHint: 'Installation records will appear here after installing MCPs',
+        completed: 'Completed',
+        rolledBack: 'Rolled Back',
+        rolledBackAt: 'Rolled back at',
+        global: 'Global',
+        project: 'Project',
+        rollback: 'Rollback',
+        rollbackButton: 'Confirm Rollback',
+        rollbackConfirmTitle: 'Confirm Rollback',
+        rollbackConfirm: 'Are you sure you want to rollback the installation of MCP "{name}"? This will restore the configuration file to its state before installation.',
+        rollbackSuccess: 'Rollback successful!',
+        rollbackFailed: 'Rollback failed'
+      },
+      // Market related
+      market: {
+        category: 'Category',
+        searchPlaceholder: 'Search MCP services...',
+        empty: 'No MCP services available',
+        emptyHint: 'Try adjusting your search or category filter',
+        install: 'Install',
+        loadMore: 'Load More',
+        loadingMore: 'Loading...',
+        detail: 'MCP Details',
+        // Detail tabs
+        tabOverview: 'Overview',
+        tabConfig: 'Configuration',
+        tabVersions: 'Version History',
+        // Detail meta
+        author: 'Author',
+        downloads: 'Downloads',
+        rating: 'Rating',
+        license: 'License',
+        systemRequirements: 'System Requirements',
+        viewSource: 'View Source',
+        viewDocs: 'View Docs',
+        configExample: 'Configuration Example',
+        configHint: 'Add the above configuration to the mcpServers field in your CLI\'s settings.json file',
+        installCommand: 'Install Command',
+        noVersionHistory: 'No version history available',
+        installTitle: 'Install MCP - {name}'
+      }
+    },
+    providerSwitch: {
+      title: 'Config Quick Switch',
+      description: 'Manage multiple API Provider configurations, quickly switch Claude CLI and Codex API settings',
+      // CLI Type
+      cliType: {
+        claude: 'Claude CLI',
+        codex: 'Codex CLI'
+      },
+      // Current Config
+      currentConfig: 'Active Configuration',
+      noActiveConfig: 'No active configuration',
+      currentFileConfig: 'Current CLI Connection Info',
+      // Connection Info
+      configFile: 'Config File',
+      settingsFile: 'Settings File',
+      connectionValid: 'Connected',
+      connectionInvalid: 'Not Configured',
+      noConnectionInfo: 'Unable to get connection info',
+      // Profiles List
+      profiles: 'Configuration List',
+      noProfiles: 'No saved configurations',
+      noProfilesHint: 'Click "Add Config" to create a new configuration',
+      addProfile: 'Add Config',
+      // Actions
+      switch: 'Switch',
+      edit: 'Edit',
+      delete: 'Delete',
+      active: 'Active',
+      inactive: 'Inactive',
+      // Form
+      form: {
+        addTitle: 'Add Configuration',
+        editTitle: 'Edit Configuration',
+        name: 'Configuration Name',
+        namePlaceholder: 'e.g., Production',
+        nameRequired: 'Please enter configuration name',
+        // Claude Config
+        claudeConfig: 'Claude CLI Configuration',
+        apiKey: 'API Key',
+        apiKeyPlaceholder: 'Enter API Key',
+        baseUrl: 'API URL',
+        baseUrlPlaceholder: 'https://api.anthropic.com',
+        mainModel: 'Main Model',
+        mainModelPlaceholder: 'claude-3-5-sonnet',
+        reasoningModel: 'Reasoning Model',
+        reasoningModelPlaceholder: 'claude-3-5-sonnet',
+        haikuModel: 'Haiku Model',
+        haikuModelPlaceholder: 'claude-3-5-haiku',
+        sonnetDefault: 'Sonnet Default',
+        opusDefault: 'Opus Default',
+        // Codex Config
+        codexConfig: 'Codex CLI Configuration',
+        codexModel: 'Model Name',
+        codexModelPlaceholder: 'Enter model name'
+      },
+      // Messages
+      messages: {
+        switchSuccess: 'Configuration switched',
+        switchFailed: 'Failed to switch configuration',
+        createSuccess: 'Configuration created',
+        createFailed: 'Failed to create configuration',
+        updateSuccess: 'Configuration updated',
+        updateFailed: 'Failed to update configuration',
+        deleteSuccess: 'Configuration deleted',
+        deleteFailed: 'Failed to delete configuration'
+      },
+      // Confirm
+      confirmDelete: 'Confirm Delete',
+      confirmDeleteMessage: 'Are you sure you want to delete configuration "{name}"? This action cannot be undone.'
+    }
+  },
+
+  // Confirm Dialog
+  confirmDialog: {
+    warning: 'Warning',
+    danger: 'Danger',
+    info: 'Information',
+    confirmButton: 'Confirm',
+    cancelButton: 'Cancel'
+  },
+
+  // Language names
+  languages: {
+    'zh-CN': '简体中文',
+    'en-US': 'English'
+  }
+}

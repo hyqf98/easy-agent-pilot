@@ -1,0 +1,243 @@
+/**
+ * Easy Agent Pilot - CSS 变量系统
+ * 支持亮色/暗色主题切换
+ */
+
+:root {
+  /* ========== 色彩系统 ========== */
+
+  /* 主色调 - 浅蓝色 */
+  --color-primary: #60a5fa;
+  --color-primary-hover: #3b82f6;
+  --color-primary-active: #2563eb;
+  --color-primary-light: #eff6ff;
+  --color-primary-dark: #1d4ed8;
+
+  /* 次要色 */
+  --color-secondary: #64748b;
+  --color-secondary-hover: #475569;
+  --color-secondary-active: #334155;
+  --color-secondary-light: #f1f5f9;
+  --color-secondary-dark: #1e293b;
+
+  /* 强调色 */
+  --color-accent: #8b5cf6;
+  --color-accent-hover: #7c3aed;
+  --color-accent-active: #6d28d9;
+  --color-accent-light: #ede9fe;
+  --color-accent-dark: #5b21b6;
+
+  /* 背景色 */
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #f8fafc;
+  --color-bg-tertiary: #f1f5f9;
+  --color-bg-elevated: #ffffff;
+  --color-bg-overlay: rgba(0, 0, 0, 0.5);
+
+  /* 表面色 */
+  --color-surface: #ffffff;
+  --color-surface-hover: #f8fafc;
+  --color-surface-active: #f1f5f9;
+  --color-surface-elevated: #ffffff;
+
+  /* 文字色 */
+  --color-text-primary: #1e293b;
+  --color-text-secondary: #64748b;
+  --color-text-tertiary: #94a3b8;
+  --color-text-disabled: #cbd5e1;
+  --color-text-inverse: #ffffff;
+
+  /* 边框色 */
+  --color-border: #e2e8f0;
+  --color-border-light: #f1f5f9;
+  --color-border-dark: #cbd5e1;
+  --color-border-focus: #60a5fa;
+
+  /* 状态色 */
+  --color-success: #22c55e;
+  --color-success-light: #dcfce7;
+  --color-success-dark: #16a34a;
+
+  --color-warning: #f59e0b;
+  --color-warning-light: #fef3c7;
+  --color-warning-dark: #d97706;
+
+  --color-error: #ef4444;
+  --color-error-light: #fee2e2;
+  --color-error-dark: #dc2626;
+
+  --color-info: #60a5fa;
+  --color-info-light: #dbeafe;
+  --color-info-dark: #2563eb;
+
+  /* 激活状态专用色 - 亮色模式 */
+  --color-active-bg: #eff6ff;
+  --color-active-bg-hover: #dbeafe;
+  --color-active-border: #60a5fa;
+  --color-active-text: #1d4ed8;
+
+  /* ========== 圆角系统 ========== */
+  --radius-none: 0;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 24px;
+  --radius-full: 9999px;
+
+  /* ========== 阴影系统 ========== */
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+  --shadow-inner: inset 0 2px 4px 0 rgb(0 0 0 / 0.05);
+
+  /* ========== 间距系统 ========== */
+  --spacing-0: 0;
+  --spacing-1: 4px;
+  --spacing-2: 8px;
+  --spacing-3: 12px;
+  --spacing-4: 16px;
+  --spacing-5: 20px;
+  --spacing-6: 24px;
+  --spacing-8: 32px;
+  --spacing-10: 40px;
+  --spacing-12: 48px;
+  --spacing-16: 64px;
+
+  /* ========== 字体系统 ========== */
+  --font-family-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-family-mono: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
+
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-base: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 18px;
+  --font-size-2xl: 20px;
+  --font-size-3xl: 24px;
+  --font-size-4xl: 30px;
+
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --line-height-tight: 1.25;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.75;
+
+  /* ========== 过渡动画 ========== */
+  --transition-fast: 150ms;
+  --transition-normal: 200ms;
+  --transition-slow: 300ms;
+  --transition-slower: 500ms;
+
+  --easing-default: cubic-bezier(0.4, 0, 0.2, 1);
+  --easing-in: cubic-bezier(0.4, 0, 1, 1);
+  --easing-out: cubic-bezier(0, 0, 0.2, 1);
+  --easing-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ========== Z-Index 层级 ========== */
+  --z-dropdown: 1000;
+  --z-sticky: 1020;
+  --z-fixed: 1030;
+  --z-modal-backdrop: 1040;
+  --z-modal: 1050;
+  --z-popover: 1060;
+  --z-tooltip: 1070;
+  --z-toast: 1080;
+
+  /* ========== 布局尺寸 ========== */
+  --sidebar-width: 260px;
+  --sidebar-collapsed-width: 60px;
+  --header-height: 48px;
+  --footer-height: 48px;
+  --input-height: 40px;
+  --button-height: 36px;
+}
+
+/* ========== 暗色主题 ========== */
+[data-theme='dark'],
+.dark {
+  /* 主色调 - 暗色模式下使用更浅的蓝色 */
+  --color-primary: #93c5fd;
+  --color-primary-hover: #60a5fa;
+  --color-primary-active: #3b82f6;
+  --color-primary-light: #1e3a5f;
+  --color-primary-dark: #bfdbfe;
+
+  /* 次要色 */
+  --color-secondary: #94a3b8;
+  --color-secondary-hover: #cbd5e1;
+  --color-secondary-active: #e2e8f0;
+  --color-secondary-light: #1e293b;
+  --color-secondary-dark: #f1f5f9;
+
+  /* 强调色 */
+  --color-accent: #a78bfa;
+  --color-accent-hover: #8b5cf6;
+  --color-accent-active: #7c3aed;
+  --color-accent-light: #2e1065;
+  --color-accent-dark: #c4b5fd;
+
+  /* 背景色 */
+  --color-bg-primary: #0f172a;
+  --color-bg-secondary: #1e293b;
+  --color-bg-tertiary: #334155;
+  --color-bg-elevated: #1e293b;
+  --color-bg-overlay: rgba(0, 0, 0, 0.7);
+
+  /* 表面色 */
+  --color-surface: #1e293b;
+  --color-surface-hover: #334155;
+  --color-surface-active: #475569;
+  --color-surface-elevated: #1e293b;
+
+  /* 激活状态专用色 - 暗色模式优化(柔和蓝灰色调) */
+  --color-active-bg: #1e3a5f;
+  --color-active-bg-hover: #2d4a6e;
+  --color-active-border: #3b82f6;
+  --color-active-text: #93c5fd;
+
+  /* 文字色 */
+  --color-text-primary: #f1f5f9;
+  --color-text-secondary: #94a3b8;
+  --color-text-tertiary: #64748b;
+  --color-text-disabled: #475569;
+  --color-text-inverse: #0f172a;
+
+  /* 边框色 */
+  --color-border: #334155;
+  --color-border-light: #1e293b;
+  --color-border-dark: #475569;
+  --color-border-focus: #60a5fa;
+
+  /* 状态色 - 暗色模式 */
+  --color-success: #4ade80;
+  --color-success-light: #14532d;
+  --color-success-dark: #22c55e;
+
+  --color-warning: #fbbf24;
+  --color-warning-light: #713f12;
+  --color-warning-dark: #f59e0b;
+
+  --color-error: #f87171;
+  --color-error-light: #7f1d1d;
+  --color-error-dark: #ef4444;
+
+  --color-info: #60a5fa;
+  --color-info-light: #1e3a5f;
+  --color-info-dark: #3b82f6;
+
+  /* 阴影 - 暗色模式使用更深的阴影 */
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.4), 0 1px 2px -1px rgb(0 0 0 / 0.4);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.4);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.4), 0 4px 6px -4px rgb(0 0 0 / 0.4);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.4), 0 8px 10px -6px rgb(0 0 0 / 0.4);
+  --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.5);
+  --shadow-inner: inset 0 2px 4px 0 rgb(0 0 0 / 0.3);
+}

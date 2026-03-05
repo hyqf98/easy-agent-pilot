@@ -1,0 +1,73 @@
+[package]
+name = "easy-agent-pilot"
+version = "0.1.0"
+description = "Easy Agent Pilot - AI Agent 管理工具"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+name = "easy_agent_pilot_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Tauri 核心
+tauri = { version = "2", features = ["unstable"] }
+tauri-plugin-opener = "2"
+tauri-plugin-sql = { version = "2", features = ["sqlite"] }
+tauri-plugin-shell = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-mcp-bridge = "0.9"
+
+# 序列化
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# 异步运行时
+tokio = { version = "1", features = ["full"] }
+
+# 数据库
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Git 操作
+git2 = "0.19"
+
+# Token 计数
+tiktoken-rs = "0.5"
+
+# 错误处理
+thiserror = "2"
+anyhow = "1"
+
+# 日志
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# 时间处理
+chrono = { version = "0.4", features = ["serde"] }
+
+# 目录路径
+dirs = "5"
+
+# UUID
+uuid = { version = "1", features = ["v4"] }
+
+# HTTP 客户端
+reqwest = { version = "0.12", features = ["json", "stream"] }
+
+# 并发
+parking_lot = "0.12"
+
+# Lazy static
+lazy_static = "1.4"
+
+# Futures
+futures = "0.3"
+
+# MCP SDK (官方 Rust 实现)
+rmcp = { version = "0.17", features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest"] }
+

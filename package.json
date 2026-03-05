@@ -1,0 +1,51 @@
+{
+  "name": "easy-agent-pilot",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "typecheck": "vue-tsc --noEmit",
+    "lint": "eslint src --fix"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2",
+    "@tauri-apps/plugin-fs": "^2",
+    "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/plugin-shell": "^2",
+    "@tauri-apps/plugin-sql": "^2",
+    "@types/markdown-it": "^14.1.2",
+    "@vicons/ionicons5": "^0.12.0",
+    "echarts": "^5.6.0",
+    "highlight.js": "^11.11.1",
+    "lucide-vue-next": "^0.575.0",
+    "markdown-it": "^14.1.1",
+    "monaco-editor": "^0.52.2",
+    "naive-ui": "^2.41.0",
+    "pinia": "^2.3.0",
+    "vue": "^3.5.13",
+    "vue-i18n": "^11.2.8",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@tailwindcss/vite": "^4.0.9",
+    "@tauri-apps/cli": "^2",
+    "@typescript-eslint/eslint-plugin": "^8.56.1",
+    "@typescript-eslint/parser": "^8.56.1",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^10.0.2",
+    "eslint-plugin-vue": "^10.8.0",
+    "tailwindcss": "^4.0.9",
+    "typescript": "~5.6.2",
+    "typescript-eslint": "^8.56.1",
+    "vite": "^6.0.3",
+    "vue-eslint-parser": "^10.4.0",
+    "vue-tsc": "^2.1.10"
+  }
+}
