@@ -458,10 +458,50 @@ export class ConversationService {
   }
 
   /**
-   * 中断当前执行
+   * 中断指定会话的执行
+   * @param sessionId 会话 ID
+   * @param messageId 可选的消息 ID，用于更新消息状态
    */
-  abort(): void {
-    agentExecutor.abort()
+  abort(sessionId: string, messageId?: string): void
+
+  /**
+   * 中断当前执行（向后兼容）
+   * @deprecated 使用 abort(sessionId) 替代
+   */
+  abort(): void
+
+  /**
+   * 中断执行的具体实现
+   */
+  abort(sessionId?: string, messageId?: string): void {
+    const messageStore = useMessageStore()
+    const sessionExecutionStore = useSessionExecutionStore()
+
+    if (sessionId) {
+      // 中断指定会话
+      // 1. 调用 AgentExecutor 中断策略
+      agentExecutor.abort(sessionId)
+
+      // 2. 更新消息状态为 interrupted
+      if (messageId) {
+        messageStore.updateMessage(messageId, { status: 'interrupted' })
+      } else {
+        // 如果没有传入 messageId，从 sessionExecutionStore 获取当前流式消息 ID
+        const streamingMessageId = sessionExecutionStore.getExecutionState(sessionId).currentStreamingMessageId
+        if (streamingMessageId) {
+          messageStore.updateMessage(streamingMessageId, { status: 'interrupted' })
+        }
+      }
+
+      // 3. 更新会话执行状态
+      sessionExecutionStore.endSending(sessionId)
+    } else {
+      // 向后兼容：中断所有正在执行的会话
+      const runningIds = sessionExecutionStore.runningSessionIds
+      for (const id of runningIds) {
+        this.abort(id)
+      }
+    }
   }
 
   /**
