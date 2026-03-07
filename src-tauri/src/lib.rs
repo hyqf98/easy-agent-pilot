@@ -242,6 +242,9 @@ pub fn run() {
             commands::task::batch_update_status,
             commands::task::stop_task,
             commands::task::batch_create_tasks,
+            commands::task::save_split_session,
+            commands::task::get_split_session,
+            commands::task::delete_split_session,
             // App State commands
             commands::app_state::get_app_state,
             commands::app_state::set_app_state,

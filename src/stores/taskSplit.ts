@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
 import { useAgentStore, type AgentConfig } from './agent'
 import { logger } from '@/utils/logger'
 import { formEngine } from '@/services/plan'
@@ -27,6 +28,58 @@ interface TaskSplitContext {
   agentId: string
   modelId: string
   workingDirectory?: string
+}
+
+// 拆分会话保存输入
+interface SaveSplitSessionInput {
+  planId: string
+  status?: string
+  rawContent?: string
+  parsedOutput?: string
+  parseError?: string
+  granularity?: number
+}
+
+// 拆分会话数据
+interface TaskSplitSession {
+  id: string
+  planId: string
+  status: string
+  rawContent?: string
+  parsedOutput?: string
+  parseError?: string
+  granularity: number
+  createdAt: string
+  updatedAt: string
+}
+
+// 保存拆分会话到数据库
+async function saveSplitSessionToDb(input: SaveSplitSessionInput): Promise<void> {
+  try {
+    await invoke('save_split_session', { input })
+  } catch (error) {
+    logger.warn('[TaskSplit] 保存拆分会话失败:', error)
+  }
+}
+
+// 从数据库获取拆分会话
+async function getSplitSessionFromDb(planId: string): Promise<TaskSplitSession | null> {
+  try {
+    const result = await invoke<TaskSplitSession | null>('get_split_session', { planId })
+    return result
+  } catch (error) {
+    logger.warn('[TaskSplit] 获取拆分会话失败:', error)
+    return null
+  }
+}
+
+// 删除拆分会话
+async function deleteSplitSessionFromDb(planId: string): Promise<void> {
+  try {
+    await invoke('delete_split_session', { planId })
+  } catch (error) {
+    logger.warn('[TaskSplit] 删除拆分会话失败:', error)
+  }
 }
 
 interface ParsedAiResult {
@@ -80,6 +133,7 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
   const context = ref<TaskSplitContext | null>(null)
 
   const llmMessages = ref<SplitChatMessage[]>([])
+  const isCancelled = ref(false)
 
   // 持久化状态 key 前缀
   const TASK_SPLIT_STATE_KEY_PREFIX = 'task_split_state:'
@@ -175,35 +229,41 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
       }
     }
 
-    // 重新构建llmMessages，基于清理后的messages
-    llmMessages.value = [
-      {
-        role: 'system',
-        content: buildPlanSplitSystemPrompt()
-      }
-    ]
+    // 优先使用保存的 llmMessages（确保 LLM 对话历史的完整性）
+    // 如果保存的 llmMessages 存在且不为空，直接使用它
+    if (persisted.llmMessages && persisted.llmMessages.length > 0) {
+      llmMessages.value = [...persisted.llmMessages]
+    } else {
+      // 否则重新构建llmMessages，基于清理后的messages
+      llmMessages.value = [
+        {
+          role: 'system',
+          content: buildPlanSplitSystemPrompt()
+        }
+      ]
 
-    // 根据清理后的消息重建LLM历史
-    for (const msg of messages.value) {
-      if (msg.role === 'user') {
-        // 用户消息：如果有formValues则使用表单响应prompt，否则使用显示内容
-        if (msg.formValues && msg.formSchema) {
+      // 根据清理后的消息重建LLM历史
+      for (const msg of messages.value) {
+        if (msg.role === 'user') {
+          // 用户消息：如果有formValues则使用表单响应prompt，否则使用显示内容
+          if (msg.formValues && msg.formSchema) {
+            llmMessages.value.push({
+              role: 'user',
+              content: buildFormResponsePrompt(msg.formSchema.formId, msg.formValues)
+            })
+          } else {
+            llmMessages.value.push({
+              role: 'user',
+              content: msg.content
+            })
+          }
+        } else if (msg.role === 'assistant' && msg.rawContent && !msg.cancelled) {
+          // assistant消息：只存储问题描述，节约上下文（只有未被取消的才加入历史）
           llmMessages.value.push({
-            role: 'user',
-            content: buildFormResponsePrompt(msg.formSchema.formId, msg.formValues)
-          })
-        } else {
-          llmMessages.value.push({
-            role: 'user',
-            content: msg.content
+            role: 'assistant',
+            content: extractAssistantSummary(msg.rawContent)
           })
         }
-      } else if (msg.role === 'assistant' && msg.rawContent && !msg.cancelled) {
-        // assistant消息：使用原始内容（只有未被取消的才加入历史）
-        llmMessages.value.push({
-          role: 'assistant',
-          content: msg.rawContent
-        })
       }
     }
 
@@ -242,21 +302,115 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
   }
 
   async function initSession(nextContext: TaskSplitContext) {
-    // 检查是否有可恢复的状态
+    // 先检查数据库中是否有持久化的会话数据
+    const dbSession = await getSplitSessionFromDb(nextContext.planId)
+    if (dbSession) {
+      // 恢复状态
+      context.value = nextContext
+      reset()
+      isCancelled.value = false
+
+      // 构建基础 LLM 消息
+      llmMessages.value = [
+        {
+          role: 'system',
+          content: buildPlanSplitSystemPrompt()
+        }
+      ]
+
+      // 添加 kickoff user 消息
+      const kickoffPrompt = buildPlanSplitKickoffPrompt({
+        planName: nextContext.planName,
+        planDescription: nextContext.planDescription,
+        minTaskCount: nextContext.granularity
+      })
+      llmMessages.value.push({ role: 'user', content: kickoffPrompt })
+
+      // 添加用户消息到显示列表
+      const kickoffDisplayContent = [
+        `计划标题：${nextContext.planName}`,
+        `计划描述：${nextContext.planDescription?.trim() || '（无）'}`,
+        `拆分任务数量：至少拆分 ${nextContext.granularity} 个任务`
+      ].join('\n')
+      messages.value.push({
+        id: crypto.randomUUID(),
+        role: 'user',
+        content: kickoffDisplayContent,
+        timestamp: new Date().toISOString()
+      })
+
+      // 根据数据库状态恢复
+      if (dbSession.status === 'completed' && dbSession.parsedOutput) {
+        // 解析成功，恢复结果
+        try {
+          const parsedOutput = JSON.parse(dbSession.parsedOutput) as AIOutput
+          const assistantMessage: SplitMessage = {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: '',
+            rawContent: dbSession.rawContent,
+            timestamp: new Date().toISOString()
+          }
+          messages.value.push(assistantMessage)
+          llmMessages.value.push({
+            role: 'assistant',
+            content: extractAssistantSummary(dbSession.rawContent || '')
+          })
+          applyParsedOutput(assistantMessage, parsedOutput)
+        } catch {
+          logger.warn('[TaskSplit] 恢复解析结果失败')
+        }
+      } else if (dbSession.status === 'failed') {
+        // 解析失败，显示错误信息
+        const assistantMessage: SplitMessage = {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: `解析失败：${dbSession.parseError || '模型输出格式无法解析，请补充需求后重试。'}`,
+          rawContent: dbSession.rawContent,
+          timestamp: new Date().toISOString()
+        }
+        messages.value.push(assistantMessage)
+        if (dbSession.rawContent) {
+          llmMessages.value.push({
+            role: 'assistant',
+            content: extractAssistantSummary(dbSession.rawContent)
+          })
+        }
+      } else if (dbSession.status === 'processing') {
+        // 处理中，需要重新执行
+        await runAssistantTurn()
+      }
+      return
+    }
+
+    // 检查是否有 localStorage 中的持久化状态
     const hasState = await hasPersistedState(nextContext.planId)
     if (hasState) {
       // 恢复状态
       context.value = nextContext
       await restorePersistedState(nextContext.planId)
+      // 重置取消标志（恢复状态后应该可以继续操作）
+      isCancelled.value = false
 
       // 检查是否需要继续 AI 处理
-      // 条件：最后一条是 user 消息，且没有拆分结果，且没有待处理的表单
+      // 条件1：最后一条是 user 消息，且没有拆分结果，且没有待处理的表单
+      // 条件2：最后一条是解析失败的 assistant 消息，需要重试
       const lastMessage = messages.value[messages.value.length - 1]
-      const needsContinue = lastMessage?.role === 'user'
+      const isParseFailed = lastMessage?.role === 'assistant' && isParseFailedMessage(lastMessage)
+      const needsContinue = (lastMessage?.role === 'user'
         && !splitResult.value
-        && !currentFormId.value
+        && !currentFormId.value)
+        || isParseFailed
 
       if (needsContinue) {
+        // 如果是解析失败的消息，需要先移除它
+        if (isParseFailed) {
+          messages.value.pop()
+          // 同时移除 llmMessages 中最后一条 assistant 消息（如果有）
+          if (llmMessages.value.length > 0 && llmMessages.value[llmMessages.value.length - 1].role === 'assistant') {
+            llmMessages.value.pop()
+          }
+        }
         await runAssistantTurn()
       }
       return
@@ -351,6 +505,8 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
       return
     }
 
+    // 重置取消标志
+    isCancelled.value = false
     isProcessing.value = true
     try {
       await runAssistantTurnInternal(agent)
@@ -381,20 +537,77 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
         onContent: (delta) => { assistantMessage.content += delta }
       })
 
+      // 检查是否已被取消
+      if (isCancelled.value) {
+        // 移除空的 assistant 消息
+        const index = messages.value.findIndex(m => m.id === assistantMessage.id)
+        if (index !== -1) {
+          messages.value.splice(index, 1)
+        }
+        return
+      }
+
       assistantMessage.rawContent = finalContent
-      llmMessages.value.push({ role: 'assistant', content: finalContent })
+
+      // 【持久化】AI输出完成后，先保存原始内容到数据库
+      await saveSplitSessionToDb({
+        planId: context.value.planId,
+        status: 'processing',
+        rawContent: finalContent,
+        granularity: context.value.granularity
+      })
+
+      // 只存储助手的问题描述，节约上下文
+      const summaryContent = extractAssistantSummary(finalContent)
+      llmMessages.value.push({ role: 'assistant', content: summaryContent })
 
       const parsed = parseAIOutput(finalContent, context.value.granularity, strategy)
       if (!parsed.output) {
         logParseDebug(parsed, finalContent)
         assistantMessage.content = `解析失败：${parsed.error || '模型输出格式无法解析，请补充需求后重试。'}`
+
+        // 【持久化】解析失败，更新数据库状态为 failed
+        await saveSplitSessionToDb({
+          planId: context.value.planId,
+          status: 'failed',
+          rawContent: finalContent,
+          parseError: parsed.error || '模型输出格式无法解析',
+          granularity: context.value.granularity
+        })
         return
       }
 
+      // 【持久化】解析成功，更新数据库状态为 completed
+      await saveSplitSessionToDb({
+        planId: context.value.planId,
+        status: 'completed',
+        rawContent: finalContent,
+        parsedOutput: JSON.stringify(parsed.output),
+        granularity: context.value.granularity
+      })
+
       applyParsedOutput(assistantMessage, parsed.output)
     } catch (error) {
+      // 如果是取消导致的错误，静默处理
+      if (isCancelled.value) {
+        const index = messages.value.findIndex(m => m.id === assistantMessage.id)
+        if (index !== -1) {
+          messages.value.splice(index, 1)
+        }
+        return
+      }
       logger.error('[runAssistantTurnInternal] 执行出错:', error)
       assistantMessage.content = `拆分失败：${error instanceof Error ? error.message : String(error)}`
+
+      // 【持久化】执行出错，保存错误状态
+      if (context.value) {
+        await saveSplitSessionToDb({
+          planId: context.value.planId,
+          status: 'failed',
+          parseError: error instanceof Error ? error.message : String(error),
+          granularity: context.value.granularity
+        })
+      }
     }
   }
 
@@ -411,6 +624,37 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
       currentFormId.value = null
       message.content = `DONE：任务拆分完成，共生成 ${output.tasks.length} 个任务，请确认。`
     }
+  }
+
+  // 检查是否为解析失败的 assistant 消息
+  function isParseFailedMessage(message: SplitMessage): boolean {
+    if (message.role !== 'assistant') return false
+    // 检查是否是解析失败或执行失败的消息（没有 formSchema 且没有拆分结果）
+    const content = message.content || ''
+    return (content.startsWith('解析失败：') || content.startsWith('拆分失败：'))
+      && !message.formSchema
+  }
+
+  // 从助手原始输出中提取摘要，用于 LLM 历史（节约上下文）
+  function extractAssistantSummary(rawContent: string): string {
+    try {
+      const parsed = JSON.parse(rawContent)
+
+      // CLI 返回的完整响应可能包含 structured_output 字段
+      const output = parsed.structured_output ?? parsed
+
+      if (output.type === 'form_request' && output.question) {
+        // 只返回问题，不返回整个表单结构
+        return `[AI提问] ${output.question}`
+      }
+      if (output.type === 'task_split') {
+        const taskCount = Array.isArray(output.tasks) ? output.tasks.length : 0
+        return `[AI完成任务拆分] 共 ${taskCount} 个任务`
+      }
+    } catch {
+      // 解析失败，返回原始内容
+    }
+    return rawContent
   }
 
   async function executeTurnWithJsonStructuredOutput(params: TaskSplitTurnExecutionParams): Promise<string> {
@@ -823,6 +1067,15 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
 
         const record = parsed as Record<string, unknown>
 
+        // 检查是否为错误响应（CLI 返回的 is_error: true）
+        if (record.is_error === true) {
+          const errorMessages = record.errors
+          const errorMsg = Array.isArray(errorMessages) && errorMessages.length > 0
+            ? errorMessages.join('; ')
+            : (record.subtype || record.stop_reason || 'AI 执行出错')
+          return { error: errorMsg }
+        }
+
         // 优先处理 structured_output 字段
         if (record.structured_output && typeof record.structured_output === 'object') {
           const normalized = normalizeAIOutput(record.structured_output, minTaskCount)
@@ -857,6 +1110,15 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
         const parsed = JSON.parse(line)
         if (!parsed || typeof parsed !== 'object') continue
         const record = parsed as Record<string, unknown>
+
+        // 检查是否为错误响应（CLI 返回的 is_error: true）
+        if (record.is_error === true) {
+          const errorMessages = record.errors
+          const errorMsg = Array.isArray(errorMessages) && errorMessages.length > 0
+            ? errorMessages.join('; ')
+            : (record.subtype || record.stop_reason || 'AI 执行出错')
+          return { error: errorMsg }
+        }
 
         const directOutput = record.output_struct
           ?? record.structured_output
@@ -1007,6 +1269,7 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
   }
 
   async function abort() {
+    isCancelled.value = true
     await taskSplitOrchestrator.abort()
   }
 
@@ -1017,6 +1280,15 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     currentFormId.value = null
     context.value = null
     llmMessages.value = []
+    isCancelled.value = false
+  }
+
+  // 清除当前计划的所有拆分数据（localStorage + 数据库）
+  async function clearAllSplitData(planId: string) {
+    // 清除 localStorage
+    clearPersistedState(planId)
+    // 清除数据库
+    await deleteSplitSessionFromDb(planId)
   }
 
   return {
@@ -1036,6 +1308,7 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     // 持久化相关
     persistCurrentState,
     clearPersistedState,
-    hasPersistedState
+    hasPersistedState,
+    clearAllSplitData
   }
 })

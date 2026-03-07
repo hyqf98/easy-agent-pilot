@@ -2,7 +2,6 @@ use anyhow::Result;
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 use uuid::Uuid;
@@ -131,6 +130,7 @@ fn find_cli_in_path(dir: &PathBuf, cli_name: &str) -> Option<PathBuf> {
 /// 检查文件是否可执行
 #[cfg(unix)]
 fn is_executable(path: &PathBuf) -> bool {
+    use std::fs;
     use std::os::unix::fs::PermissionsExt;
     fs::metadata(path)
         .map(|m| m.permissions().mode() & 0o111 != 0)

@@ -12,13 +12,10 @@ import EaIcon from './EaIcon.vue'
 export interface TokenProgressBarProps {
   /** 是否显示压缩按钮 */
   showCompressButton?: boolean
-  /** 压缩按钮显示的阈值 (百分比) */
-  compressThreshold?: number
 }
 
 const props = withDefaults(defineProps<TokenProgressBarProps>(), {
-  showCompressButton: true,
-  compressThreshold: 50
+  showCompressButton: true
 })
 
 const emit = defineEmits<{
@@ -39,9 +36,9 @@ const tokenUsage = computed(() => {
   return tokenStore.getTokenUsage(sessionStore.currentSessionId)
 })
 
-// 是否显示压缩按钮
+// 是否显示压缩按钮 - 始终显示，允许用户随时手动压缩
 const shouldShowCompressButton = computed(() => {
-  return props.showCompressButton && tokenUsage.value.percentage >= props.compressThreshold
+  return props.showCompressButton
 })
 
 // 进度条样式
@@ -101,7 +98,7 @@ function handleCompress() {
       class="token-progress__compress"
       @click="handleCompress"
     >
-      <EaIcon name="compress" />
+      <EaIcon name="minimize-2" />
     </EaButton>
 
     <!-- Tooltip -->

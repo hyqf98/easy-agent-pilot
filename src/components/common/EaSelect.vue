@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { EaIcon } from '@/components/common'
 
 export interface SelectOption {
@@ -27,7 +27,9 @@ const emit = defineEmits<{
 }>()
 
 const isOpen = ref(false)
+const triggerRef = ref<HTMLElement | null>(null)
 const dropdownRef = ref<HTMLElement | null>(null)
+const dropdownPosition = ref({ top: 0, left: 0, width: 0 })
 
 const selectedOption = computed(() => {
   return props.options.find(opt => opt.value === props.modelValue)
@@ -40,9 +42,43 @@ const displayLabel = computed(() => {
   return props.placeholder
 })
 
-const toggleDropdown = () => {
-  if (!props.disabled) {
-    isOpen.value = !isOpen.value
+// 计算下拉框位置
+const updatePosition = () => {
+  if (triggerRef.value) {
+    const rect = triggerRef.value.getBoundingClientRect()
+    dropdownPosition.value = {
+      top: rect.bottom + 4,
+      left: rect.left,
+      width: rect.width
+    }
+  }
+}
+
+const toggleDropdown = async () => {
+  if (props.disabled) return
+
+  if (!isOpen.value) {
+    updatePosition()
+    isOpen.value = true
+    await nextTick()
+    // 检查下拉框是否超出视口底部
+    adjustDropdownPosition()
+  } else {
+    isOpen.value = false
+  }
+}
+
+// 调整下拉框位置，确保不超出视口
+const adjustDropdownPosition = () => {
+  if (!dropdownRef.value || !triggerRef.value) return
+
+  const dropdownRect = dropdownRef.value.getBoundingClientRect()
+  const viewportHeight = window.innerHeight
+
+  if (dropdownRect.bottom > viewportHeight) {
+    // 如果下拉框超出底部，改为向上展开
+    const triggerRect = triggerRef.value.getBoundingClientRect()
+    dropdownPosition.value.top = triggerRect.top - dropdownRect.height - 4
   }
 }
 
@@ -54,23 +90,41 @@ const selectOption = (option: SelectOption) => {
 }
 
 const handleClickOutside = (event: MouseEvent) => {
-  if (dropdownRef.value && !dropdownRef.value.contains(event.target as Node)) {
+  const target = event.target as Node
+  if (
+    triggerRef.value &&
+    !triggerRef.value.contains(target) &&
+    dropdownRef.value &&
+    !dropdownRef.value.contains(target)
+  ) {
     isOpen.value = false
+  }
+}
+
+// 滚动时更新位置
+const handleScroll = () => {
+  if (isOpen.value) {
+    updatePosition()
+    adjustDropdownPosition()
   }
 }
 
 onMounted(() => {
   document.addEventListener('click', handleClickOutside)
+  window.addEventListener('scroll', handleScroll, true)
+  window.addEventListener('resize', updatePosition)
 })
 
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
+  window.removeEventListener('scroll', handleScroll, true)
+  window.removeEventListener('resize', updatePosition)
 })
 </script>
 
 <template>
   <div
-    ref="dropdownRef"
+    ref="triggerRef"
     class="ea-select"
     :class="[
       `ea-select--${size}`,
@@ -98,25 +152,35 @@ onUnmounted(() => {
         class="ea-select__arrow"
       />
     </button>
-    <Transition name="dropdown">
-      <div
-        v-if="isOpen"
-        class="ea-select__dropdown"
-      >
+
+    <!-- 使用 Teleport 将下拉框渲染到 body -->
+    <Teleport to="body">
+      <Transition name="dropdown">
         <div
-          v-for="option in options"
-          :key="option.value"
-          class="ea-select__option"
-          :class="{
-            'ea-select__option--selected': option.value === modelValue,
-            'ea-select__option--disabled': option.disabled
+          v-if="isOpen"
+          ref="dropdownRef"
+          class="ea-select__dropdown"
+          :style="{
+            top: `${dropdownPosition.top}px`,
+            left: `${dropdownPosition.left}px`,
+            minWidth: `${dropdownPosition.width}px`
           }"
-          @click="selectOption(option)"
         >
-          {{ option.label }}
+          <div
+            v-for="option in options"
+            :key="option.value"
+            class="ea-select__option"
+            :class="{
+              'ea-select__option--selected': option.value === modelValue,
+              'ea-select__option--disabled': option.disabled
+            }"
+            @click="selectOption(option)"
+          >
+            {{ option.label }}
+          </div>
         </div>
-      </div>
-    </Transition>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -188,12 +252,9 @@ onUnmounted(() => {
   transition: transform var(--transition-fast) var(--easing-default);
 }
 
+/* 下拉框样式 - 使用 fixed 定位 */
 .ea-select__dropdown {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  min-width: 100%;
+  position: fixed;
   max-height: 240px;
   overflow-y: auto;
   background-color: var(--color-surface-elevated);

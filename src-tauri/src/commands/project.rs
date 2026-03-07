@@ -292,6 +292,7 @@ const IGNORED_DIRS: &[&str] = &[
 const IGNORED_FILES: &[&str] = &[".DS_Store", "Thumbs.db", ".gitignore", ".gitattributes"];
 
 /// 递归扫描目录获取文件树
+#[allow(dead_code)]
 fn scan_directory_recursive(
     dir_path: &PathBuf,
     max_depth: usize,

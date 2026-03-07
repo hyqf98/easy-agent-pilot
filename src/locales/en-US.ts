@@ -303,7 +303,20 @@ export default {
       tabWidth: 'Tab Width',
       tabWidthDesc: 'Number of spaces for code indentation',
       wordWrap: 'Word Wrap',
-      wordWrapDesc: 'Enable word wrap in code editor'
+      wordWrapDesc: 'Enable word wrap in code editor',
+      // Compression settings
+      compressionSettings: 'Session Compression',
+      autoCompression: 'Auto Compression',
+      autoCompressionDesc: 'Automatically compress session when context approaches model limit',
+      compressionStrategy: 'Compression Strategy',
+      compressionStrategySimple: 'Simple Compression',
+      compressionStrategySimpleDesc: 'Clear message history directly',
+      compressionStrategySmart: 'Smart Compression',
+      compressionStrategySmartDesc: 'Keep important info, compress secondary content',
+      compressionStrategySummary: 'AI Summary',
+      compressionStrategySummaryDesc: 'Use AI to generate conversation summary, preserving key information',
+      compressionThreshold: 'Compression Threshold',
+      compressionThresholdDesc: 'Trigger compression when token usage reaches this threshold'
     },
     cli: {
       title: 'CLI Path Settings',

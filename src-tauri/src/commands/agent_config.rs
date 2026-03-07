@@ -1313,6 +1313,7 @@ pub fn delete_agent_model(id: String) -> Result<(), String> {
 }
 
 /// 重置内置模型（删除所有模型并重新创建内置模型）
+#[allow(dead_code)]
 #[tauri::command]
 pub fn reset_builtin_models(
     input: CreateBuiltinModelsInput,

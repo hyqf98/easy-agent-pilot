@@ -3,6 +3,7 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
 /// 任务状态
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
@@ -14,6 +15,7 @@ pub enum TaskStatus {
 }
 
 /// 任务优先级
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TaskPriority {
@@ -1042,4 +1044,148 @@ pub fn batch_create_tasks(
     tx.commit().map_err(|e| e.to_string())?;
 
     Ok(created_tasks)
+}
+
+/// 任务拆分会话结构
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskSplitSession {
+    pub id: String,
+    pub plan_id: String,
+    pub status: String,
+    pub raw_content: Option<String>,
+    pub parsed_output: Option<String>,
+    pub parse_error: Option<String>,
+    pub granularity: i32,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// 保存拆分会话输入
+#[derive(Debug, Deserialize)]
+pub struct SaveSplitSessionInput {
+    pub plan_id: String,
+    pub status: Option<String>,
+    pub raw_content: Option<String>,
+    pub parsed_output: Option<String>,
+    pub parse_error: Option<String>,
+    pub granularity: Option<i32>,
+}
+
+/// 保存或更新拆分会话
+#[tauri::command]
+pub fn save_split_session(input: SaveSplitSessionInput) -> Result<TaskSplitSession, String> {
+    let db_path = get_db_path().map_err(|e| e.to_string())?;
+    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let status = input.status.unwrap_or_else(|| "processing".to_string());
+    let granularity = input.granularity.unwrap_or(20);
+
+    // 检查是否已存在该 plan_id 的记录
+    let existing: Option<String> = conn
+        .query_row(
+            "SELECT id FROM task_split_sessions WHERE plan_id = ?1",
+            [&input.plan_id],
+            |row| row.get(0),
+        )
+        .ok();
+
+    let session_id = if let Some(id) = existing {
+        // 更新现有记录
+        conn.execute(
+            "UPDATE task_split_sessions SET status = ?1, raw_content = ?2, parsed_output = ?3,
+             parse_error = ?4, granularity = ?5, updated_at = ?6 WHERE id = ?7",
+            rusqlite::params![
+                &status,
+                &input.raw_content,
+                &input.parsed_output,
+                &input.parse_error,
+                granularity,
+                &now,
+                &id
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+        id
+    } else {
+        // 创建新记录
+        let id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO task_split_sessions (id, plan_id, status, raw_content, parsed_output,
+             parse_error, granularity, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            rusqlite::params![
+                &id,
+                &input.plan_id,
+                &status,
+                &input.raw_content,
+                &input.parsed_output,
+                &input.parse_error,
+                granularity,
+                &now,
+                &now
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+        id
+    };
+
+    Ok(TaskSplitSession {
+        id: session_id,
+        plan_id: input.plan_id,
+        status,
+        raw_content: input.raw_content,
+        parsed_output: input.parsed_output,
+        parse_error: input.parse_error,
+        granularity,
+        created_at: now.clone(),
+        updated_at: now,
+    })
+}
+
+/// 获取拆分会话
+#[tauri::command]
+pub fn get_split_session(plan_id: String) -> Result<Option<TaskSplitSession>, String> {
+    let db_path = get_db_path().map_err(|e| e.to_string())?;
+    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+
+    let result = conn.query_row(
+        "SELECT id, plan_id, status, raw_content, parsed_output, parse_error, granularity,
+         created_at, updated_at FROM task_split_sessions WHERE plan_id = ?1",
+        [&plan_id],
+        |row| {
+            Ok(TaskSplitSession {
+                id: row.get(0)?,
+                plan_id: row.get(1)?,
+                status: row.get(2)?,
+                raw_content: row.get(3)?,
+                parsed_output: row.get(4)?,
+                parse_error: row.get(5)?,
+                granularity: row.get(6)?,
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
+            })
+        },
+    );
+
+    match result {
+        Ok(session) => Ok(Some(session)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// 删除拆分会话
+#[tauri::command]
+pub fn delete_split_session(plan_id: String) -> Result<(), String> {
+    let db_path = get_db_path().map_err(|e| e.to_string())?;
+    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "DELETE FROM task_split_sessions WHERE plan_id = ?1",
+        [&plan_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
 }

@@ -39,6 +39,7 @@ impl From<PlanStatus> for String {
 }
 
 /// 智能体角色
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentRole {

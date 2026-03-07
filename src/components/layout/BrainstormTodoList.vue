@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useBrainstormStore } from '@/stores/brainstorm'
 import { EaIcon } from '@/components/common'
-import type { BrainstormTodo } from '@/types/brainstorm'
 
 const props = defineProps<{
   sessionId: string | null
 }>()
 
 const brainstormStore = useBrainstormStore()
+const isCollapsed = ref(true)  // 默认收起
 
 const isBrainstormMode = computed(() => {
   if (!props.sessionId) return false
@@ -18,6 +18,10 @@ const isBrainstormMode = computed(() => {
 const todos = computed(() => {
   if (!props.sessionId) return []
   return brainstormStore.getSessionTodos(props.sessionId)
+})
+
+const completedCount = computed(() => {
+  return todos.value.filter(t => t.status === 'completed').length
 })
 
 watch(
@@ -33,26 +37,8 @@ watch(
   { immediate: true }
 )
 
-async function toggleTodo(todo: BrainstormTodo) {
-  if (!props.sessionId) return
-  const nextStatus = todo.status === 'completed' ? 'pending' : 'completed'
-  await brainstormStore.applyTodoOps(props.sessionId, [
-    {
-      op: 'update',
-      id: todo.id,
-      status: nextStatus
-    }
-  ])
-}
-
-async function removeTodo(todo: BrainstormTodo) {
-  if (!props.sessionId) return
-  await brainstormStore.applyTodoOps(props.sessionId, [
-    {
-      op: 'remove',
-      id: todo.id
-    }
-  ])
+function toggleCollapse() {
+  isCollapsed.value = !isCollapsed.value
 }
 </script>
 
@@ -60,16 +46,32 @@ async function removeTodo(todo: BrainstormTodo) {
   <div
     v-if="sessionId && isBrainstormMode"
     class="brainstorm-todos"
+    :class="{ 'brainstorm-todos--collapsed': isCollapsed }"
   >
-    <div class="brainstorm-todos__header">
+    <button
+      class="brainstorm-todos__header"
+      @click="toggleCollapse"
+    >
       <EaIcon
         name="sparkles"
         :size="12"
       />
-      <span>当前会话 Todo</span>
-    </div>
+      <span class="brainstorm-todos__title">Todo</span>
+      <span
+        v-if="todos.length > 0"
+        class="brainstorm-todos__count"
+      >{{ completedCount }}/{{ todos.length }}</span>
+      <EaIcon
+        class="brainstorm-todos__chevron"
+        name="chevron-down"
+        :size="12"
+      />
+    </button>
 
-    <div class="brainstorm-todos__list">
+    <div
+      v-show="!isCollapsed"
+      class="brainstorm-todos__list"
+    >
       <div
         v-if="todos.length === 0"
         class="brainstorm-todos__empty"
@@ -83,39 +85,14 @@ async function removeTodo(todo: BrainstormTodo) {
         class="brainstorm-todo"
         :class="{ 'brainstorm-todo--completed': todo.status === 'completed' }"
       >
-        <button
-          class="brainstorm-todo__checkbox"
-          :title="todo.status === 'completed' ? '标记为未完成' : '标记为完成'"
-          @click="toggleTodo(todo)"
-        >
+        <span class="brainstorm-todo__status">
           <EaIcon
-            :name="todo.status === 'completed' ? 'check-circle' : 'circle'"
-            :size="12"
-          />
-        </button>
-
-        <div class="brainstorm-todo__content">
-          <div class="brainstorm-todo__title">
-            {{ todo.title }}
-          </div>
-          <div
-            v-if="todo.description"
-            class="brainstorm-todo__desc"
-          >
-            {{ todo.description }}
-          </div>
-        </div>
-
-        <button
-          class="brainstorm-todo__remove"
-          title="删除"
-          @click="removeTodo(todo)"
-        >
-          <EaIcon
-            name="x"
+            :name="todo.status === 'completed' ? 'check' : 'circle'"
             :size="11"
           />
-        </button>
+        </span>
+
+        <span class="brainstorm-todo__title">{{ todo.title }}</span>
       </div>
     </div>
   </div>
@@ -123,94 +100,111 @@ async function removeTodo(todo: BrainstormTodo) {
 
 <style scoped>
 .brainstorm-todos {
-  margin-top: var(--spacing-1);
-  padding: var(--spacing-2) var(--spacing-2) var(--spacing-1);
-  border: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent);
-  border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--color-bg-tertiary) 55%, transparent);
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-1);
+  position: relative;
+  display: inline-flex;
+  align-items: center;
 }
 
 .brainstorm-todos__header {
   display: flex;
   align-items: center;
-  gap: var(--spacing-1);
+  gap: 5px;
   font-size: 11px;
   color: var(--color-text-secondary);
-  font-weight: var(--font-weight-normal);
+  background: var(--color-surface-hover);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 4px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--transition-fast);
+}
+
+.brainstorm-todos__header:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-primary-light);
+  background: var(--color-surface);
+}
+
+.brainstorm-todos__title {
+  font-weight: 500;
+}
+
+.brainstorm-todos__count {
+  font-size: 10px;
+  opacity: 0.8;
+  margin-left: 2px;
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  padding: 1px 4px;
+  border-radius: var(--radius-sm);
+}
+
+.brainstorm-todos__chevron {
+  transition: transform 0.15s ease;
+  opacity: 0.6;
+  margin-left: 2px;
+}
+
+.brainstorm-todos--collapsed .brainstorm-todos__chevron {
+  transform: rotate(-90deg);
 }
 
 .brainstorm-todos__list {
-  max-height: 228px; /* compact default: ~6 rows */
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  min-width: 180px;
+  max-width: 280px;
+  max-height: 200px;
   overflow-y: auto;
-  padding-right: 2px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
+  padding: var(--spacing-2);
+  background: var(--color-surface-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
 }
 
 .brainstorm-todos__empty {
   font-size: 11px;
   color: var(--color-text-tertiary);
-  padding: 2px 0;
+  padding: 4px 0;
 }
 
 .brainstorm-todo {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 8px;
-  border: 1px solid color-mix(in srgb, var(--color-border) 75%, transparent);
-  border-radius: var(--radius-md);
-  background-color: color-mix(in srgb, var(--color-bg-secondary) 85%, transparent);
+  padding: 4px 0;
+  font-size: 11px;
+  line-height: 1.3;
 }
 
 .brainstorm-todo--completed {
-  opacity: 0.68;
-}
-
-.brainstorm-todo__checkbox,
-.brainstorm-todo__remove {
-  border: none;
-  background: transparent;
-  color: var(--color-text-tertiary);
-  cursor: pointer;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.brainstorm-todo__checkbox:hover,
-.brainstorm-todo__remove:hover {
-  color: var(--color-text-primary);
-}
-
-.brainstorm-todo__content {
-  min-width: 0;
-  flex: 1;
-}
-
-.brainstorm-todo__title {
-  font-size: 11px;
-  color: var(--color-text-primary);
-  line-height: 1.25;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  opacity: 0.5;
 }
 
 .brainstorm-todo--completed .brainstorm-todo__title {
   text-decoration: line-through;
 }
 
-.brainstorm-todo__desc {
-  margin-top: 1px;
-  font-size: 10px;
+.brainstorm-todo__status {
   color: var(--color-text-tertiary);
-  line-height: 1.2;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.brainstorm-todo--completed .brainstorm-todo__status {
+  color: var(--color-success);
+}
+
+.brainstorm-todo__title {
+  color: var(--color-text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

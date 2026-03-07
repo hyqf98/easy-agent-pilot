@@ -225,6 +225,11 @@ export interface AppSettings {
   // 高级设置
   enableDebugMode: boolean
   logLevel: 'debug' | 'info' | 'warn' | 'error'
+
+  // 会话压缩设置
+  compressionStrategy: 'simple' | 'smart' | 'summary'
+  compressionThreshold: number  // 自动压缩阈值 (0-100)
+  autoCompressionEnabled: boolean
 }
 
 const defaultSettings: AppSettings = {
@@ -238,7 +243,11 @@ const defaultSettings: AppSettings = {
   editorTabSize: 2,
   editorWordWrap: true,
   enableDebugMode: false,
-  logLevel: 'info'
+  logLevel: 'info',
+  // 会话压缩设置
+  compressionStrategy: 'summary',
+  compressionThreshold: 80,
+  autoCompressionEnabled: true
 }
 
 export const useSettingsStore = defineStore('settings', () => {
@@ -376,6 +385,12 @@ export const useSettingsStore = defineStore('settings', () => {
             parsedSettings.enableDebugMode = value === 'true'
           } else if (key === 'logLevel') {
             parsedSettings.logLevel = (value as 'debug' | 'info' | 'warn' | 'error') || defaultSettings.logLevel
+          } else if (key === 'compressionStrategy') {
+            parsedSettings.compressionStrategy = (value as 'simple' | 'smart' | 'summary') || defaultSettings.compressionStrategy
+          } else if (key === 'compressionThreshold') {
+            parsedSettings.compressionThreshold = parseInt(value, 10) || defaultSettings.compressionThreshold
+          } else if (key === 'autoCompressionEnabled') {
+            parsedSettings.autoCompressionEnabled = value === 'true'
           }
         }
         settings.value = { ...defaultSettings, ...parsedSettings }

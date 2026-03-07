@@ -4,6 +4,7 @@ import { useMessageStore } from './message'
 import { useAgentConfigStore } from './agentConfig'
 import { useAgentStore } from './agent'
 import { useSessionStore } from './session'
+import { useSettingsStore } from './settings'
 
 // 默认上下文窗口大小 (128K)
 const DEFAULT_CONTEXT_WINDOW = 128000
@@ -19,7 +20,13 @@ export interface TokenUsage {
   level: TokenLevel     // 使用级别
 }
 
-// 压缩策略
+// 实时 token 数据
+export interface RealtimeTokenData {
+  inputTokens: number
+  outputTokens: number
+}
+
+// 匋缩策略
 export type CompressionStrategy = 'simple' | 'smart' | 'summary'
 
 // 压缩选项
@@ -57,6 +64,8 @@ export function formatTokenCount(count: number): string {
 export const useTokenStore = defineStore('token', () => {
   // State
   const sessionTokenCaches = ref<Map<string, SessionTokenCache>>(new Map())
+  // 实时 token 存储（来自 CLI 返回）
+  const realtimeTokens = ref<Map<string, RealtimeTokenData>>(new Map())
 
   // Getters
 
@@ -73,17 +82,15 @@ export const useTokenStore = defineStore('token', () => {
       // 获取会话信息
       const session = sessionStore.sessions.find(s => s.id === sessionId)
       if (!session) {
-        return { used: 0, limit: DEFAULT_CONTEXT_WINDOW, percentage: 0, level: 'safe' }
+        return { used: 0, limit: DEFAULT_CONTEXT_WINDOW, percentage: 0, level: 'safe' as TokenLevel }
       }
 
       // 获取会话的智能体
-      // 优先使用 agentType（当前会话实际绑定字段），并兼容历史数据
       const agent = (() => {
         if (session.agentType) {
           const byId = agentStore.agents.find(a => a.id === session.agentType)
           if (byId) return byId
 
-          // 兼容旧会话中 agentType 仅存 provider（如 claude/codex）的情况
           const byProvider = agentStore.agents.find(a => a.provider === session.agentType)
           if (byProvider) return byProvider
         }
@@ -107,15 +114,22 @@ export const useTokenStore = defineStore('token', () => {
       }
 
       // 计算已使用的 token
-      const messages = messageStore.messagesBySession(sessionId)
+      // 优先使用实时 token 数据
+      const realtimeData = realtimeTokens.value.get(sessionId)
       let usedTokens = 0
 
-      for (const message of messages) {
-        if (message.tokens) {
-          usedTokens += message.tokens
-        } else {
-          // 如果消息没有 token 信息，使用简单估算（每4个字符约等于1个token）
-          usedTokens += Math.ceil(message.content.length / 4)
+      if (realtimeData) {
+        usedTokens = realtimeData.inputTokens + realtimeData.outputTokens
+      } else {
+        // 如果没有实时数据，使用消息估算
+        const messages = messageStore.messagesBySession(sessionId)
+        for (const message of messages) {
+          if (message.tokens) {
+            usedTokens += message.tokens
+          } else {
+            // 如果消息没有 token 信息，使用简单估算（每4个字符约等于1个token）
+            usedTokens += Math.ceil(message.content.length / 4)
+          }
         }
       }
 
@@ -136,12 +150,34 @@ export const useTokenStore = defineStore('token', () => {
    */
   const needsCompression = computed(() => {
     return (sessionId: string): boolean => {
+      const settingsStore = useSettingsStore()
       const usage = getTokenUsage.value(sessionId)
-      return usage.percentage >= 50
+      // 使用设置中的压缩阈值
+      const threshold = settingsStore.settings.compressionThreshold
+      return usage.percentage >= threshold
     }
   })
 
   // Actions
+
+  /**
+   * 更新实时 token 数据（来自 CLI 返回）
+   */
+  function updateRealtimeTokens(sessionId: string, inputTokens: number | undefined, outputTokens: number | undefined) {
+    if (inputTokens === undefined && outputTokens === undefined) return
+    const existing = realtimeTokens.value.get(sessionId) || { inputTokens: 0, outputTokens: 0 }
+    realtimeTokens.value.set(sessionId, {
+      inputTokens: inputTokens ?? existing.inputTokens,
+      outputTokens: outputTokens ?? existing.outputTokens
+    })
+  }
+
+  /**
+   * 清除实时 token 数据
+   */
+  function clearRealtimeTokens(sessionId: string) {
+    realtimeTokens.value.delete(sessionId)
+  }
 
   /**
    * 更新会话的 token 缓存
@@ -171,6 +207,8 @@ export const useTokenStore = defineStore('token', () => {
    */
   function clearSessionTokenCache(sessionId: string) {
     sessionTokenCaches.value.delete(sessionId)
+    // 同时清除实时 token
+    clearRealtimeTokens(sessionId)
   }
 
   /**
@@ -178,15 +216,19 @@ export const useTokenStore = defineStore('token', () => {
    */
   function clearAllTokenCaches() {
     sessionTokenCaches.value.clear()
+    realtimeTokens.value.clear()
   }
 
   return {
     // State
     sessionTokenCaches,
+    realtimeTokens,
     // Getters
     getTokenUsage,
     needsCompression,
     // Actions
+    updateRealtimeTokens,
+    clearRealtimeTokens,
     updateSessionTokenCache,
     clearSessionTokenCache,
     clearAllTokenCaches,

@@ -214,14 +214,14 @@ onMounted(async () => {
     <template #footer>
       <div class="plugin-install-modal__footer">
         <EaButton
-          variant="ghost"
+          type="ghost"
           @click="handleClose"
         >
           {{ installSuccess ? t('common.close') : t('common.cancel') }}
         </EaButton>
         <EaButton
           v-if="!installSuccess"
-          variant="primary"
+          type="primary"
           :disabled="!canInstall"
           :loading="isInstalling"
           @click="handleInstall"

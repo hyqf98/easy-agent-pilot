@@ -346,6 +346,21 @@ const INIT_SQL: &str = r#"
         window_label TEXT NOT NULL,
         locked_at INTEGER DEFAULT (strftime('%s', 'now'))
     );
+
+    -- 任务拆分会话表（存储AI原始输出和解析状态）
+    CREATE TABLE IF NOT EXISTS task_split_sessions (
+        id TEXT PRIMARY KEY,
+        plan_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'processing',
+        raw_content TEXT,
+        parsed_output TEXT,
+        parse_error TEXT,
+        granularity INTEGER DEFAULT 20,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_split_sessions_plan ON task_split_sessions(plan_id);
 "#;
 
 /// 初始化数据库
@@ -584,6 +599,32 @@ pub fn init_database() -> Result<()> {
                 println!("Tasks migration warning: {}", e);
             }
         }
+    }
+
+    // task_split_sessions 表（存储AI原始输出和解析状态）
+    let task_split_sessions_table_sql = r#"
+        CREATE TABLE IF NOT EXISTS task_split_sessions (
+            id TEXT PRIMARY KEY,
+            plan_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'processing',
+            raw_content TEXT,
+            parsed_output TEXT,
+            parse_error TEXT,
+            granularity INTEGER DEFAULT 20,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+        )
+    "#;
+    if let Err(e) = conn.execute(task_split_sessions_table_sql, []) {
+        println!("Task split sessions table migration warning: {}", e);
+    }
+
+    // 创建索引
+    let task_split_sessions_index_sql =
+        "CREATE INDEX IF NOT EXISTS idx_task_split_sessions_plan ON task_split_sessions(plan_id)";
+    if let Err(e) = conn.execute(task_split_sessions_index_sql, []) {
+        println!("Task split sessions index migration warning: {}", e);
     }
 
     println!("Database initialized successfully");

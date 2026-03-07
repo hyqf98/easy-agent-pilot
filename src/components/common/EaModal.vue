@@ -32,7 +32,21 @@ function close() {
         @click.self="close"
       >
         <div class="ea-modal">
-          <slot />
+          <div
+            v-if="$slots.header"
+            class="ea-modal__header"
+          >
+            <slot name="header" />
+          </div>
+          <div class="ea-modal__body">
+            <slot />
+          </div>
+          <div
+            v-if="$slots.footer"
+            class="ea-modal__footer"
+          >
+            <slot name="footer" />
+          </div>
         </div>
       </div>
     </Transition>
@@ -47,7 +61,7 @@ function close() {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: var(--z-modal, 1050);
   padding: var(--spacing-4);
 }
 
@@ -59,6 +73,27 @@ function close() {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  min-width: 400px;
+  max-width: 600px;
+}
+
+.ea-modal__header {
+  padding: var(--spacing-4) var(--spacing-5);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.ea-modal__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-5);
+}
+
+.ea-modal__footer {
+  padding: var(--spacing-4) var(--spacing-5);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-2);
 }
 
 /* 过渡动画 */

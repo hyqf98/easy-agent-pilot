@@ -74,10 +74,15 @@ function handleInstall() {
       </div>
 
       <EaButton
-        :variant="isInstalled ? 'outline' : 'primary'"
-        size="sm"
+        :type="isInstalled ? 'secondary' : 'primary'"
+        size="small"
+        class="skill-market-card__action"
         @click="handleInstall"
       >
+        <EaIcon
+          :name="isInstalled ? 'refresh-cw' : 'download'"
+          :size="14"
+        />
         {{ isInstalled ? t('marketplace.reinstall') : t('marketplace.install') }}
       </EaButton>
     </div>
@@ -176,5 +181,21 @@ function handleInstall() {
   gap: var(--spacing-1);
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
+}
+
+/* 安装按钮样式优化 */
+.skill-market-card__action {
+  min-width: 80px;
+}
+
+.skill-market-card__action.ea-button--secondary {
+  background-color: var(--color-success-light);
+  color: var(--color-success);
+  border: 1px solid var(--color-success);
+}
+
+.skill-market-card__action.ea-button--secondary:hover:not(.ea-button--disabled) {
+  background-color: var(--color-success);
+  color: var(--color-text-inverse);
 }
 </style>

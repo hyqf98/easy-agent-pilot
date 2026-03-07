@@ -3,6 +3,8 @@ import { useI18n } from 'vue-i18n'
 import { EaIcon, EaButton, EaTag } from '@/components/common'
 import type { PluginMarketItem } from '@/types/marketplace'
 
+import { computed } from 'vue'
+
 interface Props {
   item: PluginMarketItem
   isInstalled: boolean
@@ -15,6 +17,10 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+const buttonText = computed(() => {
+  return props.isInstalled ? t('marketplace.reinstall') : t('marketplace.install')
+})
 
 function handleInstall() {
   emit('install', props.item)
@@ -82,11 +88,16 @@ function handleInstall() {
       </div>
 
       <EaButton
-        :variant="isInstalled ? 'outline' : 'primary'"
-        size="sm"
+        :type="isInstalled ? 'secondary' : 'primary'"
+        size="small"
+        class="plugin-market-card__action"
         @click="handleInstall"
       >
-        {{ isInstalled ? t('marketplace.reinstall') : t('marketplace.install') }}
+        <EaIcon
+          :name="isInstalled ? 'refresh-cw' : 'download'"
+          :size="14"
+        />
+        {{ buttonText }}
       </EaButton>
     </div>
   </div>
@@ -191,5 +202,21 @@ function handleInstall() {
   gap: var(--spacing-1);
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
+}
+
+/* 安装按钮样式优化 */
+.plugin-market-card__action {
+  min-width: 80px;
+}
+
+.plugin-market-card__action.ea-button--secondary {
+  background-color: var(--color-success-light);
+  color: var(--color-success);
+  border: 1px solid var(--color-success);
+}
+
+.plugin-market-card__action.ea-button--secondary:hover:not(.ea-button--disabled) {
+  background-color: var(--color-success);
+  color: var(--color-text-inverse);
 }
 </style>

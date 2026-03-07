@@ -2,7 +2,6 @@
 import { computed } from 'vue'
 import { useProjectStore } from '@/stores/project'
 import { useSessionStore } from '@/stores/session'
-import TokenProgressBar from '@/components/common/TokenProgressBar.vue'
 
 const projectStore = useProjectStore()
 const sessionStore = useSessionStore()
@@ -26,20 +25,10 @@ const agentStatus = computed(() => {
   return currentSession.status
 })
 
-// 是否有激活的会话
-const hasActiveSession = computed(() => {
-  return !!sessionStore.currentSessionId
-})
-
 // 状态颜色类
 const statusClass = computed(() => {
   return `app-footer__status--${agentStatus.value}`
 })
-
-// 处理压缩
-function handleCompress() {
-  // TODO: 实现压缩功能
-}
 </script>
 
 <template>
@@ -65,16 +54,8 @@ function handleCompress() {
     </div>
 
     <div class="app-footer__center">
-      <!-- Token 进度条（有会话时显示） -->
-      <TokenProgressBar
-        v-if="hasActiveSession"
-        @compress="handleCompress"
-      />
-      <!-- 无会话时显示状态 -->
-      <span
-        v-else
-        :class="['app-footer__status', statusClass]"
-      >
+      <!-- 状态显示 -->
+      <span :class="['app-footer__status', statusClass]">
         <span class="app-footer__status-dot" />
         <span>就绪</span>
       </span>

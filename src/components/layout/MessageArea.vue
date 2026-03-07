@@ -16,6 +16,7 @@ import { compressionService } from '@/services/compression'
 import { EaIcon } from '@/components/common'
 import { MessageList } from '@/components/message'
 import CompressionConfirmDialog from '@/components/common/CompressionConfirmDialog.vue'
+import TokenProgressBar from '@/components/common/TokenProgressBar.vue'
 import DynamicForm from '@/components/plan/DynamicForm.vue'
 import type { Message } from '@/stores/message'
 import FileMentionDropdown from './FileMentionDropdown.vue'
@@ -884,11 +885,6 @@ watch(() => sessionStore.currentSessionId, async (sessionId) => {
       v-if="sessionStore.currentSessionId"
       class="message-area__bottom"
     >
-      <BrainstormTodoList
-        class="brainstorm-todo-panel"
-        :session-id="sessionStore.currentSessionId"
-      />
-
       <div
         v-if="isBrainstormMode && pendingBrainstormForm"
         class="brainstorm-form-panel"
@@ -899,6 +895,22 @@ watch(() => sessionStore.currentSessionId, async (sessionId) => {
           @submit="handleBrainstormFormSubmit"
           @cancel="handleBrainstormFormCancel"
         />
+      </div>
+
+      <!-- Todo 待办 + Token 进度条（同一行） -->
+      <div class="bottom-status-bar">
+        <div class="bottom-status-bar__left">
+          <BrainstormTodoList
+            :session-id="sessionStore.currentSessionId"
+          />
+        </div>
+        <div class="bottom-status-bar__center">
+          <TokenProgressBar
+            :show-compress-button="true"
+            @compress="handleOpenCompress"
+          />
+        </div>
+        <div class="bottom-status-bar__right" />
       </div>
 
       <!-- 输入框容器 -->
@@ -1120,8 +1132,31 @@ watch(() => sessionStore.currentSessionId, async (sessionId) => {
   margin: var(--spacing-2) var(--spacing-4) 0;
 }
 
-.brainstorm-todo-panel {
-  margin: var(--spacing-1) var(--spacing-4) 0;
+/* 底部状态栏：Todo + 进度条 同一行 */
+.bottom-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-1) var(--spacing-4);
+  min-height: 28px;
+}
+
+.bottom-status-bar__left {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.bottom-status-bar__center {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bottom-status-bar__right {
+  flex: 1;
 }
 
 .message-area__empty-icon {

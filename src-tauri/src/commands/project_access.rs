@@ -11,6 +11,7 @@ fn get_db_connection() -> Result<Connection> {
 }
 
 /// 项目访问记录
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProjectAccessLog {
     pub project_id: String,

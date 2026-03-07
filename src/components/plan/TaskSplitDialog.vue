@@ -155,6 +155,9 @@ async function confirmSplit() {
     // 批量创建任务
     await taskStore.createTasksFromSplit(planId, taskInputs)
 
+    // 重新加载任务列表，确保 TaskBoard 显示最新数据
+    await taskStore.loadTasks(planId)
+
     // 同步更新计划状态为"已拆分"
     await planStore.markPlanAsReady(planId)
 

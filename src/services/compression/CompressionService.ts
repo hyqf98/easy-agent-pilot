@@ -4,6 +4,8 @@ import { useSessionExecutionStore } from '@/stores/sessionExecution'
 import { useAgentStore } from '@/stores/agent'
 import { useTokenStore, type CompressionStrategy } from '@/stores/token'
 import type { AgentConfig } from '@/stores/agent'
+import { useSettingsStore } from '@/stores/settings'
+import { useNotificationStore } from '@/stores/notification'
 
 /**
  * 压缩选项
@@ -377,6 +379,51 @@ export class CompressionService {
 请用中文回答，保持简洁但信息完整。`
 
     return prompt
+  }
+
+  /**
+   * 检查并执行自动压缩
+   * @returns 是否执行了压缩
+   */
+  async checkAndAutoCompress(sessionId: string, agentId: string): Promise<boolean> {
+    const settingsStore = useSettingsStore()
+    const tokenStore = useTokenStore()
+    const notificationStore = useNotificationStore()
+
+    // 检查是否启用自动压缩
+    if (!settingsStore.settings.autoCompressionEnabled) {
+      return false
+    }
+
+    // 检查是否需要压缩
+    if (!tokenStore.needsCompression(sessionId)) {
+      return false
+    }
+
+    // 获取当前 token 使用情况
+    const usage = tokenStore.getTokenUsage(sessionId)
+    const threshold = settingsStore.settings.compressionThreshold
+
+    console.log(`[CompressionService] 检查自动压缩: ${usage.percentage.toFixed(1)}% >= ${threshold}%`)
+
+    // 执行压缩
+    try {
+      const result = await this.compressSession(sessionId, agentId, {
+        strategy: settingsStore.settings.compressionStrategy as CompressionStrategy
+      })
+
+      if (result.success) {
+        notificationStore.success(`会话已自动压缩 (从 ${result.originalTokenCount} tokens 释放空间)`)
+        console.log(`[CompressionService] 自动压缩成功: ${result.summary?.slice(0, 100)}...`)
+        return true
+      } else {
+        console.warn(`[CompressionService] 自动压缩失败: ${result.error}`)
+        return false
+      }
+    } catch (error) {
+      console.error('[CompressionService] 自动压缩出错:', error)
+      return false
+    }
   }
 }
 

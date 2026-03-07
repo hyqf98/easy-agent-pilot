@@ -303,7 +303,20 @@ export default {
       tabWidth: 'Tab 宽度',
       tabWidthDesc: '代码缩进的空格数',
       wordWrap: '自动换行',
-      wordWrapDesc: '代码编辑器自动换行'
+      wordWrapDesc: '代码编辑器自动换行',
+      // 会话压缩设置
+      compressionSettings: '会话压缩设置',
+      autoCompression: '自动压缩',
+      autoCompressionDesc: '当上下文接近模型限制时，自动压缩会话以释放空间',
+      compressionStrategy: '压缩策略',
+      compressionStrategySimple: '简单压缩',
+      compressionStrategySimpleDesc: '直接清空消息历史',
+      compressionStrategySmart: '智能压缩',
+      compressionStrategySmartDesc: '保留重要信息，压缩次要内容',
+      compressionStrategySummary: 'AI 摘要',
+      compressionStrategySummaryDesc: '使用 AI 生成对话摘要，保留关键信息',
+      compressionThreshold: '压缩阈值',
+      compressionThresholdDesc: '当 token 使用率达到此阈值时触发压缩'
     },
     cli: {
       title: 'CLI 路径设置',

@@ -4,27 +4,15 @@ import type { Task, TaskPriority } from '@/types/plan'
 
 const props = defineProps<{
   task: Task
-  draggable?: boolean
 }>()
 
 const emit = defineEmits<{
-  (e: 'dragStart', task: Task, event: DragEvent): void
-  (e: 'dragEnd', event: DragEvent): void
-  (e: 'cardDragOver', event: DragEvent): void
-  (e: 'cardDragEnter', event: DragEvent): void
-  (e: 'cardDragLeave', event: DragEvent): void
-  (e: 'cardDrop', event: DragEvent): void
   (e: 'click', task: Task): void
   (e: 'stop', task: Task): void
   (e: 'retry', task: Task): void
   (e: 'edit', task: Task): void
   (e: 'delete', task: Task): void
 }>()
-
-// 是否可以拖拽
-const canDrag = computed(() => {
-  return props.draggable !== false && props.task.status !== 'in_progress'
-})
 
 // 是否显示停止按钮
 const showStopButton = computed(() => {
@@ -65,45 +53,6 @@ function getPriorityColor(priority: TaskPriority): string {
   return priorityColors[priority] || 'gray'
 }
 
-// 开始拖拽
-function handleDragStart(event: DragEvent) {
-  if (!canDrag.value) {
-    event.preventDefault()
-    return
-  }
-
-
-  // 设置拖拽数据
-  if (event.dataTransfer) {
-    event.dataTransfer.setData('text/plain', props.task.id)
-    event.dataTransfer.effectAllowed = 'move'
-  }
-
-  emit('dragStart', props.task, event)
-}
-
-// 拖拽结束
-function handleDragEnd(event: DragEvent) {
-  emit('dragEnd', event)
-}
-
-function handleDragOver(event: DragEvent) {
-  event.preventDefault()
-  emit('cardDragOver', event)
-}
-
-function handleDragEnter(event: DragEvent) {
-  emit('cardDragEnter', event)
-}
-
-function handleDragLeave(event: DragEvent) {
-  emit('cardDragLeave', event)
-}
-
-function handleDrop(event: DragEvent) {
-  emit('cardDrop', event)
-}
-
 // 点击卡片
 function handleClick() {
   emit('click', props.task)
@@ -142,13 +91,6 @@ function handleDelete(event: Event) {
       'is-blocked': task.status === 'blocked',
       'is-running': task.status === 'in_progress'
     }"
-    :draggable="canDrag"
-    @dragstart="handleDragStart"
-    @dragend="handleDragEnd"
-    @dragover="handleDragOver"
-    @dragenter="handleDragEnter"
-    @dragleave="handleDragLeave"
-    @drop="handleDrop"
     @click="handleClick"
   >
     <div class="card-header">
@@ -302,8 +244,9 @@ function handleDelete(event: Event) {
   background-color: var(--color-surface, #fff);
   border-radius: var(--radius-md, 8px);
   border: 1px solid var(--color-border-light, #f1f5f9);
-  cursor: pointer;
+  /* 移除 cursor: pointer，让父元素 .drag-item 的 cursor: grab 生效 */
   transition: all var(--transition-fast, 150ms) var(--easing-default);
+  user-select: none;
 }
 
 .kanban-card:hover {
@@ -325,14 +268,6 @@ function handleDelete(event: Event) {
 .kanban-card.is-running {
   border-color: var(--color-primary-light, #bfdbfe);
   background-color: #eff6ff;
-}
-
-.kanban-card[draggable="true"] {
-  cursor: grab;
-}
-
-.kanban-card[draggable="true"]:active {
-  cursor: grabbing;
 }
 
 .card-header {
@@ -485,26 +420,5 @@ function handleDelete(event: Event) {
 .btn-delete:hover {
   background-color: var(--color-error-light, #fee2e2);
   color: var(--color-error, #ef4444);
-}
-
-/* 拖拽指示器 */
-.drop-indicator-top {
-  height: 4px;
-  background-color: var(--color-primary, #3b82f6);
-  border-radius: 2px;
-  margin-bottom: 4px;
-  animation: pulse 1s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
-/* 拖拽中的卡片样式 */
-.kanban-card.dragging {
-  opacity: 0.5;
-  transform: scale(0.02);
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
 }
 </style>

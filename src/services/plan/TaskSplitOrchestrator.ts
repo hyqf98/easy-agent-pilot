@@ -98,21 +98,18 @@ export class TaskSplitOrchestrator {
         streamErrors.push(payload.error)
       }
     })
-    console.info('[AI Execute] start', {
-      provider,
-      mode: request.executionMode,
-      responseMode: request.responseMode,
-      outputFormat: request.cliOutputFormat,
-      sessionId
-    })
-
     try {
       await invoke('execute_agent', { request })
-      console.info('[AI Execute] done', {
-        provider,
-        mode: request.executionMode,
-        sessionId
-      })
+
+      // 等待事件循环处理完所有待处理的事件
+      // 这是为了确保后端发送的 Tauri 事件能够被前端的监听器处理
+      // Tauri 事件是异步的（fire-and-forget 模式），emit 后事件需要：
+      // 1. 通过 IPC 通道传递
+      // 2. 在 JavaScript 事件循环中排队
+      // 3. 等待事件循环处理
+      // 因此需要足够的延迟时间，100ms 是一个安全的值
+      await new Promise(resolve => setTimeout(resolve, 100))
+
       if (fullContent.trim().length > 0) {
         return fullContent
       }

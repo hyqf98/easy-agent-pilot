@@ -5,6 +5,40 @@ interface BuildBrainstormSystemPromptParams {
   todos: BrainstormTodo[]
 }
 
+const JSON_SCHEMA_EXAMPLE = `{
+  "formRequest": {
+    "question": "Optional follow-up question",
+    "formSchema": {
+      "formId": "unique-id",
+      "title": "Form Title",
+      "description": "Optional description",
+      "fields": [
+        {
+          "name": "fieldName",
+          "label": "Field Label",
+          "type": "text",
+          "required": true,
+          "placeholder": "Optional",
+          "options": [{"label": "Label", "value": "value"}],
+          "validation": {"min": 1, "max": 10, "message": "Validation message"}
+        }
+      ],
+      "submitText": "Submit"
+    },
+    "defaultValues": {}
+  },
+  "todoOps": [
+    { "op": "add", "title": "Task Title", "description": "Task Description", "status": "pending", "order": 0 },
+    { "op": "update", "id": "task-id", "title": "New Title", "status": "in_progress" },
+    { "op": "complete", "id": "task-id" },
+    { "op": "remove", "id": "task-id" },
+    { "op": "reorder", "id": "task-id", "order": 2 }
+  ],
+  "contextPatch": {
+    "key": "value"
+  }
+}`
+
 export function buildBrainstormSystemPrompt(params: BuildBrainstormSystemPromptParams): string {
   const { context, todos } = params
 
@@ -15,59 +49,56 @@ export function buildBrainstormSystemPrompt(params: BuildBrainstormSystemPromptP
     order: todo.order
   }))
 
-  return `你正在“头脑风暴模式”中协助用户梳理需求。
+  return `You are assisting the user in "Brainstorm Mode" to clarify requirements.
 
-目标：
-1. 用自然语言继续与用户讨论方案。
-2. 当需要收集信息时，输出可直接渲染的动态表单（支持一次多个问题）。
-3. 根据推进情况维护 todo 清单（新增、更新、完成、删除、重排）。
+Goals:
+1. Continue discussing the solution with the user in natural language.
+2. When information collection is needed, output a dynamic form (supports multiple questions at once).
+3. Maintain the todo list based on progress (add, update, complete, remove, reorder).
 
-输出规则（必须遵守）：
-- 先输出正常自然语言回复。
-- 若需要结构化动作，在回复末尾追加：
-<brainstorm_payload>{JSON}</brainstorm_payload>
-- 只允许在该标签内输出 JSON，不要 markdown 代码块。
+## Output Rules (Must Strictly Follow)
 
-payload JSON 结构：
-{
-  "form_request": {
-    "question": "可选，追问说明",
-    "formSchema": {
-      "formId": "唯一ID",
-      "title": "标题",
-      "description": "可选",
-      "fields": [
-        {
-          "name": "字段名",
-          "label": "展示名",
-          "type": "text|textarea|select|multiselect|number|checkbox|radio|date|slider",
-          "required": true
-        }
-      ],
-      "submitText": "提交"
-    },
-    "defaultValues": {}
-  },
-  "todo_ops": [
-    { "op": "add", "title": "...", "description": "...", "status": "pending", "order": 0 },
-    { "op": "update", "id": "...", "title": "...", "status": "in_progress" },
-    { "op": "complete", "id": "..." },
-    { "op": "remove", "id": "..." },
-    { "op": "reorder", "id": "...", "order": 2 }
-  ],
-  "context_patch": {
-    "key": "value"
-  }
-}
+### Basic Format
+- First output normal natural language response.
+- If structured action is needed, **append** at the end of response:
+  <brainstorm_payload>{JSON}</brainstorm_payload>
+- **DO NOT** use markdown code blocks inside the tag (no \`\`\`json).
+- **DO NOT** add any explanatory text before or after the tag.
 
-重要约束：
-- form_request.fields 数量为 2-6 个，用于一次性收集多个关键信息。
-- 如果本轮不需要表单或 todo 更新，可以不输出 <brainstorm_payload>。
-- todo_ops 只写本轮需要变更的项。
+### JSON Structure Definition
+The payload must be a valid JSON object with the following structure:
 
-当前上下文：
+${JSON_SCHEMA_EXAMPLE}
+
+### Important Constraints
+1. **Form Field Count**: fields array should contain 2-6 fields for collecting multiple key information at once.
+2. **Optional Output**: If no form or todo updates are needed this round, you can skip the <brainstorm_payload>.
+3. **Incremental Update**: todoOps only contains items that need to change this round, no need to list all todos.
+4. **Field Types**: type must be one of text/textarea/select/multiselect/number/checkbox/radio/date/slider.
+5. **Options Field**: select/multiselect/radio types must provide an options array.
+
+### Wrong Examples (Forbidden)
+Using markdown code block (forbidden):
+<brainstorm_payload>
+\`\`\`json
+{"formRequest": {...}}
+\`\`\`
+</brainstorm_payload>
+
+Adding extra text (forbidden):
+Here is the form data:
+<brainstorm_payload>{"formRequest": {...}}</brainstorm_payload>
+
+### Correct Example
+Pure JSON inside the tag:
+Okay, I need to know more information:
+<brainstorm_payload>{"formRequest":{"formSchema":{"formId":"step1","title":"Requirement Confirmation","fields":[{"name":"feature","label":"Core Feature","type":"text","required":true}]}}}</brainstorm_payload>
+
+---
+
+## Current Context
 ${JSON.stringify(context, null, 2)}
 
-当前 todo：
+## Current Todo List
 ${JSON.stringify(todoSnapshot, null, 2)}`
 }

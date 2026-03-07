@@ -100,16 +100,16 @@ export function buildPlanSplitKickoffPrompt(context: PlanSplitPromptContext): st
 }
 
 export function buildFormResponsePrompt(formId: string, values: Record<string, unknown>): string {
-  return `用户已提交表单答案：
-formId: ${formId}
-values:
-${JSON.stringify(values, null, 2)}
+  // 简化输出：只保留用户答案，节约上下文
+  const valueStr = Object.entries(values)
+    .map(([key, val]) => `${key}: ${typeof val === 'object' ? JSON.stringify(val) : val}`)
+    .join(', ')
 
-请根据当前收集到的所有信息决定下一步：
-1. 若还需要更多信息，输出下一个 form_request（只包含一个字段）
-2. 若信息已足够，输出 task_split，并包含 "status": "DONE" 完成任务拆分
+  return `[用户回答] ${valueStr}
 
-（严格输出 JSON 对象，不要 markdown 代码块，不要任何额外文字）`.trim()
+请根据收集到的信息决定下一步：
+- 需要更多信息：输出 form_request（单字段）
+- 信息已足够：输出 task_split（含 status:DONE）`.trim()
 }
 
 export function buildOutputCorrectionPrompt(minTaskCount: number): string {

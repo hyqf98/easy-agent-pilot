@@ -6,9 +6,11 @@ import { useAgentStore, type AgentConfig } from '@/stores/agent'
 import { useAgentConfigStore } from '@/stores/agentConfig'
 import { useSkillConfigStore } from '@/stores/skillConfig'
 import { useBrainstormStore } from '@/stores/brainstorm'
+import { useTokenStore } from '@/stores/token'
 import { agentExecutor } from './AgentExecutor'
 import type { ConversationContext, StreamEvent, McpServerConfig } from './strategies/types'
 import { buildBrainstormSystemPrompt, extractBrainstormPayload, executeTodoOpsInternalTool } from '@/services/brainstorm'
+import { compressionService } from '@/services/compression/CompressionService'
 
 /**
  * 对话服务
@@ -350,6 +352,9 @@ export class ConversationService {
               )
             }
             sessionExecutionStore.endSending(sessionId)
+
+            // 自动压缩检查
+            compressionService.checkAndAutoCompress(sessionId, context.agent.id)
           }
         })
       })
@@ -396,6 +401,12 @@ export class ConversationService {
     }
   ): void {
     const { onContent, onThinking, onToolUse, onToolResult, onError, onDone } = handlers
+    const tokenStore = useTokenStore()
+
+    // 处理 token 事件 - 优先使用 CLI 返回的真实 token 数据
+    if (event.inputTokens !== undefined || event.outputTokens !== undefined) {
+      tokenStore.updateRealtimeTokens(handlers.sessionId, event.inputTokens ?? 0, event.outputTokens ?? 0)
+    }
 
     switch (event.type) {
       case 'content':

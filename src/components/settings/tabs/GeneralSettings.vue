@@ -18,6 +18,22 @@ const tabSizeOptions = computed(() => [
   { value: 2, label: '2' },
   { value: 4, label: '4' }
 ])
+
+// 压缩策略选项
+const compressionStrategyOptions = computed(() => [
+  { value: 'simple', label: t('settings.general.compressionStrategySimple') },
+  { value: 'smart', label: t('settings.general.compressionStrategySmart') },
+  { value: 'summary', label: t('settings.general.compressionStrategySummary') }
+])
+
+// 压缩阈值选项
+const compressionThresholdOptions = computed(() => [
+  { value: 50, label: '50%' },
+  { value: 60, label: '60%' },
+  { value: 70, label: '70%' },
+  { value: 80, label: '80%' },
+  { value: 90, label: '90%' }
+])
 </script>
 
 <template>
@@ -165,6 +181,51 @@ const tabSizeOptions = computed(() => [
           >
           <span class="settings-toggle__slider" />
         </label>
+      </div>
+    </div>
+
+    <!-- 会话压缩设置 -->
+    <div class="settings-card">
+      <h4 class="settings-card__title">
+        {{ t('settings.general.compressionSettings') }}
+      </h4>
+
+      <div class="settings-item">
+        <div class="settings-item__info">
+          <span class="settings-item__label">{{ t('settings.general.autoCompression') }}</span>
+          <span class="settings-item__desc">{{ t('settings.general.autoCompressionDesc') }}</span>
+        </div>
+        <label class="settings-toggle">
+          <input
+            v-model="settingsStore.settings.autoCompressionEnabled"
+            type="checkbox"
+          >
+          <span class="settings-toggle__slider" />
+        </label>
+      </div>
+
+      <div class="settings-item">
+        <div class="settings-item__info">
+          <span class="settings-item__label">{{ t('settings.general.compressionStrategy') }}</span>
+          <span class="settings-item__desc">{{ t(`settings.general.compressionStrategy${settingsStore.settings.compressionStrategy.charAt(0).toUpperCase() + settingsStore.settings.compressionStrategy.slice(1)}Desc`) }}</span>
+        </div>
+        <EaSelect
+          v-model="settingsStore.settings.compressionStrategy"
+          :options="compressionStrategyOptions"
+          :disabled="!settingsStore.settings.autoCompressionEnabled"
+        />
+      </div>
+
+      <div class="settings-item">
+        <div class="settings-item__info">
+          <span class="settings-item__label">{{ t('settings.general.compressionThreshold') }}</span>
+          <span class="settings-item__desc">{{ t('settings.general.compressionThresholdDesc') }}</span>
+        </div>
+        <EaSelect
+          v-model="settingsStore.settings.compressionThreshold"
+          :options="compressionThresholdOptions"
+          :disabled="!settingsStore.settings.autoCompressionEnabled"
+        />
       </div>
     </div>
   </div>
