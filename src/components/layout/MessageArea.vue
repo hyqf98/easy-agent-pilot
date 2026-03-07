@@ -10,14 +10,17 @@ import { useAgentStore } from '@/stores/agent'
 import { useAgentConfigStore } from '@/stores/agentConfig'
 import { useSessionExecutionStore } from '@/stores/sessionExecution'
 import { useTokenStore, type CompressionStrategy, type TokenLevel } from '@/stores/token'
+import { useBrainstormStore } from '@/stores/brainstorm'
 import { conversationService } from '@/services/conversation'
 import { compressionService } from '@/services/compression'
 import { EaIcon } from '@/components/common'
 import { MessageList } from '@/components/message'
 import CompressionConfirmDialog from '@/components/common/CompressionConfirmDialog.vue'
+import DynamicForm from '@/components/plan/DynamicForm.vue'
 import type { Message } from '@/stores/message'
 import FileMentionDropdown from './FileMentionDropdown.vue'
 import McpPluginSelector from './McpPluginSelector.vue'
+import BrainstormTodoList from './BrainstormTodoList.vue'
 
 const { t } = useI18n()
 const messageStore = useMessageStore()
@@ -29,6 +32,7 @@ const agentStore = useAgentStore()
 const agentConfigStore = useAgentConfigStore()
 const sessionExecutionStore = useSessionExecutionStore()
 const tokenStore = useTokenStore()
+const brainstormStore = useBrainstormStore()
 
 // 压缩相关状态
 const showCompressionDialog = ref(false)
@@ -251,6 +255,18 @@ const inputText = computed({
 const isSending = computed(() =>
   currentSessionId.value ? sessionExecutionStore.getIsSending(currentSessionId.value) : false
 )
+
+const brainstormMode = computed(() => {
+  if (!currentSessionId.value) return 'normal'
+  return brainstormStore.getSessionMode(currentSessionId.value)
+})
+
+const isBrainstormMode = computed(() => brainstormMode.value === 'brainstorm')
+
+const pendingBrainstormForm = computed(() => {
+  if (!currentSessionId.value) return null
+  return brainstormStore.getPendingForm(currentSessionId.value)
+})
 
 // 解析文本中的文件引用，返回渲染片段
 interface TextSegment {
@@ -507,23 +523,87 @@ const handleInput = (e: Event) => {
   inputText.value = value
 }
 
-const handleSend = async () => {
+const sendWithCurrentAgent = async (userInput: string): Promise<boolean> => {
   const sessionId = sessionStore.currentSessionId
-  if (!inputText.value.trim() || !sessionId || isSending.value) return
-
-  const userInput = inputText.value.trim()
+  if (!userInput.trim() || !sessionId || isSending.value) return false
 
   // 检查智能体是否可用
   if (!currentAgent.value) {
     notificationStore.smartError('发送消息', new Error('请先选择一个智能体'))
-    return
+    return false
   }
 
   const availability = conversationService.isAgentAvailable(currentAgent.value)
   if (!availability.available) {
     notificationStore.smartError('发送消息', new Error(availability.reason || '智能体不可用'))
-    return
+    return false
   }
+
+  try {
+    // 使用对话服务发送消息，传递当前会话绑定的项目 ID
+    const projectId = sessionStore.currentSession?.projectId
+    await conversationService.sendMessage(sessionId, userInput, currentAgent.value.id, projectId)
+    return true
+  } catch (error) {
+    console.error('Failed to send message:', error)
+    notificationStore.smartError('发送消息', error instanceof Error ? error : new Error(String(error)))
+    sessionExecutionStore.endSending(sessionId)
+    return false
+  }
+}
+
+const toggleBrainstormMode = async () => {
+  const sessionId = sessionStore.currentSessionId
+  if (!sessionId || isSending.value) return
+
+  try {
+    await brainstormStore.loadSession(sessionId)
+    const nextMode = brainstormStore.getSessionMode(sessionId) === 'brainstorm' ? 'normal' : 'brainstorm'
+    await brainstormStore.setSessionMode(sessionId, nextMode)
+  } catch (error) {
+    notificationStore.smartError('切换头脑风暴模式', error instanceof Error ? error : new Error(String(error)))
+  }
+}
+
+const handleBrainstormFormSubmit = async (values: Record<string, unknown>) => {
+  const sessionId = sessionStore.currentSessionId
+  const formState = sessionId ? brainstormStore.getPendingForm(sessionId) : null
+  if (!sessionId || !formState || isSending.value) return
+
+  const prompt = [
+    `我已提交头脑风暴表单：${formState.formSchema.title}`,
+    '答案如下：',
+    JSON.stringify(values, null, 2),
+    '请继续推进需求澄清，并在需要时更新 todo。'
+  ].join('\n')
+
+  const formSnapshot = { ...formState }
+  brainstormStore.setPendingForm(sessionId, null)
+  await brainstormStore.patchSessionContext(sessionId, {
+    last_form_response: {
+      formId: formState.formSchema.formId,
+      values,
+      submittedAt: new Date().toISOString()
+    }
+  })
+  const success = await sendWithCurrentAgent(prompt)
+  if (!success) {
+    brainstormStore.setPendingForm(sessionId, formSnapshot)
+  }
+}
+
+const handleBrainstormFormCancel = () => {
+  const sessionId = sessionStore.currentSessionId
+  if (!sessionId) return
+  brainstormStore.setPendingForm(sessionId, null)
+}
+
+const handleSend = async () => {
+  const sessionId = sessionStore.currentSessionId
+  if (!inputText.value.trim() || !sessionId || isSending.value) return
+
+  const rawInput = inputText.value
+  const userInput = rawInput.trim()
 
   // 检查是否为错误模拟命令（用于测试错误处理）
   if (userInput.startsWith('/error ')) {
@@ -547,17 +627,11 @@ const handleSend = async () => {
     return
   }
 
-  // 清空输入框
-  inputText.value = ''
-
-  try {
-    // 使用对话服务发送消息，传递当前会话绑定的项目 ID
-    const projectId = sessionStore.currentSession?.projectId
-    await conversationService.sendMessage(sessionId, userInput, currentAgent.value.id, projectId)
-  } catch (error) {
-    console.error('Failed to send message:', error)
-    notificationStore.smartError('发送消息', error instanceof Error ? error : new Error(String(error)))
-    sessionExecutionStore.endSending(sessionId)
+  const success = await sendWithCurrentAgent(userInput)
+  if (success) {
+    inputText.value = ''
+  } else {
+    inputText.value = rawInput
   }
 }
 
@@ -767,10 +841,15 @@ const handleKeyDown = (e: KeyboardEvent) => {
 // 当会话切换时聚焦输入框
 watch(() => sessionStore.currentSessionId, async (sessionId) => {
   if (sessionId) {
+    try {
+      await brainstormStore.loadSession(sessionId)
+    } catch (error) {
+      console.warn('[MessageArea] Failed to load brainstorm session state:', error)
+    }
     await nextTick()
     textareaRef.value?.focus()
   }
-})
+}, { immediate: true })
 </script>
 
 <template>
@@ -805,10 +884,40 @@ watch(() => sessionStore.currentSessionId, async (sessionId) => {
       v-if="sessionStore.currentSessionId"
       class="message-area__bottom"
     >
+      <BrainstormTodoList
+        class="brainstorm-todo-panel"
+        :session-id="sessionStore.currentSessionId"
+      />
+
+      <div
+        v-if="isBrainstormMode && pendingBrainstormForm"
+        class="brainstorm-form-panel"
+      >
+        <DynamicForm
+          :schema="pendingBrainstormForm.formSchema"
+          :initial-values="pendingBrainstormForm.defaultValues"
+          @submit="handleBrainstormFormSubmit"
+          @cancel="handleBrainstormFormCancel"
+        />
+      </div>
+
       <!-- 输入框容器 -->
       <div class="message-input">
         <!-- 顶部工具栏：智能体选择器 + MCP工具选择器 -->
         <div class="message-input__toolbar message-input__toolbar--top">
+          <button
+            class="input-chip__btn input-chip__btn--brainstorm"
+            :class="{ 'input-chip__btn--brainstorm-active': isBrainstormMode }"
+            :disabled="isSending"
+            @click="toggleBrainstormMode"
+          >
+            <EaIcon
+              name="sparkles"
+              :size="12"
+            />
+            <span>头脑风暴</span>
+          </button>
+
           <!-- 智能体选择器 -->
           <div
             ref="agentDropdownRef"
@@ -1007,6 +1116,14 @@ watch(() => sessionStore.currentSessionId, async (sessionId) => {
   background-color: var(--color-bg-primary);
 }
 
+.brainstorm-form-panel {
+  margin: var(--spacing-2) var(--spacing-4) 0;
+}
+
+.brainstorm-todo-panel {
+  margin: var(--spacing-1) var(--spacing-4) 0;
+}
+
 .message-area__empty-icon {
   color: var(--color-text-tertiary);
   margin-bottom: var(--spacing-4);
@@ -1056,6 +1173,12 @@ watch(() => sessionStore.currentSessionId, async (sessionId) => {
 
 .message-input__toolbar--bottom {
   justify-content: flex-end;
+}
+
+.input-chip__btn--brainstorm-active {
+  color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-border));
+  background-color: color-mix(in srgb, var(--color-primary) 12%, transparent);
 }
 
 /* 输入框编辑器容器 */

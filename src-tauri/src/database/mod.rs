@@ -40,6 +40,32 @@ const INIT_SQL: &str = r#"
     );
     CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
 
+    -- 会话头脑风暴状态表
+    CREATE TABLE IF NOT EXISTS session_brainstorm_state (
+        session_id TEXT PRIMARY KEY,
+        mode TEXT NOT NULL DEFAULT 'normal',
+        context_json TEXT NOT NULL DEFAULT '{}',
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_session_brainstorm_state_mode ON session_brainstorm_state(mode);
+
+    -- 会话头脑风暴 Todo 表
+    CREATE TABLE IF NOT EXISTS session_brainstorm_todos (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        task_order INTEGER NOT NULL DEFAULT 0,
+        source_message_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_session_brainstorm_todos_session ON session_brainstorm_todos(session_id);
+    CREATE INDEX IF NOT EXISTS idx_session_brainstorm_todos_status ON session_brainstorm_todos(status);
+
     -- 智能体配置表
     CREATE TABLE IF NOT EXISTS agents (
         id TEXT PRIMARY KEY,

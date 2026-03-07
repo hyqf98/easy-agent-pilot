@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod agent_config;
 pub mod app_state;
+pub mod brainstorm;
 pub mod cli;
 pub mod cli_config;
 pub mod conversation;

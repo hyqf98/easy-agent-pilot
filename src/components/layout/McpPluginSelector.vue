@@ -78,9 +78,12 @@ const selectionText = computed(() => {
 
 // 是否无可用插件
 const hasNoPlugins = computed(() => mcpOptions.value.length === 0)
+const displayText = computed(() => (hasNoPlugins.value ? t('mcpSelector.noPlugins') : selectionText.value))
+const canToggleDropdown = computed(() => Boolean(currentSessionId.value && currentAgentId.value))
 
 // 切换下拉框
 const toggleDropdown = () => {
+  if (!canToggleDropdown.value) return
   isOpen.value = !isOpen.value
 }
 
@@ -113,7 +116,7 @@ watch(currentAgentId, async (newAgentId) => {
 
   // 根据智能体类型加载 MCP 配置
 
-  let allIds: string[] = []
+  let allIds: string[]
 
   if (currentAgent.value?.type === 'cli') {
     // CLI 类型：使用 skillConfigStore 加载
@@ -141,6 +144,15 @@ watch(isOpen, (open) => {
   }
 })
 
+watch(
+  () => [currentSessionId.value, currentAgentId.value, hasNoPlugins.value],
+  () => {
+    if (!canToggleDropdown.value || hasNoPlugins.value) {
+      isOpen.value = false
+    }
+  }
+)
+
 // 获取传输类型显示文本
 const getTransportLabel = (type: string) => {
   switch (type.toLowerCase()) {
@@ -158,20 +170,20 @@ const getTransportLabel = (type: string) => {
 
 <template>
   <div
-    v-if="!hasNoPlugins"
     ref="dropdownRef"
     class="input-chip"
     :class="{ 'input-chip--open': isOpen }"
   >
     <button
       class="input-chip__btn"
+      :disabled="!canToggleDropdown"
       @click="toggleDropdown"
     >
       <EaIcon
         name="puzzle"
         :size="12"
       />
-      <span>{{ selectionText }}</span>
+      <span>{{ displayText }}</span>
       <EaIcon
         :name="isOpen ? 'chevron-up' : 'chevron-down'"
         :size="10"
@@ -182,38 +194,47 @@ const getTransportLabel = (type: string) => {
         v-if="isOpen"
         class="input-chip__menu"
       >
-        <!-- 全选按钮 -->
         <div
-          class="input-chip__option"
-          @click="toggleAll"
+          v-if="hasNoPlugins"
+          class="input-chip__empty"
         >
-          <EaIcon
-            :name="isAllSelected ? 'check-square' : 'square'"
-            :size="12"
-            @click.stop
-          />
-          <span>{{ t('mcpSelector.selectAll') }}</span>
+          {{ t('mcpSelector.noPlugins') }}
         </div>
 
-        <!-- 分割线 -->
-        <div class="input-chip__divider" />
+        <template v-else>
+          <!-- 全选按钮 -->
+          <div
+            class="input-chip__option"
+            @click="toggleAll"
+          >
+            <EaIcon
+              :name="isAllSelected ? 'check-square' : 'square'"
+              :size="12"
+              @click.stop
+            />
+            <span>{{ t('mcpSelector.selectAll') }}</span>
+          </div>
 
-        <!-- MCP 列表 -->
-        <div
-          v-for="mcp in mcpOptions"
-          :key="mcp.id"
-          class="input-chip__option"
-          :class="{ 'input-chip__option--selected': enabledMcpIds.includes(mcp.id) }"
-          @click="toggleMcp(mcp.id)"
-        >
-          <EaIcon
-            :name="enabledMcpIds.includes(mcp.id) ? 'check-square' : 'square'"
-            :size="12"
-            @click.stop
-          />
-          <span>{{ mcp.name }}</span>
-          <span class="input-chip__tag">{{ getTransportLabel(mcp.transportType) }}</span>
-        </div>
+          <!-- 分割线 -->
+          <div class="input-chip__divider" />
+
+          <!-- MCP 列表 -->
+          <div
+            v-for="mcp in mcpOptions"
+            :key="mcp.id"
+            class="input-chip__option"
+            :class="{ 'input-chip__option--selected': enabledMcpIds.includes(mcp.id) }"
+            @click="toggleMcp(mcp.id)"
+          >
+            <EaIcon
+              :name="enabledMcpIds.includes(mcp.id) ? 'check-square' : 'square'"
+              :size="12"
+              @click.stop
+            />
+            <span>{{ mcp.name }}</span>
+            <span class="input-chip__tag">{{ getTransportLabel(mcp.transportType) }}</span>
+          </div>
+        </template>
       </div>
     </Transition>
   </div>
@@ -240,7 +261,12 @@ const getTransportLabel = (type: string) => {
   max-width: 120px;
 }
 
-.input-chip__btn:hover {
+.input-chip__btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.input-chip__btn:hover:not(:disabled) {
   background-color: var(--color-surface-hover);
 }
 
@@ -335,6 +361,12 @@ const getTransportLabel = (type: string) => {
   text-transform: uppercase;
   letter-spacing: 0.3px;
   flex-shrink: 0;
+}
+
+.input-chip__empty {
+  padding: var(--spacing-2) var(--spacing-3);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
 }
 
 /* 下拉框动画 */

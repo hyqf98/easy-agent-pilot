@@ -81,8 +81,42 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
 
   const llmMessages = ref<SplitChatMessage[]>([])
 
-  // 存储每个planId的持久化状态
-  const persistedStates = new Map<string, PersistedSplitState>()
+  // 持久化状态 key 前缀
+  const TASK_SPLIT_STATE_KEY_PREFIX = 'task_split_state:'
+  const TASK_SPLIT_STATE_STORAGE_KEY = `${TASK_SPLIT_STATE_KEY_PREFIX}all`
+
+  function getAllPersistedStates(): Record<string, PersistedSplitState> {
+    if (typeof window === 'undefined') {
+      return {}
+    }
+
+    try {
+      const raw = window.localStorage.getItem(TASK_SPLIT_STATE_STORAGE_KEY)
+      if (!raw) return {}
+
+      const parsed = JSON.parse(raw)
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return {}
+      }
+
+      return parsed as Record<string, PersistedSplitState>
+    } catch (error) {
+      logger.warn('[TaskSplit] 读取持久化状态失败，已忽略:', error)
+      return {}
+    }
+  }
+
+  function saveAllPersistedStates(states: Record<string, PersistedSplitState>) {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    try {
+      window.localStorage.setItem(TASK_SPLIT_STATE_STORAGE_KEY, JSON.stringify(states))
+    } catch (error) {
+      logger.warn('[TaskSplit] 保存持久化状态失败，已忽略:', error)
+    }
+  }
 
   // 保存当前状态（用于关闭弹框前保存）
   function persistCurrentState() {
@@ -97,8 +131,8 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
       }
     }
 
-    // 深拷贝保存状态
-    persistedStates.set(planId, {
+    // 构建要保存的状态
+    const stateToSave: PersistedSplitState = {
       messages: messages.value.map(msg => ({
         ...msg,
         formSchema: msg.formSchema ? JSON.parse(JSON.stringify(msg.formSchema)) : undefined,
@@ -108,7 +142,12 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
       splitResult: splitResult.value ? JSON.parse(JSON.stringify(splitResult.value)) : null,
       currentFormId: currentFormId.value,
       context: { ...context.value }
-    })
+    }
+
+    // 保存到 localStorage
+    const allStates = getAllPersistedStates()
+    allStates[planId] = stateToSave
+    saveAllPersistedStates(allStates)
 
     // 保存后重置处理状态
     isProcessing.value = false
@@ -116,7 +155,8 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
 
   // 恢复持久化状态
   function restorePersistedState(planId: string): boolean {
-    const persisted = persistedStates.get(planId)
+    const allStates = getAllPersistedStates()
+    const persisted = allStates[planId]
     if (!persisted) return false
 
     // 深拷贝恢复消息（确保复杂对象如formSchema也被正确复制）
@@ -190,21 +230,35 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
 
   // 清理指定planId的持久化状态
   function clearPersistedState(planId: string) {
-    persistedStates.delete(planId)
+    const allStates = getAllPersistedStates()
+    delete allStates[planId]
+    saveAllPersistedStates(allStates)
   }
 
   // 检查是否有持久化状态
   function hasPersistedState(planId: string): boolean {
-    return persistedStates.has(planId)
+    const allStates = getAllPersistedStates()
+    return planId in allStates
   }
 
   async function initSession(nextContext: TaskSplitContext) {
     // 检查是否有可恢复的状态
-    const hasState = hasPersistedState(nextContext.planId)
+    const hasState = await hasPersistedState(nextContext.planId)
     if (hasState) {
       // 恢复状态
       context.value = nextContext
-      restorePersistedState(nextContext.planId)
+      await restorePersistedState(nextContext.planId)
+
+      // 检查是否需要继续 AI 处理
+      // 条件：最后一条是 user 消息，且没有拆分结果，且没有待处理的表单
+      const lastMessage = messages.value[messages.value.length - 1]
+      const needsContinue = lastMessage?.role === 'user'
+        && !splitResult.value
+        && !currentFormId.value
+
+      if (needsContinue) {
+        await runAssistantTurn()
+      }
       return
     }
 
