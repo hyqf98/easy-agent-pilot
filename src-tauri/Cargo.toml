@@ -65,10 +65,20 @@ parking_lot = "0.12"
 
 # Lazy static
 lazy_static = "1.4"
+once_cell = "1.19"
+
+# 系统信息
+sysinfo = "0.33"
 
 # Futures
 futures = "0.3"
 
 # MCP SDK (官方 Rust 实现)
-rmcp = { version = "0.17", features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest"] }
+rmcp = { version = "0.17", features = [
+    "client",
+    "server",
+    "transport-child-process",
+    "transport-io",
+    "transport-streamable-http-client-reqwest",
+] }
 

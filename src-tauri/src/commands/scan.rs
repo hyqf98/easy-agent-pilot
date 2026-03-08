@@ -1,4 +1,5 @@
 use anyhow::Result;
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -876,6 +877,343 @@ fn extract_session_info(session_path: &PathBuf) -> Option<ScannedCliSession> {
     }
 }
 
+/// 根据 agentId 获取 agent 的 cli_path
+fn get_agent_cli_path(agent_id: &str) -> Result<String, String> {
+    let persistence_dir = super::get_persistence_dir_path()
+        .map_err(|e| e.to_string())?;
+    let db_path = persistence_dir.join("data").join("easy-agent.db");
+
+    let conn = Connection::open(&db_path)
+        .map_err(|e| format!("无法打开数据库: {}", e))?;
+
+    let cli_path: Option<String> = conn
+        .query_row(
+            "SELECT cli_path FROM agents WHERE id = ?1",
+            [&agent_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .map_err(|e| format!("无法获取 agent 的 cli_path: {}", e))?;
+
+    cli_path.ok_or_else(|| "该 agent 没有配置 cli_path".to_string())
+}
+
+/// Agent CLI 会话列表结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentCliSessionsResult {
+    /// Agent ID
+    pub agent_id: String,
+    /// CLI 名称
+    pub cli_name: String,
+    /// 会话根目录
+    pub session_root: String,
+    /// 会话列表
+    pub sessions: Vec<ScannedCliSession>,
+    /// 项目路径列表（用于筛选下拉框）
+    pub project_paths: Vec<String>,
+}
+
+/// 列出指定 Agent 的 CLI 会话 (Tauri 命令)
+#[tauri::command]
+pub fn list_agent_cli_sessions(
+    agent_id: String,
+    project_path: Option<String>,
+) -> Result<AgentCliSessionsResult, String> {
+    // 获取 agent 的 cli_path
+    let cli_path = get_agent_cli_path(&agent_id)?;
+
+    // 首先获取所有会话以提取项目路径列表
+    let all_result = scan_cli_sessions(ScanCliSessionsInput {
+        cli_path: Some(cli_path.clone()),
+        project_path: None,
+    })?;
+
+    // 提取唯一的项目路径列表
+    let mut project_paths: Vec<String> = all_result
+        .sessions
+        .iter()
+        .filter_map(|s| s.project_path.clone())
+        .collect();
+    project_paths.sort();
+    project_paths.dedup();
+
+    // 如果指定了项目路径，则筛选
+    let result = if project_path.is_some() {
+        scan_cli_sessions(ScanCliSessionsInput {
+            cli_path: Some(cli_path),
+            project_path,
+        })?
+    } else {
+        all_result
+    };
+
+    Ok(AgentCliSessionsResult {
+        agent_id,
+        cli_name: result.cli_name,
+        session_root: result.config_dir,
+        sessions: result.sessions,
+        project_paths,
+    })
+}
+
+/// CLI 会话消息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CliSessionMessage {
+    /// 行号
+    pub line_no: i32,
+    /// 消息类型
+    pub message_type: String,
+    /// 角色
+    pub role: Option<String>,
+    /// 时间戳
+    pub timestamp: Option<String>,
+    /// 消息内容
+    pub content: Option<String>,
+    /// 原始 JSON
+    pub raw_json: String,
+}
+
+/// CLI 会话详情
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CliSessionDetail {
+    /// 会话ID
+    pub session_id: String,
+    /// 会话文件路径
+    pub session_path: String,
+    /// 项目路径
+    pub project_path: Option<String>,
+    /// 首条消息
+    pub first_message: Option<String>,
+    /// 消息数量
+    pub message_count: i32,
+    /// 创建时间
+    pub created_at: String,
+    /// 更新时间
+    pub updated_at: String,
+    /// 消息列表
+    pub messages: Vec<CliSessionMessage>,
+}
+
+/// 读取 CLI 会话详情 (Tauri 命令)
+#[tauri::command]
+pub fn read_cli_session_detail(
+    _agent_id: String,
+    session_path: String,
+) -> Result<CliSessionDetail, String> {
+    let path = PathBuf::from(&session_path);
+
+    if !path.exists() {
+        return Err(format!("会话文件不存在: {}", session_path));
+    }
+
+    let file_name = path
+        .file_stem()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    let content = fs::read_to_string(&path)
+        .map_err(|e| format!("无法读取会话文件: {}", e))?;
+
+    let mut messages = Vec::new();
+    let mut first_message: Option<String> = None;
+    let mut message_count = 0;
+    let mut project_path: Option<String> = None;
+    let mut earliest_timestamp: Option<String> = None;
+    let mut latest_timestamp: Option<String> = None;
+
+    for (line_no, line) in content.lines().enumerate() {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
+            let msg_type = json
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+
+            // 统计消息数量
+            if msg_type == "user" || msg_type == "assistant" {
+                message_count += 1;
+            }
+
+            // 获取第一条用户消息
+            if first_message.is_none() && msg_type == "user" {
+                if let Some(message) = json.get("message") {
+                    if let Some(content_val) = message.get("content") {
+                        if let Some(text) = content_val.as_str() {
+                            first_message = Some(text.chars().take(100).collect());
+                        } else if let Some(arr) = content_val.as_array() {
+                            for item in arr {
+                                if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
+                                    first_message = Some(text.chars().take(100).collect());
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 获取项目路径
+            if project_path.is_none() {
+                project_path = json
+                    .get("cwd")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+            }
+
+            // 获取时间戳
+            let timestamp = json.get("timestamp").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+            if let Some(ref ts) = timestamp {
+                if earliest_timestamp.is_none() || ts < earliest_timestamp.as_ref().unwrap() {
+                    earliest_timestamp = Some(ts.clone());
+                }
+                if latest_timestamp.is_none() || ts > latest_timestamp.as_ref().unwrap() {
+                    latest_timestamp = Some(ts.clone());
+                }
+            }
+
+            // 获取角色
+            let role = json.get("role").and_then(|v| v.as_str()).map(|s| s.to_string())
+                .or_else(|| json.get("message").and_then(|m| m.get("role")).and_then(|v| v.as_str()).map(|s| s.to_string()));
+
+            // 获取内容 - 尝试多种格式
+            let content = {
+                // 首先尝试 message.content 格式
+                if let Some(message) = json.get("message") {
+                    if let Some(content_val) = message.get("content") {
+                        if let Some(text) = content_val.as_str() {
+                            Some(text.to_string())
+                        } else if let Some(arr) = content_val.as_array() {
+                            let texts: Vec<String> = arr
+                                .iter()
+                                .filter_map(|item| {
+                                    // 尝试 text 字段
+                                    if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
+                                        return Some(text.to_string());
+                                    }
+                                    // 尝试 content 字段（某些格式）
+                                    if let Some(content) = item.get("content").and_then(|c| c.as_str()) {
+                                        return Some(content.to_string());
+                                    }
+                                    None
+                                })
+                                .collect();
+                            if !texts.is_empty() {
+                                Some(texts.join("\n"))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else if let Some(content_val) = json.get("content") {
+                    // 尝试顶层 content 字段
+                    if let Some(text) = content_val.as_str() {
+                        Some(text.to_string())
+                    } else if let Some(arr) = content_val.as_array() {
+                        let texts: Vec<String> = arr
+                            .iter()
+                            .filter_map(|item| item.get("text").and_then(|t| t.as_str()))
+                            .map(|s| s.to_string())
+                            .collect();
+                        if !texts.is_empty() {
+                            Some(texts.join("\n"))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else if let Some(result) = json.get("result") {
+                    // 某些工具调用结果
+                    if let Some(text) = result.as_str() {
+                        Some(text.to_string())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            };
+
+            messages.push(CliSessionMessage {
+                line_no: line_no as i32 + 1,
+                message_type: msg_type,
+                role,
+                timestamp,
+                content,
+                raw_json: line.to_string(),
+            });
+        }
+    }
+
+    // 获取文件元数据作为备选时间
+    let metadata = fs::metadata(&path)
+        .map_err(|e| format!("无法获取文件元数据: {}", e))?;
+    let modified = metadata
+        .modified()
+        .map_err(|e| format!("无法获取修改时间: {}", e))?;
+    let modified_str = chrono::DateTime::<chrono::Utc>::from(modified).to_rfc3339();
+
+    Ok(CliSessionDetail {
+        session_id: file_name,
+        session_path,
+        project_path,
+        first_message,
+        message_count,
+        created_at: earliest_timestamp.unwrap_or_else(|| modified_str.clone()),
+        updated_at: latest_timestamp.unwrap_or(modified_str),
+        messages,
+    })
+}
+
+/// 删除 CLI 会话 (Tauri 命令)
+#[tauri::command]
+pub fn delete_cli_session(
+    _agent_id: String,
+    session_path: String,
+    cleanup_empty_dirs: bool,
+) -> Result<(), String> {
+    let path = PathBuf::from(&session_path);
+
+    if !path.exists() {
+        return Err(format!("会话文件不存在: {}", session_path));
+    }
+
+    // 删除会话文件
+    fs::remove_file(&path)
+        .map_err(|e| format!("无法删除会话文件: {}", e))?;
+
+    // 如果需要清理空目录
+    if cleanup_empty_dirs {
+        if let Some(parent) = path.parent() {
+            // 检查父目录是否为空
+            if let Ok(entries) = fs::read_dir(parent) {
+                if entries.count() == 0 {
+                    // 删除空目录
+                    let _ = fs::remove_dir(parent);
+
+                    // 继续向上检查并删除空目录（直到 projects 目录）
+                    if let Some(grandparent) = parent.parent() {
+                        if grandparent.file_name().map(|n| n == "projects").unwrap_or(false) {
+                            // 已经到达 projects 目录，停止
+                        } else if let Ok(entries) = fs::read_dir(grandparent) {
+                            if entries.count() == 0 {
+                                let _ = fs::remove_dir(grandparent);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// 扫描智能体会话历史 (Tauri 命令)
 #[tauri::command]
 pub fn scan_cli_sessions(input: ScanCliSessionsInput) -> Result<ScanCliSessionsResult, String> {
@@ -916,7 +1254,11 @@ pub fn scan_cli_sessions(input: ScanCliSessionsInput) -> Result<ScanCliSessionsR
             if projects_dir.exists() {
                 if let Some(filter_project) = &input.project_path {
                     // 如果指定了项目路径，只扫描该项目的会话
-                    let project_dir_name = filter_project.replace('/', "-");
+                    // Claude CLI 将路径中的分隔符替换为 "-"，Windows 路径需要同时处理 \ 和 /
+                    let project_dir_name = filter_project
+                        .replace('\\', "-")
+                        .replace('/', "-")
+                        .replace(':', "-"); // Windows 盘符如 C:
                     let project_session_dir = projects_dir.join(&project_dir_name);
                     if project_session_dir.exists() {
                         if let Ok(entries) = fs::read_dir(&project_session_dir) {

@@ -801,6 +801,13 @@ function getParamType(paramName: string): string {
 </template>
 
 <style scoped>
+.mcp-config-tab {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
 .mcp-config-tab__header {
   display: flex;
   align-items: center;
@@ -1119,6 +1126,9 @@ function getParamType(paramName: string): string {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-4);
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .mcp-test-detail__header {
@@ -1138,7 +1148,8 @@ function getParamType(paramName: string): string {
 .mcp-test-detail__content {
   display: flex;
   gap: var(--spacing-4);
-  min-height: 400px;
+  flex: 1;
+  min-height: 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   overflow: hidden;
@@ -1242,6 +1253,7 @@ function getParamType(paramName: string): string {
 .tools-list {
   flex: 1;
   overflow-y: auto;
+  min-height: 0;
 }
 
 .tool-item {
@@ -1305,6 +1317,7 @@ function getParamType(paramName: string): string {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-height: 0;
   background: var(--color-background);
 }
 
@@ -1360,6 +1373,7 @@ function getParamType(paramName: string): string {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-height: 0;
 }
 
 .params-header {
@@ -1391,6 +1405,7 @@ function getParamType(paramName: string): string {
   flex: 1;
   padding: var(--spacing-3);
   overflow-y: auto;
+  min-height: 0;
 }
 
 .form-group {
@@ -1444,6 +1459,9 @@ function getParamType(paramName: string): string {
   padding: var(--spacing-3);
   border-top: 1px solid var(--color-border);
   background: var(--color-surface);
+  flex-shrink: 0;
+  position: sticky;
+  bottom: 0;
 }
 
 /* 执行结果 */
@@ -1451,6 +1469,7 @@ function getParamType(paramName: string): string {
   flex: 1;
   padding: var(--spacing-3);
   overflow-y: auto;
+  min-height: 0;
 }
 
 .result-calling {

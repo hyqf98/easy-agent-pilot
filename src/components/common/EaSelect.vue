@@ -261,7 +261,7 @@ onUnmounted(() => {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
-  z-index: var(--z-dropdown);
+  z-index: var(--z-popover);
 }
 
 .ea-select__option {

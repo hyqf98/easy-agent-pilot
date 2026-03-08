@@ -1,5 +1,6 @@
 mod commands;
 mod database;
+mod scheduler;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -22,7 +23,7 @@ pub fn run() {
     }
 
     builder
-        .setup(|_app| {
+        .setup(|app| {
             // 初始化持久化目录
             if let Err(e) = commands::init_persistence_dirs() {
                 eprintln!("Failed to initialize persistence directories: {}", e);
@@ -36,6 +37,15 @@ pub fn run() {
             // 初始化策略注册表
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(commands::conversation::init_registry());
+
+            // 恢复待执行的定时计划
+            let app_handle = app.handle().clone();
+            rt.block_on(async {
+                scheduler::restore_scheduled_plans(&app_handle).await;
+
+                // 启动后台调度器（需要在 Tokio 运行时上下文中）
+                scheduler::start_scheduler(app_handle);
+            });
 
             Ok(())
         })
@@ -134,11 +144,6 @@ pub fn run() {
             commands::session::update_session,
             commands::session::delete_session,
             commands::session::toggle_session_pin,
-            commands::brainstorm::get_session_brainstorm_state,
-            commands::brainstorm::set_session_brainstorm_mode,
-            commands::brainstorm::set_session_brainstorm_context,
-            commands::brainstorm::list_session_brainstorm_todos,
-            commands::brainstorm::apply_session_brainstorm_todo_ops,
             commands::message::list_messages,
             commands::message::create_message,
             commands::message::update_message,
@@ -186,6 +191,9 @@ pub fn run() {
             commands::scan::scan_cli_config,
             commands::scan::scan_claude_mcp_list,
             commands::scan::scan_cli_sessions,
+            commands::scan::list_agent_cli_sessions,
+            commands::scan::read_cli_session_detail,
+            commands::scan::delete_cli_session,
             // CLI Config commands
             commands::cli_config::get_cli_config_paths,
             commands::cli_config::read_cli_config,
@@ -229,6 +237,8 @@ pub fn run() {
             commands::plan::create_plan,
             commands::plan::update_plan,
             commands::plan::delete_plan,
+            commands::plan::list_scheduled_plans,
+            commands::plan::cancel_plan_schedule,
             // Task commands
             commands::task::list_tasks,
             commands::task::get_task,
@@ -245,6 +255,31 @@ pub fn run() {
             commands::task::save_split_session,
             commands::task::get_split_session,
             commands::task::delete_split_session,
+            // Task Execution commands
+            commands::task_execution::create_task_execution_log,
+            commands::task_execution::list_task_execution_logs,
+            commands::task_execution::clear_task_execution_logs,
+            commands::task_execution::get_task_execution_log_stats,
+            commands::task_execution::save_task_execution_result,
+            commands::task_execution::list_recent_plan_results,
+            commands::task_execution::list_plan_execution_progress,
+            commands::task_execution::clear_plan_execution_results,
+            // Memory commands
+            commands::memory::list_memory_categories,
+            commands::memory::get_memory_category,
+            commands::memory::create_memory_category,
+            commands::memory::update_memory_category,
+            commands::memory::delete_memory_category,
+            commands::memory::list_memories,
+            commands::memory::get_memory,
+            commands::memory::create_memory,
+            commands::memory::update_memory,
+            commands::memory::delete_memory,
+            commands::memory::batch_delete_memories,
+            commands::memory::capture_user_message,
+            commands::memory::get_memory_stats,
+            commands::memory::create_memory_compression,
+            commands::memory::list_memory_compressions,
             // App State commands
             commands::app_state::get_app_state,
             commands::app_state::set_app_state,

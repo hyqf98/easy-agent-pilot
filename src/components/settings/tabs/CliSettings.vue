@@ -9,13 +9,13 @@ const { t } = useI18n()
 const settingsStore = useSettingsStore()
 
 // CLI 名称选项
-const cliNameOptions = [
+const cliNameOptions = computed(() => [
   { value: 'claude', label: 'Claude CLI' },
   { value: 'codex', label: 'Codex CLI' },
   { value: 'aider', label: 'Aider' },
   { value: 'cursor', label: 'Cursor' },
-  { value: 'other', label: '其他' }
-]
+  { value: 'other', label: t('settings.cli.cliNameOther') }
+])
 
 // 模态框状态
 const showModal = ref(false)

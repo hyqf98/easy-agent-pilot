@@ -64,6 +64,8 @@ pub struct Plan {
     pub max_retry_count: i32,
     pub execution_status: Option<String>,
     pub current_task_id: Option<String>,
+    pub scheduled_at: Option<String>,
+    pub schedule_status: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -83,6 +85,8 @@ pub struct RustPlan {
     pub max_retry_count: i32,
     pub execution_status: Option<String>,
     pub current_task_id: Option<String>,
+    pub scheduled_at: Option<String>,
+    pub schedule_status: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -98,6 +102,7 @@ pub struct CreatePlanInput {
     pub agent_team: Option<Vec<String>>,
     pub granularity: Option<i32>,
     pub max_retry_count: Option<i32>,
+    pub scheduled_at: Option<String>,
 }
 
 /// 更新计划输入
@@ -113,6 +118,8 @@ pub struct UpdatePlanInput {
     pub max_retry_count: Option<i32>,
     pub execution_status: Option<String>,
     pub current_task_id: Option<String>,
+    pub scheduled_at: Option<String>,
+    pub schedule_status: Option<String>,
 }
 
 /// 获取数据库路径
@@ -140,6 +147,8 @@ fn transform_plan(rust_plan: RustPlan) -> Plan {
         max_retry_count: rust_plan.max_retry_count,
         execution_status: rust_plan.execution_status,
         current_task_id: rust_plan.current_task_id,
+        scheduled_at: rust_plan.scheduled_at,
+        schedule_status: rust_plan.schedule_status,
         created_at: rust_plan.created_at,
         updated_at: rust_plan.updated_at,
     }
@@ -157,6 +166,7 @@ pub fn list_plans(project_id: String) -> Result<Vec<Plan>, String> {
             SELECT id, project_id, name, description, status, agent_team,
                    split_agent_id, split_model_id,
                    granularity, max_retry_count, execution_status, current_task_id,
+                   scheduled_at, schedule_status,
                    created_at, updated_at
             FROM plans
             WHERE project_id = ?1
@@ -180,8 +190,10 @@ pub fn list_plans(project_id: String) -> Result<Vec<Plan>, String> {
                 max_retry_count: row.get(9)?,
                 execution_status: row.get(10)?,
                 current_task_id: row.get(11)?,
-                created_at: row.get(12)?,
-                updated_at: row.get(13)?,
+                scheduled_at: row.get(12)?,
+                schedule_status: row.get(13)?,
+                created_at: row.get(14)?,
+                updated_at: row.get(15)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -206,6 +218,7 @@ pub fn get_plan(id: String) -> Result<Plan, String> {
             SELECT id, project_id, name, description, status, agent_team,
                    split_agent_id, split_model_id,
                    granularity, max_retry_count, execution_status, current_task_id,
+                   scheduled_at, schedule_status,
                    created_at, updated_at
             FROM plans
             WHERE id = ?1
@@ -225,8 +238,10 @@ pub fn get_plan(id: String) -> Result<Plan, String> {
                     max_retry_count: row.get(9)?,
                     execution_status: row.get(10)?,
                     current_task_id: row.get(11)?,
-                    created_at: row.get(12)?,
-                    updated_at: row.get(13)?,
+                    scheduled_at: row.get(12)?,
+                    schedule_status: row.get(13)?,
+                    created_at: row.get(14)?,
+                    updated_at: row.get(15)?,
                 })
             },
         )
@@ -252,10 +267,17 @@ pub fn create_plan(input: CreatePlanInput) -> Result<Plan, String> {
     let granularity = input.granularity.unwrap_or(20);
     let max_retry_count = input.max_retry_count.unwrap_or(3);
 
+    // 确定调度状态：如果有 scheduled_at 则为 scheduled，否则为 none
+    let schedule_status = if input.scheduled_at.is_some() {
+        Some("scheduled".to_string())
+    } else {
+        Some("none".to_string())
+    };
+
     conn.execute(
         "INSERT INTO plans (id, project_id, name, description, split_agent_id, split_model_id, status, agent_team,
-         granularity, max_retry_count, execution_status, current_task_id, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+         granularity, max_retry_count, execution_status, current_task_id, scheduled_at, schedule_status, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
         rusqlite::params![
             &id,
             &input.project_id,
@@ -269,6 +291,8 @@ pub fn create_plan(input: CreatePlanInput) -> Result<Plan, String> {
             &max_retry_count,
             &execution_status,
             &None::<String>, // current_task_id
+            &input.scheduled_at,
+            &schedule_status,
             &now,
             &now
         ],
@@ -295,6 +319,8 @@ pub fn create_plan(input: CreatePlanInput) -> Result<Plan, String> {
         max_retry_count,
         execution_status: Some(execution_status),
         current_task_id: None,
+        scheduled_at: input.scheduled_at,
+        schedule_status,
         created_at: now.clone(),
         updated_at: now,
     })
@@ -350,6 +376,14 @@ pub fn update_plan(id: String, input: UpdatePlanInput) -> Result<Plan, String> {
     }
     if input.current_task_id.is_some() {
         updates.push(format!("current_task_id = ?{}", param_index));
+        param_index += 1;
+    }
+    if input.scheduled_at.is_some() {
+        updates.push(format!("scheduled_at = ?{}", param_index));
+        param_index += 1;
+    }
+    if input.schedule_status.is_some() {
+        updates.push(format!("schedule_status = ?{}", param_index));
         param_index += 1;
     }
 
@@ -418,6 +452,16 @@ pub fn update_plan(id: String, input: UpdatePlanInput) -> Result<Plan, String> {
             .map_err(|e| e.to_string())?;
         param_count += 1;
     }
+    if let Some(ref scheduled_at) = input.scheduled_at {
+        stmt.raw_bind_parameter(param_count, scheduled_at)
+            .map_err(|e| e.to_string())?;
+        param_count += 1;
+    }
+    if let Some(ref schedule_status) = input.schedule_status {
+        stmt.raw_bind_parameter(param_count, schedule_status)
+            .map_err(|e| e.to_string())?;
+        param_count += 1;
+    }
 
     stmt.raw_bind_parameter(param_count, &id)
         .map_err(|e| e.to_string())?;
@@ -430,6 +474,7 @@ pub fn update_plan(id: String, input: UpdatePlanInput) -> Result<Plan, String> {
             SELECT id, project_id, name, description, status, agent_team,
                    split_agent_id, split_model_id,
                    granularity, max_retry_count, execution_status, current_task_id,
+                   scheduled_at, schedule_status,
                    created_at, updated_at
             FROM plans
             WHERE id = ?1
@@ -449,8 +494,10 @@ pub fn update_plan(id: String, input: UpdatePlanInput) -> Result<Plan, String> {
                     max_retry_count: row.get(9)?,
                     execution_status: row.get(10)?,
                     current_task_id: row.get(11)?,
-                    created_at: row.get(12)?,
-                    updated_at: row.get(13)?,
+                    scheduled_at: row.get(12)?,
+                    schedule_status: row.get(13)?,
+                    created_at: row.get(14)?,
+                    updated_at: row.get(15)?,
                 })
             },
         )
@@ -473,4 +520,109 @@ pub fn delete_plan(id: String) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+/// 获取所有待执行的定时计划
+#[tauri::command]
+pub fn list_scheduled_plans() -> Result<Vec<Plan>, String> {
+    let db_path = get_db_path().map_err(|e| e.to_string())?;
+    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT id, project_id, name, description, status, agent_team,
+                   split_agent_id, split_model_id,
+                   granularity, max_retry_count, execution_status, current_task_id,
+                   scheduled_at, schedule_status,
+                   created_at, updated_at
+            FROM plans
+            WHERE schedule_status = 'scheduled' AND scheduled_at IS NOT NULL
+            ORDER BY scheduled_at ASC
+            "#,
+        )
+        .map_err(|e| e.to_string())?;
+
+    let plans = stmt
+        .query_map([], |row| {
+            Ok(RustPlan {
+                id: row.get(0)?,
+                project_id: row.get(1)?,
+                name: row.get(2)?,
+                description: row.get(3)?,
+                status: row.get(4)?,
+                agent_team: row.get(5)?,
+                split_agent_id: row.get(6)?,
+                split_model_id: row.get(7)?,
+                granularity: row.get(8)?,
+                max_retry_count: row.get(9)?,
+                execution_status: row.get(10)?,
+                current_task_id: row.get(11)?,
+                scheduled_at: row.get(12)?,
+                schedule_status: row.get(13)?,
+                created_at: row.get(14)?,
+                updated_at: row.get(15)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(transform_plan)
+        .collect();
+
+    Ok(plans)
+}
+
+/// 取消计划定时
+#[tauri::command]
+pub fn cancel_plan_schedule(id: String) -> Result<Plan, String> {
+    let db_path = get_db_path().map_err(|e| e.to_string())?;
+    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+
+    let now = chrono::Utc::now().to_rfc3339();
+
+    conn.execute(
+        "UPDATE plans SET schedule_status = 'cancelled', scheduled_at = NULL, updated_at = ?1 WHERE id = ?2",
+        rusqlite::params![&now, &id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    // 获取更新后的计划
+    let rust_plan = conn
+        .query_row(
+            r#"
+            SELECT id, project_id, name, description, status, agent_team,
+                   split_agent_id, split_model_id,
+                   granularity, max_retry_count, execution_status, current_task_id,
+                   scheduled_at, schedule_status,
+                   created_at, updated_at
+            FROM plans
+            WHERE id = ?1
+            "#,
+            [&id],
+            |row| {
+                Ok(RustPlan {
+                    id: row.get(0)?,
+                    project_id: row.get(1)?,
+                    name: row.get(2)?,
+                    description: row.get(3)?,
+                    status: row.get(4)?,
+                    agent_team: row.get(5)?,
+                    split_agent_id: row.get(6)?,
+                    split_model_id: row.get(7)?,
+                    granularity: row.get(8)?,
+                    max_retry_count: row.get(9)?,
+                    execution_status: row.get(10)?,
+                    current_task_id: row.get(11)?,
+                    scheduled_at: row.get(12)?,
+                    schedule_status: row.get(13)?,
+                    created_at: row.get(14)?,
+                    updated_at: row.get(15)?,
+                })
+            },
+        )
+        .map_err(|e| e.to_string())?;
+
+    Ok(transform_plan(rust_plan))
 }

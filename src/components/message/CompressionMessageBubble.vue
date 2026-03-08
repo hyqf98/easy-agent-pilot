@@ -165,6 +165,7 @@ const toggleExpand = () => {
   flex-direction: column;
   width: 100%;
   max-width: 80%;
+  margin: 0 auto;
   background-color: var(--color-bg-tertiary);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);

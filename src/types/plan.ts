@@ -8,11 +8,24 @@ export type PlanStatus = 'draft' | 'planning' | 'ready' | 'executing' | 'complet
 // 计划执行状态
 export type PlanExecutionStatus = 'idle' | 'running' | 'paused' | 'completed' | 'error'
 
+// 计划调度状态
+export type ScheduleStatus = 'none' | 'scheduled' | 'triggered' | 'cancelled'
+
 // 任务状态
-export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'blocked' | 'cancelled'
+export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'blocked' | 'failed' | 'cancelled'
+
+// 任务阻塞原因
+export type BlockReason = 'waiting_input'  // 预留扩展
 
 // 任务优先级
 export type TaskPriority = 'low' | 'medium' | 'high'
+
+// 任务输入请求（等待用户输入时的表单请求）
+export interface TaskInputRequest {
+  formSchema: DynamicFormSchema
+  question?: string
+  requestedAt: string
+}
 
 // 智能体角色 - 只保留规划者，用于需求分析和任务拆分
 export type AgentRole = 'planner'
@@ -31,6 +44,8 @@ export interface Plan {
   agentTeam?: AgentRole[]
   granularity: number        // 任务拆分颗粒度(最小任务数)
   maxRetryCount: number      // 最大重试次数
+  scheduledAt?: string       // 计划执行时间 (ISO 8601)
+  scheduleStatus?: ScheduleStatus  // 调度状态
   createdAt: string
   updatedAt: string
 }
@@ -55,6 +70,9 @@ export interface Task {
   implementationSteps?: string[]
   testSteps?: string[]
   acceptanceCriteria?: string[]
+  blockReason?: BlockReason         // 阻塞原因
+  inputRequest?: TaskInputRequest   // 等待输入的表单请求
+  inputResponse?: Record<string, any> // 用户提交的表单数据
   createdAt: string
   updatedAt: string
 }
@@ -69,6 +87,7 @@ export interface CreatePlanInput {
   agentTeam?: AgentRole[]
   granularity?: number
   maxRetryCount?: number
+  scheduledAt?: string
 }
 
 // 更新计划输入
@@ -83,6 +102,8 @@ export interface UpdatePlanInput {
   agentTeam?: AgentRole[]
   granularity?: number
   maxRetryCount?: number
+  scheduledAt?: string
+  scheduleStatus?: ScheduleStatus
 }
 
 // 创建任务输入
@@ -118,6 +139,9 @@ export interface UpdateTaskInput {
   implementationSteps?: string[]
   testSteps?: string[]
   acceptanceCriteria?: string[]
+  blockReason?: BlockReason
+  inputRequest?: TaskInputRequest
+  inputResponse?: Record<string, any>
 }
 
 // 任务顺序项
@@ -178,6 +202,8 @@ export interface FormField {
   options?: FormFieldOption[]
   validation?: FieldValidation
   condition?: FieldCondition
+  allowOther?: boolean  // 是否允许用户输入"其他"选项
+  otherLabel?: string   // "其他"选项的标签，默认为"其他"
 }
 
 // 动态表单 Schema
@@ -245,52 +271,15 @@ export const AGENT_ROLES: AgentRoleConfig[] = [
     role: 'planner',
     name: '规划者',
     description: '负责需求分析、任务拆分、规划执行顺序',
-    systemPrompt: `你是一个项目规划师。你的任务是：
+    systemPrompt: `你是项目规划师，负责分析需求并拆分为可执行任务。
+
+核心职责：
 - 分析用户需求
-- 将复杂需求拆分为可执行的子任务
-- 确定任务依赖关系和执行顺序
-- 使用动态表单收集必要信息
-- 不要执行具体编码任务
+- 拆分复杂需求为子任务
+- 确定任务依赖和执行顺序
+- 使用动态表单收集信息
 
-当需要收集用户信息时，请输出以下 JSON 格式（使用 markdown 代码块）：
-\`\`\`json
-{
-  "type": "form_request",
-  "mode": "schema",
-  "schema": {
-    "formId": "unique-form-id",
-    "title": "表单标题",
-    "description": "表单描述",
-    "fields": [
-      {
-        "name": "fieldName",
-        "label": "字段标签",
-        "type": "text|textarea|select|number|checkbox|...",
-        "required": true,
-        "placeholder": "占位文本"
-      }
-    ],
-    "submitText": "提交"
-  }
-}
-\`\`\`
-
-完成任务拆分时，请输出以下 JSON 格式：
-\`\`\`json
-{
-  "type": "task_split",
-  "tasks": [
-    {
-      "title": "任务标题",
-      "description": "任务描述",
-      "priority": "high|medium|low",
-      "implementationSteps": ["步骤1", "步骤2"],
-      "testSteps": ["测试步骤"],
-      "acceptanceCriteria": ["验收标准"]
-    }
-  ]
-}
-\`\`\``,
+禁止执行具体编码任务。`,
     capabilities: ['analyze', 'plan', 'decompose', 'form'],
     triggers: ['规划', '拆分', '计划', '需求']
   }
@@ -327,6 +316,7 @@ export interface AITaskItem {
   implementationSteps: string[]
   testSteps: string[]
   acceptanceCriteria: string[]
+  dependsOn?: string[]  // 依赖的任务标题列表
 }
 
 // AI 输出联合类型
@@ -342,4 +332,28 @@ export interface SplitMessage {
   formValues?: Record<string, any>
   cancelled?: boolean // 标记消息是否被取消（关闭弹框时AI正在处理中）
   timestamp: string
+}
+
+// ==================== 任务继续拆分相关类型 ====================
+
+// 继续拆分配置
+export interface TaskResplitConfig {
+  taskIndex: number
+  customPrompt?: string
+  granularity: number
+  agentId?: string
+  modelId?: string
+}
+
+// 继续拆分 prompt 上下文
+export interface TaskResplitPromptContext {
+  planName: string
+  planDescription?: string
+  taskTitle: string
+  taskDescription?: string
+  implementationSteps: string[]
+  testSteps: string[]
+  acceptanceCriteria?: string[]
+  userPrompt?: string
+  minTaskCount: number
 }

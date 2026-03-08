@@ -1,37 +1,17 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useTaskStore } from '@/stores/task'
-import type { Task, TaskStatus, TaskPriority } from '@/types/plan'
+import type { Task } from '@/types/plan'
 import AgentRoleBadge from './AgentRoleBadge.vue'
+import TaskEditModal from './TaskEditModal.vue'
 
 const taskStore = useTaskStore()
-
-// 状态选项
-const statusOptions: Array<{ value: TaskStatus; label: string }> = [
-  { value: 'pending', label: '待办' },
-  { value: 'in_progress', label: '进行中' },
-  { value: 'completed', label: '已完成' },
-  { value: 'blocked', label: '已取消' },
-  { value: 'cancelled', label: '已取消' }
-]
-
-// 优先级选项
-const priorityOptions: Array<{ value: TaskPriority; label: string }> = [
-  { value: 'low', label: '低' },
-  { value: 'medium', label: '中' },
-  { value: 'high', label: '高' }
-]
 
 // 当前任务
 const currentTask = computed(() => taskStore.currentTask)
 
-// 编辑状态
-const isEditing = ref(false)
-const editForm = ref({
-  title: '',
-  description: '',
-  priority: 'medium' as TaskPriority
-})
+// 编辑弹窗状态
+const isEditModalVisible = ref(false)
 
 // 是否显示停止按钮
 const showStopButton = computed(() => {
@@ -43,47 +23,9 @@ const showRetryButton = computed(() => {
   return currentTask.value?.status === 'blocked'
 })
 
-// 开始编辑
-function startEdit() {
-  if (!currentTask.value) return
-  editForm.value = {
-    title: currentTask.value.title,
-    description: currentTask.value.description || '',
-    priority: currentTask.value.priority
-  }
-  isEditing.value = true
-}
-
-// 取消编辑
-function cancelEdit() {
-  isEditing.value = false
-}
-
-// 保存编辑
-async function saveEdit() {
-  if (!currentTask.value || !editForm.value.title.trim()) return
-
-  try {
-    await taskStore.updateTask(currentTask.value.id, {
-      title: editForm.value.title.trim(),
-      description: editForm.value.description.trim() || undefined,
-      priority: editForm.value.priority
-    })
-    isEditing.value = false
-  } catch (error) {
-    console.error('Failed to update task:', error)
-  }
-}
-
-// 更新任务状态
-async function updateStatus(status: TaskStatus) {
-  if (!currentTask.value) return
-
-  try {
-    await taskStore.updateTask(currentTask.value.id, { status })
-  } catch (error) {
-    console.error('Failed to update task status:', error)
-  }
+// 打开编辑弹窗
+function openEditModal() {
+  isEditModalVisible.value = true
 }
 
 // 停止任务
@@ -125,6 +67,19 @@ const dependencies = computed(() => {
     .map(id => taskStore.tasks.find(t => t.id === id))
     .filter((t): t is Task => t !== undefined)
 })
+
+// 状态标签映射
+const statusLabels: Record<string, string> = {
+  pending: '待办',
+  in_progress: '进行中',
+  completed: '已完成',
+  blocked: '已阻塞'
+}
+
+// 点击依赖任务跳转
+function goToDependency(task: Task) {
+  taskStore.setCurrentTask(task.id)
+}
 </script>
 
 <template>
@@ -137,9 +92,8 @@ const dependencies = computed(() => {
             任务详情
           </h3>
           <button
-            v-if="!isEditing"
             class="btn-edit"
-            @click="startEdit"
+            @click="openEditModal"
           >
             编辑
           </button>
@@ -155,80 +109,22 @@ const dependencies = computed(() => {
       <div class="detail-body">
         <!-- 基本信息 -->
         <div class="section">
-          <template v-if="isEditing">
-            <div class="form-field">
-              <label>任务标题</label>
-              <input
-                v-model="editForm.title"
-                type="text"
-              >
-            </div>
-            <div class="form-field">
-              <label>任务描述</label>
-              <textarea
-                v-model="editForm.description"
-                rows="3"
-              />
-            </div>
-            <div class="form-field">
-              <label>优先级</label>
-              <select v-model="editForm.priority">
-                <option
-                  v-for="opt in priorityOptions"
-                  :key="opt.value"
-                  :value="opt.value"
-                >
-                  {{ opt.label }}
-                </option>
-              </select>
-            </div>
-            <div class="edit-actions">
-              <button
-                class="btn btn-secondary"
-                @click="cancelEdit"
-              >
-                取消
-              </button>
-              <button
-                class="btn btn-primary"
-                @click="saveEdit"
-              >
-                保存
-              </button>
-            </div>
-          </template>
-
-          <template v-else>
-            <h4 class="task-title">
-              {{ currentTask.title }}
-            </h4>
-            <p
-              v-if="currentTask.description"
-              class="task-desc"
-            >
-              {{ currentTask.description }}
-            </p>
-          </template>
+          <h4 class="task-title">
+            {{ currentTask.title }}
+          </h4>
+          <p
+            v-if="currentTask.description"
+            class="task-desc"
+          >
+            {{ currentTask.description }}
+          </p>
         </div>
 
-        <!-- 状态 -->
-        <div class="section">
-          <h5 class="section-title">
-            状态
-          </h5>
-          <div class="status-buttons">
-            <button
-              v-for="opt in statusOptions"
-              :key="opt.value"
-              class="status-btn"
-              :class="{ active: currentTask.status === opt.value }"
-              @click="updateStatus(opt.value)"
-            >
-              {{ opt.label }}
-            </button>
-          </div>
-
-          <!-- 控制按钮 -->
+        <!-- 控制按钮 -->
+        <div
+          v-if="showStopButton || showRetryButton"
+          class="section"
+        >
           <div class="control-buttons">
             <button
               v-if="showStopButton"
@@ -367,9 +263,11 @@ const dependencies = computed(() => {
               :key="dep.id"
               class="dependency-item"
               :class="dep.status"
+              @click="goToDependency(dep)"
             >
               <span class="dep-status-dot" />
               <span class="dep-title">{{ dep.title }}</span>
+              <span class="dep-status-label">{{ statusLabels[dep.status] || dep.status }}</span>
             </div>
           </div>
         </div>
@@ -422,6 +320,14 @@ const dependencies = computed(() => {
     >
       <p>选择一个任务查看详情</p>
     </div>
+
+    <!-- 编辑弹窗 -->
+    <TaskEditModal
+      v-if="currentTask"
+      v-model:visible="isEditModalVisible"
+      :task="currentTask"
+      @saved="isEditModalVisible = false"
+    />
   </div>
 </template>
 
@@ -541,35 +447,6 @@ const dependencies = computed(() => {
   line-height: 1.6;
 }
 
-.status-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--spacing-2, 0.5rem);
-}
-
-.status-btn {
-  padding: var(--spacing-1, 0.25rem) var(--spacing-3, 0.75rem);
-  border: 1px solid var(--color-border, #e2e8f0);
-  border-radius: var(--radius-md, 8px);
-  background: transparent;
-  color: var(--color-text-secondary, #64748b);
-  font-size: var(--font-size-xs, 12px);
-  font-weight: var(--font-weight-medium, 500);
-  cursor: pointer;
-  transition: all var(--transition-fast, 150ms);
-}
-
-.status-btn:hover {
-  background-color: var(--color-surface-hover, #f8fafc);
-  border-color: var(--color-border-dark, #cbd5e1);
-}
-
-.status-btn.active {
-  background-color: var(--color-primary, #3b82f6);
-  border-color: var(--color-primary, #3b82f6);
-  color: white;
-}
-
 .dependency-list {
   display: flex;
   flex-direction: column;
@@ -585,6 +462,13 @@ const dependencies = computed(() => {
   border-radius: var(--radius-md, 8px);
   font-size: var(--font-size-sm, 13px);
   border: 1px solid var(--color-border-light, #f1f5f9);
+  cursor: pointer;
+  transition: all var(--transition-fast, 150ms);
+}
+
+.dependency-item:hover {
+  background-color: var(--color-surface-hover, #f1f5f9);
+  border-color: var(--color-primary, #3b82f6);
 }
 
 .dep-status-dot {
@@ -610,6 +494,33 @@ const dependencies = computed(() => {
 .dep-title {
   flex: 1;
   color: var(--color-text-primary, #1e293b);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dep-status-label {
+  font-size: var(--font-size-xs, 11px);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm, 4px);
+  background-color: var(--color-bg-tertiary, #e2e8f0);
+  color: var(--color-text-secondary, #64748b);
+  flex-shrink: 0;
+}
+
+.dependency-item.completed .dep-status-label {
+  background-color: #d1fae5;
+  color: #059669;
+}
+
+.dependency-item.in_progress .dep-status-label {
+  background-color: #dbeafe;
+  color: #2563eb;
+}
+
+.dependency-item.blocked .dep-status-label {
+  background-color: #fee2e2;
+  color: #dc2626;
 }
 
 .info-item {

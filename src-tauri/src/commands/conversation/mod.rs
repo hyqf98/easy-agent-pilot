@@ -132,7 +132,8 @@ pub async fn execute_claude_sdk(
         .execute(app, unified_request)
         .await
         .map_err(|e| e.to_string())
-}/// 执行 Codex SDK API 调用（新命令）
+}
+/// 执行 Codex SDK API 调用（新命令）
 #[tauri::command]
 pub async fn execute_codex_sdk(app: AppHandle, request: SdkExecutionRequest) -> Result<(), String> {
     // 转换为统一请求格式

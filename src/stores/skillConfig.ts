@@ -22,7 +22,7 @@ export interface UnifiedConfigItem {
 }
 
 /** MCP 传输类型 */
-export type McpTransportType = 'stdio' | 'sse' | 'http'
+export type McpTransportType = 'stdio' | 'sse' | 'http' | 'builtin'
 
 /** MCP 配置范围 */
 export type McpConfigScope = 'user' | 'local' | 'project'

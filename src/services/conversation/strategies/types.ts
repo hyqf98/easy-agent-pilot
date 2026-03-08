@@ -10,7 +10,7 @@ export interface McpServerConfig {
   /** MCP 名称 */
   name: string
   /** 传输类型 */
-  transportType: 'stdio' | 'sse' | 'http'
+  transportType: 'stdio' | 'sse' | 'http' | 'builtin'
   /** 命令 (stdio 类型) */
   command?: string
   /** 参数 (stdio 类型) */

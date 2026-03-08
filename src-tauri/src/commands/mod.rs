@@ -1,7 +1,7 @@
 pub mod agent;
 pub mod agent_config;
 pub mod app_state;
-pub mod brainstorm;
+pub mod builtin_mcp;
 pub mod cli;
 pub mod cli_config;
 pub mod conversation;
@@ -12,6 +12,7 @@ pub mod lsp;
 pub mod marketplace;
 pub mod mcp;
 pub mod mcp_market;
+pub mod memory;
 pub mod message;
 pub mod plan;
 pub mod plugins_market;
@@ -24,6 +25,7 @@ pub mod settings;
 pub mod skill_plugin;
 pub mod skills_market;
 pub mod task;
+pub mod task_execution;
 pub mod window;
 
 use anyhow::Result;

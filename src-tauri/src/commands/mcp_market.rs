@@ -103,11 +103,23 @@ pub struct McpMarketListResponse {
 
 /// MCP market query parameters
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct McpMarketQuery {
     pub page: u32,
     pub page_size: u32,
     pub category: Option<String>,
     pub search: Option<String>,
+}
+
+impl Default for McpMarketQuery {
+    fn default() -> Self {
+        Self {
+            page: 1,
+            page_size: 20,
+            category: None,
+            search: None,
+        }
+    }
 }
 
 /// Fetch MCP market items from ModelScope API

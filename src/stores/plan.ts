@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useNotificationStore } from './notification'
 import { getErrorMessage } from '@/utils/api'
-import type { Plan, PlanStatus, PlanExecutionStatus, CreatePlanInput, UpdatePlanInput, AgentRole } from '@/types/plan'
+import type { Plan, PlanStatus, PlanExecutionStatus, ScheduleStatus, CreatePlanInput, UpdatePlanInput, AgentRole } from '@/types/plan'
 
 // Rust 后端返回的 snake_case 结构
 interface RustPlan {
@@ -19,6 +19,8 @@ interface RustPlan {
   agent_team?: string // JSON 字符串
   granularity: number
   max_retry_count: number
+  scheduled_at?: string
+  schedule_status?: string
   created_at: string
   updated_at: string
 }
@@ -54,6 +56,8 @@ function transformPlan(rustPlan: RustPlan): Plan {
     agentTeam,
     granularity: rustPlan.granularity,
     maxRetryCount: rustPlan.max_retry_count,
+    scheduledAt: rustPlan.scheduled_at,
+    scheduleStatus: rustPlan.schedule_status as ScheduleStatus | undefined,
     createdAt: rustPlan.created_at,
     updatedAt: rustPlan.updated_at
   }
@@ -137,7 +141,8 @@ export const usePlanStore = defineStore('plan', () => {
       split_model_id: input.splitModelId ?? null,
       agent_team: input.agentTeam ?? null,
       granularity: input.granularity ?? 20,
-      max_retry_count: input.maxRetryCount ?? 3
+      max_retry_count: input.maxRetryCount ?? 3,
+      scheduled_at: input.scheduledAt ?? null
     }
 
     try {
@@ -168,7 +173,9 @@ export const usePlanStore = defineStore('plan', () => {
       current_task_id: updates.currentTaskId ?? null,
       agent_team: updates.agentTeam ?? null,
       granularity: updates.granularity ?? null,
-      max_retry_count: updates.maxRetryCount ?? null
+      max_retry_count: updates.maxRetryCount ?? null,
+      scheduled_at: updates.scheduledAt ?? null,
+      schedule_status: updates.scheduleStatus ?? null
     }
 
     try {
@@ -194,7 +201,31 @@ export const usePlanStore = defineStore('plan', () => {
 
   // 将计划状态设置为"就绪"（任务拆分完成，等待用户确认开始执行）
   async function markPlanAsReady(planId: string): Promise<Plan> {
-    return updatePlan(planId, { status: 'ready' })
+    const plan = plans.value.find(p => p.id === planId)
+    if (!plan) {
+      throw new Error('Plan not found')
+    }
+
+    // 先更新状态为 ready
+    let updatedPlan = await updatePlan(planId, { status: 'ready' })
+
+    // 检查是否需要设置为定时计划
+    if (updatedPlan.scheduledAt) {
+      const scheduledTime = new Date(updatedPlan.scheduledAt)
+      const now = new Date()
+
+      if (scheduledTime > now) {
+        // 定时时间在未来，设置为 scheduled 状态
+        updatedPlan = await updatePlan(planId, { scheduleStatus: 'scheduled' })
+        console.log(`Plan ${planId} set as scheduled for ${scheduledTime.toLocaleString('zh-CN')}`)
+      } else {
+        // 时间已过，清除定时设置
+        updatedPlan = await updatePlan(planId, { scheduledAt: undefined, scheduleStatus: 'none' })
+        console.log(`Plan ${planId} scheduled time has passed, cleared schedule`)
+      }
+    }
+
+    return updatedPlan
   }
 
   // 开始执行计划
@@ -232,13 +263,32 @@ export const usePlanStore = defineStore('plan', () => {
     const notificationStore = useNotificationStore()
 
     try {
+      // 先清理前端 store 中的相关数据
+      // 1. 清理任务执行状态
+      const { useTaskExecutionStore } = await import('./taskExecution')
+      const taskExecutionStore = useTaskExecutionStore()
+      taskExecutionStore.clearPlanExecution(id)
+
+      // 2. 清理任务列表中该计划的任务
+      const { useTaskStore } = await import('./task')
+      const taskStore = useTaskStore()
+      taskStore.clearPlanTasks(id)
+
+      // 3. 清理任务拆分会话
+      const { useTaskSplitStore } = await import('./taskSplit')
+      const taskSplitStore = useTaskSplitStore()
+      taskSplitStore.clearPlanSplitSessions(id)
+
+      // 4. 调用后端删除计划（会级联删除 tasks、task_execution_logs、task_split_sessions）
       await invoke('delete_plan', { id })
 
+      // 5. 从本地列表中移除
       const index = plans.value.findIndex(p => p.id === id)
       if (index !== -1) {
         plans.value.splice(index, 1)
       }
 
+      // 6. 如果是当前计划，清除当前计划 ID
       if (currentPlanId.value === id) {
         currentPlanId.value = null
       }
@@ -276,6 +326,30 @@ export const usePlanStore = defineStore('plan', () => {
     splitDialogContext.value = null
   }
 
+  // 取消计划定时
+  async function cancelPlanSchedule(planId: string): Promise<Plan> {
+    const notificationStore = useNotificationStore()
+    try {
+      const rustPlan = await invoke<RustPlan>('cancel_plan_schedule', { id: planId })
+      const updatedPlan = transformPlan(rustPlan)
+
+      const index = plans.value.findIndex(p => p.id === planId)
+      if (index !== -1) {
+        plans.value[index] = updatedPlan
+      }
+
+      return updatedPlan
+    } catch (error) {
+      console.error('Failed to cancel plan schedule:', error)
+      notificationStore.databaseError(
+        '取消计划定时失败',
+        getErrorMessage(error),
+        async () => { await cancelPlanSchedule(planId) }
+      )
+      throw error
+    }
+  }
+
   return {
     // State
     plans,
@@ -305,6 +379,8 @@ export const usePlanStore = defineStore('plan', () => {
     setCurrentTask,
     // 拆分对话框
     openSplitDialog,
-    closeSplitDialog
+    closeSplitDialog,
+    // 定时计划
+    cancelPlanSchedule
   }
 })

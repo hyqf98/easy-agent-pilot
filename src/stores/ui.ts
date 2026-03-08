@@ -1,9 +1,19 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
-export type SettingsTab = 'general' | 'agents' | 'agentConfig' | 'integration' | 'theme' | 'data' | 'providerSwitch' | 'lsp' | 'marketplace'
+export type SettingsTab =
+  | 'general'
+  | 'agents'
+  | 'agentConfig'
+  | 'integration'
+  | 'theme'
+  | 'data'
+  | 'providerSwitch'
+  | 'lsp'
+  | 'marketplace'
+  | 'sessions'
 
-export type AppMode = 'chat' | 'plan'
+export type AppMode = 'chat' | 'plan' | 'memory'
 export type MainContentMode = 'chat' | 'fileEditor'
 
 export const useUIStore = defineStore('ui', () => {
@@ -61,7 +71,10 @@ export const useUIStore = defineStore('ui', () => {
   }
 
   function toggleAppMode() {
-    appMode.value = appMode.value === 'chat' ? 'plan' : 'chat'
+    // 循环切换: chat -> plan -> memory -> chat
+    const modes: AppMode[] = ['chat', 'plan', 'memory']
+    const currentIndex = modes.indexOf(appMode.value)
+    appMode.value = modes[(currentIndex + 1) % modes.length]
   }
 
   function toggleSettingsNav() {

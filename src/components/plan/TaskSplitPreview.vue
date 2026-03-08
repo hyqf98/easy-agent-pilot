@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { AITaskItem, TaskPriority } from '@/types/plan'
 import { useConfirmDialog } from '@/composables'
 
@@ -11,12 +12,18 @@ const emit = defineEmits<{
   (e: 'update', index: number, updates: Partial<AITaskItem>): void
   (e: 'remove', index: number): void
   (e: 'add', task: AITaskItem): void
+  (e: 'resplit', index: number): void
 }>()
 
 // 编辑状态
 const editingIndex = ref<number | null>(null)
 const editForm = ref<Partial<AITaskItem>>({})
 const confirmDialog = useConfirmDialog()
+const { t } = useI18n()
+
+// 依赖下拉框状态
+const isDepDropdownOpen = ref(false)
+const depDropdownRef = ref<HTMLElement | null>(null)
 
 // 优先级选项
 const priorityOptions = [
@@ -75,7 +82,8 @@ function addTask() {
     priority: 'medium',
     implementationSteps: [],
     testSteps: [],
-    acceptanceCriteria: []
+    acceptanceCriteria: [],
+    dependsOn: []
   }
   emit('add', newTask)
   // 自动开始编辑新任务
@@ -97,6 +105,73 @@ function removeStep(type: 'implementationSteps' | 'testSteps' | 'acceptanceCrite
     editForm.value[type]!.splice(index, 1)
   }
 }
+
+// 获取可选的依赖任务列表（当前任务列表中除自己外的所有任务）
+const availableDependencyTitles = computed(() => {
+  if (editingIndex.value === null) return []
+  return props.tasks
+    .filter((_, index) => index !== editingIndex.value)
+    .map(task => task.title)
+})
+
+// 依赖下拉框显示文本
+const depDropdownDisplay = computed(() => {
+  const selected = editForm.value.dependsOn || []
+  if (selected.length === 0) {
+    return t('task.selectDependencies')
+  }
+  return selected.join(', ')
+})
+
+// 切换依赖下拉框
+function toggleDepDropdown() {
+  isDepDropdownOpen.value = !isDepDropdownOpen.value
+}
+
+// 检查选择依赖时是否会导致循环依赖
+function handleDependencyToggle(dependencyTitle: string) {
+  const task = editForm.value
+  if (!task.dependsOn) {
+    task.dependsOn = []
+  }
+
+  const isSelected = task.dependsOn?.includes(dependencyTitle) || false
+
+  if (!isSelected) {
+    // 添加依赖
+    task.dependsOn = [...(task.dependsOn || []), dependencyTitle]
+  } else {
+    // 移除依赖
+    task.dependsOn = task.dependsOn?.filter(t => t !== dependencyTitle)
+  }
+}
+
+// 检查依赖是否已选中
+function isDependencySelected(dependencyTitle: string): boolean {
+  return editForm.value.dependsOn?.includes(dependencyTitle) || false
+}
+
+// 移除单个依赖
+function removeDependency(dependencyTitle: string) {
+  if (editForm.value.dependsOn) {
+    editForm.value.dependsOn = editForm.value.dependsOn.filter(t => t !== dependencyTitle)
+  }
+}
+
+// 点击外部关闭下拉框
+function handleClickOutside(event: MouseEvent) {
+  if (depDropdownRef.value && !depDropdownRef.value.contains(event.target as Node)) {
+    isDepDropdownOpen.value = false
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('click', handleClickOutside)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside)
+})
 </script>
 
 <template>
@@ -148,6 +223,23 @@ function removeStep(type: 'implementationSteps' | 'testSteps' | 'acceptanceCrite
               {{ task.priority === 'high' ? '高' : task.priority === 'medium' ? '中' : '低' }}
             </span>
             <div class="task-actions">
+              <button
+                class="btn-icon"
+                title="继续拆分"
+                @click="emit('resplit', index)"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path d="M21 12a9 9 0 11-6.219-8.56" />
+                  <polyline points="21,3 21,9 15,9" />
+                </svg>
+              </button>
               <button
                 class="btn-icon"
                 title="编辑"
@@ -202,6 +294,15 @@ function removeStep(type: 'implementationSteps' | 'testSteps' | 'acceptanceCrite
                 {{ step }}
               </li>
             </ul>
+          </div>
+
+          <!-- 依赖任务显示 -->
+          <div
+            v-if="task.dependsOn?.length"
+            class="task-deps"
+          >
+            <span class="deps-label">依赖:</span>
+            <span class="deps-list">{{ task.dependsOn.join(', ') }}</span>
           </div>
         </template>
 
@@ -336,6 +437,88 @@ function removeStep(type: 'implementationSteps' | 'testSteps' | 'acceptanceCrite
                     ×
                   </button>
                 </div>
+              </div>
+            </div>
+
+            <!-- 依赖任务 -->
+            <div
+              ref="depDropdownRef"
+              class="form-row dep-dropdown"
+            >
+              <label>{{ t('task.dependencies') }}</label>
+              <div
+                v-if="availableDependencyTitles.length > 0"
+                class="dep-dropdown"
+              >
+                <button
+                  type="button"
+                  class="dep-trigger"
+                  :class="{ open: isDepDropdownOpen }"
+                  @click.stop="toggleDepDropdown"
+                >
+                  <span
+                    class="dep-display"
+                    :class="{ placeholder: !editForm.dependsOn?.length }"
+                  >
+                    {{ depDropdownDisplay }}
+                  </span>
+                  <svg
+                    class="dep-arrow"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <path d="M6 9l6 6 6-6" />
+                  </svg>
+                </button>
+                <!-- 已选择的标签 -->
+                <div
+                  v-if="editForm.dependsOn?.length"
+                  class="dep-selected-tags"
+                >
+                  <span
+                    v-for="title in editForm.dependsOn"
+                    :key="title"
+                    class="dep-tag"
+                  >
+                    {{ title }}
+                    <button
+                      class="dep-tag-remove"
+                      @click="removeDependency(title)"
+                    >
+                      ×
+                    </button>
+                  </span>
+                </div>
+                <!-- 下拉菜单 -->
+                <div
+                  v-if="isDepDropdownOpen"
+                  class="dep-menu"
+                >
+                  <label
+                    v-for="title in availableDependencyTitles"
+                    :key="title"
+                    class="dep-option"
+                    :class="{ selected: isDependencySelected(title) }"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="isDependencySelected(title)"
+                      @change="handleDependencyToggle(title)"
+                    >
+                    <span class="dep-checkbox" />
+                    <span class="dep-option-label">{{ title }}</span>
+                  </label>
+                </div>
+              </div>
+              <div
+                v-else
+                class="no-tasks-hint"
+              >
+                {{ t('task.noTasksAvailable') }}
               </div>
             </div>
 
@@ -719,5 +902,182 @@ function removeStep(type: 'implementationSteps' | 'testSteps' | 'acceptanceCrite
 
 .btn-secondary:hover {
   background-color: var(--color-surface-hover, #f8fafc);
+}
+
+/* Dependencies dropdown styles */
+.dep-dropdown {
+  position: relative;
+}
+
+.dep-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 32px;
+  padding: var(--spacing-2, 0.5rem);
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-surface, #fff);
+  cursor: pointer;
+  transition: all var(--transition-fast, 150ms);
+}
+
+.dep-trigger:hover {
+  border-color: var(--color-primary, #60a5fa);
+}
+
+.dep-trigger.open {
+  border-color: var(--color-primary, #3b82f6);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.dep-display {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-sm, 13px);
+  color: var(--color-text-primary, #1e293b);
+}
+
+.dep-display.placeholder {
+  color: var(--color-text-tertiary, #94a3b8);
+}
+
+.dep-arrow {
+  flex-shrink: 0;
+  margin-left: var(--spacing-2, 0.5rem);
+  color: var(--color-text-tertiary, #94a3b8);
+  transition: transform var(--transition-fast, 150ms);
+}
+
+.dep-trigger.open .dep-arrow {
+  transform: rotate(180deg);
+}
+
+.dep-selected-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-1, 0.25rem);
+  margin-top: var(--spacing-2, 0.5rem);
+}
+
+.dep-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1, 0.25rem);
+  padding: 2px var(--spacing-2, 0.5rem);
+  background: var(--color-primary-light, #dbeafe);
+  border-radius: var(--radius-full, 9999px);
+  font-size: var(--font-size-xs, 12px);
+  color: var(--color-primary, #3b82f6);
+}
+
+.dep-tag-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-primary, #3b82f6);
+  cursor: pointer;
+  transition: all var(--transition-fast, 150ms);
+}
+
+.dep-tag-remove:hover {
+  background: var(--color-primary, #3b82f6);
+  color: white;
+}
+
+.dep-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: var(--shadow-lg, 0 10px 15px -3px rgba(0, 0, 0, 0.1));
+  z-index: 100;
+}
+
+.dep-option {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2, 0.5rem);
+  padding: var(--spacing-2, 0.5rem) var(--spacing-3, 0.75rem);
+  cursor: pointer;
+  transition: background-color var(--transition-fast, 150ms);
+}
+
+.dep-option:hover {
+  background-color: var(--color-surface-hover, #f8fafc);
+}
+
+.dep-option.selected {
+  background-color: var(--color-primary-light, #dbeafe);
+}
+
+.dep-option input {
+  display: none;
+}
+
+.dep-checkbox {
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--color-border, #e2e8f0);
+  border-radius: 3px;
+  background: var(--color-surface, #fff);
+  transition: all var(--transition-fast, 150ms);
+  flex-shrink: 0;
+}
+
+.dep-option.selected .dep-checkbox {
+  border-color: var(--color-primary, #3b82f6);
+  background: var(--color-primary, #3b82f6);
+}
+
+.dep-option.selected .dep-checkbox::after {
+  content: '';
+  display: block;
+  width: 4px;
+  height: 8px;
+  margin: 1px 0 0 5px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.dep-option-label {
+  font-size: var(--font-size-sm, 13px);
+  color: var(--color-text-primary, #1e293b);
+}
+
+.no-tasks-hint {
+  font-size: var(--font-size-xs, 12px);
+  color: var(--color-text-tertiary, #94a3b8);
+  font-style: italic;
+}
+
+.task-deps {
+  margin-top: var(--spacing-2, 0.5rem);
+}
+
+.deps-label {
+  font-size: var(--font-size-xs, 12px);
+  font-weight: var(--font-weight-medium, 500);
+  color: var(--color-text-tertiary, #94a3b8);
+}
+
+.deps-list {
+  font-size: var(--font-size-xs, 12px);
+  color: var(--color-text-secondary, #64748b);
 }
 </style>

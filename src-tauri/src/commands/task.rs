@@ -11,6 +11,7 @@ pub enum TaskStatus {
     InProgress,
     Completed,
     Blocked,
+    Failed,
     Cancelled,
 }
 
@@ -45,6 +46,9 @@ pub struct Task {
     pub implementation_steps: Option<Vec<String>>,
     pub test_steps: Option<Vec<String>>,
     pub acceptance_criteria: Option<Vec<String>>,
+    pub block_reason: Option<String>,
+    pub input_request: Option<serde_json::Value>,
+    pub input_response: Option<serde_json::Value>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -70,6 +74,9 @@ pub struct RustTask {
     pub implementation_steps: Option<String>, // JSON 字符串
     pub test_steps: Option<String>,           // JSON 字符串
     pub acceptance_criteria: Option<String>,  // JSON 字符串
+    pub block_reason: Option<String>,
+    pub input_request: Option<String>,   // JSON 字符串
+    pub input_response: Option<String>,  // JSON 字符串
     pub created_at: String,
     pub updated_at: String,
 }
@@ -109,6 +116,9 @@ pub struct UpdateTaskInput {
     pub implementation_steps: Option<Vec<String>>,
     pub test_steps: Option<Vec<String>>,
     pub acceptance_criteria: Option<Vec<String>>,
+    pub block_reason: Option<String>,
+    pub input_request: Option<serde_json::Value>,
+    pub input_response: Option<serde_json::Value>,
 }
 
 /// 批量更新任务顺序输入
@@ -143,6 +153,12 @@ fn transform_task(rust_task: RustTask) -> Task {
     let acceptance_criteria = rust_task
         .acceptance_criteria
         .and_then(|s| serde_json::from_str(&s).ok());
+    let input_request = rust_task
+        .input_request
+        .and_then(|s| serde_json::from_str(&s).ok());
+    let input_response = rust_task
+        .input_response
+        .and_then(|s| serde_json::from_str(&s).ok());
 
     Task {
         id: rust_task.id,
@@ -163,6 +179,9 @@ fn transform_task(rust_task: RustTask) -> Task {
         implementation_steps,
         test_steps,
         acceptance_criteria,
+        block_reason: rust_task.block_reason,
+        input_request,
+        input_response,
         created_at: rust_task.created_at,
         updated_at: rust_task.updated_at,
     }
@@ -181,6 +200,7 @@ pub fn list_tasks(plan_id: String) -> Result<Vec<Task>, String> {
                    assignee, session_id, progress_file, dependencies, task_order,
                    retry_count, max_retries, error_message,
                    implementation_steps, test_steps, acceptance_criteria,
+                   block_reason, input_request, input_response,
                    created_at, updated_at
             FROM tasks
             WHERE plan_id = ?1
@@ -210,8 +230,11 @@ pub fn list_tasks(plan_id: String) -> Result<Vec<Task>, String> {
                 implementation_steps: row.get(15)?,
                 test_steps: row.get(16)?,
                 acceptance_criteria: row.get(17)?,
-                created_at: row.get(18)?,
-                updated_at: row.get(19)?,
+                block_reason: row.get(18)?,
+                input_request: row.get(19)?,
+                input_response: row.get(20)?,
+                created_at: row.get(21)?,
+                updated_at: row.get(22)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -237,6 +260,7 @@ pub fn get_task(id: String) -> Result<Task, String> {
                    assignee, session_id, progress_file, dependencies, task_order,
                    retry_count, max_retries, error_message,
                    implementation_steps, test_steps, acceptance_criteria,
+                   block_reason, input_request, input_response,
                    created_at, updated_at
             FROM tasks
             WHERE id = ?1
@@ -262,8 +286,11 @@ pub fn get_task(id: String) -> Result<Task, String> {
                     implementation_steps: row.get(15)?,
                     test_steps: row.get(16)?,
                     acceptance_criteria: row.get(17)?,
-                    created_at: row.get(18)?,
-                    updated_at: row.get(19)?,
+                    block_reason: row.get(18)?,
+                    input_request: row.get(19)?,
+                    input_response: row.get(20)?,
+                    created_at: row.get(21)?,
+                    updated_at: row.get(22)?,
                 })
             },
         )
@@ -373,6 +400,9 @@ pub fn create_task(input: CreateTaskInput) -> Result<Task, String> {
         implementation_steps: input.implementation_steps,
         test_steps: input.test_steps,
         acceptance_criteria: input.acceptance_criteria,
+        block_reason: None,
+        input_request: None,
+        input_response: None,
         created_at: now.clone(),
         updated_at: now,
     })
@@ -448,6 +478,18 @@ pub fn update_task(id: String, input: UpdateTaskInput) -> Result<Task, String> {
     }
     if input.acceptance_criteria.is_some() {
         updates.push(format!("acceptance_criteria = ?{}", param_index));
+        param_index += 1;
+    }
+    if input.block_reason.is_some() {
+        updates.push(format!("block_reason = ?{}", param_index));
+        param_index += 1;
+    }
+    if input.input_request.is_some() {
+        updates.push(format!("input_request = ?{}", param_index));
+        param_index += 1;
+    }
+    if input.input_response.is_some() {
+        updates.push(format!("input_response = ?{}", param_index));
         param_index += 1;
     }
 
@@ -544,6 +586,23 @@ pub fn update_task(id: String, input: UpdateTaskInput) -> Result<Task, String> {
             .map_err(|e| e.to_string())?;
         param_count += 1;
     }
+    if let Some(ref block_reason) = input.block_reason {
+        stmt.raw_bind_parameter(param_count, block_reason)
+            .map_err(|e| e.to_string())?;
+        param_count += 1;
+    }
+    if let Some(ref input_request) = input.input_request {
+        let json = serde_json::to_string(input_request).unwrap_or_else(|_| "{}".to_string());
+        stmt.raw_bind_parameter(param_count, json)
+            .map_err(|e| e.to_string())?;
+        param_count += 1;
+    }
+    if let Some(ref input_response) = input.input_response {
+        let json = serde_json::to_string(input_response).unwrap_or_else(|_| "{}".to_string());
+        stmt.raw_bind_parameter(param_count, json)
+            .map_err(|e| e.to_string())?;
+        param_count += 1;
+    }
 
     stmt.raw_bind_parameter(param_count, &id)
         .map_err(|e| e.to_string())?;
@@ -570,6 +629,7 @@ pub fn update_task(id: String, input: UpdateTaskInput) -> Result<Task, String> {
                    assignee, session_id, progress_file, dependencies, task_order,
                    retry_count, max_retries, error_message,
                    implementation_steps, test_steps, acceptance_criteria,
+                   block_reason, input_request, input_response,
                    created_at, updated_at
             FROM tasks
             WHERE id = ?1
@@ -595,8 +655,11 @@ pub fn update_task(id: String, input: UpdateTaskInput) -> Result<Task, String> {
                     implementation_steps: row.get(15)?,
                     test_steps: row.get(16)?,
                     acceptance_criteria: row.get(17)?,
-                    created_at: row.get(18)?,
-                    updated_at: row.get(19)?,
+                    block_reason: row.get(18)?,
+                    input_request: row.get(19)?,
+                    input_response: row.get(20)?,
+                    created_at: row.get(21)?,
+                    updated_at: row.get(22)?,
                 })
             },
         )
@@ -652,6 +715,7 @@ pub fn list_subtasks(parent_id: String) -> Result<Vec<Task>, String> {
                    assignee, session_id, progress_file, dependencies, task_order,
                    retry_count, max_retries, error_message,
                    implementation_steps, test_steps, acceptance_criteria,
+                   block_reason, input_request, input_response,
                    created_at, updated_at
             FROM tasks
             WHERE parent_id = ?1
@@ -681,8 +745,11 @@ pub fn list_subtasks(parent_id: String) -> Result<Vec<Task>, String> {
                 implementation_steps: row.get(15)?,
                 test_steps: row.get(16)?,
                 acceptance_criteria: row.get(17)?,
-                created_at: row.get(18)?,
-                updated_at: row.get(19)?,
+                block_reason: row.get(18)?,
+                input_request: row.get(19)?,
+                input_response: row.get(20)?,
+                created_at: row.get(21)?,
+                updated_at: row.get(22)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -717,6 +784,7 @@ pub fn retry_task(id: String) -> Result<Task, String> {
                    assignee, session_id, progress_file, dependencies, task_order,
                    retry_count, max_retries, error_message,
                    implementation_steps, test_steps, acceptance_criteria,
+                   block_reason, input_request, input_response,
                    created_at, updated_at
             FROM tasks
             WHERE id = ?1
@@ -742,8 +810,11 @@ pub fn retry_task(id: String) -> Result<Task, String> {
                     implementation_steps: row.get(15)?,
                     test_steps: row.get(16)?,
                     acceptance_criteria: row.get(17)?,
-                    created_at: row.get(18)?,
-                    updated_at: row.get(19)?,
+                    block_reason: row.get(18)?,
+                    input_request: row.get(19)?,
+                    input_response: row.get(20)?,
+                    created_at: row.get(21)?,
+                    updated_at: row.get(22)?,
                 })
             },
         )
@@ -775,6 +846,7 @@ pub fn batch_update_status(plan_id: String, status: String) -> Result<Vec<Task>,
                    assignee, session_id, progress_file, dependencies, task_order,
                    retry_count, max_retries, error_message,
                    implementation_steps, test_steps, acceptance_criteria,
+                   block_reason, input_request, input_response,
                    created_at, updated_at
             FROM tasks
             WHERE plan_id = ?1
@@ -804,8 +876,11 @@ pub fn batch_update_status(plan_id: String, status: String) -> Result<Vec<Task>,
                 implementation_steps: row.get(15)?,
                 test_steps: row.get(16)?,
                 acceptance_criteria: row.get(17)?,
-                created_at: row.get(18)?,
-                updated_at: row.get(19)?,
+                block_reason: row.get(18)?,
+                input_request: row.get(19)?,
+                input_response: row.get(20)?,
+                created_at: row.get(21)?,
+                updated_at: row.get(22)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -841,6 +916,7 @@ pub fn stop_task(id: String) -> Result<Task, String> {
                    assignee, session_id, progress_file, dependencies, task_order,
                    retry_count, max_retries, error_message,
                    implementation_steps, test_steps, acceptance_criteria,
+                   block_reason, input_request, input_response,
                    created_at, updated_at
             FROM tasks
             WHERE id = ?1
@@ -866,8 +942,11 @@ pub fn stop_task(id: String) -> Result<Task, String> {
                     implementation_steps: row.get(15)?,
                     test_steps: row.get(16)?,
                     acceptance_criteria: row.get(17)?,
-                    created_at: row.get(18)?,
-                    updated_at: row.get(19)?,
+                    block_reason: row.get(18)?,
+                    input_request: row.get(19)?,
+                    input_response: row.get(20)?,
+                    created_at: row.get(21)?,
+                    updated_at: row.get(22)?,
                 })
             },
         )
@@ -888,6 +967,7 @@ pub fn get_task_by_session_id(session_id: String) -> Result<Option<Task>, String
                assignee, session_id, progress_file, dependencies, task_order,
                retry_count, max_retries, error_message,
                implementation_steps, test_steps, acceptance_criteria,
+               block_reason, input_request, input_response,
                created_at, updated_at
         FROM tasks
         WHERE session_id = ?1
@@ -914,8 +994,11 @@ pub fn get_task_by_session_id(session_id: String) -> Result<Option<Task>, String
                 implementation_steps: row.get(15)?,
                 test_steps: row.get(16)?,
                 acceptance_criteria: row.get(17)?,
-                created_at: row.get(18)?,
-                updated_at: row.get(19)?,
+                block_reason: row.get(18)?,
+                input_request: row.get(19)?,
+                input_response: row.get(20)?,
+                created_at: row.get(21)?,
+                updated_at: row.get(22)?,
             })
         },
     );
@@ -1029,6 +1112,9 @@ pub fn batch_create_tasks(
             implementation_steps: task_input.implementation_steps,
             test_steps: task_input.test_steps,
             acceptance_criteria: task_input.acceptance_criteria,
+            block_reason: None,
+            input_request: None,
+            input_response: None,
             created_at: now.clone(),
             updated_at: now.clone(),
         });

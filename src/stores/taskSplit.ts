@@ -10,14 +10,16 @@ import {
   buildPlanSplitSystemPrompt,
   buildPlanSplitKickoffPrompt,
   buildFormResponsePrompt,
-  buildPlanSplitJsonSchema
+  buildPlanSplitJsonSchema,
+  buildTaskResplitKickoffPrompt
 } from '@/services/plan'
 import type {
   SplitMessage,
   AIOutput,
   AITaskItem,
   TaskPriority,
-  DynamicFormSchema
+  DynamicFormSchema,
+  TaskResplitConfig
 } from '@/types/plan'
 
 interface TaskSplitContext {
@@ -134,6 +136,12 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
 
   const llmMessages = ref<SplitChatMessage[]>([])
   const isCancelled = ref(false)
+
+  // 子拆分模式状态
+  const subSplitMode = ref(false)
+  const subSplitTargetIndex = ref<number | null>(null)
+  const subSplitOriginalTasks = ref<AITaskItem[]>([])
+  const subSplitConfig = ref<TaskResplitConfig | null>(null)
 
   // 持久化状态 key 前缀
   const TASK_SPLIT_STATE_KEY_PREFIX = 'task_split_state:'
@@ -1070,9 +1078,10 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
         // 检查是否为错误响应（CLI 返回的 is_error: true）
         if (record.is_error === true) {
           const errorMessages = record.errors
+          const fallback = record.subtype ?? record.stop_reason
           const errorMsg = Array.isArray(errorMessages) && errorMessages.length > 0
             ? errorMessages.join('; ')
-            : (record.subtype || record.stop_reason || 'AI 执行出错')
+            : (typeof fallback === 'string' ? fallback : 'AI 执行出错')
           return { error: errorMsg }
         }
 
@@ -1114,9 +1123,10 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
         // 检查是否为错误响应（CLI 返回的 is_error: true）
         if (record.is_error === true) {
           const errorMessages = record.errors
+          const fallback = record.subtype ?? record.stop_reason
           const errorMsg = Array.isArray(errorMessages) && errorMessages.length > 0
             ? errorMessages.join('; ')
-            : (record.subtype || record.stop_reason || 'AI 执行出错')
+            : (typeof fallback === 'string' ? fallback : 'AI 执行出错')
           return { error: errorMsg }
         }
 
@@ -1268,6 +1278,121 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     splitResult.value.push(task)
   }
 
+  // ==================== 子拆分模式方法 ====================
+
+  /**
+   * 启动子拆分模式
+   * @param taskIndex 要拆分的任务索引
+   * @param config 拆分配置
+   */
+  async function startSubSplit(taskIndex: number, config: TaskResplitConfig) {
+    if (!context.value || !splitResult.value || !splitResult.value[taskIndex]) {
+      logger.warn('[TaskSplit] startSubSplit: 无效的任务索引或上下文')
+      return
+    }
+
+    const targetTask = splitResult.value[taskIndex]
+
+    // 保存原始状态
+    subSplitOriginalTasks.value = [...splitResult.value]
+    subSplitTargetIndex.value = taskIndex
+    subSplitConfig.value = config
+    subSplitMode.value = true
+
+    // 清空当前拆分结果（准备接收子任务）
+    splitResult.value = null
+    currentFormId.value = null
+
+    // 重置消息（可选：保留原始消息历史）
+    messages.value = []
+    llmMessages.value = [
+      {
+        role: 'system',
+        content: buildPlanSplitSystemPrompt()
+      }
+    ]
+
+    // 构建子拆分的 kickoff prompt
+    const kickoffPrompt = buildTaskResplitKickoffPrompt({
+      planName: context.value.planName,
+      planDescription: context.value.planDescription,
+      taskTitle: targetTask.title,
+      taskDescription: targetTask.description,
+      implementationSteps: targetTask.implementationSteps || [],
+      testSteps: targetTask.testSteps || [],
+      acceptanceCriteria: targetTask.acceptanceCriteria,
+      userPrompt: config.customPrompt,
+      minTaskCount: config.granularity
+    })
+
+    // 显示任务上下文
+    const displayContent = [
+      `继续拆分任务：${targetTask.title}`,
+      `原任务描述：${targetTask.description || '（无）'}`,
+      `拆分颗粒度：至少 ${config.granularity} 个子任务`,
+      config.customPrompt ? `额外要求：${config.customPrompt}` : ''
+    ].filter(Boolean).join('\n')
+
+    // 更新上下文（使用新的颗粒度）
+    const newContext: TaskSplitContext = {
+      ...context.value,
+      granularity: config.granularity,
+      agentId: config.agentId || context.value.agentId,
+      modelId: config.modelId || context.value.modelId
+    }
+    context.value = newContext
+
+    await submitUserMessage(kickoffPrompt, {
+      visible: true,
+      displayContent
+    })
+  }
+
+  /**
+   * 完成子拆分
+   * @param newTasks 拆分后的新任务列表
+   */
+  function completeSubSplit(newTasks: AITaskItem[]) {
+    if (!subSplitMode.value || subSplitTargetIndex.value === null) {
+      logger.warn('[TaskSplit] completeSubSplit: 不在子拆分模式中')
+      return
+    }
+
+    // 从原始任务列表中移除被拆分的任务
+    const originalTasks = [...subSplitOriginalTasks.value]
+    originalTasks.splice(subSplitTargetIndex.value, 1)
+
+    // 将新任务追加到末尾
+    const updatedTasks = [...originalTasks, ...newTasks]
+
+    // 更新拆分结果
+    splitResult.value = updatedTasks
+
+    // 重置子拆分状态
+    subSplitMode.value = false
+    subSplitTargetIndex.value = null
+    subSplitOriginalTasks.value = []
+    subSplitConfig.value = null
+  }
+
+  /**
+   * 取消子拆分
+   */
+  function cancelSubSplit() {
+    if (!subSplitMode.value) {
+      return
+    }
+
+    // 恢复原始任务列表
+    splitResult.value = [...subSplitOriginalTasks.value]
+
+    // 重置子拆分状态
+    subSplitMode.value = false
+    subSplitTargetIndex.value = null
+    subSplitOriginalTasks.value = []
+    subSplitConfig.value = null
+  }
+
   async function abort() {
     isCancelled.value = true
     await taskSplitOrchestrator.abort()
@@ -1281,6 +1406,11 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     context.value = null
     llmMessages.value = []
     isCancelled.value = false
+    // 重置子拆分状态
+    subSplitMode.value = false
+    subSplitTargetIndex.value = null
+    subSplitOriginalTasks.value = []
+    subSplitConfig.value = null
   }
 
   // 清除当前计划的所有拆分数据（localStorage + 数据库）
@@ -1297,18 +1427,29 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     splitResult,
     currentFormId,
     context,
+    // 子拆分模式状态
+    subSplitMode,
+    subSplitTargetIndex,
+    subSplitOriginalTasks,
+    subSplitConfig,
     initSession,
     submitUserMessage,
     submitFormResponse,
     updateSplitTask,
     removeSplitTask,
     addSplitTask,
+    // 子拆分方法
+    startSubSplit,
+    completeSubSplit,
+    cancelSubSplit,
     abort,
     reset,
     // 持久化相关
     persistCurrentState,
     clearPersistedState,
     hasPersistedState,
-    clearAllSplitData
+    clearAllSplitData,
+    // 别名，保持向后兼容
+    clearPlanSplitSessions: clearAllSplitData
   }
 })

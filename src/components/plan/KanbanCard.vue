@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useTaskExecutionStore } from '@/stores/taskExecution'
+import { useTaskStore } from '@/stores/task'
 import type { Task, TaskPriority } from '@/types/plan'
 
 const props = defineProps<{
@@ -12,21 +14,77 @@ const emit = defineEmits<{
   (e: 'retry', task: Task): void
   (e: 'edit', task: Task): void
   (e: 'delete', task: Task): void
+  (e: 'skip', task: Task): void
 }>()
+
+const taskExecutionStore = useTaskExecutionStore()
+const taskStore = useTaskStore()
+
+// 任务执行状态
+const executionState = computed(() => {
+  return taskExecutionStore.getExecutionState(props.task.id)
+})
+
+// 是否正在执行（包括排队中）
+const isExecuting = computed(() => {
+  return taskExecutionStore.isTaskExecuting(props.task.id)
+})
+
+// 是否正在运行（不包括排队中）
+const isRunning = computed(() => {
+  return taskExecutionStore.isTaskRunning(props.task.id)
+})
+
+// 是否等待用户输入
+const isWaitingInput = computed(() => {
+  return props.task.status === 'blocked' && props.task.blockReason === 'waiting_input'
+})
+
+// 排队位置
+const queuePosition = computed(() => {
+  return taskExecutionStore.getQueuePosition(props.task.id)
+})
+
+// 未满足的依赖数量
+const unmetDependenciesCount = computed(() => {
+  return taskStore.getUnmetDependenciesCount(props.task.id)
+})
+
+// 执行状态文本
+const executionStatusText = computed(() => {
+  if (isWaitingInput.value) return '等待输入'
+  if (isRunning.value) return '执行中...'
+  if (queuePosition.value > 0) return `排队中 #${queuePosition.value}`
+  if (unmetDependenciesCount.value > 0) return `等待依赖 (${unmetDependenciesCount.value})`
+  return ''
+})
 
 // 是否显示停止按钮
 const showStopButton = computed(() => {
-  return props.task.status === 'in_progress'
+  return isExecuting.value || props.task.status === 'in_progress'
 })
 
-// 是否显示重试按钮
+// 是否显示重试按钮 - 执行失败(failed)的任务显示
 const showRetryButton = computed(() => {
-  return props.task.status === 'blocked'
+  return props.task.status === 'failed'
 })
 
-// 是否显示删除按钮
+// 是否显示跳过按钮 - 等待输入的任务显示
+const showSkipButton = computed(() => {
+  return isWaitingInput.value
+})
+
+// 是否显示删除按钮 - 待办且未执行中，或已完成的任务
 const showDeleteButton = computed(() => {
-  return props.task.status === 'pending'
+  if (props.task.status === 'completed') return true
+  return props.task.status === 'pending' && !isExecuting.value
+})
+
+// 是否显示编辑按钮 - 正在运行和已完成的任务不能编辑
+const showEditButton = computed(() => {
+  if (isRunning.value) return false
+  if (props.task.status === 'completed') return false
+  return true
 })
 
 // 优先级标签
@@ -81,6 +139,12 @@ function handleDelete(event: Event) {
   event.stopPropagation()
   emit('delete', props.task)
 }
+
+// 跳过任务
+function handleSkip(event: Event) {
+  event.stopPropagation()
+  emit('skip', props.task)
+}
 </script>
 
 <template>
@@ -89,7 +153,10 @@ function handleDelete(event: Event) {
     :class="{
       active: false,
       'is-blocked': task.status === 'blocked',
-      'is-running': task.status === 'in_progress'
+      'is-failed': task.status === 'failed',
+      'is-waiting-input': isWaitingInput,
+      'is-running': isRunning,
+      'is-queued': queuePosition > 0
     }"
     @click="handleClick"
   >
@@ -110,9 +177,28 @@ function handleDelete(event: Event) {
       {{ task.description }}
     </p>
 
+    <!-- 等待输入状态提示 -->
+    <div
+      v-if="isWaitingInput"
+      class="waiting-input-badge"
+    >
+      <span class="badge-icon">⏸</span>
+      <span class="badge-text">等待输入</span>
+    </div>
+
+    <!-- 执行状态指示器 -->
+    <div
+      v-if="executionStatusText && !isWaitingInput"
+      class="execution-status"
+      :class="{ 'is-running': isRunning }"
+    >
+      <span class="status-indicator" />
+      <span class="status-text">{{ executionStatusText }}</span>
+    </div>
+
     <!-- 重试信息 -->
     <div
-      v-if="task.retryCount > 0 || task.status === 'blocked'"
+      v-if="task.retryCount > 0 || task.status === 'failed'"
       class="retry-info"
     >
       <span
@@ -167,6 +253,7 @@ function handleDelete(event: Event) {
               y="6"
               width="12"
               height="12"
+              rx="2"
             />
           </svg>
         </button>
@@ -193,7 +280,7 @@ function handleDelete(event: Event) {
 
         <!-- 编辑按钮 -->
         <button
-          v-if="task.status !== 'in_progress'"
+          v-if="showEditButton"
           class="btn-action btn-edit"
           title="编辑"
           @click="handleEdit"
@@ -265,9 +352,91 @@ function handleDelete(event: Event) {
   background-color: #fef2f2;
 }
 
+.kanban-card.is-failed {
+  border-color: #fca5a5;
+  background-color: #fef2f2;
+}
+
+.kanban-card.is-waiting-input {
+  border-color: #fcd34d;
+  background-color: #fffbeb;
+}
+
+/* 正在执行的任务 - 淡绿色背景 + 进度条动画 */
 .kanban-card.is-running {
-  border-color: var(--color-primary-light, #bfdbfe);
-  background-color: #eff6ff;
+  position: relative;
+  border-color: #86efac;
+  background-color: #f0fdf4;
+  overflow: hidden;
+}
+
+/* 进度条动画层 */
+.kanban-card.is-running::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(134, 239, 172, 0.3) 25%,
+    rgba(134, 239, 172, 0.5) 50%,
+    rgba(134, 239, 172, 0.3) 75%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: progress-sweep 2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes progress-sweep {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+/* 排队中的任务 - 淡黄色背景 */
+.kanban-card.is-queued {
+  border-color: #fde68a;
+  background-color: #fffbeb;
+}
+
+.execution-status {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-top: var(--spacing-2, 0.5rem);
+  font-size: 0.6875rem;
+  color: var(--color-text-secondary, #64748b);
+}
+
+.execution-status.is-running {
+  color: var(--color-primary, #3b82f6);
+}
+
+.status-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--color-primary, #3b82f6);
+}
+
+.execution-status.is-running .status-indicator {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
 }
 
 .card-header {
@@ -375,12 +544,8 @@ function handleDelete(event: Event) {
   display: flex;
   align-items: center;
   gap: 2px;
-  opacity: 0;
-  transition: opacity var(--transition-fast, 150ms);
-}
-
-.kanban-card:hover .card-actions {
   opacity: 1;
+  transition: opacity var(--transition-fast, 150ms);
 }
 
 .btn-action {

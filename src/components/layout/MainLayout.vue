@@ -12,6 +12,7 @@ import MessageArea from './MessageArea.vue'
 import PanelResizer from './PanelResizer.vue'
 import WelcomePage from './WelcomePage.vue'
 import { PlanModePanel } from '@/components/plan'
+import { MemoryModePanel } from '@/components/memory'
 import { FileEditorWorkspace } from '@/modules/file-editor'
 
 const layoutStore = useLayoutStore()
@@ -74,6 +75,12 @@ onUnmounted(() => {
         <template v-if="uiStore.appMode === 'plan'">
           <SideNavRail />
           <PlanModePanel class="main-layout__plan-panel" />
+        </template>
+
+        <!-- 记忆模式：全屏显示记忆面板 -->
+        <template v-else-if="uiStore.appMode === 'memory'">
+          <SideNavRail />
+          <MemoryModePanel class="main-layout__memory-panel" />
         </template>
 
         <!-- 普通会话模式 -->
@@ -163,6 +170,11 @@ onUnmounted(() => {
 }
 
 .main-layout__plan-panel {
+  flex: 1;
+  min-width: 0;
+}
+
+.main-layout__memory-panel {
   flex: 1;
   min-width: 0;
 }

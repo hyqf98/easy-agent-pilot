@@ -2,6 +2,7 @@
 import { ref, watch, computed } from 'vue'
 import draggable from 'vuedraggable'
 import KanbanCard from './KanbanCard.vue'
+import { useTaskExecutionStore } from '@/stores/taskExecution'
 import type { Task, TaskStatus } from '@/types/plan'
 
 const props = withDefaults(defineProps<{
@@ -17,28 +18,62 @@ const emit = defineEmits<{
   (e: 'taskDrop', taskId: string, status: TaskStatus): void
   (e: 'taskClick', task: Task): void
   (e: 'taskReorder', taskId: string, targetIndex: number): void
+  (e: 'taskEdit', task: Task): void
+  (e: 'taskStop', task: Task): void
+  (e: 'taskRetry', task: Task): void
+  (e: 'taskDelete', task: Task): void
+  (e: 'executeAll'): void
+  (e: 'startExecution'): void
 }>()
+
+const taskExecutionStore = useTaskExecutionStore()
 
 // 本地任务列表（用于 vuedraggable）
 const localTasks = ref<Task[]>([...(props.tasks || [])])
 
-// 记录上一次的任务 ID 列表，用于检测变化
-let lastTaskIds: string = ''
+// 记录上一次的任务数据快照，用于检测变化
+let lastTasksSnapshot: string = ''
 
-// 监听外部 tasks 变化，同步到本地（仅在 ID 列表变化时更新）
+// 监听外部 tasks 变化，同步到本地
+// 需要检测任务属性变化（如 dependencies），而不仅仅是 ID 列表变化
 watch(() => props.tasks, (newTasks) => {
-  const newIds = (newTasks || []).map(t => t.id).join(',')
-  if (newIds !== lastTaskIds) {
+  // 序列化任务数据以检测任何属性变化
+  const snapshot = JSON.stringify((newTasks || []).map(t => ({
+    id: t.id,
+    status: t.status,
+    dependencies: t.dependencies,
+    order: t.order
+  })))
+  if (snapshot !== lastTasksSnapshot) {
     localTasks.value = [...(newTasks || [])]
-    lastTaskIds = newIds
+    lastTasksSnapshot = snapshot
   }
 }, { immediate: true })
 
-// 拖拽组配置
-const dragGroup = {
+// 拖拽组配置 - 只禁止正在运行的任务拖出（排队中的任务可以拖动）
+const dragGroup = computed(() => ({
   name: 'tasks',
-  pull: true,
+  pull: (value: any) => {
+    const taskId = value?.element?.id
+    // 只禁止正在运行的任务拖出（不包括排队中）
+    if (taskId && taskExecutionStore.isTaskRunning(taskId)) {
+      return false
+    }
+    return true
+  },
   put: true
+}))
+
+// 检查是否允许移动 - 只禁止正在运行的任务拖拽（排队中的任务可以拖动）
+function checkMove(evt: any): boolean {
+  const task = evt.draggedContext?.element
+  if (!task) return true
+
+  // 只禁止正在运行的任务拖拽（不包括排队中）
+  if (taskExecutionStore.isTaskRunning(task.id)) {
+    return false
+  }
+  return true
 }
 
 // 拖拽变化处理
@@ -62,6 +97,36 @@ function onDragChange(evt: any) {
 function handleTaskClick(task: Task) {
   emit('taskClick', task)
 }
+
+// 处理任务编辑
+function handleTaskEdit(task: Task) {
+  emit('taskEdit', task)
+}
+
+// 处理任务停止
+function handleTaskStop(task: Task) {
+  emit('taskStop', task)
+}
+
+// 处理任务重试
+function handleTaskRetry(task: Task) {
+  emit('taskRetry', task)
+}
+
+// 处理任务删除
+function handleTaskDelete(task: Task) {
+  emit('taskDelete', task)
+}
+
+// 处理一键执行
+function handleExecuteAll() {
+  emit('executeAll')
+}
+
+// 处理开始执行
+function handleStartExecution() {
+  emit('startExecution')
+}
 </script>
 
 <template>
@@ -75,11 +140,52 @@ function handleTaskClick(task: Task) {
         <span class="column-label">{{ title }}</span>
         <span class="column-count">{{ tasks.length }}</span>
       </div>
+      <div class="header-right">
+        <!-- 待办列：一键执行按钮 -->
+        <button
+          v-if="status === 'pending' && tasks.length > 0"
+          class="btn-header btn-execute-all"
+          title="一键执行所有待办任务"
+          @click="handleExecuteAll"
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <polygon points="5 3 19 12 5 21 5 3" />
+          </svg>
+          <span>一键执行</span>
+        </button>
+        <!-- 进行中列：开始执行按钮 -->
+        <button
+          v-if="status === 'in_progress' && tasks.length > 0"
+          class="btn-header btn-start"
+          title="开始执行进行中的任务"
+          @click="handleStartExecution"
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <polygon points="5 3 19 12 5 21 5 3" />
+          </svg>
+          <span>开始</span>
+        </button>
+      </div>
     </div>
 
     <draggable
       v-model="localTasks"
       :group="dragGroup"
+      :move="checkMove"
       :animation="150"
       ghost-class="ghost-card"
       chosen-class="chosen-card"
@@ -92,10 +198,18 @@ function handleTaskClick(task: Task) {
       @change="onDragChange"
     >
       <template #item="{ element: task }">
-        <div class="drag-item" :data-task-id="task.id">
+        <div
+          class="drag-item"
+          :class="{ 'is-running': taskExecutionStore.isTaskRunning(task.id) }"
+          :data-task-id="task.id"
+        >
           <KanbanCard
             :task="task"
             @click="handleTaskClick"
+            @edit="handleTaskEdit"
+            @stop="handleTaskStop"
+            @retry="handleTaskRetry"
+            @delete="handleTaskDelete"
           />
         </div>
       </template>
@@ -149,11 +263,46 @@ function handleTaskClick(task: Task) {
 .column-dot.gray { background-color: #94a3b8; }
 .column-dot.blue { background-color: #3b82f6; }
 .column-dot.green { background-color: #10b981; }
+.column-dot.yellow { background-color: #f59e0b; }
 .column-dot.red { background-color: #ef4444; }
 
 .column-label {
   font-size: var(--font-size-sm, 13px);
   color: var(--color-text-primary, #1e293b);
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1, 0.25rem);
+}
+
+.btn-header {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  background-color: var(--color-primary, #3b82f6);
+  color: #fff;
+  font-size: 0.6875rem;
+  font-weight: var(--font-weight-medium, 500);
+  cursor: pointer;
+  transition: all var(--transition-fast, 150ms);
+}
+
+.btn-header:hover {
+  background-color: var(--color-primary-dark, #2563eb);
+  transform: translateY(-1px);
+}
+
+.btn-header:active {
+  transform: translateY(0);
+}
+
+.btn-header span {
+  line-height: 1;
 }
 
 .column-count {
@@ -198,6 +347,14 @@ function handleTaskClick(task: Task) {
 
 .drag-item:active {
   cursor: grabbing;
+}
+
+.drag-item.is-running {
+  cursor: not-allowed;
+}
+
+.drag-item.is-running:active {
+  cursor: not-allowed;
 }
 
 .empty-column {

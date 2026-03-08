@@ -5,11 +5,9 @@ import { useProjectStore } from '@/stores/project'
 import { useAgentStore, type AgentConfig } from '@/stores/agent'
 import { useAgentConfigStore } from '@/stores/agentConfig'
 import { useSkillConfigStore } from '@/stores/skillConfig'
-import { useBrainstormStore } from '@/stores/brainstorm'
 import { useTokenStore } from '@/stores/token'
 import { agentExecutor } from './AgentExecutor'
 import type { ConversationContext, StreamEvent, McpServerConfig } from './strategies/types'
-import { buildBrainstormSystemPrompt, extractBrainstormPayload, executeTodoOpsInternalTool } from '@/services/brainstorm'
 import { compressionService } from '@/services/compression/CompressionService'
 
 /**
@@ -48,7 +46,6 @@ export class ConversationService {
     const agentStore = useAgentStore()
     const agentConfigStore = useAgentConfigStore()
     const skillConfigStore = useSkillConfigStore()
-    const brainstormStore = useBrainstormStore()
 
     // 获取智能体配置
     const agent = agentStore.agents.find(a => a.id === agentId)
@@ -113,8 +110,6 @@ export class ConversationService {
         }
       }
 
-      await brainstormStore.loadSession(sessionId)
-
       // 获取启用的 MCP 配置
       const enabledMcpIds = sessionExecutionStore.getEnabledMcpIds(sessionId)
       let mcpServers: McpServerConfig[] | undefined
@@ -154,24 +149,7 @@ export class ConversationService {
       }
 
       // 构建对话上下文
-      const brainstormMode = brainstormStore.getSessionMode(sessionId)
-      let messages = messageStore.messagesBySession(sessionId)
-
-      if (brainstormMode === 'brainstorm') {
-        const systemPrompt = buildBrainstormSystemPrompt({
-          context: brainstormStore.getSessionContext(sessionId),
-          todos: brainstormStore.getSessionTodos(sessionId)
-        })
-        const systemMessage: Message = {
-          id: `brainstorm-system-${sessionId}`,
-          sessionId,
-          role: 'system',
-          content: systemPrompt,
-          status: 'completed',
-          createdAt: new Date().toISOString()
-        }
-        messages = [systemMessage, ...messages]
-      }
+      const messages = messageStore.messagesBySession(sessionId)
 
       const context: ConversationContext = {
         sessionId,
@@ -185,85 +163,10 @@ export class ConversationService {
 
       // 执行对话
       await this.executeConversation(context, aiMessage, sessionId)
-      if (brainstormMode === 'brainstorm') {
-        await this.processBrainstormAssistantOutput(sessionId, aiMessage.id)
-      }
 
     } catch (error) {
       sessionExecutionStore.endSending(sessionId)
       throw error
-    }
-  }
-
-  private async processBrainstormAssistantOutput(
-    sessionId: string,
-    assistantMessageId: string
-  ): Promise<void> {
-    const messageStore = useMessageStore()
-    const sessionStore = useSessionStore()
-    const brainstormStore = useBrainstormStore()
-
-    const assistantMessage = messageStore.messages.find(
-      message => message.id === assistantMessageId && message.role === 'assistant'
-    )
-
-    if (!assistantMessage) {
-      return
-    }
-
-    const parsed = extractBrainstormPayload(assistantMessage.content)
-    const updates: Partial<Message> = {}
-
-    if (parsed.displayContent !== assistantMessage.content) {
-      updates.content = parsed.displayContent
-    }
-
-    if (!parsed.payload) {
-      if (Object.keys(updates).length > 0) {
-        await messageStore.updateMessage(assistantMessage.id, updates)
-      }
-      return
-    }
-
-    if (parsed.payload.contextPatch) {
-      await brainstormStore.patchSessionContext(sessionId, parsed.payload.contextPatch)
-    }
-
-    if (parsed.payload.formRequest) {
-      brainstormStore.setPendingForm(sessionId, parsed.payload.formRequest)
-      if (!((updates.content ?? assistantMessage.content).trim()) && parsed.payload.formRequest.question) {
-        updates.content = parsed.payload.formRequest.question
-      }
-    }
-
-    if (parsed.payload.todoOps && parsed.payload.todoOps.length > 0) {
-      const toolResult = await executeTodoOpsInternalTool({
-        sessionId,
-        sourceMessageId: assistantMessage.id,
-        ops: parsed.payload.todoOps,
-        apply: async (targetSessionId, ops, sourceMessageId) => {
-          return brainstormStore.applyTodoOps(targetSessionId, ops, sourceMessageId)
-        }
-      })
-
-      const mergedToolCalls = assistantMessage.toolCalls
-        ? [...assistantMessage.toolCalls, toolResult.toolCall]
-        : [toolResult.toolCall]
-
-      updates.toolCalls = mergedToolCalls
-    }
-
-    if (Object.keys(updates).length > 0) {
-      await messageStore.updateMessage(assistantMessage.id, updates)
-      if (typeof updates.content === 'string') {
-        try {
-          await sessionStore.updateSession(sessionId, {
-            lastMessage: updates.content.slice(0, 50)
-          })
-        } catch (error) {
-          console.warn('[ConversationService] Failed to sync brainstorm preview:', error)
-        }
-      }
     }
   }
 

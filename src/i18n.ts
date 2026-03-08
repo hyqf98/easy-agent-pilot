@@ -2,19 +2,15 @@ import { createI18n } from 'vue-i18n'
 import zhCN from './locales/zh-CN'
 import enUS from './locales/en-US'
 
+// 语言设置存储键
+const LANGUAGE_STORAGE_KEY = 'ea-language'
+
 // 获取保存的语言设置或使用浏览器语言
 function getDefaultLocale(): string {
-  // 首先尝试从 localStorage 获取
-  const savedSettings = localStorage.getItem('ea-settings')
-  if (savedSettings) {
-    try {
-      const settings = JSON.parse(savedSettings)
-      if (settings.language) {
-        return settings.language
-      }
-    } catch {
-      // ignore
-    }
+  // 首先尝试从 localStorage 获取直接保存的语言设置
+  const savedLanguage = localStorage.getItem(LANGUAGE_STORAGE_KEY)
+  if (savedLanguage === 'zh-CN' || savedLanguage === 'en-US') {
+    return savedLanguage
   }
 
   // 然后尝试使用浏览器语言
@@ -32,8 +28,8 @@ const i18n = createI18n<[MessageSchema], 'zh-CN' | 'en-US'>({
   locale: getDefaultLocale(),
   fallbackLocale: 'en-US',
   messages: {
-    'zh-CN': zhCN,
-    'en-US': enUS
+    'zh-CN': zhCN as MessageSchema,
+    'en-US': enUS as MessageSchema
   }
 })
 
@@ -46,6 +42,8 @@ export function setLocale(locale: 'zh-CN' | 'en-US'): void {
   } else {
     (i18n.global.locale as any).value = locale
   }
+  // 保存到 localStorage，确保下次启动时能正确加载
+  localStorage.setItem(LANGUAGE_STORAGE_KEY, locale)
   // 更新 HTML lang 属性
   document.documentElement.lang = locale === 'zh-CN' ? 'zh-CN' : 'en'
 }

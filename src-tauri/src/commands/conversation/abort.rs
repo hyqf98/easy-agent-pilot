@@ -7,6 +7,8 @@ use tokio::sync::RwLock;
 // 全局中断状态存储
 lazy_static::lazy_static! {
     static ref ABORT_FLAGS: Arc<RwLock<HashMap<String, Arc<AtomicBool>>>> = Arc::new(RwLock::new(HashMap::new()));
+    // 存储会话 ID 到进程 PID 的映射
+    static ref SESSION_PIDS: Arc<RwLock<HashMap<String, u32>>> = Arc::new(RwLock::new(HashMap::new()));
 }
 
 /// 获取或创建中断标志
@@ -27,6 +29,11 @@ pub async fn get_abort_flag(session_id: &str) -> Arc<AtomicBool> {
 pub async fn set_abort_flag(session_id: &str, abort: bool) {
     let flag = get_abort_flag(session_id).await;
     flag.store(abort, Ordering::SeqCst);
+
+    // 如果是设置中断（abort = true），同时杀死对应的进程
+    if abort {
+        kill_session_process(session_id).await;
+    }
 }
 
 /// 检查是否应该中断
@@ -38,4 +45,123 @@ pub async fn should_abort(session_id: &str) -> bool {
 pub async fn clear_abort_flag(session_id: &str) {
     let mut flags = ABORT_FLAGS.write().await;
     flags.remove(session_id);
+
+    // 同时清理 PID 记录
+    let mut pids = SESSION_PIDS.write().await;
+    pids.remove(session_id);
+}
+
+/// 注册会话的进程 PID
+pub async fn register_session_pid(session_id: &str, pid: u32) {
+    let mut pids = SESSION_PIDS.write().await;
+    pids.insert(session_id.to_string(), pid);
+    println!(
+        "[INFO][abort] 注册进程 PID: session={}, pid={}",
+        session_id, pid
+    );
+}
+
+/// 注销会话的进程 PID
+pub async fn unregister_session_pid(session_id: &str) {
+    let mut pids = SESSION_PIDS.write().await;
+    pids.remove(session_id);
+}
+
+/// 杀死会话对应的进程
+pub async fn kill_session_process(session_id: &str) {
+    let pids = SESSION_PIDS.read().await;
+    if let Some(&pid) = pids.get(session_id) {
+        drop(pids); // 释放读锁
+
+        println!(
+            "[INFO][abort] 尝试杀死进程: session={}, pid={}",
+            session_id, pid
+        );
+
+        // 使用系统命令杀死进程
+        #[cfg(target_os = "windows")]
+        {
+            use std::process::Command;
+            // Windows 上使用 taskkill 命令强制终止进程树
+            let output = Command::new("taskkill")
+                .args(["/F", "/T", "/PID", &pid.to_string()])
+                .output();
+
+            match output {
+                Ok(output) => {
+                    if output.status.success() {
+                        println!("[INFO][abort] 成功杀死进程: pid={}", pid);
+                    } else {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        println!("[ERROR][abort] 杀死进程失败: pid={}, error={}", pid, stderr);
+                    }
+                }
+                Err(e) => {
+                    println!("[ERROR][abort] 执行 taskkill 失败: {}", e);
+                }
+            }
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            use std::process::Command;
+            // macOS: 先杀死子进程，再杀死主进程
+            // 使用 pkill 杀死所有子进程
+            let _ = Command::new("pkill")
+                .args(["-TERM", "-P", &pid.to_string()])
+                .output();
+
+            // 然后杀死主进程
+            let output = Command::new("kill")
+                .args(["-9", &pid.to_string()])
+                .output();
+
+            match output {
+                Ok(output) => {
+                    if output.status.success() {
+                        println!("[INFO][abort] 成功杀死进程 (macOS): pid={}", pid);
+                    } else {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        println!("[ERROR][abort] 杀死进程失败 (macOS): pid={}, error={}", pid, stderr);
+                    }
+                }
+                Err(e) => {
+                    println!("[ERROR][abort] 执行 kill 失败 (macOS): {}", e);
+                }
+            }
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            use std::process::Command;
+            // Linux: 先杀死子进程，再杀死主进程
+            // 使用 pkill 杀死所有子进程
+            let _ = Command::new("pkill")
+                .args(["-TERM", "-P", &pid.to_string()])
+                .output();
+
+            // 然后杀死主进程
+            let output = Command::new("kill")
+                .args(["-9", &pid.to_string()])
+                .output();
+
+            match output {
+                Ok(output) => {
+                    if output.status.success() {
+                        println!("[INFO][abort] 成功杀死进程 (Linux): pid={}", pid);
+                    } else {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        println!("[ERROR][abort] 杀死进程失败 (Linux): pid={}, error={}", pid, stderr);
+                    }
+                }
+                Err(e) => {
+                    println!("[ERROR][abort] 执行 kill 失败 (Linux): {}", e);
+                }
+            }
+        }
+
+        // 清理 PID 记录
+        let mut pids = SESSION_PIDS.write().await;
+        pids.remove(session_id);
+    }
 }

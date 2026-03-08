@@ -186,7 +186,7 @@ async function handleOpenFile() {
           @click="activeTab = 'mcp'"
         >
           <EaIcon name="lucide:server" />
-          MCP
+          {{ t('settings.integration.tabs.mcp') }}
         </button>
         <button
           class="skill-config-page__tab"
@@ -194,7 +194,7 @@ async function handleOpenFile() {
           @click="activeTab = 'skills'"
         >
           <EaIcon name="lucide:book-open" />
-          Skills
+          {{ t('settings.integration.tabs.skills') }}
         </button>
         <button
           v-if="showPluginsTab"
@@ -203,7 +203,7 @@ async function handleOpenFile() {
           @click="activeTab = 'plugins'"
         >
           <EaIcon name="lucide:puzzle" />
-          Plugins
+          {{ t('settings.integration.tabs.plugins') }}
         </button>
       </div>
 

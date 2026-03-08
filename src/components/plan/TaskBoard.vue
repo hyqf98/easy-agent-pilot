@@ -1,12 +1,24 @@
 <script setup lang="ts">
-import { computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import KanbanColumn from './KanbanColumn.vue'
+import TaskEditModal from './TaskEditModal.vue'
 import { usePlanStore } from '@/stores/plan'
 import { useTaskStore } from '@/stores/task'
+import { useTaskExecutionStore } from '@/stores/taskExecution'
+import { useConfirmDialog } from '@/composables'
 import type { Task, TaskStatus, TaskOrderItem } from '@/types/plan'
 
 const planStore = usePlanStore()
 const taskStore = useTaskStore()
+const taskExecutionStore = useTaskExecutionStore()
+const confirmDialog = useConfirmDialog()
+const emit = defineEmits<{
+  (e: 'task-click', task: Task): void
+}>()
+
+// 编辑对话框状态
+const showEditModal = ref(false)
+const editingTask = ref<Task | null>(null)
 
 // 当前计划 ID
 const currentPlanId = computed(() => planStore.currentPlanId)
@@ -26,6 +38,7 @@ const tasksByStatus = computed(() => {
     in_progress: [],
     completed: [],
     blocked: [],
+    failed: [],
     cancelled: []
   }
 
@@ -49,7 +62,8 @@ const taskStats = computed(() => ({
   pending: tasks.value.filter(t => t.status === 'pending').length,
   inProgress: tasks.value.filter(t => t.status === 'in_progress').length,
   completed: tasks.value.filter(t => t.status === 'completed').length,
-  cancelled: tasks.value.filter(t => t.status === 'blocked' || t.status === 'cancelled').length
+  blocked: tasks.value.filter(t => t.status === 'blocked').length,
+  failed: tasks.value.filter(t => t.status === 'failed').length
 }))
 
 // 看板列配置
@@ -57,7 +71,8 @@ const columns: Array<{ status: TaskStatus; label: string; color: string }> = [
   { status: 'pending', label: '待办', color: 'gray' },
   { status: 'in_progress', label: '进行中', color: 'blue' },
   { status: 'completed', label: '已完成', color: 'green' },
-  { status: 'blocked', label: '已取消', color: 'red' }
+  { status: 'blocked', label: '阻塞', color: 'yellow' },
+  { status: 'failed', label: '执行失败', color: 'red' }
 ]
 
 // 加载任务数据
@@ -86,6 +101,11 @@ async function handleTaskDrop(taskId: string, newStatus: TaskStatus) {
   const task = tasks.value.find(t => t.id === taskId)
   if (!task || task.status === newStatus) return
 
+  // 检查是否正在执行（禁止拖动执行中的任务）
+  if (taskExecutionStore.isTaskExecuting(taskId)) {
+    return
+  }
+
   // 计算新位置
   const targetColumnTasks = tasksByStatus.value[newStatus]
   const newOrder = targetColumnTasks.length
@@ -94,6 +114,38 @@ async function handleTaskDrop(taskId: string, newStatus: TaskStatus) {
   const oldStatus = task.status
   task.status = newStatus
   task.order = newOrder
+
+  // 移动到待办时，清除执行日志
+  if (newStatus === 'pending' && oldStatus !== 'pending') {
+    try {
+      await taskExecutionStore.clearTaskLogs(taskId)
+    } catch (error) {
+      console.warn('Failed to clear task logs:', error)
+    }
+  }
+
+  // 拖到 in_progress 时触发 AI 执行
+  if (newStatus === 'in_progress' && oldStatus === 'pending') {
+    try {
+      // 先更新任务状态
+      await taskStore.updateTask(taskId, {
+        status: newStatus,
+        order: newOrder
+      })
+
+      // 更新计划状态为执行中
+      if (currentPlanId.value) {
+        await planStore.startPlanExecution(currentPlanId.value)
+        // 触发 AI 执行
+        await taskExecutionStore.enqueueTask(currentPlanId.value, taskId)
+      }
+    } catch (error) {
+      // 回滚
+      task.status = oldStatus
+      console.error('Failed to start task execution:', error)
+    }
+    return
+  }
 
   try {
     // 更新后端
@@ -148,6 +200,107 @@ async function handleTaskReorder(taskId: string, targetIndex: number) {
 // 选择任务
 function selectTask(task: Task) {
   taskStore.setCurrentTask(task.id)
+  taskExecutionStore.setCurrentViewingTask(task.id)
+  void taskExecutionStore.loadTaskLogs(task.id)
+  emit('task-click', task)
+}
+
+// 编辑任务
+function handleTaskEdit(task: Task) {
+  editingTask.value = task
+  showEditModal.value = true
+}
+
+// 停止任务
+async function handleTaskStop(task: Task) {
+  try {
+    await taskExecutionStore.stopTaskExecution(task.id)
+  } catch (error) {
+    console.error('Failed to stop task:', error)
+  }
+}
+
+// 重试任务
+async function handleTaskRetry(task: Task) {
+  try {
+    if (currentPlanId.value) {
+      // 先清除持久化日志
+      await taskExecutionStore.clearTaskLogs(task.id)
+
+      // 更新任务状态为 in_progress
+      await taskStore.updateTask(task.id, {
+        status: 'in_progress',
+        errorMessage: undefined
+      })
+
+      // 加入执行队列
+      await taskExecutionStore.enqueueTask(currentPlanId.value, task.id)
+    }
+  } catch (error) {
+    console.error('Failed to retry task:', error)
+  }
+}
+
+// 删除任务
+async function handleTaskDelete(task: Task) {
+  const confirmed = await confirmDialog.danger(
+    `确定要删除任务「${task.title}」吗？`,
+    '删除任务'
+  )
+
+  if (confirmed) {
+    try {
+      await taskStore.deleteTask(task.id)
+    } catch (error) {
+      console.error('Failed to delete task:', error)
+    }
+  }
+}
+
+// 一键执行所有待办任务
+async function handleExecuteAll() {
+  if (!currentPlanId.value) return
+
+  const pendingTasks = tasksByStatus.value.pending
+  if (pendingTasks.length === 0) return
+
+  try {
+    // 1. 批量将待办任务状态更新为 in_progress
+    await taskStore.batchStartTasks(currentPlanId.value)
+
+    // 2. 更新计划状态为执行中
+    await planStore.startPlanExecution(currentPlanId.value)
+
+    // 3. 按顺序将任务加入执行队列（第一个任务会立即执行）
+    for (const task of pendingTasks) {
+      await taskExecutionStore.enqueueTask(currentPlanId.value, task.id)
+    }
+  } catch (error) {
+    console.error('Failed to execute all tasks:', error)
+  }
+}
+
+// 开始执行进行中的任务（程序异常退出后恢复）
+async function handleStartExecution() {
+  if (!currentPlanId.value) return
+
+  const inProgressTasks = tasksByStatus.value.in_progress
+  if (inProgressTasks.length === 0) return
+
+  try {
+    // 按顺序将进行中的任务加入执行队列
+    for (const task of inProgressTasks) {
+      await taskExecutionStore.enqueueTask(currentPlanId.value, task.id)
+    }
+  } catch (error) {
+    console.error('Failed to start execution:', error)
+  }
+}
+
+// 编辑保存后的回调
+function handleEditSaved() {
+  showEditModal.value = false
+  editingTask.value = null
 }
 </script>
 
@@ -164,8 +317,9 @@ function selectTask(task: Task) {
         <div class="task-stats">
           <span class="stat-item completed">{{ taskStats.completed }} 完成</span>
           <span class="stat-item in-progress">{{ taskStats.inProgress }} 进行中</span>
+          <span class="stat-item blocked">{{ taskStats.blocked }} 阻塞</span>
           <span class="stat-item pending">{{ taskStats.pending }} 待办</span>
-          <span class="stat-item cancelled">{{ taskStats.cancelled }} 已取消</span>
+          <span class="stat-item failed">{{ taskStats.failed }} 失败</span>
         </div>
       </div>
     </div>
@@ -198,8 +352,22 @@ function selectTask(task: Task) {
         @task-drop="handleTaskDrop"
         @task-click="selectTask"
         @task-reorder="handleTaskReorder"
+        @task-edit="handleTaskEdit"
+        @task-stop="handleTaskStop"
+        @task-retry="handleTaskRetry"
+        @task-delete="handleTaskDelete"
+        @execute-all="handleExecuteAll"
+        @start-execution="handleStartExecution"
       />
     </div>
+
+    <!-- 编辑任务对话框 -->
+    <TaskEditModal
+      v-if="editingTask"
+      v-model:visible="showEditModal"
+      :task="editingTask"
+      @saved="handleEditSaved"
+    />
   </div>
 </template>
 
@@ -252,8 +420,9 @@ function selectTask(task: Task) {
 }
 .stat-item.completed { color: #16a34a; }
 .stat-item.in-progress { color: #2563eb; }
+.stat-item.blocked { color: #f59e0b; }
 .stat-item.pending { color: #64748b; }
-.stat-item.cancelled { color: #ef4444; }
+.stat-item.failed { color: #ef4444; }
 .empty-state {
   flex: 1;
   display: flex;

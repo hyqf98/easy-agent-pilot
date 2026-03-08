@@ -10,3 +10,5 @@ export { useConfirmDialog } from './useConfirmDialog'
 export type { ConfirmDialogOptions } from './useConfirmDialog'
 
 export { useWindowEvents } from './useWindowEvents'
+
+export { useDependencySelector, checkCircularDependency, getAvailableDependencies } from './useDependencySelector'

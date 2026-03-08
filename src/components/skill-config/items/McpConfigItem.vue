@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import { computed } from 'vue'
 import type { UnifiedMcpConfig } from '@/stores/skillConfig'
 import { EaButton, EaIcon } from '@/components/common'
 
@@ -16,16 +17,22 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
+const isBuiltin = computed(() => props.config.transportType === 'builtin')
+
 function getTransportIcon(transport: string) {
   switch (transport) {
     case 'stdio': return 'lucide:terminal'
     case 'sse': return 'lucide:radio'
     case 'http': return 'lucide:globe'
+    case 'builtin': return 'lucide:cpu'
     default: return 'lucide:plug'
   }
 }
 
 function getTransportLabel(transport: string) {
+  if (transport === 'builtin') {
+    return 'BUILT-IN'
+  }
   return transport.toUpperCase()
 }
 
@@ -34,6 +41,9 @@ function getScopeLabel(scope: string) {
 }
 
 function getCommandDisplay() {
+  if (props.config.transportType === 'builtin') {
+    return t('settings.mcp.builtinServer')
+  }
   if (props.config.url) {
     return props.config.url
   }
@@ -56,12 +66,12 @@ function getCommandDisplay() {
     <div class="mcp-config-item__header">
       <div class="mcp-config-item__name">
         <EaIcon
-          name="lucide:folder"
+          :name="isBuiltin ? 'lucide:cpu' : 'lucide:folder'"
           class="mcp-config-item__icon"
         />
         <span>{{ config.name }}</span>
       </div>
-      <div class="mcp-config-item__actions">
+      <div v-if="!isBuiltin" class="mcp-config-item__actions">
         <EaButton
           size="small"
           variant="ghost"
@@ -101,7 +111,7 @@ function getCommandDisplay() {
         <EaIcon :name="getTransportIcon(config.transportType)" />
         {{ getTransportLabel(config.transportType) }}
       </span>
-      <span class="mcp-config-item__tag">
+      <span v-if="!isBuiltin" class="mcp-config-item__tag">
         <EaIcon name="lucide:map-pin" />
         {{ getScopeLabel(config.scope) }}
       </span>
@@ -206,7 +216,7 @@ function getCommandDisplay() {
   border: 1px solid rgba(34, 197, 94, 0.2) !important;
 }
 
-.btn-test:hover {
+ ..btn-test:hover {
   background: rgba(34, 197, 94, 0.2) !important;
   border-color: rgba(34, 197, 94, 0.4) !important;
 }

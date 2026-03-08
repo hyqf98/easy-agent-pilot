@@ -14,6 +14,11 @@ use rmcp::{
 };
 use tokio::process::Command as TokioCommand;
 
+// 导入内置 MCP 服务器
+use super::builtin_mcp::{
+    get_builtin_tools, call_builtin_tool, BUILTIN_SERVER_ID, BUILTIN_SERVER_NAME,
+};
+
 /// MCP 服务器配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpServer {
@@ -40,6 +45,33 @@ pub struct McpTestResult {
     pub success: bool,
     pub message: String,
     pub tool_count: Option<i32>,
+}
+
+/// 在 Windows 上构建兼容的命令
+/// 对于 npx、npm 等 Node.js 脚本命令，在 Windows 上需要使用 cmd.exe /C 来执行
+fn build_platform_command(command: &str, args: &[String]) -> TokioCommand {
+    #[cfg(target_os = "windows")]
+    {
+        // Windows 上需要特殊处理的命令
+        let script_commands = ["npx", "npm", "yarn", "pnpm", "bun"];
+
+        if script_commands.contains(&command) {
+            // 使用 cmd.exe /C 来执行脚本命令
+            let full_command = if args.is_empty() {
+                command.to_string()
+            } else {
+                format!("{} {}", command, args.join(" "))
+            };
+            let mut cmd = TokioCommand::new("cmd");
+            cmd.arg("/C").arg(&full_command);
+            return cmd;
+        }
+    }
+
+    // 默认情况：直接执行命令
+    let mut cmd = TokioCommand::new(command);
+    cmd.args(args);
+    cmd
 }
 
 /// 创建 MCP 服务器的输入参数
@@ -210,7 +242,7 @@ pub fn list_mcp_servers() -> Result<Vec<McpServer>, String> {
         )
         .map_err(|e| e.to_string())?;
 
-    let servers = stmt
+    let mut servers = stmt
         .query_map([], |row| {
             Ok(McpServer {
                 id: row.get(0)?,
@@ -233,6 +265,27 @@ pub fn list_mcp_servers() -> Result<Vec<McpServer>, String> {
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
+
+    // 添加内置服务器到列表开头
+    let builtin_server = McpServer {
+        id: BUILTIN_SERVER_ID.to_string(),
+        name: BUILTIN_SERVER_NAME.to_string(),
+        server_type: "builtin".to_string(),
+        command: String::new(),
+        args: None,
+        env: None,
+        url: None,
+        headers: None,
+        enabled: true,
+        test_status: Some("success".to_string()),
+        test_message: Some("内置服务器始终可用".to_string()),
+        tool_count: Some(get_builtin_tools().len() as i32),
+        tested_at: Some(Utc::now().to_rfc3339()),
+        created_at: String::new(),
+        updated_at: String::new(),
+    };
+
+    servers.insert(0, builtin_server);
 
     Ok(servers)
 }
@@ -598,9 +651,8 @@ async fn test_stdio_mcp(
         })
         .unwrap_or_default();
 
-    // 构建命令
-    let mut cmd = TokioCommand::new(command);
-    cmd.args(&args_vec);
+    // 构建命令（Windows 上处理 npx/npm 等脚本命令）
+    let mut cmd = build_platform_command(command, &args_vec);
 
     // 设置环境变量
     for (key, value) in env_map {
@@ -613,7 +665,7 @@ async fn test_stdio_mcp(
         Err(e) => {
             return McpTestResult {
                 success: false,
-                message: format!("启动 MCP 进程失败: {}", e),
+                message: format!("启动 MCP 进程失败: {} (命令: {})", e, command),
                 tool_count: None,
             };
         }
@@ -754,6 +806,23 @@ fn format_call_tool_result(call_result: &rmcp::model::CallToolResult) -> Value {
 /// 列出 MCP 服务器的工具列表
 #[tauri::command]
 pub async fn list_mcp_tools(server_id: String) -> Result<McpToolsListResult, String> {
+    // 检查是否是内置服务器
+    if server_id == BUILTIN_SERVER_ID {
+        let tools = get_builtin_tools();
+        return Ok(McpToolsListResult {
+            success: true,
+            message: format!("成功获取 {} 个内置工具", tools.len()),
+            tools: tools
+                .into_iter()
+                .map(|t| McpTool {
+                    name: t.name,
+                    description: t.description,
+                    input_schema: t.input_schema,
+                })
+                .collect(),
+        });
+    }
+
     // 获取服务器配置(在独立作用域中以避免跨 await 持有非 Send 类型)
     let (name, server_type, command, args, env, url, headers) = {
         let conn = get_db_connection()?;
@@ -889,9 +958,8 @@ async fn list_stdio_mcp_tools(
         })
         .unwrap_or_default();
 
-    // 构建命令
-    let mut cmd = TokioCommand::new(command);
-    cmd.args(&args_vec);
+    // 构建命令（Windows 上处理 npx/npm 等脚本命令）
+    let mut cmd = build_platform_command(command, &args_vec);
 
     // 设置环境变量
     for (key, value) in env_map {
@@ -972,6 +1040,17 @@ pub async fn call_mcp_tool(
     tool_name: String,
     params: Value,
 ) -> Result<McpToolCallResult, String> {
+    // 检查是否是内置服务器
+    if server_id == BUILTIN_SERVER_ID {
+        let result = call_builtin_tool(&tool_name, params).await?;
+        return Ok(McpToolCallResult {
+            success: true,
+            message: "内置工具调用成功".to_string(),
+            result,
+            error: None,
+        });
+    }
+
     // 获取服务器配置(在独立作用域中以避免跨 await 持有非 Send 类型)
     let (name, server_type, command, args, env, url, headers) = {
         let conn = get_db_connection()?;
@@ -1108,9 +1187,8 @@ async fn call_stdio_mcp_tool(
         })
         .unwrap_or_default();
 
-    // 构建命令
-    let mut cmd = TokioCommand::new(command);
-    cmd.args(&args_vec);
+    // 构建命令（Windows 上处理 npx/npm 等脚本命令）
+    let mut cmd = build_platform_command(command, &args_vec);
 
     // 设置环境变量
     for (key, value) in env_map {

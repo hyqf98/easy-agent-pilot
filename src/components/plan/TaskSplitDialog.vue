@@ -6,7 +6,8 @@ import { useTaskStore } from '@/stores/task'
 import { useProjectStore } from '@/stores/project'
 import DynamicForm from './DynamicForm.vue'
 import TaskSplitPreview from './TaskSplitPreview.vue'
-import type { FormField } from '@/types/plan'
+import TaskResplitModal from './TaskResplitModal.vue'
+import type { FormField, AITaskItem, TaskResplitConfig } from '@/types/plan'
 
 const planStore = usePlanStore()
 const taskSplitStore = useTaskSplitStore()
@@ -15,6 +16,11 @@ const projectStore = useProjectStore()
 
 const isConfirming = ref(false)
 const messagesContainerRef = ref<HTMLElement | null>(null)
+
+// 继续拆分相关状态
+const resplitModalVisible = ref(false)
+const resplitTargetIndex = ref<number | null>(null)
+const resplitTargetTask = ref<AITaskItem | null>(null)
 
 // 是否显示预览
 const showPreview = computed(() => taskSplitStore.splitResult !== null)
@@ -131,10 +137,43 @@ async function handleFormSubmit(values: Record<string, any>) {
   await taskSplitStore.submitFormResponse(activeFormSchema.value.formId, values)
 }
 
+// 打开继续拆分弹框
+function handleResplit(index: number) {
+  const tasks = taskSplitStore.splitResult
+  if (!tasks || !tasks[index]) return
+
+  resplitTargetIndex.value = index
+  resplitTargetTask.value = tasks[index]
+  resplitModalVisible.value = true
+}
+
+// 确认继续拆分配置
+async function handleResplitConfirm(config: TaskResplitConfig) {
+  if (resplitTargetIndex.value === null) return
+
+  const dialogContext = planStore.splitDialogContext
+  if (!dialogContext) return
+
+  // 更新配置中的 taskIndex
+  config.taskIndex = resplitTargetIndex.value
+
+  // 关闭弹框
+  resplitModalVisible.value = false
+
+  // 启动子拆分模式
+  await taskSplitStore.startSubSplit(resplitTargetIndex.value, config)
+}
+
 // 确认拆分结果
 async function confirmSplit() {
   const splitContext = planStore.splitDialogContext
   if (!taskSplitStore.splitResult || !splitContext || isConfirming.value) return
+
+  // 如果是子拆分模式，先合并结果
+  if (taskSplitStore.subSplitMode) {
+    taskSplitStore.completeSubSplit(taskSplitStore.splitResult)
+    return // 合并后继续显示更新后的任务列表，不关闭弹框
+  }
 
   const planId = splitContext.planId
   isConfirming.value = true
@@ -149,6 +188,7 @@ async function confirmSplit() {
       implementationSteps: task.implementationSteps,
       testSteps: task.testSteps,
       acceptanceCriteria: task.acceptanceCriteria,
+      dependsOn: task.dependsOn, // 传递依赖关系（任务标题列表）
       order: index
     }))
 
@@ -329,6 +369,7 @@ watch(messageRenderState, async () => {
                 @update="taskSplitStore.updateSplitTask"
                 @remove="taskSplitStore.removeSplitTask"
                 @add="taskSplitStore.addSplitTask"
+                @resplit="handleResplit"
               />
             </div>
           </div>
@@ -378,6 +419,16 @@ watch(messageRenderState, async () => {
         </div>
       </div>
     </div>
+
+    <!-- 继续拆分配置弹框 -->
+    <TaskResplitModal
+      v-model:visible="resplitModalVisible"
+      :task="resplitTargetTask"
+      :default-granularity="taskSplitStore.context?.granularity || 3"
+      :default-agent-id="taskSplitStore.context?.agentId"
+      :default-model-id="taskSplitStore.context?.modelId"
+      @confirm="handleResplitConfirm"
+    />
   </Teleport>
 </template>
 

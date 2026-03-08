@@ -394,6 +394,11 @@ export const useSettingsStore = defineStore('settings', () => {
           }
         }
         settings.value = { ...defaultSettings, ...parsedSettings }
+
+        // 确保语言设置同步到 i18n
+        if (parsedSettings.language) {
+          setLocale(parsedSettings.language as 'zh-CN' | 'en-US')
+        }
       }
     } catch (error) {
       console.error('Failed to load settings:', error)

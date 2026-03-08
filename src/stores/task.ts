@@ -34,6 +34,9 @@ interface RustTask {
   implementation_steps?: string | string[] // JSON 字符串或数组
   test_steps?: string | string[] // JSON 字符串或数组
   acceptance_criteria?: string | string[] // JSON 字符串或数组
+  block_reason?: string
+  input_request?: string // JSON 字符串
+  input_response?: string // JSON 字符串
   created_at: string
   updated_at: string
 }
@@ -64,6 +67,21 @@ function transformTask(rustTask: RustTask): Task {
   const testSteps = parseStringArray(rustTask.test_steps)
   const acceptanceCriteria = parseStringArray(rustTask.acceptance_criteria)
 
+  // 解析 input_request 和 input_response
+  const parseJsonValue = (value?: string | null): Record<string, unknown> | undefined => {
+    if (!value) return undefined
+    try {
+      const parsed = JSON.parse(value)
+      if (typeof parsed === 'object' && parsed !== null) return parsed
+    } catch {
+      // ignore parse error
+    }
+    return undefined
+  }
+
+  const inputRequest = parseJsonValue(rustTask.input_request)
+  const inputResponse = parseJsonValue(rustTask.input_response)
+
   return {
     id: rustTask.id,
     planId: rustTask.plan_id,
@@ -83,6 +101,9 @@ function transformTask(rustTask: RustTask): Task {
     implementationSteps,
     testSteps,
     acceptanceCriteria,
+    blockReason: rustTask.block_reason as 'waiting_input' | undefined,
+    inputRequest: inputRequest as any,
+    inputResponse,
     createdAt: rustTask.created_at,
     updatedAt: rustTask.updated_at
   }
@@ -136,6 +157,7 @@ export const useTaskStore = defineStore('task', () => {
         in_progress: [],
         completed: [],
         blocked: [],
+        failed: [],
         cancelled: []
       }
 
@@ -240,9 +262,9 @@ export const useTaskStore = defineStore('task', () => {
       dependencies: input.dependencies ?? null,
       order: input.order ?? null,
       max_retries: input.maxRetries ?? null,
-      implementation_steps: input.implementationSteps ? JSON.stringify(input.implementationSteps) : null,
-      test_steps: input.testSteps ? JSON.stringify(input.testSteps) : null,
-      acceptance_criteria: input.acceptanceCriteria ? JSON.stringify(input.acceptanceCriteria) : null
+      implementation_steps: input.implementationSteps ?? null,
+      test_steps: input.testSteps ?? null,
+      acceptance_criteria: input.acceptanceCriteria ?? null
     }
 
     try {
@@ -278,9 +300,12 @@ export const useTaskStore = defineStore('task', () => {
       retry_count: updates.retryCount ?? null,
       max_retries: updates.maxRetries ?? null,
       error_message: updates.errorMessage ?? null,
-      implementation_steps: updates.implementationSteps ? JSON.stringify(updates.implementationSteps) : null,
-      test_steps: updates.testSteps ? JSON.stringify(updates.testSteps) : null,
-      acceptance_criteria: updates.acceptanceCriteria ? JSON.stringify(updates.acceptanceCriteria) : null
+      implementation_steps: updates.implementationSteps ?? null,
+      test_steps: updates.testSteps ?? null,
+      acceptance_criteria: updates.acceptanceCriteria ?? null,
+      block_reason: updates.blockReason ?? null,
+      input_request: updates.inputRequest ?? null,
+      input_response: updates.inputResponse ?? null
     }
 
     try {
@@ -435,6 +460,34 @@ export const useTaskStore = defineStore('task', () => {
     })
   }
 
+  // 获取未满足依赖的任务标题列表
+  function getDependencyTitles(taskId: string): string[] {
+    const task = tasks.value.find(t => t.id === taskId)
+    if (!task?.dependencies || task.dependencies.length === 0) {
+      return []
+    }
+
+    return task.dependencies
+      .map(depId => {
+        const depTask = tasks.value.find(t => t.id === depId)
+        return depTask?.title ?? depId
+      })
+      .filter(Boolean) as string[]
+  }
+
+  // 获取未完成的依赖数量
+  function getUnmetDependenciesCount(taskId: string): number {
+    const task = tasks.value.find(t => t.id === taskId)
+    if (!task?.dependencies || task.dependencies.length === 0) {
+      return 0
+    }
+
+    return task.dependencies.filter(depId => {
+      const depTask = tasks.value.find(t => t.id === depId)
+      return depTask?.status !== 'completed'
+    }).length
+  }
+
   // 获取可以开始的任务（依赖已满足且状态为 pending）
   function getReadyTasks(planId: string): Task[] {
     return tasks.value
@@ -529,6 +582,7 @@ export const useTaskStore = defineStore('task', () => {
   async function createTasksFromSplit(planId: string, taskInputs: CreateTaskInput[]): Promise<Task[]> {
     const notificationStore = useNotificationStore()
 
+    // 先创建所有任务（此时 dependencies 可能存储的是任务标题）
     // 转换输入格式 - Rust后端期望Vec<String>而非JSON字符串
     const rustInputs = taskInputs.map(input => ({
       plan_id: planId,
@@ -537,7 +591,7 @@ export const useTaskStore = defineStore('task', () => {
       description: input.description ?? null,
       priority: input.priority ?? null,
       assignee: input.assignee ?? null,
-      dependencies: input.dependencies ?? null,
+      dependencies: null, // 先不设置依赖，创建后再更新
       order: input.order ?? null,
       max_retries: input.maxRetries ?? null,
       implementation_steps: input.implementationSteps ?? null,
@@ -552,6 +606,37 @@ export const useTaskStore = defineStore('task', () => {
       })
 
       const newTasks = rustTasks.map(transformTask)
+
+      // 建立标题到 ID 的映射
+      const titleToId = new Map<string, string>()
+      newTasks.forEach((task, index) => {
+        titleToId.set(taskInputs[index].title, task.id)
+      })
+
+      // 转换依赖关系：将 dependsOn 中的标题转换为任务 ID
+      const dependencyUpdates: Promise<void>[] = []
+      for (let i = 0; i < taskInputs.length; i++) {
+        const input = taskInputs[i]
+        const task = newTasks[i]
+        // 检查是否有 dependsOn 字段（来自 AI 拆分结果）
+        const dependsOn = (input as any).dependsOn as string[] | undefined
+        if (dependsOn?.length) {
+          const dependencyIds = dependsOn
+            .map(title => titleToId.get(title))
+            .filter(Boolean) as string[]
+
+          if (dependencyIds.length > 0) {
+            dependencyUpdates.push(
+              updateTask(task.id, { dependencies: dependencyIds }).then(() => {
+                task.dependencies = dependencyIds
+              })
+            )
+          }
+        }
+      }
+
+      // 等待所有依赖更新完成
+      await Promise.all(dependencyUpdates)
 
       // 添加到本地状态
       newTasks.forEach(task => {
@@ -573,6 +658,25 @@ export const useTaskStore = defineStore('task', () => {
         async () => { await createTasksFromSplit(planId, taskInputs) }
       )
       throw error
+    }
+  }
+
+  /**
+   * 清理指定计划的所有任务（本地缓存）
+   * 在删除计划时调用
+   */
+  function clearPlanTasks(planId: string): void {
+    // 过滤掉该计划的所有任务
+    const taskIdsToKeep = tasks.value
+      .filter(t => t.planId !== planId)
+    tasks.value = taskIdsToKeep
+
+    // 如果当前任务属于该计划，清除当前任务
+    if (currentTaskId.value) {
+      const currentTask = tasks.value.find(t => t.id === currentTaskId.value)
+      if (!currentTask || currentTask.planId === planId) {
+        currentTaskId.value = null
+      }
     }
   }
 
@@ -600,12 +704,16 @@ export const useTaskStore = defineStore('task', () => {
     loadSubtasks,
     setCurrentTask,
     areDependenciesMet,
+    getDependencyTitles,
+    getUnmetDependenciesCount,
     getReadyTasks,
     // 批量操作
     batchStartTasks,
     retryTask,
     stopTask,
     createTasksFromSplit,
+    // 清理操作
+    clearPlanTasks,
     // 编辑对话框
     editDialogVisible,
     editingTask,

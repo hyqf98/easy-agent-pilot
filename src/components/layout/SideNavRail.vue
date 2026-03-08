@@ -37,9 +37,25 @@ const togglePlanMode = () => {
   }
 }
 
+// 切换记忆模式
+const toggleMemoryMode = () => {
+  if (uiStore.appMode === 'memory') {
+    uiStore.setAppMode('chat')
+  } else {
+    uiStore.setAppMode('memory')
+    // 关闭左侧面板
+    layoutStore.closePanel()
+  }
+}
+
 // 判断计划模式是否激活
 const isPlanModeActive = () => {
   return uiStore.appMode === 'plan'
+}
+
+// 判断记忆模式是否激活
+const isMemoryModeActive = () => {
+  return uiStore.appMode === 'memory'
 }
 </script>
 
@@ -84,6 +100,25 @@ const isPlanModeActive = () => {
         <!-- 激活指示器 -->
         <span
           v-if="isPlanModeActive()"
+          class="nav-item__indicator"
+        />
+      </button>
+
+      <!-- 记忆模式按钮 -->
+      <button
+        :class="['nav-item', 'nav-item--memory', { 'nav-item--active': isMemoryModeActive() }]"
+        title="记忆管理"
+        @click="toggleMemoryMode"
+      >
+        <EaIcon
+          name="brain"
+          :size="20"
+          class="nav-item__icon"
+        />
+        <span class="nav-item__label">记忆</span>
+        <!-- 激活指示器 -->
+        <span
+          v-if="isMemoryModeActive()"
           class="nav-item__indicator"
         />
       </button>
@@ -187,6 +222,10 @@ const isPlanModeActive = () => {
 }
 
 .nav-item--plan {
+  margin-top: var(--spacing-1);
+}
+
+.nav-item--memory {
   margin-top: var(--spacing-1);
 }
 

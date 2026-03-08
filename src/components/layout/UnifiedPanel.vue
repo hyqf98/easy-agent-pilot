@@ -106,12 +106,12 @@ const formatImportTime = (dateStr: string): string => {
   const diff = now.getTime() - date.getTime()
   const days = Math.floor(diff / (1000 * 60 * 60 * 24))
 
-  if (days === 0) return '今天'
-  if (days === 1) return '昨天'
-  if (days < 7) return `${days}天前`
-  if (days < 30) return `${Math.floor(days / 7)}周前`
-  if (days < 365) return `${Math.floor(days / 30)}个月前`
-  return `${Math.floor(days / 365)}年前`
+  if (days === 0) return t('unified.today')
+  if (days === 1) return t('unified.yesterday')
+  if (days < 7) return t('unified.daysAgo', { days })
+  if (days < 30) return t('unified.weeksAgo', { weeks: Math.floor(days / 7) })
+  if (days < 365) return t('unified.monthsAgo', { months: Math.floor(days / 30) })
+  return t('unified.yearsAgo', { years: Math.floor(days / 365) })
 }
 
 // 点击项目卡片切换展开/收起
@@ -225,7 +225,7 @@ const handleAddSession = async (projectId: string) => {
     projectStore.setCurrentProject(projectId)
     const newSession = await sessionStore.createSession({
       projectId,
-      name: '未命名会话',
+      name: t('session.unnamedSession'),
       agentType: 'claude',
       status: 'idle'
     })
@@ -361,11 +361,13 @@ const formatDate = (dateStr: string) => {
   yesterday.setDate(yesterday.getDate() - 1)
   const isYesterday = date.toDateString() === yesterday.toDateString()
 
+  const timeStr = date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+
   if (isToday) {
-    return `今天 ${date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
+    return t('unified.today') + ' ' + timeStr
   }
   if (isYesterday) {
-    return `昨天 ${date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
+    return t('unified.yesterday') + ' ' + timeStr
   }
   // 同一年只显示月-日
   if (date.getFullYear() === now.getFullYear()) {
@@ -791,13 +793,13 @@ const startProjectWatcher = async (project: Project) => {
                 <span class="project-item__name">{{ project.name }}</span>
               </div>
               <div class="project-item__meta">
-                <span class="project-item__time">{{ formatImportTime(project.createdAt) }}导入</span>
+                <span class="project-item__time">{{ formatImportTime(project.createdAt) }} {{ t('unified.imported') }}</span>
                 <span
                   class="project-item__session-count"
                   :class="{ 'project-item__session-count--has': project.sessionCount && project.sessionCount > 0 }"
                 >
                   <EaIcon name="message-square" :size="10" />
-                  {{ project.sessionCount || 0 }} 会话
+                  {{ t('unified.sessionCount', { count: project.sessionCount || 0 }) }}
                 </span>
               </div>
             </div>
@@ -851,7 +853,7 @@ const startProjectWatcher = async (project: Project) => {
               <button
                 v-if="getProjectTab(project.id) === 'sessions'"
                 class="tab-action-btn"
-                :title="layoutStore.sessionSortBy === 'updatedAt' ? '按更新时间排序' : '按创建时间排序'"
+                :title="layoutStore.sessionSortBy === 'updatedAt' ? t('unified.sortByUpdated') : t('unified.sortByCreated')"
                 @click="toggleSessionSort"
               >
                 <EaIcon
@@ -964,7 +966,7 @@ const startProjectWatcher = async (project: Project) => {
                           name="message-square"
                           :size="10"
                         />
-                        {{ session.messageCount }} 条
+                        {{ t('unified.messages', { count: session.messageCount }) }}
                       </span>
                       <span class="session-item__meta-item session-item__meta-item--created">
                         <EaIcon

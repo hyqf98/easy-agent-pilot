@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import type { FormField } from '@/types/plan'
 
 const props = defineProps<{
@@ -15,21 +15,80 @@ const emit = defineEmits<{
 const inputId = computed(() => `field-${props.field.name}`)
 const field = computed(() => props.field)
 
-function toggleOption(value: string | number) {
-  const current = [...props.modelValue]
-  const index = current.indexOf(value)
+// "其他"选项的值
+const OTHER_VALUE = '__other__'
 
+// 是否选择了"其他"
+const isOtherSelected = ref(false)
+
+// "其他"输入框的值
+const otherValue = ref('')
+
+// "其他"选项的标签
+const otherLabel = computed(() => props.field.otherLabel || '其他')
+
+// 获取预设选项的值集合
+const presetValues = computed(() => {
+  return new Set(props.field.options?.map(opt => opt.value) || [])
+})
+
+
+// 监听 modelValue 变化
+watch(() => props.modelValue, (newVal) => {
+  // 检查是否有非预设值
+  const hasOtherValue = newVal.some(v => !presetValues.value.has(v) && v !== OTHER_VALUE)
+  if (hasOtherValue) {
+    isOtherSelected.value = true
+    // 取第一个非预设值显示在输入框
+    const others = newVal.filter(v => !presetValues.value.has(v) && v !== OTHER_VALUE)
+    otherValue.value = others.length > 0 ? String(others[0]) : ''
+  }
+}, { immediate: true })
+
+// 检查预设选项是否被选中
+function isSelected(value: string | number): boolean {
+  return props.modelValue.includes(value)
+}
+
+// 切换预设选项
+function toggleOption(value: string | number) {
+  const current = [...props.modelValue].filter(v => presetValues.value.has(v))
+  const others = props.modelValue.filter(v => !presetValues.value.has(v) && v !== OTHER_VALUE)
+
+  const index = current.indexOf(value)
   if (index === -1) {
     current.push(value)
   } else {
     current.splice(index, 1)
   }
 
-  emit('update:modelValue', current)
+  emit('update:modelValue', [...current, ...others])
 }
 
-function isSelected(value: string | number): boolean {
-  return props.modelValue.includes(value)
+// 切换"其他"选项
+function toggleOther() {
+  isOtherSelected.value = !isOtherSelected.value
+
+  if (!isOtherSelected.value) {
+    // 取消选择"其他"，移除所有非预设值
+    const current = props.modelValue.filter(v => presetValues.value.has(v))
+    otherValue.value = ''
+    emit('update:modelValue', current)
+  }
+}
+
+// 处理"其他"输入框变化
+function onOtherInput(event: Event) {
+  const target = event.target as HTMLInputElement
+  otherValue.value = target.value
+
+  // 更新值：保留预设值 + 新的"其他"值
+  const current = props.modelValue.filter(v => presetValues.value.has(v))
+  if (target.value.trim()) {
+    emit('update:modelValue', [...current, target.value.trim()])
+  } else {
+    emit('update:modelValue', current)
+  }
 }
 </script>
 
@@ -59,7 +118,32 @@ function isSelected(value: string | number): boolean {
         >
         <span class="option-text">{{ option.label }}</span>
       </label>
+      <!-- "其他"选项 -->
+      <label
+        v-if="field.allowOther"
+        class="option-label"
+        :class="{ selected: isOtherSelected }"
+      >
+        <input
+          type="checkbox"
+          :name="inputId"
+          :value="OTHER_VALUE"
+          :checked="isOtherSelected"
+          class="option-checkbox"
+          @change="toggleOther"
+        >
+        <span class="option-text">{{ otherLabel }}</span>
+      </label>
     </div>
+    <!-- "其他"输入框 -->
+    <input
+      v-if="field.allowOther && isOtherSelected"
+      type="text"
+      class="other-input"
+      :value="otherValue"
+      :placeholder="`请输入${field.label}`"
+      @input="onOtherInput"
+    >
     <span
       v-if="error"
       class="error-message"
@@ -69,45 +153,69 @@ function isSelected(value: string | number): boolean {
 
 <style scoped>
 .form-field {
-  margin-bottom: 1rem;
+  margin-bottom: 0.75rem;
 }
 
 .field-label {
   display: block;
-  margin-bottom: 0.5rem;
-  font-weight: 500;
-  color: var(--text-color);
+  margin-bottom: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-primary, #334155);
 }
 
 .required-mark {
   color: var(--error-color, #ef4444);
-  margin-left: 0.25rem;
+  margin-left: 0.15rem;
 }
 
 .options-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 0.35rem;
 }
 
 .option-label {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  padding: 0.375rem 0.75rem;
-  border: 1px solid var(--border-color, #d1d5db);
-  border-radius: 0.375rem;
+  gap: 0.35rem;
+  padding: 0.32rem 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--form-accent, #4f46e5) 28%, #cdd7e5);
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffffff, #f8fbff);
+  color: var(--color-text-secondary, #475569);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.16s ease;
+  font-size: 0.8rem;
+}
+
+.option-label::before {
+  content: '';
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 3px;
+  border: 1.5px solid color-mix(in srgb, var(--form-accent, #4f46e5) 44%, #64748b);
+  background: #fff;
+  transition: inherit;
 }
 
 .option-label:hover {
-  border-color: var(--primary-color, #60a5fa);
+  border-color: color-mix(in srgb, var(--form-accent, #4f46e5) 62%, #4338ca);
+  color: var(--color-text-primary, #1e293b);
+  transform: translateY(-1px);
 }
 
 .option-label.selected {
-  background-color: var(--primary-color, #60a5fa);
-  border-color: var(--primary-color, #60a5fa);
-  color: white;
+  border-color: color-mix(in srgb, var(--form-accent, #4f46e5) 76%, #4338ca);
+  background: linear-gradient(135deg, rgba(224, 231, 255, 0.9), rgba(207, 250, 254, 0.78));
+  color: #3730a3;
+  font-weight: 600;
+  box-shadow: 0 4px 10px rgba(79, 70, 229, 0.1);
+}
+
+.option-label.selected::before {
+  border-color: var(--form-accent, #4f46e5);
+  background: var(--form-accent, #4f46e5);
 }
 
 .option-checkbox {
@@ -115,13 +223,35 @@ function isSelected(value: string | number): boolean {
 }
 
 .option-text {
-  font-size: 0.875rem;
+  font-size: 0.78rem;
+}
+
+.other-input {
+  width: 100%;
+  margin-top: 0.4rem;
+  padding: 0.42rem 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--form-accent, #4f46e5) 22%, #ccd7e5);
+  border-radius: 0.6rem;
+  background-color: #fff;
+  color: var(--color-text-primary, #0f172a);
+  font-size: 0.82rem;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.other-input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--form-accent, #4f46e5) 72%, #3730a3);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--form-accent, #4f46e5) 15%, transparent);
+}
+
+.other-input::placeholder {
+  color: #94a3b8;
 }
 
 .error-message {
   display: block;
-  margin-top: 0.25rem;
-  font-size: 0.75rem;
+  margin-top: 0.2rem;
+  font-size: 0.72rem;
   color: var(--error-color, #ef4444);
 }
 </style>

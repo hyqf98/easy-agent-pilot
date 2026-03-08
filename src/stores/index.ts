@@ -6,6 +6,7 @@ export const pinia = createPinia()
 export * from './project'
 export * from './session'
 export * from './agent'
+export * from './agentConfig'
 // 从 message 导出，但排除 CompressionStrategy（已在 token 中定义）
 export {
   useMessageStore,
@@ -26,4 +27,3 @@ export * from './windowState'
 export * from './token'
 export * from './windowManager'
 export * from './appState'
-export * from './brainstorm'

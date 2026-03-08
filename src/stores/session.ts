@@ -6,7 +6,6 @@ import { getErrorMessage } from '@/utils/api'
 import { useSessionExecutionStore } from './sessionExecution'
 import { useWindowManagerStore } from './windowManager'
 import { useAppStateStore } from './appState'
-import { useBrainstormStore } from './brainstorm'
 
 export type SessionStatus = 'idle' | 'running' | 'paused' | 'error' | 'completed'
 
@@ -241,8 +240,6 @@ export const useSessionStore = defineStore('session', () => {
       // 清理该会话的执行状态
       const sessionExecutionStore = useSessionExecutionStore()
       sessionExecutionStore.clearExecutionState(id)
-      const brainstormStore = useBrainstormStore()
-      brainstormStore.clearSessionCache(id)
 
       // 从打开列表中移除
       const openIndex = openSessionIds.value.indexOf(id)
@@ -360,8 +357,6 @@ export const useSessionStore = defineStore('session', () => {
     // 清理该会话的执行状态
     const sessionExecutionStore = useSessionExecutionStore()
     sessionExecutionStore.clearExecutionState(sessionId)
-    const brainstormStore = useBrainstormStore()
-    brainstormStore.clearSessionCache(sessionId)
 
     // 更新应用状态
     const appStateStore = useAppStateStore()

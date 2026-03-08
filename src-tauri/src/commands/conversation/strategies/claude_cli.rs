@@ -7,7 +7,9 @@ use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt};
 use tokio::process::Command as TokioCommand;
 
-use crate::commands::conversation::abort::{clear_abort_flag, set_abort_flag, should_abort};
+use crate::commands::conversation::abort::{
+    clear_abort_flag, register_session_pid, set_abort_flag, should_abort, unregister_session_pid,
+};
 use crate::commands::conversation::strategy::AgentExecutionStrategy;
 use crate::commands::conversation::types::{CliStreamEvent, ExecutionRequest, McpServerConfig};
 
@@ -83,7 +85,8 @@ fn build_mcp_config_json(servers: &[McpServerConfig]) -> String {
             "http" | "sse" => {
                 let mut headers_map = serde_json::Map::new();
                 if let Some(headers_str) = &server.headers {
-                    if let Ok(headers_obj) = serde_json::from_str::<serde_json::Value>(headers_str) {
+                    if let Ok(headers_obj) = serde_json::from_str::<serde_json::Value>(headers_str)
+                    {
                         if let Some(obj) = headers_obj.as_object() {
                             for (k, v) in obj {
                                 headers_map.insert(k.clone(), v.clone());
@@ -198,13 +201,11 @@ impl AgentExecutionStrategy for ClaudeCliStrategy {
             }
         }
 
-        if let Some(working_dir) = &working_directory {
-            let trimmed = working_dir.trim();
-            if !trimmed.is_empty() {
-                args.push("--add-dir".to_string());
-                args.push(trimmed.to_string());
-            }
-        }
+        // 解析工作目录，用于设置命令的工作目录
+        let resolved_working_dir: Option<String> = working_directory
+            .as_ref()
+            .map(|w| w.trim().to_string())
+            .filter(|w| !w.is_empty());
 
         // 构建输入消息
         let input_text = messages
@@ -219,6 +220,12 @@ impl AgentExecutionStrategy for ClaudeCliStrategy {
         let mut cmd = TokioCommand::new(&cli_path);
         cmd.arg("-p").arg(&input_text).args(&args);
 
+        // 设置工作目录，确保文件读写操作在指定目录下进行
+        if let Some(ref work_dir) = resolved_working_dir {
+            cmd.current_dir(work_dir);
+            log_info!("设置工作目录: {}", work_dir);
+        }
+
         cmd.stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -226,6 +233,11 @@ impl AgentExecutionStrategy for ClaudeCliStrategy {
 
         let execution_started_at = Instant::now();
         let mut child = cmd.spawn()?;
+
+        // 注册进程 PID，用于后续可能的中断操作
+        if let Some(pid) = child.id() {
+            register_session_pid(&session_id, pid).await;
+        }
 
         // 读取输出
         let stdout = child
@@ -292,8 +304,15 @@ impl AgentExecutionStrategy for ClaudeCliStrategy {
             }
 
             if let Some(event) = parse_claude_json_blob_output(&session_id_clone, normalized) {
-                log_info!("[stdout] 发送事件: {}, event_type: {}", event_name_clone, event.event_type);
-                log_info!("[stdout] 事件内容长度: {:?}", event.content.as_ref().map(|c| c.len()));
+                log_info!(
+                    "[stdout] 发送事件: {}, event_type: {}",
+                    event_name_clone,
+                    event.event_type
+                );
+                log_info!(
+                    "[stdout] 事件内容长度: {:?}",
+                    event.content.as_ref().map(|c| c.len())
+                );
                 match app_clone.emit(&event_name_clone, &event) {
                     Ok(_) => log_info!("[stdout] 事件发送成功"),
                     Err(e) => log_error!("[stdout] 事件发送失败: {:?}", e),
@@ -306,7 +325,11 @@ impl AgentExecutionStrategy for ClaudeCliStrategy {
 
             log_info!("[stdout] 无法解析为结构化输出，直接发送原始内容");
             let event = build_content_event(&session_id_clone, normalized.to_string());
-            log_info!("[stdout] 发送原始内容事件: {}, event_type: {}", event_name_clone, event.event_type);
+            log_info!(
+                "[stdout] 发送原始内容事件: {}, event_type: {}",
+                event_name_clone,
+                event.event_type
+            );
             if let Err(e) = app_clone.emit(&event_name_clone, event) {
                 log_error!("[stdout] 事件发送失败: {:?}", e);
             }
@@ -366,6 +389,9 @@ impl AgentExecutionStrategy for ClaudeCliStrategy {
         let stdout_outcome = stdout_handle.await?;
         stderr_handle.await?;
 
+        // 注销进程 PID
+        unregister_session_pid(&session_id).await;
+
         // 清理中断标志
         clear_abort_flag(&session_id).await;
 
@@ -413,11 +439,7 @@ fn build_error_event(session_id: &str, error: String) -> CliStreamEvent {
     }
 }
 
-fn build_full_claude_command(
-    cli_path: &str,
-    input_text: &str,
-    args: &[String],
-) -> String {
+fn build_full_claude_command(cli_path: &str, input_text: &str, args: &[String]) -> String {
     let mut cmd_parts = Vec::new();
     cmd_parts.push(shell_escape(cli_path));
     cmd_parts.push("-p".to_string());
@@ -443,7 +465,10 @@ fn preview_text(text: &str, max_chars: usize) -> String {
 
 /// 解析 `--output-format json` 的整块输出
 fn parse_claude_json_blob_output(session_id: &str, output: &str) -> Option<CliStreamEvent> {
-    log_info!("[parse] 开始解析 JSON blob, 长度: {}", output.chars().count());
+    log_info!(
+        "[parse] 开始解析 JSON blob, 长度: {}",
+        output.chars().count()
+    );
 
     let parsed = match parse_json_blob_with_fallback(output) {
         Ok(value) => value,
@@ -458,7 +483,10 @@ fn parse_claude_json_blob_output(session_id: &str, output: &str) -> Option<CliSt
     }
 
     if let Some(content) = extract_structured_output_from_json_blob(&parsed) {
-        log_info!("[parse] 提取到 structured_output, 长度: {}", content.chars().count());
+        log_info!(
+            "[parse] 提取到 structured_output, 长度: {}",
+            content.chars().count()
+        );
         return Some(build_content_event(session_id, content));
     }
 
@@ -468,7 +496,10 @@ fn parse_claude_json_blob_output(session_id: &str, output: &str) -> Option<CliSt
     }
 
     if let Some(content) = extract_result_content_from_json_blob(&parsed) {
-        log_info!("[parse] 提取到 result.content, 长度: {}", content.chars().count());
+        log_info!(
+            "[parse] 提取到 result.content, 长度: {}",
+            content.chars().count()
+        );
         return Some(build_content_event(session_id, content));
     }
 
@@ -589,7 +620,10 @@ fn extract_structured_output_from_json_blob(parsed: &serde_json::Value) -> Optio
     if has_structured_output {
         match serde_json::to_string(parsed) {
             Ok(full_json_str) => {
-                log_info!("提取到完整 JSON (含 structured_output), 长度: {}", full_json_str.chars().count());
+                log_info!(
+                    "提取到完整 JSON (含 structured_output), 长度: {}",
+                    full_json_str.chars().count()
+                );
                 log_info!("JSON 预览: {}", preview_text(&full_json_str, 300));
                 return Some(full_json_str);
             }
@@ -686,7 +720,10 @@ fn extract_result_content_from_json_blob(parsed: &serde_json::Value) -> Option<S
 
 /// 解析 `--output-format stream-json` 的每行 JSON 输出
 fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Option<CliStreamEvent> {
-    let event_type = json.get("type").and_then(|t| t.as_str()).unwrap_or("unknown");
+    let event_type = json
+        .get("type")
+        .and_then(|t| t.as_str())
+        .unwrap_or("unknown");
 
     match event_type {
         "content_block_delta" => {
@@ -707,7 +744,10 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
         }
         "content_block_start" => {
             let content_block = json.get("content_block")?;
-            let block_type = content_block.get("type").and_then(|t| t.as_str()).unwrap_or("");
+            let block_type = content_block
+                .get("type")
+                .and_then(|t| t.as_str())
+                .unwrap_or("");
 
             match block_type {
                 "tool_use" => {
@@ -739,11 +779,20 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
 
             // 提取 token 使用量
             let usage = message.get("usage");
-            let input_tokens = usage.and_then(|u| u.get("input_tokens")).and_then(|t| t.as_u64()).map(|t| t as u32);
-            let output_tokens = usage.and_then(|u| u.get("output_tokens")).and_then(|t| t.as_u64()).map(|t| t as u32);
+            let input_tokens = usage
+                .and_then(|u| u.get("input_tokens"))
+                .and_then(|t| t.as_u64())
+                .map(|t| t as u32);
+            let output_tokens = usage
+                .and_then(|u| u.get("output_tokens"))
+                .and_then(|t| t.as_u64())
+                .map(|t| t as u32);
 
             // 提取模型信息
-            let model = message.get("model").and_then(|m| m.as_str()).map(|m| m.to_string());
+            let model = message
+                .get("model")
+                .and_then(|m| m.as_str())
+                .map(|m| m.to_string());
 
             if input_tokens.is_some() || output_tokens.is_some() || model.is_some() {
                 Some(CliStreamEvent {
@@ -767,8 +816,14 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
             let delta = json.get("delta")?;
             let usage = json.get("usage");
 
-            let input_tokens = usage.and_then(|u| u.get("input_tokens")).and_then(|t| t.as_u64()).map(|t| t as u32);
-            let output_tokens = usage.and_then(|u| u.get("output_tokens")).and_then(|t| t.as_u64()).map(|t| t as u32);
+            let input_tokens = usage
+                .and_then(|u| u.get("input_tokens"))
+                .and_then(|t| t.as_u64())
+                .map(|t| t as u32);
+            let output_tokens = usage
+                .and_then(|u| u.get("output_tokens"))
+                .and_then(|t| t.as_u64())
+                .map(|t| t as u32);
 
             if input_tokens.is_some() || output_tokens.is_some() {
                 Some(CliStreamEvent {
@@ -788,25 +843,28 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
                 None
             }
         }
-        "message_stop" => {
-            Some(CliStreamEvent {
-                event_type: "done".to_string(),
-                session_id: session_id.to_string(),
-                content: None,
-                tool_name: None,
-                tool_call_id: None,
-                tool_input: None,
-                tool_result: None,
-                error: None,
-                input_tokens: None,
-                output_tokens: None,
-                model: None,
-            })
-        }
+        "message_stop" => Some(CliStreamEvent {
+            event_type: "done".to_string(),
+            session_id: session_id.to_string(),
+            content: None,
+            tool_name: None,
+            tool_call_id: None,
+            tool_input: None,
+            tool_result: None,
+            error: None,
+            input_tokens: None,
+            output_tokens: None,
+            model: None,
+        }),
         "tool_use" => {
             let tool_name = json.get("name").and_then(|n| n.as_str())?;
-            let tool_input = json.get("input").and_then(|i| serde_json::to_string(i).ok());
-            let tool_id = json.get("id").and_then(|i| i.as_str()).map(|i| i.to_string());
+            let tool_input = json
+                .get("input")
+                .and_then(|i| serde_json::to_string(i).ok());
+            let tool_id = json
+                .get("id")
+                .and_then(|i| i.as_str())
+                .map(|i| i.to_string());
 
             Some(CliStreamEvent {
                 event_type: "tool_use".to_string(),
@@ -841,7 +899,9 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
             })
         }
         "error" => {
-            let error_msg = json.get("error").and_then(|e| e.as_str())
+            let error_msg = json
+                .get("error")
+                .and_then(|e| e.as_str())
                 .or_else(|| json.get("message").and_then(|m| m.as_str()))
                 .unwrap_or("Unknown error");
 
@@ -852,7 +912,10 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
             let content_array = message.get("content").and_then(|c| c.as_array())?;
 
             if let Some(content_item) = content_array.first() {
-                let item_type = content_item.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                let item_type = content_item
+                    .get("type")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("");
 
                 match item_type {
                     "text" => {
@@ -861,7 +924,9 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
                     }
                     "tool_use" => {
                         let tool_name = content_item.get("name").and_then(|n| n.as_str())?;
-                        let tool_input = content_item.get("input").and_then(|i| serde_json::to_string(i).ok());
+                        let tool_input = content_item
+                            .get("input")
+                            .and_then(|i| serde_json::to_string(i).ok());
                         let tool_id = content_item.get("id").and_then(|i| i.as_str());
 
                         Some(CliStreamEvent {

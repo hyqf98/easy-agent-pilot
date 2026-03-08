@@ -20,6 +20,11 @@
     "opener:default",
     "shell:default",
     "fs:default",
+    {
+      "identifier": "fs:allow-watch",
+      "allow": [{ "path": "$HOME/**" }, { "path": "$DESKTOP/**" }, { "path": "$DOCUMENT/**" }, { "path": "$DOWNLOAD/**" }]
+    },
+    "fs:allow-unwatch",
     "dialog:default",
     "sql:default",
     "mcp-bridge:default"

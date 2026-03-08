@@ -130,8 +130,7 @@ pub fn create_project(input: CreateProjectInput) -> Result<Project, String> {
 
     // 如果目录不存在，则创建
     if !resolved_path.exists() {
-        fs::create_dir_all(&resolved_path)
-            .map_err(|e| format!("创建项目目录失败: {}", e))?;
+        fs::create_dir_all(&resolved_path).map_err(|e| format!("创建项目目录失败: {}", e))?;
     } else if !resolved_path.is_dir() {
         return Err("路径已存在但不是目录".to_string());
     }

@@ -8,7 +8,9 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt};
 use tokio::process::Command as TokioCommand;
 use uuid::Uuid;
 
-use crate::commands::conversation::abort::{clear_abort_flag, set_abort_flag, should_abort};
+use crate::commands::conversation::abort::{
+    clear_abort_flag, register_session_pid, set_abort_flag, should_abort, unregister_session_pid,
+};
 use crate::commands::conversation::strategy::AgentExecutionStrategy;
 use crate::commands::conversation::types::{CliStreamEvent, ExecutionRequest};
 
@@ -181,6 +183,11 @@ impl AgentExecutionStrategy for CodexCliStrategy {
 
         let mut child = cmd.spawn()?;
 
+        // 注册进程 PID，用于后续可能的中断操作
+        if let Some(pid) = child.id() {
+            register_session_pid(&session_id, pid).await;
+        }
+
         let stdout = child
             .stdout
             .take()
@@ -318,6 +325,9 @@ impl AgentExecutionStrategy for CodexCliStrategy {
         };
         let _ = app.emit(&event_name, done_event);
 
+        // 注销进程 PID
+        unregister_session_pid(&session_id).await;
+
         clear_abort_flag(&session_id).await;
 
         drop(schema_file);
@@ -413,8 +423,9 @@ fn parse_codex_json_output(session_id: &str, json: &serde_json::Value) -> Option
             }
             None
         }
-        "turn.completed" => extract_turn_output(json)
-            .map(|content| build_content_event(session_id, content)),
+        "turn.completed" => {
+            extract_turn_output(json).map(|content| build_content_event(session_id, content))
+        }
         "result" => extract_structured_payload(json)
             .or_else(|| extract_text_value(json.get("result")))
             .map(|content| build_content_event(session_id, content)),
@@ -456,7 +467,11 @@ fn extract_turn_output(value: &serde_json::Value) -> Option<String> {
     extract_structured_payload(value)
         .or_else(|| extract_text_value(value.get("output")))
         .or_else(|| extract_text_value(value.get("result")))
-        .or_else(|| value.pointer("/result/output").and_then(|v| extract_text_value(Some(v))))
+        .or_else(|| {
+            value
+                .pointer("/result/output")
+                .and_then(|v| extract_text_value(Some(v)))
+        })
 }
 
 fn extract_text_value(value: Option<&serde_json::Value>) -> Option<String> {

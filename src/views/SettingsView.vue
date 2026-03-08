@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useSettingsStore } from '@/stores/settings'
 import EaButton from '@/components/common/EaButton.vue'
 import EaIcon from '@/components/common/EaIcon.vue'
@@ -7,6 +8,7 @@ import EaIcon from '@/components/common/EaIcon.vue'
 import EaSelect from '@/components/common/EaSelect.vue'
 import type { CompressionStrategy } from '@/stores/token'
 
+const router = useRouter()
 const settingsStore = useSettingsStore()
 
 // 加载设置
@@ -67,10 +69,32 @@ function updateLogLevel(value: string | number) {
 async function resetSettings() {
   await settingsStore.resetSettings()
 }
+
+// 返回首页
+function goBack() {
+  router.push('/')
+}
 </script>
 
 <template>
   <div class="settings-view">
+    <!-- 顶部导航栏 -->
+    <div class="settings-header">
+      <button
+        class="back-button"
+        @click="goBack"
+      >
+        <EaIcon
+          name="arrow-left"
+          :size="18"
+        />
+        <span>返回首页</span>
+      </button>
+      <h1 class="settings-title">
+        设置
+      </h1>
+    </div>
+
     <div class="settings-container">
       <!-- 通用设置 -->
       <section class="settings-section">
@@ -234,6 +258,46 @@ async function resetSettings() {
   flex-direction: column;
   background-color: var(--color-surface);
   overflow-y: auto;
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-4);
+  padding: var(--spacing-4) var(--spacing-6);
+  background-color: var(--color-surface-elevated);
+  border-bottom: 1px solid var(--color-border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.back-button {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast) var(--easing-default);
+}
+
+.back-button:hover {
+  background: var(--color-surface-hover);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.settings-title {
+  flex: 1;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin: 0;
 }
 
 .settings-container {

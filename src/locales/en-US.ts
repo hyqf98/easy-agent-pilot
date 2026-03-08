@@ -179,7 +179,19 @@ export default {
     sessions: 'Sessions',
     files: 'Files',
     all: 'All',
-    toggleExpand: 'Expand/Collapse'
+    toggleExpand: 'Expand/Collapse',
+    sessionCount: '{count} sessions',
+    sortByUpdated: 'Sort by updated time',
+    sortByCreated: 'Sort by created time',
+    // Time formatting
+    today: 'Today',
+    yesterday: 'Yesterday',
+    daysAgo: '{days} days ago',
+    weeksAgo: '{weeks} weeks ago',
+    monthsAgo: '{months} months ago',
+    yearsAgo: '{years} years ago',
+    imported: 'imported',
+    messages: '{count} messages'
   },
 
   // Project panel
@@ -227,7 +239,9 @@ export default {
     summaryContent: 'Summary Content',
     noSummaryAvailable: 'No summary available',
     // Project selection
-    selectProject: 'Select Project'
+    selectProject: 'Select Project',
+    // Default name
+    unnamedSession: 'Unnamed Session'
   },
 
   // Session tabs bar
@@ -284,6 +298,7 @@ export default {
       integration: 'Agent Integration',
       mcp: 'MCP Servers',
       marketplace: 'Marketplace',
+      sessions: 'Session Management',
       skills: 'Skills',
       plugins: 'Plugins',
       theme: 'Theme',
@@ -358,7 +373,8 @@ export default {
       saveFailed: 'Save failed, please try again',
       confirmDelete: 'Confirm Delete',
       confirmDeleteMessage: 'Are you sure you want to delete CLI config "{name}"?',
-      verificationFailed: 'Verification Failed'
+      verificationFailed: 'Verification Failed',
+      cliNameOther: 'Other'
     },
     agent: {
       title: 'Agent Configuration',
@@ -483,6 +499,38 @@ export default {
       migrationSuccess: 'Migration successful! Migrated {migrated} configuration(s), skipped {skipped} existing one(s)',
       migrationNoNeeded: 'No migration needed',
       migrationError: 'Migration failed'
+    },
+    sessionManager: {
+      agentSelection: 'CLI Agent Session Management',
+      agentLabel: 'Agent',
+      projectLabel: 'Project',
+      scopeLabel: 'Scope',
+      scopeAll: 'All Projects',
+      scopeCurrentProject: 'Current Project',
+      allProjects: 'All Projects',
+      noCliAgents: 'No CLI agents available',
+      noCurrentProject: 'No project selected. Switch to "All Projects" or select a project first',
+      sessionList: 'Session List',
+      sessionCount: 'sessions',
+      sessionRoot: 'Session Root Directory',
+      noSessions: 'No sessions found',
+      noPreview: 'No preview available',
+      noProject: 'No Project',
+      messages: 'messages',
+      updatedAt: 'Updated',
+      projectPath: 'Project Path',
+      view: 'View',
+      delete: 'Delete',
+      detailTitle: 'Session Details',
+      messageCount: 'Message Count',
+      sessionPath: 'Session File Path',
+      rawJson: 'Raw JSON',
+      confirmDeleteTitle: 'Delete Session',
+      confirmDeleteDesc: 'This will remove the session file and cannot be undone.',
+      justNow: 'Just now',
+      minutesAgo: '{n} min ago',
+      hoursAgo: '{n}h ago',
+      daysAgo: '{n}d ago'
     },
     agentConfig: {
       title: 'MCP/Skills/Plugins Configuration',
@@ -885,6 +933,7 @@ export default {
       testSuccess: 'Test Passed',
       testFailed: 'Test Failed',
       testTools: 'Test Tools',
+      builtinServer: 'Built-in MCP server, no external dependencies required',
       // Tool Tester
       toolTester: {
         title: 'MCP Tool Tester',
@@ -1086,8 +1135,8 @@ export default {
 
   // Language names
   languages: {
-    'zh-CN': '简体中文',
-    'en-US': 'English'
+    zhCN: '简体中文',
+    enUS: 'English'
   },
 
   // MCP 插件选择器
@@ -1147,5 +1196,122 @@ export default {
     selectComponents: 'Select components to install',
     installSuccess: 'Installation successful!',
     installFailed: 'Installation failed'
+  },
+
+  // Memory Management System
+  memory: {
+    title: 'Memory Management',
+    subtitle: 'Manage and organize your AI memories',
+    // Categories
+    categories: 'Categories',
+    allMemories: 'All Memories',
+    userInfo: 'User Info',
+    projectMemory: 'Project Memory',
+    skillsKnowledge: 'Skills Knowledge',
+    generalMemory: 'General Memory',
+    newCategory: 'New Category',
+    categoryName: 'Category Name',
+    categoryDescription: 'Category Description',
+    // Memory list
+    memories: 'Memories',
+    noMemories: 'No memories yet',
+    noMemoriesHint: 'Send messages in conversations, messages are automatically captured to memory',
+    searchPlaceholder: 'Search memories...',
+    // Source types
+    sourceAuto: 'Auto-captured',
+    sourceManual: 'Manual',
+    sourceSkill: 'From Skill',
+    // Memory status
+    compressed: 'Compressed',
+    uncompressed: 'Uncompressed',
+    // Actions
+    compress: 'Compress',
+    compressSelected: 'Compress Selected',
+    deleteSelected: 'Delete Selected',
+    refresh: 'Refresh',
+    selectAll: 'Select All',
+    clearSelection: 'Clear Selection',
+    // Detail
+    detail: {
+      title: 'Memory Detail',
+      source: 'Source',
+      createdAt: 'Created At',
+      updatedAt: 'Updated At',
+      originalContent: 'Original Content',
+      compressedContent: 'Compressed Content',
+      tags: 'Tags',
+      noTags: 'No tags',
+      compress: 'Compress Memory',
+      compressing: 'Compressing...',
+      delete: 'Delete Memory',
+      deleteConfirm: 'Are you sure you want to delete this memory?',
+      close: 'Close'
+    },
+    // Compression dialog
+    compressionDialog: {
+      title: 'Compress Memory',
+      description: 'Select AI model to summarize memory content',
+      selectModel: 'Select Model',
+      compress: 'Start Compression',
+      cancel: 'Cancel',
+      processing: 'Compressing...',
+      success: 'Compression successful',
+      failed: 'Compression failed'
+    },
+    // Stats
+    stats: {
+      total: 'Total',
+      compressedCount: 'Compressed',
+      uncompressedCount: 'Uncompressed'
+    }
+  },
+
+  // Task Split
+  taskSplit: {
+    dialogTitle: 'Task Split',
+    taskList: 'Task List',
+    taskCount: '{count} tasks',
+    addTask: 'Add Task',
+    confirmCreate: 'Confirm & Create Tasks',
+    creating: 'Creating...',
+    restart: 'Restart Split',
+    cancel: 'Cancel',
+    // Task card
+    edit: 'Edit',
+    delete: 'Delete',
+    resplit: 'Split Task',
+    // Priority
+    priority: {
+      high: 'High',
+      medium: 'Medium',
+      low: 'Low'
+    },
+    // Steps
+    implementationSteps: 'Implementation Steps',
+    testSteps: 'Test Steps',
+    acceptanceCriteria: 'Acceptance Criteria',
+    // Resplit modal
+    resplitModal: {
+      title: 'Split Task',
+      originalTask: 'Original Task',
+      customPrompt: 'Custom Prompt (Optional)',
+      customPromptPlaceholder: 'Enter additional split requirements or instructions...',
+      granularity: 'Granularity (Minimum Tasks)',
+      tasks: 'tasks',
+      agent: 'Agent (Optional)',
+      model: 'Model (Optional)',
+      useDefault: 'Use Default',
+      defaultModel: '(Default)',
+      startSplit: 'Start Split',
+      cancel: 'Cancel'
+    }
+  },
+
+  // Task
+  task: {
+    dependencies: 'Dependencies',
+    selectDependencies: 'Select dependencies',
+    circularDependencyError: 'Would cause circular dependency, cannot select',
+    noTasksAvailable: 'No tasks available to select as dependencies'
   }
 }

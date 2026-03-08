@@ -7,7 +7,7 @@ import { useAgentStore } from '@/stores/agent'
 import { useAgentConfigStore } from '@/stores/agentConfig'
 import { useConfirmDialog } from '@/composables'
 import TaskSplitDialog from './TaskSplitDialog.vue'
-import type { Plan, PlanStatus, TaskStatus } from '@/types/plan'
+import type { Plan, PlanStatus, TaskStatus, UpdatePlanInput } from '@/types/plan'
 
 const planStore = usePlanStore()
 const projectStore = useProjectStore()
@@ -62,6 +62,10 @@ const selectedSplitAgentId = ref<string | null>(null)
 const selectedSplitModelId = ref<string>('')
 const createDialogModelOptions = ref<ModelOption[]>([])
 
+// 定时执行相关
+const executionMode = ref<'immediate' | 'scheduled'>('immediate')
+const scheduledDateTime = ref('')
+
 // 列表拆分时的补充配置弹框
 const showSplitConfigDialog = ref(false)
 const splitConfigPlan = ref<Plan | null>(null)
@@ -74,6 +78,8 @@ const showEditDialog = ref(false)
 const editingPlan = ref<Plan | null>(null)
 const editPlanName = ref('')
 const editPlanDescription = ref('')
+const editExecutionMode = ref<'immediate' | 'scheduled'>('immediate')
+const editScheduledDateTime = ref('')
 
 // 项目选项列表
 const projectOptions = computed(() =>
@@ -255,6 +261,12 @@ async function createPlan(startSplit: boolean) {
   if (!projectStore.currentProjectId || !newPlanName.value.trim()) return
   if (startSplit && (!selectedSplitAgentId.value || createDialogModelOptions.value.length === 0)) return
 
+  // 构建定时执行时间
+  let scheduledAt: string | undefined
+  if (executionMode.value === 'scheduled' && scheduledDateTime.value) {
+    scheduledAt = new Date(scheduledDateTime.value).toISOString()
+  }
+
   try {
     const plan = await planStore.createPlan({
       projectId: projectStore.currentProjectId,
@@ -263,7 +275,8 @@ async function createPlan(startSplit: boolean) {
       splitAgentId: selectedSplitAgentId.value ?? undefined,
       splitModelId: selectedSplitAgentId.value !== null ? selectedSplitModelId.value : undefined,
       granularity: newPlanGranularity.value,
-      maxRetryCount: newPlanMaxRetryCount.value
+      maxRetryCount: newPlanMaxRetryCount.value,
+      scheduledAt
     })
 
     planStore.setCurrentPlan(plan.id)
@@ -294,6 +307,8 @@ function closeCreateDialog() {
   selectedSplitAgentId.value = null
   selectedSplitModelId.value = ''
   createDialogModelOptions.value = []
+  executionMode.value = 'immediate'
+  scheduledDateTime.value = ''
 }
 
 // 打开创建对话框
@@ -310,6 +325,17 @@ function openEditDialog(plan: Plan) {
   editingPlan.value = plan
   editPlanName.value = plan.name
   editPlanDescription.value = plan.description || ''
+
+  // 设置定时执行状态
+  if (plan.scheduledAt) {
+    editExecutionMode.value = 'scheduled'
+    // 将 ISO 时间转换为 datetime-local 格式
+    editScheduledDateTime.value = new Date(plan.scheduledAt).toISOString().slice(0, 16)
+  } else {
+    editExecutionMode.value = 'immediate'
+    editScheduledDateTime.value = ''
+  }
+
   showEditDialog.value = true
 }
 
@@ -319,6 +345,8 @@ function closeEditDialog() {
   editingPlan.value = null
   editPlanName.value = ''
   editPlanDescription.value = ''
+  editExecutionMode.value = 'immediate'
+  editScheduledDateTime.value = ''
 }
 
 // 保存编辑
@@ -326,10 +354,24 @@ async function saveEdit() {
   if (!editingPlan.value || !editPlanName.value.trim()) return
 
   try {
-    await planStore.updatePlan(editingPlan.value.id, {
+    const updates: UpdatePlanInput = {
       name: editPlanName.value.trim(),
       description: editPlanDescription.value.trim() || undefined
-    })
+    }
+
+    // 只有在执行中之前的计划才支持编辑定时设置
+    const canEditSchedule = ['draft', 'planning', 'ready'].includes(editingPlan.value.status)
+    if (canEditSchedule) {
+      if (editExecutionMode.value === 'scheduled' && editScheduledDateTime.value) {
+        updates.scheduledAt = new Date(editScheduledDateTime.value).toISOString()
+      } else {
+        // 清除定时设置
+        updates.scheduledAt = undefined
+        updates.scheduleStatus = 'none'
+      }
+    }
+
+    await planStore.updatePlan(editingPlan.value.id, updates)
     closeEditDialog()
   } catch (error) {
     console.error('Failed to update plan:', error)
@@ -495,6 +537,26 @@ function formatRelativeTime(dateStr: string): string {
   return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
 }
 
+// 格式化定时执行时间
+function formatScheduledTime(dateStr: string | undefined): string {
+  if (!dateStr) return ''
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diff = date.getTime() - now.getTime()
+
+  if (diff < 0) return '已到期'
+
+  const minutes = Math.floor(diff / 60000)
+  const hours = Math.floor(diff / 3600000)
+  const days = Math.floor(diff / 86400000)
+
+  if (minutes < 60) return `${minutes}分钟后执行`
+  if (hours < 24) return `${hours}小时后执行`
+  if (days < 7) return `${days}天后执行`
+
+  return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
 // 判断计划是否可以拆分（只有草稿状态可以）
 function canSplit(plan: Plan): boolean {
   return plan.status === 'draft'
@@ -625,6 +687,28 @@ function canEdit(plan: Plan): boolean {
                 class="plan-status-chip"
                 :class="statusColors[plan.status]"
               >{{ statusLabels[plan.status] }}</span>
+              <span
+                v-if="plan.scheduleStatus === 'scheduled'"
+                class="plan-schedule-chip"
+                :title="'定时计划: ' + new Date(plan.scheduledAt || '').toLocaleString('zh-CN')"
+              >
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="10"
+                  />
+                  <polyline points="12,6 12,12 16,14" />
+                </svg>
+                {{ formatScheduledTime(plan.scheduledAt) }}
+              </span>
             </div>
             <span
               v-if="plan.description"
@@ -868,7 +952,46 @@ function canEdit(plan: Plan): boolean {
                 />
                 <path d="M12 16v-4M12 8h.01" />
               </svg>
-              <span>“开始拆分”会将计划状态切为规划中，并进入 AI 拆分会话</span>
+              <span>"开始拆分"会将计划状态切为规划中，并进入 AI 拆分会话</span>
+            </div>
+
+            <!-- 定时执行设置 -->
+            <div class="form-field schedule-field">
+              <label>执行方式</label>
+              <div class="schedule-options">
+                <label class="schedule-option">
+                  <input
+                    v-model="executionMode"
+                    type="radio"
+                    value="immediate"
+                  >
+                  <span class="schedule-option-label">立即执行</span>
+                </label>
+                <label class="schedule-option">
+                  <input
+                    v-model="executionMode"
+                    type="radio"
+                    value="scheduled"
+                  >
+                  <span class="schedule-option-label">定时执行</span>
+                </label>
+              </div>
+              <div
+                v-if="executionMode === 'scheduled'"
+                class="schedule-datetime"
+              >
+                <input
+                  v-model="scheduledDateTime"
+                  type="datetime-local"
+                  :min="new Date().toISOString().slice(0, 16)"
+                >
+                <span
+                  v-if="scheduledDateTime"
+                  class="schedule-preview"
+                >
+                  计划将于 {{ new Date(scheduledDateTime).toLocaleString('zh-CN') }} 自动开始执行
+                </span>
+              </div>
             </div>
           </div>
           <div class="dialog-footer">
@@ -941,6 +1064,48 @@ function canEdit(plan: Plan): boolean {
                 placeholder="描述计划的目标和范围（可选）"
                 rows="3"
               />
+            </div>
+
+            <!-- 定时执行设置 - 只有执行中之前的计划才显示 -->
+            <div
+              v-if="editingPlan && ['draft', 'planning', 'ready'].includes(editingPlan.status)"
+              class="form-field schedule-field"
+            >
+              <label>执行方式</label>
+              <div class="schedule-options">
+                <label class="schedule-option">
+                  <input
+                    v-model="editExecutionMode"
+                    type="radio"
+                    value="immediate"
+                  >
+                  <span class="schedule-option-label">立即执行</span>
+                </label>
+                <label class="schedule-option">
+                  <input
+                    v-model="editExecutionMode"
+                    type="radio"
+                    value="scheduled"
+                  >
+                  <span class="schedule-option-label">定时执行</span>
+                </label>
+              </div>
+              <div
+                v-if="editExecutionMode === 'scheduled'"
+                class="schedule-datetime"
+              >
+                <input
+                  v-model="editScheduledDateTime"
+                  type="datetime-local"
+                  :min="new Date().toISOString().slice(0, 16)"
+                >
+                <span
+                  v-if="editScheduledDateTime"
+                  class="schedule-preview"
+                >
+                  计划将于 {{ new Date(editScheduledDateTime).toLocaleString('zh-CN') }} 自动开始执行
+                </span>
+              </div>
             </div>
           </div>
           <div class="dialog-footer">
@@ -1709,5 +1874,72 @@ function canEdit(plan: Plan): boolean {
   font-size: var(--font-size-sm, 13px);
   color: var(--color-text-secondary, #64748b);
   line-height: 1.5;
+}
+
+/* 定时执行样式 */
+.plan-schedule-chip {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: var(--radius-full, 9999px);
+  padding: 0.125rem 0.4rem;
+  font-size: 0.625rem;
+  font-weight: var(--font-weight-medium, 500);
+  color: #7c3aed;
+  background-color: #f3e8ff;
+}
+
+.schedule-field {
+  margin-top: 0.5rem;
+}
+
+.schedule-options {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.schedule-option {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  cursor: pointer;
+  font-size: var(--font-size-sm, 13px);
+  color: var(--color-text-primary, #1e293b);
+}
+
+.schedule-option input[type="radio"] {
+  cursor: pointer;
+}
+
+.schedule-datetime {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.schedule-datetime input[type="date"],
+.schedule-datetime input[type="time"] {
+  padding: var(--spacing-2, 0.5rem);
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: var(--radius-md, 8px);
+  font-size: var(--font-size-sm, 13px);
+  color: var(--color-text-primary, #1e293b);
+  background-color: var(--color-surface, #fff);
+}
+
+.schedule-datetime input[type="date"]:focus,
+.schedule-datetime input[type="time"]:focus {
+  outline: none;
+  border-color: var(--color-primary, #60a5fa);
+  box-shadow: 0 0 0 3px var(--color-primary-light, #dbeafe);
+}
+
+.schedule-preview {
+  font-size: var(--font-size-xs, 12px);
+  color: var(--color-text-secondary, #64748b);
+  font-style: italic;
 }
 </style>

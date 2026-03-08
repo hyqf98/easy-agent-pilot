@@ -7,5 +7,6 @@ export {
   buildPlanSplitKickoffPrompt,
   buildFormResponsePrompt,
   buildOutputCorrectionPrompt,
-  buildPlanSplitJsonSchema
+  buildPlanSplitJsonSchema,
+  buildTaskResplitKickoffPrompt
 } from './prompts'

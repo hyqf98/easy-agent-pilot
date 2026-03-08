@@ -125,8 +125,10 @@ export class CompressionService {
       // 更新会话最后消息
       sessionStore.updateLastMessage(sessionId, summaryContent.slice(0, 50))
 
-      // 清除 token 缓存
+      // 清除 token 缓存并重置实时 token 数据
       tokenStore.clearSessionTokenCache(sessionId)
+      // 重置实时 token 为 0，确保进度条正确更新
+      tokenStore.updateRealtimeTokens(sessionId, 0, 0)
 
       return {
         success: true,
@@ -339,16 +341,14 @@ export class CompressionService {
     const userMessages = messages.filter(m => m.role === 'user')
     const assistantMessages = messages.filter(m => m.role === 'assistant')
 
-    let prompt = `请为以下对话生成一个简洁的摘要，保留关键信息和上下文。
+    let prompt = `生成对话摘要，保留关键信息。
 
-## 对话统计
-- 用户消息: ${userMessages.length} 条
-- AI 回复: ${assistantMessages.length} 条
+对话: ${userMessages.length} 条用户消息，${assistantMessages.length} 条 AI 回复
 
 `
 
     if (toolCallsSummary.length > 0) {
-      prompt += `## 工具调用记录\n`
+      prompt += `工具调用:\n`
       for (const tool of toolCallsSummary) {
         const statusEmoji = tool.status === 'success' ? '✅' : tool.status === 'error' ? '❌' : '⚠️'
         prompt += `- ${statusEmoji} ${tool.name}: ${tool.count} 次\n`
@@ -356,27 +356,20 @@ export class CompressionService {
       prompt += '\n'
     }
 
-    prompt += `## 最近对话内容
+    prompt += `最近对话:\n`
 
-`
-
-    // 只包含最近的几条消息
-    const recentMessages = messages.slice(-10)
+    const recentMessages = messages.slice(-8)
     for (const msg of recentMessages) {
       const role = msg.role === 'user' ? '用户' : 'AI'
-      const content = msg.content.slice(0, 500) + (msg.content.length > 500 ? '...' : '')
+      const content = msg.content.slice(0, 300) + (msg.content.length > 300 ? '...' : '')
       prompt += `**${role}**: ${content}\n\n`
     }
 
-    prompt += `## 要求
-
-请生成一个结构化的摘要，包含：
-1. **主要话题**: 简要描述对话的主要内容和目标
-2. **关键信息**: 列出重要的上下文信息、决策和结论
-3. **未完成事项**: 如果有未完成的任务或待解决的问题，请列出
-4. **后续建议**: 基于对话内容，给出后续可能的行动建议
-
-请用中文回答，保持简洁但信息完整。`
+    prompt += `输出结构化摘要（中文）：
+1. 主要话题
+2. 关键信息
+3. 未完成事项
+4. 后续建议`
 
     return prompt
   }

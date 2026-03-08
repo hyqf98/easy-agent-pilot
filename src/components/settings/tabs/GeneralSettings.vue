@@ -9,8 +9,8 @@ const settingsStore = useSettingsStore()
 
 // 语言选项
 const languageOptions = computed(() => [
-  { value: 'zh-CN', label: t('languages.zh-CN') },
-  { value: 'en-US', label: t('languages.en-US') }
+  { value: 'zh-CN', label: t('languages.zhCN') },
+  { value: 'en-US', label: t('languages.enUS') }
 ])
 
 // Tab 宽度选项
@@ -139,51 +139,6 @@ const compressionThresholdOptions = computed(() => [
       </div>
     </div>
 
-    <div class="settings-card">
-      <h4 class="settings-card__title">
-        {{ t('settings.general.editorSettings') }}
-      </h4>
-
-      <div class="settings-item">
-        <div class="settings-item__info">
-          <span class="settings-item__label">{{ t('settings.general.editorFontSize') }}</span>
-          <span class="settings-item__desc">{{ t('settings.general.editorFontSizeDesc') }}</span>
-        </div>
-        <input
-          v-model.number="settingsStore.settings.editorFontSize"
-          type="number"
-          class="settings-input settings-input--small"
-          min="10"
-          max="24"
-        >
-      </div>
-
-      <div class="settings-item">
-        <div class="settings-item__info">
-          <span class="settings-item__label">{{ t('settings.general.tabWidth') }}</span>
-          <span class="settings-item__desc">{{ t('settings.general.tabWidthDesc') }}</span>
-        </div>
-        <EaSelect
-          v-model="settingsStore.settings.editorTabSize"
-          :options="tabSizeOptions"
-        />
-      </div>
-
-      <div class="settings-item">
-        <div class="settings-item__info">
-          <span class="settings-item__label">{{ t('settings.general.wordWrap') }}</span>
-          <span class="settings-item__desc">{{ t('settings.general.wordWrapDesc') }}</span>
-        </div>
-        <label class="settings-toggle">
-          <input
-            v-model="settingsStore.settings.editorWordWrap"
-            type="checkbox"
-          >
-          <span class="settings-toggle__slider" />
-        </label>
-      </div>
-    </div>
-
     <!-- 会话压缩设置 -->
     <div class="settings-card">
       <h4 class="settings-card__title">
@@ -226,6 +181,51 @@ const compressionThresholdOptions = computed(() => [
           :options="compressionThresholdOptions"
           :disabled="!settingsStore.settings.autoCompressionEnabled"
         />
+      </div>
+    </div>
+
+    <div class="settings-card">
+      <h4 class="settings-card__title">
+        {{ t('settings.general.editorSettings') }}
+      </h4>
+
+      <div class="settings-item">
+        <div class="settings-item__info">
+          <span class="settings-item__label">{{ t('settings.general.editorFontSize') }}</span>
+          <span class="settings-item__desc">{{ t('settings.general.editorFontSizeDesc') }}</span>
+        </div>
+        <input
+          v-model.number="settingsStore.settings.editorFontSize"
+          type="number"
+          class="settings-input settings-input--small"
+          min="10"
+          max="24"
+        >
+      </div>
+
+      <div class="settings-item">
+        <div class="settings-item__info">
+          <span class="settings-item__label">{{ t('settings.general.tabWidth') }}</span>
+          <span class="settings-item__desc">{{ t('settings.general.tabWidthDesc') }}</span>
+        </div>
+        <EaSelect
+          v-model="settingsStore.settings.editorTabSize"
+          :options="tabSizeOptions"
+        />
+      </div>
+
+      <div class="settings-item">
+        <div class="settings-item__info">
+          <span class="settings-item__label">{{ t('settings.general.wordWrap') }}</span>
+          <span class="settings-item__desc">{{ t('settings.general.wordWrapDesc') }}</span>
+        </div>
+        <label class="settings-toggle">
+          <input
+            v-model="settingsStore.settings.editorWordWrap"
+            type="checkbox"
+          >
+          <span class="settings-toggle__slider" />
+        </label>
       </div>
     </div>
   </div>

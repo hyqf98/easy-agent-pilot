@@ -341,19 +341,6 @@ fn get_mock_skills_data(query: SkillMarketQuery) -> SkillMarketListResponse {
             updated_at: "2024-02-18T00:00:00Z".to_string(),
         },
         SkillMarketItem {
-            id: "skill-brainstorming".to_string(),
-            name: "Brainstorming".to_string(),
-            description: "Explore user intent, requirements and design before implementation. Ask clarifying questions and consider alternatives.".to_string(),
-            trigger_scenario: "Use before any creative work - creating features, building components, adding functionality, or modifying behavior".to_string(),
-            source_market: "官方仓库".to_string(),
-            category: "code_generation".to_string(),
-            tags: vec!["brainstorming".to_string(), "planning".to_string(), "design".to_string()],
-            repository_url: Some("https://github.com/anthropics/claude-code".to_string()),
-            author: Some("Anthropic".to_string()),
-            created_at: "2024-01-05T00:00:00Z".to_string(),
-            updated_at: "2024-02-22T00:00:00Z".to_string(),
-        },
-        SkillMarketItem {
             id: "skill-frontend-design".to_string(),
             name: "Frontend Design".to_string(),
             description: "Create distinctive, production-grade frontend interfaces with high design quality. Generates creative, polished code that avoids generic AI aesthetics.".to_string(),
@@ -720,61 +707,6 @@ A systematic approach to debugging issues. Gather information, form hypotheses, 
 5. Fix and verify"#.to_string()),
             created_at: "2024-01-10T00:00:00Z".to_string(),
             updated_at: "2024-02-18T00:00:00Z".to_string(),
-        },
-        SkillMarketDetail {
-            id: "skill-brainstorming".to_string(),
-            name: "Brainstorming".to_string(),
-            description: "Explore user intent, requirements and design before implementation. Ask clarifying questions and consider alternatives.".to_string(),
-            full_description: r#"# Brainstorming
-
-## Overview
-This skill helps explore user intent, requirements, and design before starting implementation. It encourages asking clarifying questions and considering alternatives.
-
-## Process
-1. **Understand the Request**: What is the user really asking for?
-2. **Ask Clarifying Questions**: Fill in any gaps or ambiguities
-3. **Explore Options**: Consider different approaches
-4. **Discuss Tradeoffs**: Help the user make informed decisions
-5. **Agree on Direction**: Confirm the approach before coding
-
-## Benefits
-- Avoids misunderstandings
-- Produces better solutions
-- Saves time in the long run
-- Improves code quality
-"#.to_string(),
-            trigger_scenario: "Use before any creative work - creating features, building components, adding functionality, or modifying behavior".to_string(),
-            usage_examples: vec![
-                "User: I want to add a search feature to my app".to_string(),
-                "User: Help me build a dashboard for analytics".to_string(),
-                "User: I need to refactor the authentication system".to_string(),
-            ],
-            source_market: "官方仓库".to_string(),
-            category: "code_generation".to_string(),
-            tags: vec!["brainstorming".to_string(), "planning".to_string(), "design".to_string()],
-            author: Some("Anthropic".to_string()),
-            author_url: Some("https://anthropic.com".to_string()),
-            license: Some("MIT".to_string()),
-            homepage_url: None,
-            repository_url: Some("https://github.com/anthropics/claude-code".to_string()),
-            skill_content: Some(r#"---
-name: brainstorming
-description: Explore user intent, requirements and design before implementation
-trigger: Use before any creative work
----
-
-# Brainstorming
-
-Explore user intent, requirements and design before implementation. Ask clarifying questions and consider alternatives.
-
-## Process
-1. Understand the request
-2. Ask clarifying questions
-3. Explore options
-4. Discuss tradeoffs
-5. Agree on direction"#.to_string()),
-            created_at: "2024-01-05T00:00:00Z".to_string(),
-            updated_at: "2024-02-22T00:00:00Z".to_string(),
         },
         SkillMarketDetail {
             id: "skill-frontend-design".to_string(),

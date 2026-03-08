@@ -7,6 +7,7 @@ import ProviderSwitch from './tabs/ProviderSwitch.vue'
 import ThemeSettings from './tabs/ThemeSettings.vue'
 import DataSettings from './tabs/DataSettings.vue'
 import LspSettings from './tabs/LspSettings.vue'
+import SessionManagementSettings from './tabs/SessionManagementSettings.vue'
 import MarketplacePage from '@/components/marketplace/MarketplacePage.vue'
 
 const uiStore = useUIStore()
@@ -32,6 +33,7 @@ const uiStore = useUIStore()
       <GeneralSettings v-if="uiStore.activeSettingsTab === 'general'" />
       <AgentSettings v-else-if="uiStore.activeSettingsTab === 'agents'" />
       <ProviderSwitch v-else-if="uiStore.activeSettingsTab === 'providerSwitch'" />
+      <SessionManagementSettings v-else-if="uiStore.activeSettingsTab === 'sessions'" />
       <ThemeSettings v-else-if="uiStore.activeSettingsTab === 'theme'" />
       <LspSettings v-else-if="uiStore.activeSettingsTab === 'lsp'" />
       <DataSettings v-else-if="uiStore.activeSettingsTab === 'data'" />
