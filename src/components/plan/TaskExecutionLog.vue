@@ -6,6 +6,7 @@ import ExecutionTimeline from '@/components/message/ExecutionTimeline.vue'
 import DynamicForm from '@/components/plan/DynamicForm.vue'
 import type { TimelineEntry } from '@/types/timeline'
 import { buildToolCallFromLogs } from '@/utils/toolCallLog'
+import { containsFormSchema } from '@/utils/structuredContent'
 
 const props = defineProps<{
   taskId: string
@@ -35,19 +36,43 @@ const logs = computed(() => {
   return executionState.value?.logs ?? []
 })
 
-// 是否正在执行
-const isRunning = computed(() => {
-  return executionState.value?.status === 'running'
-})
-
 // 是否等待用户输入
 const isWaitingInput = computed(() => {
   return task.value?.status === 'blocked' && task.value?.blockReason === 'waiting_input'
 })
 
+const effectiveStatus = computed(() => {
+  const memoryStatus = executionState.value?.status
+  if (memoryStatus && memoryStatus !== 'idle') {
+    return memoryStatus
+  }
+
+  if (task.value?.status === 'blocked' && task.value?.blockReason === 'waiting_input') {
+    return 'waiting_input'
+  }
+  if (task.value?.status === 'in_progress') {
+    return 'running'
+  }
+  if (task.value?.status === 'completed') {
+    return 'completed'
+  }
+  if (task.value?.status === 'failed') {
+    return 'failed'
+  }
+  if (task.value?.status === 'cancelled') {
+    return 'stopped'
+  }
+  return memoryStatus ?? 'idle'
+})
+
+// 是否正在执行
+const isRunning = computed(() => {
+  return effectiveStatus.value === 'running'
+})
+
 // 执行状态文本
 const statusText = computed(() => {
-  const status = executionState.value?.status
+  const status = effectiveStatus.value
   switch (status) {
     case 'idle': return '等待执行'
     case 'queued': return '排队中'
@@ -62,7 +87,7 @@ const statusText = computed(() => {
 
 // 状态颜色
 const statusColor = computed(() => {
-  const status = executionState.value?.status
+  const status = effectiveStatus.value
   switch (status) {
     case 'running': return 'primary'
     case 'queued': return 'warning'
@@ -119,6 +144,15 @@ function handleScroll() {
 const timelineEntries = computed<TimelineEntry[]>(() => {
   return logs.value.reduce<TimelineEntry[]>((entries, log) => {
     if (log.type === 'tool_result') {
+      return entries
+    }
+
+    const activeFormId = task.value?.inputRequest?.formSchema.formId
+    if (
+      log.type === 'content'
+      && isWaitingInput.value
+      && containsFormSchema(log.content, activeFormId)
+    ) {
       return entries
     }
 

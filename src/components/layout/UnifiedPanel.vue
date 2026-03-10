@@ -1291,9 +1291,19 @@ const startProjectWatcher = async (project: Project) => {
   border-color: var(--color-primary);
 }
 
+[data-theme='dark'] .project-item--active {
+  background-color: var(--color-active-bg);
+  border-color: var(--color-active-border);
+}
+
 .project-item--expanded {
   background-color: var(--color-surface-hover);
   border-color: var(--color-primary);
+}
+
+[data-theme='dark'] .project-item--expanded {
+  background-color: var(--color-surface-hover);
+  border-color: var(--color-active-border);
 }
 
 .project-item__arrow {
@@ -1476,6 +1486,16 @@ const startProjectWatcher = async (project: Project) => {
   color: var(--color-primary);
 }
 
+[data-theme='dark'] .tab-btn--active {
+  background-color: var(--color-active-bg);
+  color: var(--color-active-text);
+}
+
+[data-theme='dark'] .tab-btn--active:hover {
+  background-color: var(--color-active-bg-hover);
+  color: var(--color-active-text);
+}
+
 .tab-action-btn {
   display: flex;
   align-items: center;
@@ -1573,6 +1593,17 @@ const startProjectWatcher = async (project: Project) => {
 .session-item--active:hover {
   border-color: var(--color-primary);
   box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+[data-theme='dark'] .session-item--active {
+  background-color: var(--color-active-bg);
+  border-color: var(--color-active-border);
+}
+
+[data-theme='dark'] .session-item--active:hover {
+  background-color: var(--color-active-bg-hover);
+  border-color: var(--color-active-border);
+  box-shadow: 0 0 0 1px var(--color-active-border);
 }
 
 .session-item__content {

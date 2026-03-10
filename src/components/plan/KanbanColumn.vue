@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import draggable from 'vuedraggable'
 import KanbanCard from './KanbanCard.vue'
 import { useTaskExecutionStore } from '@/stores/taskExecution'
@@ -27,6 +28,7 @@ const emit = defineEmits<{
 }>()
 
 const taskExecutionStore = useTaskExecutionStore()
+const { t } = useI18n()
 
 // 本地任务列表（用于 vuedraggable）
 const localTasks = ref<Task[]>([...(props.tasks || [])])
@@ -80,16 +82,12 @@ function checkMove(evt: any): boolean {
 function onDragChange(evt: any) {
   if (evt.added) {
     // 从其他列拖入
-    const { element, newIndex } = evt.added
+    const { element } = evt.added
     emit('taskDrop', element.id, props.status)
   } else if (evt.moved) {
     // 同列内移动
-    const { element, newIndex, oldIndex } = evt.moved
+    const { element, newIndex } = evt.moved
     emit('taskReorder', element.id, newIndex)
-  } else if (evt.removed) {
-    // 被拖出到其他列
-    const { element, oldIndex } = evt.removed
-    // 目标列会 emit taskDrop，    emit('taskDrop', element.id, props.status)
   }
 }
 
@@ -145,7 +143,7 @@ function handleStartExecution() {
         <button
           v-if="status === 'pending' && tasks.length > 0"
           class="btn-header btn-execute-all"
-          title="一键执行所有待办任务"
+          :title="t('taskBoard.tooltips.executeAll')"
           @click="handleExecuteAll"
         >
           <svg
@@ -158,13 +156,13 @@ function handleStartExecution() {
           >
             <polygon points="5 3 19 12 5 21 5 3" />
           </svg>
-          <span>一键执行</span>
+          <span>{{ t('taskBoard.actions.executeAll') }}</span>
         </button>
         <!-- 进行中列：开始执行按钮 -->
         <button
           v-if="status === 'in_progress' && tasks.length > 0"
           class="btn-header btn-start"
-          title="开始执行进行中的任务"
+          :title="t('taskBoard.tooltips.startExecution')"
           @click="handleStartExecution"
         >
           <svg
@@ -177,7 +175,7 @@ function handleStartExecution() {
           >
             <polygon points="5 3 19 12 5 21 5 3" />
           </svg>
-          <span>开始</span>
+          <span>{{ t('taskBoard.actions.startExecution') }}</span>
         </button>
       </div>
     </div>
@@ -219,7 +217,7 @@ function handleStartExecution() {
           v-if="tasks.length === 0"
           class="empty-column"
         >
-          <span>暂无任务</span>
+          <span>{{ t('taskBoard.emptyColumn') }}</span>
         </div>
       </template>
     </draggable>

@@ -11,7 +11,10 @@ const { t } = useI18n()
 const messageStore = useMessageStore()
 const sessionStore = useSessionStore()
 
-const emit = defineEmits<{ retry: [message: Message] }>()
+const emit = defineEmits<{
+  retry: [message: Message]
+  formSubmit: [formId: string, values: Record<string, unknown>]
+}>()
 
 const listRef = ref<HTMLElement | null>(null)
 
@@ -167,6 +170,10 @@ onUnmounted(() => {
 const handleRetry = (message: Message) => {
   emit('retry', message)
 }
+
+const handleFormSubmit = (formId: string, values: Record<string, unknown>) => {
+  emit('formSubmit', formId, values)
+}
 </script>
 
 <template>
@@ -201,6 +208,7 @@ const handleRetry = (message: Message) => {
         :message="message"
         :session-id="sessionStore.currentSessionId || undefined"
         @retry="handleRetry"
+        @form-submit="handleFormSubmit"
       />
     </TransitionGroup>
 

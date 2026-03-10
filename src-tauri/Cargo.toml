@@ -82,3 +82,15 @@ rmcp = { version = "0.17", features = [
     "transport-streamable-http-client-reqwest",
 ] }
 
+[profile.dev]
+# Keep local debugging usable, but avoid huge symbol files in repeated tauri dev rebuilds.
+debug = 1
+
+[profile.dev.package."*"]
+# Dependency debug info dominates target/debug size and is rarely needed in day-to-day UI work.
+debug = 0
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+strip = "debuginfo"

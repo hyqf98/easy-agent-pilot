@@ -239,7 +239,7 @@ onMounted(() => {
   padding: 0.25rem 0.5rem;
   border-radius: 6px;
   border: 1px solid var(--color-border, #e2e8f0);
-  background: #fff;
+  background: var(--color-surface, #ffffff);
   color: var(--color-text-secondary, #64748b);
   cursor: pointer;
 }
@@ -258,7 +258,7 @@ onMounted(() => {
   padding: 0.25rem 0.5rem;
   border-radius: 6px;
   border: 1px solid var(--color-error-light, #fecaca);
-  background: #fff;
+  background: var(--color-surface, #ffffff);
   color: var(--color-error, #ef4444);
   cursor: pointer;
   transition: all 0.15s ease;
@@ -295,7 +295,7 @@ onMounted(() => {
   border: 1px solid var(--color-border, #e2e8f0);
   border-radius: 8px;
   padding: 0.625rem 0.75rem;
-  background: #fff;
+  background: var(--color-surface, #ffffff);
 }
 
 .timeline-head {

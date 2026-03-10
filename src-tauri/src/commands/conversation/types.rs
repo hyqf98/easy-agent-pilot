@@ -118,6 +118,58 @@ pub struct ExecutionRequest {
     pub response_mode: Option<String>,
 }
 
+impl ExecutionRequest {
+    pub fn from_cli(request: CliExecutionRequest, provider: &str) -> Self {
+        Self {
+            session_id: request.session_id,
+            plan_id: None,
+            agent_type: "cli".to_string(),
+            provider: provider.to_string(),
+            cli_path: Some(request.cli_path),
+            api_key: None,
+            base_url: None,
+            model_id: request.model_id,
+            messages: request.messages,
+            working_directory: request.working_directory,
+            allowed_tools: request.allowed_tools,
+            system_prompt: None,
+            max_tokens: None,
+            tools: None,
+            cli_output_format: request.cli_output_format,
+            json_schema: request.json_schema,
+            extra_cli_args: request.extra_cli_args,
+            mcp_servers: request.mcp_servers,
+            execution_mode: None,
+            response_mode: None,
+        }
+    }
+
+    pub fn from_sdk(request: SdkExecutionRequest, provider: &str) -> Self {
+        Self {
+            session_id: request.session_id,
+            plan_id: None,
+            agent_type: "sdk".to_string(),
+            provider: provider.to_string(),
+            cli_path: None,
+            api_key: Some(request.api_key),
+            base_url: request.base_url,
+            model_id: Some(request.model_id),
+            messages: request.messages,
+            working_directory: None,
+            allowed_tools: None,
+            system_prompt: request.system_prompt,
+            max_tokens: request.max_tokens,
+            tools: request.tools,
+            cli_output_format: None,
+            json_schema: None,
+            extra_cli_args: None,
+            mcp_servers: request.mcp_servers,
+            execution_mode: None,
+            response_mode: None,
+        }
+    }
+}
+
 /// 消息输入
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageInput {
@@ -134,10 +186,10 @@ pub struct ToolDefinition {
     pub input_schema: serde_json::Value,
 }
 
-/// CLI 流式事件
+/// 流式事件（CLI/SDK 共用）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CliStreamEvent {
+pub struct StreamEvent {
     /// 事件类型
     #[serde(rename = "type")]
     pub event_type: String,
@@ -172,40 +224,5 @@ pub struct CliStreamEvent {
     pub model: Option<String>,
 }
 
-/// SDK 流式事件
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SdkStreamEvent {
-    /// 事件类型
-    #[serde(rename = "type")]
-    pub event_type: String,
-    /// 会话 ID
-    pub session_id: String,
-    /// 内容
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<String>,
-    /// 工具名称
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_name: Option<String>,
-    /// 工具调用 ID
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_call_id: Option<String>,
-    /// 工具输入
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_input: Option<String>,
-    /// 工具结果
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_result: Option<String>,
-    /// 错误信息
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-    /// 输入 token 数量
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub input_tokens: Option<u32>,
-    /// 输出 token 数量
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub output_tokens: Option<u32>,
-    /// 模型名称
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-}
+pub type CliStreamEvent = StreamEvent;
+pub type SdkStreamEvent = StreamEvent;

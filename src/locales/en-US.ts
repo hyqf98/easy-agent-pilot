@@ -1,4 +1,10 @@
 export default {
+  routes: {
+    home: 'Easy Agent Pilot',
+    settings: 'Settings',
+    mcpTest: 'MCP Tool Test'
+  },
+
   // Welcome page
   welcome: {
     title: 'Easy Agent Pilot',
@@ -271,13 +277,33 @@ export default {
     clearMessages: 'Clear Messages',
     clearMessagesConfirm: 'Are you sure you want to clear all messages in this session? This action cannot be undone.',
     clearMessagesSuccess: 'Messages cleared',
+    thinking: 'Thinking',
+    toolCall: 'Tool Call',
+    parameters: 'Parameters',
+    result: 'Result',
+    error: 'Error',
+    expand: 'Expand',
+    collapse: 'Collapse',
+    structured: {
+      summary: 'Summary',
+      generatedFiles: 'Generated Files',
+      modifiedFiles: 'Modified Files',
+      changedFiles: 'Changed Files',
+      deletedFiles: 'Deleted Files'
+    },
     // Message status
     status: {
       pending: 'Pending',
       streaming: 'Streaming',
       completed: 'Completed',
       error: 'Error',
-      interrupted: 'Interrupted'
+      interrupted: 'Interrupted',
+      userPending: 'Sending',
+      userError: 'Send failed',
+      userCompleted: 'Sent',
+      assistantStreaming: 'Generating',
+      assistantError: 'Generation failed',
+      assistantCompleted: 'Completed'
     },
     // Empty state
     emptyWelcome: 'Welcome to Easy Agent Pilot',
@@ -1296,16 +1322,50 @@ export default {
     }
   },
 
+  taskBoard: {
+    title: 'Task Board',
+    emptyNoPlan: 'Select a plan first',
+    emptyNoTasks: 'No tasks yet. Split the plan into tasks first.',
+    deleteTaskTitle: 'Delete Task',
+    deleteTaskMessage: 'Delete task "{name}"?',
+    stats: {
+      completed: '{count} completed',
+      inProgress: '{count} in progress',
+      blocked: '{count} blocked',
+      pending: '{count} pending',
+      failed: '{count} failed'
+    },
+    columns: {
+      pending: 'Pending',
+      in_progress: 'In Progress',
+      completed: 'Completed',
+      blocked: 'Blocked',
+      failed: 'Failed'
+    },
+    actions: {
+      executeAll: 'Run all',
+      startExecution: 'Resume'
+    },
+    tooltips: {
+      executeAll: 'Run all pending tasks',
+      startExecution: 'Resume in-progress tasks'
+    },
+    emptyColumn: 'No tasks'
+  },
+
   // Task Split
   taskSplit: {
     dialogTitle: 'Task Split',
     taskList: 'Task List',
     taskCount: '{count} tasks',
     addTask: 'Add Task',
+    newTask: 'New Task',
     confirmCreate: 'Confirm & Create Tasks',
     creating: 'Creating...',
     restart: 'Restart Split',
     cancel: 'Cancel',
+    removeTaskConfirmTitle: 'Delete Task',
+    removeTaskConfirmMessage: 'Delete task "{name}"?',
     // Task card
     edit: 'Edit',
     delete: 'Delete',
@@ -1345,6 +1405,26 @@ export default {
     noTasksAvailable: 'No tasks available to select as dependencies',
     selectAgent: 'Agent (Optional)',
     selectAgentPlaceholder: 'Use default agent',
-    selectModel: 'Model (Optional)'
+    selectModel: 'Model (Optional)',
+    priority: {
+      low: 'Low',
+      medium: 'Medium',
+      high: 'High'
+    },
+    execution: {
+      waitingInput: 'Waiting for input',
+      running: 'Running...',
+      queued: 'Queued #{position}',
+      waitingDependencies: 'Waiting for dependencies ({count})'
+    },
+    retryCount: 'Retry: {current}/{max}',
+    errorHint: 'Error',
+    dependenciesCount: '{count} deps',
+    actions: {
+      stop: 'Stop execution',
+      retry: 'Retry',
+      edit: 'Edit',
+      delete: 'Delete'
+    }
   }
 }

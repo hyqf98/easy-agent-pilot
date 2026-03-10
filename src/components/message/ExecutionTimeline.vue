@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import DynamicForm from '@/components/plan/DynamicForm.vue'
 import type { TimelineEntry } from '@/types/timeline'
-import MarkdownRenderer from './MarkdownRenderer.vue'
+import StructuredContentRenderer from './StructuredContentRenderer.vue'
 import ThinkingDisplay from './ThinkingDisplay.vue'
 import ToolCallDisplay from './ToolCallDisplay.vue'
 
@@ -12,7 +12,17 @@ defineProps<{
 const emit = defineEmits<{
   (e: 'form-submit', entryId: string, values: Record<string, unknown>): void
   (e: 'form-cancel', entryId: string): void
+  (e: 'message-form-submit', formId: string, values: Record<string, unknown>): void
+  (e: 'message-form-cancel', formId: string): void
 }>()
+
+function handleMessageFormSubmit(formId: string, values: Record<string, unknown>) {
+  emit('message-form-submit', formId, values)
+}
+
+function handleMessageFormCancel(formId: string) {
+  emit('message-form-cancel', formId)
+}
 </script>
 
 <template>
@@ -27,9 +37,12 @@ const emit = defineEmits<{
         :class="`timeline-message--${entry.role || 'assistant'}`"
       >
         <div class="timeline-message__content">
-          <MarkdownRenderer
+          <StructuredContentRenderer
             v-if="entry.role !== 'user'"
             :content="entry.content || ''"
+            :interactive-forms="entry.role === 'assistant'"
+            @form-submit="handleMessageFormSubmit"
+            @form-cancel="handleMessageFormCancel"
           />
           <p
             v-else
@@ -71,7 +84,7 @@ const emit = defineEmits<{
         class="timeline-entry"
         :class="`timeline-entry--${entry.type}`"
       >
-        <MarkdownRenderer :content="entry.content" />
+        <StructuredContentRenderer :content="entry.content" />
       </div>
     </template>
   </div>

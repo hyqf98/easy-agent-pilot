@@ -106,8 +106,8 @@ onMounted(() => {
         </select>
 
         <EaButton
-          variant="ghost"
-          size="sm"
+          type="ghost"
+          size="small"
           @click="refreshMarket"
         >
           <EaIcon name="refresh-cw" :size="16" />

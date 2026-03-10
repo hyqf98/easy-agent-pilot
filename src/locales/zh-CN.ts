@@ -2,6 +2,11 @@ import enUS from './en-US'
 
 const zhCN = {
   ...enUS,
+  routes: {
+    home: 'Easy Agent Pilot',
+    settings: '设置',
+    mcpTest: 'MCP 工具测试'
+  },
   languages: {
     zhCN: '简体中文',
     enUS: 'English'
@@ -23,7 +28,37 @@ const zhCN = {
     clearSearch: '清除搜索',
     refresh: '刷新',
     retry: '重试',
-    loading: '加载中...'
+    loading: '加载中...',
+    justNow: '刚刚',
+    minutesAgo: '{n} 分钟前',
+    hoursAgo: '{n} 小时前',
+    daysAgo: '{n} 天前'
+  },
+  compression: {
+    ...enUS.compression,
+    title: '压缩会话',
+    description: '压缩会话以释放 token 空间，同时尽量保留关键信息',
+    strategy: '压缩策略',
+    strategySimple: '简单压缩',
+    strategySimpleDesc: '直接清理消息历史',
+    strategySummary: 'AI 摘要',
+    strategySummaryDesc: '使用 AI 生成对话摘要，保留关键上下文',
+    confirmTitle: '确认压缩',
+    confirmMessage: '确定要压缩当前会话吗？这会清理消息历史并生成摘要，此操作不可撤销。',
+    currentUsage: '当前使用量',
+    messageCount: '消息数量',
+    processing: '压缩中...',
+    success: '压缩成功',
+    failed: '压缩失败',
+    summaryTitle: '会话摘要',
+    originalInfo: '原始信息',
+    originalMessages: '原始消息数',
+    originalTokens: '原始 Token 数',
+    compressedAt: '压缩时间',
+    toolCallsSummary: '工具调用',
+    noToolCalls: '暂无工具调用',
+    expand: '展开',
+    collapse: '收起'
   },
   panel: {
     ...enUS.panel,
@@ -49,9 +84,103 @@ const zhCN = {
     imported: '导入',
     messages: '{count} 条消息'
   },
+  project: {
+    ...enUS.project,
+    noProjects: '暂无项目',
+    noProjectsHint: '创建第一个项目后即可开始与 AI 对话',
+    createProject: '新建项目',
+    createFirstProject: '创建首个项目',
+    deleteProject: '移除项目',
+    confirmDeleteTitle: '移除项目',
+    confirmDeleteMessage: '确定将项目“{name}”从管理列表移除吗？\n\n这只会从应用内移除项目，不会删除本地文件；关联会话会从数据库中删除。'
+  },
   session: {
     ...enUS.session,
+    noProjectSelected: '请先选择项目',
+    noSessions: '暂无会话',
+    createSession: '新建会话',
+    searchSessions: '搜索会话...',
+    noMatchingSessions: '未找到匹配会话',
+    confirmDeleteTitle: '确认删除会话',
+    confirmDeleteMessage: '确定要删除会话“{name}”吗？\n该会话下的所有消息都会被删除，此操作无法撤销。',
+    sessionName: '会话名称',
+    enterSessionName: '请输入会话名称',
+    pin: '置顶',
+    unpin: '取消置顶',
+    statusIdle: '空闲',
+    statusRunning: '运行中',
+    statusPaused: '已暂停',
+    statusError: '异常',
+    statusCompleted: '已完成',
+    pause: '暂停',
+    resume: '继续',
+    stop: '停止',
+    viewErrorDetails: '查看错误详情',
+    errorDetails: '错误详情',
+    noErrorMessage: '暂无错误信息',
+    viewSummary: '查看摘要',
+    executionSummary: '执行摘要',
+    rerun: '重新执行',
+    summaryContent: '摘要内容',
+    noSummaryAvailable: '暂无摘要',
+    selectProject: '选择项目',
     unnamedSession: '未命名会话'
+  },
+  sessionTabs: {
+    ...enUS.sessionTabs,
+    close: '关闭标签页',
+    closeOthers: '关闭其他标签页',
+    closeAll: '关闭全部标签页',
+    maxSessionsReached: '最多同时打开 {n} 个会话',
+    switchShortcut: '切换到会话 {n}'
+  },
+  message: {
+    ...enUS.message,
+    noSessionSelected: '选择或创建一个会话开始对话',
+    startConversation: '开始新对话',
+    inputPlaceholder: '输入消息...（{shortcut} 发送）',
+    sending: '发送中...',
+    sent: '已发送',
+    failed: '发送失败',
+    copy: '复制',
+    copied: '已复制',
+    stop: '停止生成',
+    stopped: '已停止',
+    retry: '重试',
+    loadingMore: '加载更多历史消息...',
+    scrollUpLoadMore: '向上滚动加载更多消息',
+    clearMessages: '清空消息',
+    clearMessagesConfirm: '确定清空当前会话的全部消息吗？此操作无法撤销。',
+    clearMessagesSuccess: '消息已清空',
+    emptyWelcome: '欢迎使用 Easy Agent Pilot',
+    emptyHint: '在下方输入框中开始与 AI 对话',
+    thinking: '思考过程',
+    toolCall: '工具调用',
+    result: '结果',
+    parameters: '参数',
+    expand: '展开',
+    collapse: '收起',
+    structured: {
+      summary: '摘要',
+      generatedFiles: '新增文件',
+      modifiedFiles: '修改文件',
+      changedFiles: '变更文件',
+      deletedFiles: '删除文件'
+    },
+    status: {
+      ...enUS.message.status,
+      pending: '待发送',
+      streaming: '生成中',
+      completed: '已完成',
+      error: '错误',
+      interrupted: '已中断',
+      userPending: '发送中',
+      userError: '发送失败',
+      userCompleted: '已发送',
+      assistantStreaming: '生成中',
+      assistantError: '生成失败',
+      assistantCompleted: '已完成'
+    }
   },
   // 设置页面翻译
   settings: {
@@ -707,16 +836,50 @@ const zhCN = {
     installFailed: '安装失败'
   },
 
+  taskBoard: {
+    title: '任务看板',
+    emptyNoPlan: '请先选择一个计划',
+    emptyNoTasks: '暂无任务，请先进行任务拆分',
+    deleteTaskTitle: '删除任务',
+    deleteTaskMessage: '确定要删除任务“{name}”吗？',
+    stats: {
+      completed: '{count} 完成',
+      inProgress: '{count} 进行中',
+      blocked: '{count} 阻塞',
+      pending: '{count} 待办',
+      failed: '{count} 失败'
+    },
+    columns: {
+      pending: '待办',
+      in_progress: '进行中',
+      completed: '已完成',
+      blocked: '阻塞',
+      failed: '执行失败'
+    },
+    actions: {
+      executeAll: '一键执行',
+      startExecution: '开始'
+    },
+    tooltips: {
+      executeAll: '一键执行所有待办任务',
+      startExecution: '开始执行进行中的任务'
+    },
+    emptyColumn: '暂无任务'
+  },
+
   // 任务拆分
   taskSplit: {
     dialogTitle: '任务拆分',
     taskList: '任务列表',
     taskCount: '{count} 个任务',
     addTask: '添加任务',
+    newTask: '新任务',
     confirmCreate: '确认并创建任务',
     creating: '创建中...',
     restart: '重新拆分',
     cancel: '取消',
+    removeTaskConfirmTitle: '删除任务',
+    removeTaskConfirmMessage: '确定要删除任务“{name}”吗？',
     // 任务卡片
     edit: '编辑',
     delete: '删除',
@@ -757,7 +920,27 @@ const zhCN = {
     noTasksAvailable: '没有可选的任务',
     selectAgent: '智能体（可选）',
     selectAgentPlaceholder: '使用默认智能体',
-    selectModel: '模型（可选）'
+    selectModel: '模型（可选）',
+    priority: {
+      low: '低',
+      medium: '中',
+      high: '高'
+    },
+    execution: {
+      waitingInput: '等待输入',
+      running: '执行中...',
+      queued: '排队中 #{position}',
+      waitingDependencies: '等待依赖 ({count})'
+    },
+    retryCount: '重试: {current}/{max}',
+    errorHint: '错误',
+    dependenciesCount: '{count} 个依赖',
+    actions: {
+      stop: '停止执行',
+      retry: '重试',
+      edit: '编辑',
+      delete: '删除'
+    }
   }
 }
 

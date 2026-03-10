@@ -1,40 +1,29 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { useConfirmDialog } from '@/composables'
+import { useAgentConfigStore } from '@/stores/agentConfig'
+import { useAgentStore } from '@/stores/agent'
 import { usePlanStore } from '@/stores/plan'
 import { useProjectStore } from '@/stores/project'
-import { useAgentStore } from '@/stores/agent'
-import { useAgentConfigStore } from '@/stores/agentConfig'
-import { useConfirmDialog } from '@/composables'
-import TaskSplitDialog from './TaskSplitDialog.vue'
 import type { Plan, PlanStatus, TaskStatus, UpdatePlanInput } from '@/types/plan'
-
-const planStore = usePlanStore()
-const projectStore = useProjectStore()
-const agentStore = useAgentStore()
-const agentConfigStore = useAgentConfigStore()
-const confirmDialog = useConfirmDialog()
+import PlanCreateDialog from './PlanCreateDialog.vue'
+import PlanEditDialog from './PlanEditDialog.vue'
+import PlanListItem from './PlanListItem.vue'
+import PlanSplitConfigDialog from './PlanSplitConfigDialog.vue'
+import TaskSplitDialog from './TaskSplitDialog.vue'
+import type {
+  AgentOption,
+  ModelOption,
+  PlanCreateFormState,
+  PlanEditFormState,
+  PlanListItemViewModel,
+  PlanSplitConfigFormState,
+  PlanTaskStats
+} from './planListShared'
 
 interface TaskStatusItem {
   status: TaskStatus
-}
-
-interface PlanTaskStats {
-  total: number
-  executionQueue: number
-  completed: number
-  failed: number
-}
-
-interface AgentOption {
-  label: string
-  value: string
-}
-
-interface ModelOption {
-  label: string
-  value: string
-  isDefault: boolean
 }
 
 type PlanTabKey = 'draft' | 'splitting' | 'executing' | 'completed'
@@ -46,69 +35,47 @@ const EMPTY_PLAN_TASK_STATS: PlanTaskStats = {
   failed: 0
 }
 
+const planStore = usePlanStore()
+const projectStore = useProjectStore()
+const agentStore = useAgentStore()
+const agentConfigStore = useAgentConfigStore()
+const confirmDialog = useConfirmDialog()
+
 const planTaskStats = ref<Record<string, PlanTaskStats>>({})
+const selectedProjectIdForList = ref<string | null>(null)
+const activeStatusTab = ref<PlanTabKey>('draft')
+const showCreateDialog = ref(false)
+const showSplitConfigDialog = ref(false)
+const showEditDialog = ref(false)
+const splitConfigPlan = ref<Plan | null>(null)
+const editingPlan = ref<Plan | null>(null)
 let planTaskStatsRequestId = 0
 
-// 列表项目切换
-const selectedProjectIdForList = ref<string | null>(null)
-
-// 创建对话框
-const showCreateDialog = ref(false)
-const newPlanName = ref('')
-const newPlanDescription = ref('')
-const newPlanGranularity = ref(20)
-const newPlanMaxRetryCount = ref(3)
-const selectedSplitAgentId = ref<string | null>(null)
-const selectedSplitModelId = ref<string>('')
 const createDialogModelOptions = ref<ModelOption[]>([])
-
-// 定时执行相关
-const executionMode = ref<'immediate' | 'scheduled'>('immediate')
-const scheduledDateTime = ref('')
-
-// 列表拆分时的补充配置弹框
-const showSplitConfigDialog = ref(false)
-const splitConfigPlan = ref<Plan | null>(null)
-const splitConfigAgentId = ref<string | null>(null)
-const splitConfigModelId = ref<string>('')
 const splitConfigModelOptions = ref<ModelOption[]>([])
 
-// 编辑对话框
-const showEditDialog = ref(false)
-const editingPlan = ref<Plan | null>(null)
-const editPlanName = ref('')
-const editPlanDescription = ref('')
-const editExecutionMode = ref<'immediate' | 'scheduled'>('immediate')
-const editScheduledDateTime = ref('')
-
-// 项目选项列表
-const projectOptions = computed(() =>
-  projectStore.projects.map(project => ({
-    label: project.name,
-    value: project.id,
-    path: project.path
-  }))
-)
-
-const selectedListProject = computed(() => {
-  if (!selectedProjectIdForList.value) return null
-  return projectStore.projects.find(p => p.id === selectedProjectIdForList.value) || null
+const createForm = reactive<PlanCreateFormState>({
+  name: '',
+  description: '',
+  granularity: 20,
+  maxRetryCount: 3,
+  splitAgentId: null,
+  splitModelId: '',
+  executionMode: 'immediate',
+  scheduledDateTime: ''
 })
 
-const agentOptions = computed<AgentOption[]>(() =>
-  agentStore.agents.map(agent => ({
-    label: `${agent.name} (${agent.type.toUpperCase()}${agent.provider ? ` / ${agent.provider}` : ''})`,
-    value: agent.id
-  }))
-)
-
-// 当前项目的计划
-const plans = computed(() => {
-  if (!projectStore.currentProject) return []
-  return planStore.plansByProject(projectStore.currentProject.id)
+const splitConfigForm = reactive<PlanSplitConfigFormState>({
+  agentId: null,
+  modelId: ''
 })
 
-const activeStatusTab = ref<PlanTabKey>('draft')
+const editForm = reactive<PlanEditFormState>({
+  name: '',
+  description: '',
+  executionMode: 'immediate',
+  scheduledDateTime: ''
+})
 
 const statusTabs: Array<{ key: PlanTabKey, label: string }> = [
   { key: 'draft', label: '草稿状态' },
@@ -124,6 +91,49 @@ const tabStatusMap: Record<PlanTabKey, PlanStatus[]> = {
   completed: ['completed']
 }
 
+const statusLabels: Record<PlanStatus, string> = {
+  draft: '草稿',
+  planning: '规划中',
+  ready: '已拆分',
+  executing: '执行中',
+  completed: '已完成',
+  paused: '已暂停'
+}
+
+const statusColors: Record<PlanStatus, string> = {
+  draft: 'gray',
+  planning: 'purple',
+  ready: 'yellow',
+  executing: 'blue',
+  completed: 'green',
+  paused: 'orange'
+}
+
+const projectOptions = computed(() =>
+  projectStore.projects.map(project => ({
+    label: project.name,
+    value: project.id,
+    path: project.path
+  }))
+)
+
+const selectedListProject = computed(() => {
+  if (!selectedProjectIdForList.value) return null
+  return projectStore.projects.find(project => project.id === selectedProjectIdForList.value) || null
+})
+
+const agentOptions = computed<AgentOption[]>(() =>
+  agentStore.agents.map(agent => ({
+    label: `${agent.name} (${agent.type.toUpperCase()}${agent.provider ? ` / ${agent.provider}` : ''})`,
+    value: agent.id
+  }))
+)
+
+const plans = computed(() => {
+  if (!projectStore.currentProject) return []
+  return planStore.plansByProject(projectStore.currentProject.id)
+})
+
 const statusTabCounts = computed<Record<PlanTabKey, number>>(() => ({
   draft: plans.value.filter(plan => tabStatusMap.draft.includes(plan.status)).length,
   splitting: plans.value.filter(plan => tabStatusMap.splitting.includes(plan.status)).length,
@@ -135,8 +145,45 @@ const filteredPlans = computed(() =>
   plans.value.filter(plan => tabStatusMap[activeStatusTab.value].includes(plan.status))
 )
 
+const planItems = computed<PlanListItemViewModel[]>(() =>
+  filteredPlans.value.map(plan => ({
+    plan,
+    isActive: planStore.currentPlanId === plan.id,
+    statusLabel: statusLabels[plan.status],
+    statusColor: statusColors[plan.status],
+    relativeTimeLabel: formatRelativeTime(plan.updatedAt),
+    scheduledLabel: formatScheduledTime(plan.scheduledAt),
+    taskStats: getPlanTaskStats(plan.id),
+    canSplit: canSplit(plan),
+    canResumeSplit: plan.status === 'planning',
+    canEdit: canEdit(plan)
+  }))
+)
+
 const activeStatusTabLabel = computed(() =>
   statusTabs.find(tab => tab.key === activeStatusTab.value)?.label ?? ''
+)
+
+const canSaveDraft = computed(() =>
+  Boolean(projectStore.currentProjectId && createForm.name.trim())
+)
+
+const canStartSplitFromCreate = computed(() =>
+  Boolean(
+    canSaveDraft.value &&
+    createForm.splitAgentId !== null &&
+    createDialogModelOptions.value.length > 0 &&
+    isModelSelectionValid(createForm.splitAgentId, createForm.splitModelId)
+  )
+)
+
+const canStartSplitFromList = computed(() =>
+  Boolean(
+    splitConfigPlan.value &&
+    splitConfigForm.agentId &&
+    splitConfigModelOptions.value.length > 0 &&
+    isModelSelectionValid(splitConfigForm.agentId, splitConfigForm.modelId)
+  )
 )
 
 async function loadEnabledModels(agentId: string): Promise<ModelOption[]> {
@@ -167,32 +214,12 @@ function isModelSelectionValid(agentId: string | null, modelId: string): boolean
   return true
 }
 
-// 状态显示名称
-const statusLabels: Record<PlanStatus, string> = {
-  draft: '草稿',
-  planning: '规划中',
-  ready: '已拆分',
-  executing: '执行中',
-  completed: '已完成',
-  paused: '已暂停'
-}
-
-// 状态颜色
-const statusColors: Record<PlanStatus, string> = {
-  draft: 'gray',
-  planning: 'purple',
-  ready: 'yellow',
-  executing: 'blue',
-  completed: 'green',
-  paused: 'orange'
-}
-
 function buildPlanTaskStats(tasks: TaskStatusItem[]): PlanTaskStats {
   return {
     total: tasks.length,
     executionQueue: tasks.filter(task => task.status === 'pending' || task.status === 'in_progress').length,
     completed: tasks.filter(task => task.status === 'completed').length,
-    failed: tasks.filter(task => task.status === 'blocked' || task.status === 'cancelled').length
+    failed: tasks.filter(task => task.status === 'failed' || task.status === 'cancelled').length
   }
 }
 
@@ -229,7 +256,6 @@ async function loadPlanTaskStats(planList: Plan[]) {
   planTaskStats.value = nextStats
 }
 
-// 选择计划
 function selectPlan(plan: Plan) {
   planStore.setCurrentPlan(plan.id)
 }
@@ -243,50 +269,53 @@ function handleListProjectChange(projectId: string) {
   void planStore.loadPlans(projectId)
 }
 
-const canSaveDraft = computed(() =>
-  Boolean(projectStore.currentProjectId && newPlanName.value.trim())
-)
+function updateCreateForm(patch: Partial<PlanCreateFormState>) {
+  Object.assign(createForm, patch)
+}
 
-const canStartSplitFromCreate = computed(() =>
-  Boolean(
-    canSaveDraft.value &&
-    selectedSplitAgentId.value !== null &&
-    createDialogModelOptions.value.length > 0 &&
-    isModelSelectionValid(selectedSplitAgentId.value, selectedSplitModelId.value)
-  )
-)
+function resetCreateForm() {
+  updateCreateForm({
+    name: '',
+    description: '',
+    granularity: 20,
+    maxRetryCount: 3,
+    splitAgentId: null,
+    splitModelId: '',
+    executionMode: 'immediate',
+    scheduledDateTime: ''
+  })
+  createDialogModelOptions.value = []
+}
 
-// 创建新计划（支持保存草稿或创建后立即拆分）
 async function createPlan(startSplit: boolean) {
-  if (!projectStore.currentProjectId || !newPlanName.value.trim()) return
-  if (startSplit && (!selectedSplitAgentId.value || createDialogModelOptions.value.length === 0)) return
+  if (!projectStore.currentProjectId || !createForm.name.trim()) return
+  if (startSplit && (!createForm.splitAgentId || createDialogModelOptions.value.length === 0)) return
 
-  // 构建定时执行时间
   let scheduledAt: string | undefined
-  if (executionMode.value === 'scheduled' && scheduledDateTime.value) {
-    scheduledAt = new Date(scheduledDateTime.value).toISOString()
+  if (createForm.executionMode === 'scheduled' && createForm.scheduledDateTime) {
+    scheduledAt = new Date(createForm.scheduledDateTime).toISOString()
   }
 
   try {
     const plan = await planStore.createPlan({
       projectId: projectStore.currentProjectId,
-      name: newPlanName.value.trim(),
-      description: newPlanDescription.value.trim() || undefined,
-      splitAgentId: selectedSplitAgentId.value ?? undefined,
-      splitModelId: selectedSplitAgentId.value !== null ? selectedSplitModelId.value : undefined,
-      granularity: newPlanGranularity.value,
-      maxRetryCount: newPlanMaxRetryCount.value,
+      name: createForm.name.trim(),
+      description: createForm.description.trim() || undefined,
+      splitAgentId: createForm.splitAgentId ?? undefined,
+      splitModelId: createForm.splitAgentId !== null ? createForm.splitModelId : undefined,
+      granularity: createForm.granularity,
+      maxRetryCount: createForm.maxRetryCount,
       scheduledAt
     })
 
     planStore.setCurrentPlan(plan.id)
 
-    if (startSplit && selectedSplitAgentId.value !== null) {
+    if (startSplit && createForm.splitAgentId !== null) {
       await planStore.updatePlan(plan.id, { status: 'planning' })
       planStore.openSplitDialog({
         planId: plan.id,
-        agentId: selectedSplitAgentId.value,
-        modelId: selectedSplitModelId.value,
+        agentId: createForm.splitAgentId,
+        modelId: createForm.splitModelId,
         entry: 'create_start_split'
       })
     }
@@ -297,75 +326,63 @@ async function createPlan(startSplit: boolean) {
   }
 }
 
-// 关闭创建对话框
 function closeCreateDialog() {
   showCreateDialog.value = false
-  newPlanName.value = ''
-  newPlanDescription.value = ''
-  newPlanGranularity.value = 20
-  newPlanMaxRetryCount.value = 3
-  selectedSplitAgentId.value = null
-  selectedSplitModelId.value = ''
-  createDialogModelOptions.value = []
-  executionMode.value = 'immediate'
-  scheduledDateTime.value = ''
+  resetCreateForm()
 }
 
-// 打开创建对话框
 async function openCreateDialog() {
   if (agentStore.agents.length === 0) {
     await agentStore.loadAgents()
   }
-  selectedSplitAgentId.value = agentOptions.value[0]?.value ?? null
+  updateCreateForm({ splitAgentId: agentOptions.value[0]?.value ?? null })
   showCreateDialog.value = true
 }
 
-// 打开编辑对话框
+function updateEditForm(patch: Partial<PlanEditFormState>) {
+  Object.assign(editForm, patch)
+}
+
+function resetEditForm() {
+  updateEditForm({
+    name: '',
+    description: '',
+    executionMode: 'immediate',
+    scheduledDateTime: ''
+  })
+}
+
 function openEditDialog(plan: Plan) {
   editingPlan.value = plan
-  editPlanName.value = plan.name
-  editPlanDescription.value = plan.description || ''
-
-  // 设置定时执行状态
-  if (plan.scheduledAt) {
-    editExecutionMode.value = 'scheduled'
-    // 将 ISO 时间转换为 datetime-local 格式
-    editScheduledDateTime.value = new Date(plan.scheduledAt).toISOString().slice(0, 16)
-  } else {
-    editExecutionMode.value = 'immediate'
-    editScheduledDateTime.value = ''
-  }
-
+  updateEditForm({
+    name: plan.name,
+    description: plan.description || '',
+    executionMode: plan.scheduledAt ? 'scheduled' : 'immediate',
+    scheduledDateTime: plan.scheduledAt ? new Date(plan.scheduledAt).toISOString().slice(0, 16) : ''
+  })
   showEditDialog.value = true
 }
 
-// 关闭编辑对话框
 function closeEditDialog() {
   showEditDialog.value = false
   editingPlan.value = null
-  editPlanName.value = ''
-  editPlanDescription.value = ''
-  editExecutionMode.value = 'immediate'
-  editScheduledDateTime.value = ''
+  resetEditForm()
 }
 
-// 保存编辑
 async function saveEdit() {
-  if (!editingPlan.value || !editPlanName.value.trim()) return
+  if (!editingPlan.value || !editForm.name.trim()) return
 
   try {
     const updates: UpdatePlanInput = {
-      name: editPlanName.value.trim(),
-      description: editPlanDescription.value.trim() || undefined
+      name: editForm.name.trim(),
+      description: editForm.description.trim() || undefined
     }
 
-    // 只有在执行中之前的计划才支持编辑定时设置
-    const canEditSchedule = ['draft', 'planning', 'ready'].includes(editingPlan.value.status)
-    if (canEditSchedule) {
-      if (editExecutionMode.value === 'scheduled' && editScheduledDateTime.value) {
-        updates.scheduledAt = new Date(editScheduledDateTime.value).toISOString()
+    const canEditScheduleBeforeExecution = ['draft', 'planning', 'ready'].includes(editingPlan.value.status)
+    if (canEditScheduleBeforeExecution) {
+      if (editForm.executionMode === 'scheduled' && editForm.scheduledDateTime) {
+        updates.scheduledAt = new Date(editForm.scheduledDateTime).toISOString()
       } else {
-        // 清除定时设置
         updates.scheduledAt = undefined
         updates.scheduleStatus = 'none'
       }
@@ -378,7 +395,18 @@ async function saveEdit() {
   }
 }
 
-// 开始拆分任务（打开拆分对话框）
+function updateSplitConfigForm(patch: Partial<PlanSplitConfigFormState>) {
+  Object.assign(splitConfigForm, patch)
+}
+
+function resetSplitConfigForm() {
+  updateSplitConfigForm({
+    agentId: null,
+    modelId: ''
+  })
+  splitConfigModelOptions.value = []
+}
+
 async function startSplitTasks(plan: Plan) {
   if (agentStore.agents.length === 0) {
     await agentStore.loadAgents()
@@ -406,42 +434,31 @@ async function startSplitTasks(plan: Plan) {
   }
 
   splitConfigPlan.value = plan
-  splitConfigAgentId.value = plan.splitAgentId || agentOptions.value[0]?.value || null
+  updateSplitConfigForm({ agentId: plan.splitAgentId || agentOptions.value[0]?.value || null })
   showSplitConfigDialog.value = true
 }
 
 function closeSplitConfigDialog() {
   showSplitConfigDialog.value = false
   splitConfigPlan.value = null
-  splitConfigAgentId.value = null
-  splitConfigModelId.value = ''
-  splitConfigModelOptions.value = []
+  resetSplitConfigForm()
 }
 
-const canStartSplitFromList = computed(() =>
-  Boolean(
-    splitConfigPlan.value &&
-    splitConfigAgentId.value &&
-    splitConfigModelOptions.value.length > 0 &&
-    isModelSelectionValid(splitConfigAgentId.value, splitConfigModelId.value)
-  )
-)
-
 async function confirmSplitConfigAndStart() {
-  if (!splitConfigPlan.value || !splitConfigAgentId.value) return
+  if (!splitConfigPlan.value || !splitConfigForm.agentId) return
   if (splitConfigModelOptions.value.length === 0) return
 
   try {
     const updatedPlan = await planStore.updatePlan(splitConfigPlan.value.id, {
-      splitAgentId: splitConfigAgentId.value,
-      splitModelId: splitConfigModelId.value,
+      splitAgentId: splitConfigForm.agentId,
+      splitModelId: splitConfigForm.modelId,
       status: 'planning'
     })
 
     planStore.openSplitDialog({
       planId: updatedPlan.id,
-      agentId: splitConfigAgentId.value,
-      modelId: splitConfigModelId.value,
+      agentId: splitConfigForm.agentId,
+      modelId: splitConfigForm.modelId,
       entry: splitConfigPlan.value.status === 'planning' ? 'resume_split' : 'list_split'
     })
 
@@ -451,7 +468,6 @@ async function confirmSplitConfigAndStart() {
   }
 }
 
-// 删除计划
 async function deletePlan(plan: Plan) {
   const confirmed = await confirmDialog.danger(
     `确定要删除计划「${plan.name}」吗？`,
@@ -466,65 +482,10 @@ async function deletePlan(plan: Plan) {
   }
 }
 
-// 加载计划
-onMounted(() => {
-  void agentStore.loadAgents()
-})
-
-// 监听项目变化
-watch(
-  () => projectStore.currentProjectId,
-  (projectId) => {
-    selectedProjectIdForList.value = projectId
-    if (projectId) {
-      void planStore.loadPlans(projectId)
-    }
-  },
-  { immediate: true }
-)
-
-watch(selectedSplitAgentId, async (agentId) => {
-  if (!agentId) {
-    createDialogModelOptions.value = []
-    selectedSplitModelId.value = ''
-    return
-  }
-
-  createDialogModelOptions.value = await loadEnabledModels(agentId)
-  selectedSplitModelId.value = pickDefaultModel(createDialogModelOptions.value)
-}, { immediate: true })
-
-watch(splitConfigAgentId, async (agentId) => {
-  if (!agentId) {
-    splitConfigModelOptions.value = []
-    splitConfigModelId.value = ''
-    return
-  }
-
-  splitConfigModelOptions.value = await loadEnabledModels(agentId)
-  const preferredModelId = splitConfigPlan.value?.splitAgentId === agentId
-    ? (splitConfigPlan.value.splitModelId ?? '')
-    : ''
-
-  splitConfigModelId.value = splitConfigModelOptions.value.some(option => option.value === preferredModelId)
-    ? preferredModelId
-    : pickDefaultModel(splitConfigModelOptions.value)
-}, { immediate: true })
-
-watch(
-  plans,
-  (nextPlans) => {
-    void loadPlanTaskStats(nextPlans)
-  },
-  { immediate: true }
-)
-
-// 格式化相对时间
 function formatRelativeTime(dateStr: string): string {
   const date = new Date(dateStr)
   const now = new Date()
   const diff = now.getTime() - date.getTime()
-
   const minutes = Math.floor(diff / 60000)
   const hours = Math.floor(diff / 3600000)
   const days = Math.floor(diff / 86400000)
@@ -537,7 +498,6 @@ function formatRelativeTime(dateStr: string): string {
   return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
 }
 
-// 格式化定时执行时间
 function formatScheduledTime(dateStr: string | undefined): string {
   if (!dateStr) return ''
   const date = new Date(dateStr)
@@ -557,15 +517,72 @@ function formatScheduledTime(dateStr: string | undefined): string {
   return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-// 判断计划是否可以拆分（只有草稿状态可以）
 function canSplit(plan: Plan): boolean {
   return plan.status === 'draft'
 }
 
-// 判断计划是否可以编辑
 function canEdit(plan: Plan): boolean {
   return plan.status === 'draft' || plan.status === 'planning'
 }
+
+onMounted(() => {
+  void agentStore.loadAgents()
+})
+
+watch(
+  () => projectStore.currentProjectId,
+  (projectId) => {
+    selectedProjectIdForList.value = projectId
+    if (projectId) {
+      void planStore.loadPlans(projectId)
+    }
+  },
+  { immediate: true }
+)
+
+watch(
+  () => createForm.splitAgentId,
+  async (agentId) => {
+    if (!agentId) {
+      createDialogModelOptions.value = []
+      createForm.splitModelId = ''
+      return
+    }
+
+    createDialogModelOptions.value = await loadEnabledModels(agentId)
+    createForm.splitModelId = pickDefaultModel(createDialogModelOptions.value)
+  },
+  { immediate: true }
+)
+
+watch(
+  () => splitConfigForm.agentId,
+  async (agentId) => {
+    if (!agentId) {
+      splitConfigModelOptions.value = []
+      splitConfigForm.modelId = ''
+      return
+    }
+
+    splitConfigModelOptions.value = await loadEnabledModels(agentId)
+    const preferredModelId = splitConfigPlan.value?.splitAgentId === agentId
+      ? (splitConfigPlan.value.splitModelId ?? '')
+      : ''
+
+    splitConfigForm.modelId = splitConfigModelOptions.value.some(option => option.value === preferredModelId)
+      ? preferredModelId
+      : pickDefaultModel(splitConfigModelOptions.value)
+  },
+  { immediate: true }
+)
+
+watch(
+  plans,
+  (nextPlans) => {
+    void loadPlanTaskStats(nextPlans)
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -602,9 +619,7 @@ function canEdit(plan: Plan): boolean {
 
       <div class="project-switcher">
         <div class="project-switcher-meta">
-          <span class="project-switcher-label">
-            当前项目
-          </span>
+          <span class="project-switcher-label">当前项目</span>
           <span
             v-if="selectedListProject?.path"
             class="project-switcher-path"
@@ -666,150 +681,18 @@ function canEdit(plan: Plan): boolean {
       </div>
 
       <div
-        v-if="filteredPlans.length > 0"
+        v-if="planItems.length > 0"
         class="plan-items"
       >
-        <div
-          v-for="plan in filteredPlans"
-          :key="plan.id"
-          class="plan-item"
-          :class="{ active: planStore.currentPlanId === plan.id }"
-          @click="selectPlan(plan)"
-        >
-          <div
-            class="plan-status-bar"
-            :class="statusColors[plan.status]"
-          />
-          <div class="plan-info">
-            <div class="plan-name-row">
-              <span class="plan-name">{{ plan.name }}</span>
-              <span
-                class="plan-status-chip"
-                :class="statusColors[plan.status]"
-              >{{ statusLabels[plan.status] }}</span>
-              <span
-                v-if="plan.scheduleStatus === 'scheduled'"
-                class="plan-schedule-chip"
-                :title="'定时计划: ' + new Date(plan.scheduledAt || '').toLocaleString('zh-CN')"
-              >
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <circle
-                    cx="12"
-                    cy="12"
-                    r="10"
-                  />
-                  <polyline points="12,6 12,12 16,14" />
-                </svg>
-                {{ formatScheduledTime(plan.scheduledAt) }}
-              </span>
-            </div>
-            <span
-              v-if="plan.description"
-              class="plan-desc"
-            >{{ plan.description }}</span>
-            <span class="plan-time">{{ formatRelativeTime(plan.updatedAt) }}</span>
-            <div class="plan-metrics">
-              <span
-                class="plan-metric split"
-                title="已拆分任务总数"
-              >拆分 {{ getPlanTaskStats(plan.id).total }}</span>
-              <span
-                class="plan-metric queue"
-                title="待执行和执行中的任务数量"
-              >执行列表 {{ getPlanTaskStats(plan.id).executionQueue }}</span>
-              <span
-                class="plan-metric done"
-                title="已完成任务数量"
-              >完成 {{ getPlanTaskStats(plan.id).completed }}</span>
-              <span
-                class="plan-metric failed"
-                title="执行失败或已取消任务数量"
-              >失败 {{ getPlanTaskStats(plan.id).failed }}</span>
-            </div>
-          </div>
-          <div class="plan-actions">
-            <!-- 拆分按钮 - 只有草稿状态显示 -->
-            <button
-              v-if="canSplit(plan)"
-              class="btn-action btn-split"
-              title="拆分任务"
-              @click.stop="startSplitTasks(plan)"
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5" />
-              </svg>
-            </button>
-            <!-- 继续拆分按钮 - planning状态显示 -->
-            <button
-              v-if="plan.status === 'planning'"
-              class="btn-action btn-resume-split"
-              title="继续拆分"
-              @click.stop="startSplitTasks(plan)"
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path d="M21 12a9 9 0 1 1-3.35-6.94" />
-                <path d="M21 3v6h-6" />
-              </svg>
-            </button>
-            <!-- 编辑按钮 -->
-            <button
-              v-if="canEdit(plan)"
-              class="btn-action btn-edit"
-              title="编辑"
-              @click.stop="openEditDialog(plan)"
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-              </svg>
-            </button>
-            <!-- 删除按钮 -->
-            <button
-              class="btn-action btn-delete"
-              title="删除"
-              @click.stop="deletePlan(plan)"
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
-              </svg>
-            </button>
-          </div>
-        </div>
+        <PlanListItem
+          v-for="item in planItems"
+          :key="item.plan.id"
+          :item="item"
+          @select="selectPlan(item.plan)"
+          @split="startSplitTasks(item.plan)"
+          @edit="openEditDialog(item.plan)"
+          @delete="deletePlan(item.plan)"
+        />
       </div>
 
       <div
@@ -828,365 +711,40 @@ function canEdit(plan: Plan): boolean {
       </div>
     </div>
 
-    <!-- 创建计划对话框 -->
-    <Teleport to="body">
-      <div
-        v-if="showCreateDialog"
-        class="dialog-overlay"
-      >
-        <div class="dialog">
-          <div class="dialog-header">
-            <h4>
-              <span class="dialog-icon">✨</span>
-              新建计划
-            </h4>
-            <button
-              class="btn-close"
-              @click="closeCreateDialog"
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path d="M18 6L6 18M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-          <div class="dialog-body">
-            <div class="form-field">
-              <label>计划名称 <span class="required">*</span></label>
-              <input
-                v-model="newPlanName"
-                type="text"
-                placeholder="例如：用户认证模块开发"
-                autofocus
-              >
-            </div>
-            <div class="form-field">
-              <label>计划描述</label>
-              <textarea
-                v-model="newPlanDescription"
-                placeholder="描述计划的目标和范围（可选）"
-                rows="3"
-              />
-            </div>
-            <div class="form-row">
-              <div class="form-field">
-                <label>拆分智能体 <span class="required">*</span></label>
-                <select
-                  v-model="selectedSplitAgentId"
-                  class="project-select"
-                >
-                  <option
-                    v-for="option in agentOptions"
-                    :key="option.value"
-                    :value="option.value"
-                  >
-                    {{ option.label }}
-                  </option>
-                </select>
-              </div>
-              <div class="form-field">
-                <label>拆分模型 <span class="required">*</span></label>
-                <select
-                  v-model="selectedSplitModelId"
-                  class="project-select"
-                  :disabled="createDialogModelOptions.length === 0"
-                >
-                  <option
-                    v-for="option in createDialogModelOptions"
-                    :key="option.value"
-                    :value="option.value"
-                  >
-                    {{ option.label }}
-                  </option>
-                </select>
-                <span
-                  v-if="createDialogModelOptions.length === 0"
-                  class="field-hint"
-                >当前智能体暂无可用模型，请先在设置中配置模型</span>
-              </div>
-            </div>
-            <div class="form-row">
-              <div class="form-field">
-                <label>任务拆分颗粒度</label>
-                <input
-                  v-model.number="newPlanGranularity"
-                  type="number"
-                  min="5"
-                  max="50"
-                  placeholder="建议 5-50"
-                >
-                <span class="field-hint">数值越小，任务粒度越细</span>
-              </div>
-              <div class="form-field">
-                <label>最大重试次数</label>
-                <input
-                  v-model.number="newPlanMaxRetryCount"
-                  type="number"
-                  min="1"
-                  max="5"
-                  placeholder="建议 1-3"
-                >
-                <span class="field-hint">任务失败后的最大重试次数</span>
-              </div>
-            </div>
-            <div class="hint-box">
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <circle
-                  cx="12"
-                  cy="12"
-                  r="10"
-                />
-                <path d="M12 16v-4M12 8h.01" />
-              </svg>
-              <span>"开始拆分"会将计划状态切为规划中，并进入 AI 拆分会话</span>
-            </div>
+    <PlanCreateDialog
+      :visible="showCreateDialog"
+      :form="createForm"
+      :agent-options="agentOptions"
+      :model-options="createDialogModelOptions"
+      :can-save-draft="canSaveDraft"
+      :can-start-split="canStartSplitFromCreate"
+      @update:form="updateCreateForm"
+      @close="closeCreateDialog"
+      @save-draft="createPlan(false)"
+      @start-split="createPlan(true)"
+    />
 
-            <!-- 定时执行设置 -->
-            <div class="form-field schedule-field">
-              <label>执行方式</label>
-              <select
-                v-model="executionMode"
-                class="execution-mode-select"
-              >
-                <option value="immediate">立即执行</option>
-                <option value="scheduled">定时执行</option>
-              </select>
-              <div
-                v-if="executionMode === 'scheduled'"
-                class="schedule-datetime"
-              >
-                <input
-                  v-model="scheduledDateTime"
-                  type="datetime-local"
-                  :min="new Date().toISOString().slice(0, 16)"
-                >
-                <span
-                  v-if="scheduledDateTime"
-                  class="schedule-preview"
-                >
-                  计划将于 {{ new Date(scheduledDateTime).toLocaleString('zh-CN') }} 自动开始执行
-                </span>
-              </div>
-            </div>
-          </div>
-          <div class="dialog-footer">
-            <button
-              class="btn btn-secondary"
-              @click="closeCreateDialog"
-            >
-              取消
-            </button>
-            <button
-              class="btn btn-secondary"
-              :disabled="!canSaveDraft"
-              @click="createPlan(false)"
-            >
-              保存（草稿）
-            </button>
-            <button
-              class="btn btn-primary"
-              :disabled="!canStartSplitFromCreate"
-              @click="createPlan(true)"
-            >
-              开始拆分（调用模型）
-            </button>
-          </div>
-        </div>
-      </div>
+    <PlanEditDialog
+      :visible="showEditDialog"
+      :plan="editingPlan"
+      :form="editForm"
+      @update:form="updateEditForm"
+      @close="closeEditDialog"
+      @save="saveEdit"
+    />
 
-      <!-- 编辑计划对话框 -->
-      <div
-        v-if="showEditDialog"
-        class="dialog-overlay"
-        @click.self="closeEditDialog"
-      >
-        <div class="dialog">
-          <div class="dialog-header">
-            <h4>
-              <span class="dialog-icon">✏️</span>
-              编辑计划
-            </h4>
-            <button
-              class="btn-close"
-              @click="closeEditDialog"
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path d="M18 6L6 18M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-          <div class="dialog-body">
-            <div class="form-field">
-              <label>计划名称 <span class="required">*</span></label>
-              <input
-                v-model="editPlanName"
-                type="text"
-                placeholder="请输入计划名称"
-                autofocus
-              >
-            </div>
-            <div class="form-field">
-              <label>计划描述</label>
-              <textarea
-                v-model="editPlanDescription"
-                placeholder="描述计划的目标和范围（可选）"
-                rows="3"
-              />
-            </div>
+    <PlanSplitConfigDialog
+      :visible="showSplitConfigDialog"
+      :plan="splitConfigPlan"
+      :form="splitConfigForm"
+      :agent-options="agentOptions"
+      :model-options="splitConfigModelOptions"
+      :can-start="canStartSplitFromList"
+      @update:form="updateSplitConfigForm"
+      @close="closeSplitConfigDialog"
+      @start="confirmSplitConfigAndStart"
+    />
 
-            <!-- 定时执行设置 - 只有执行中之前的计划才显示 -->
-            <div
-              v-if="editingPlan && ['draft', 'planning', 'ready'].includes(editingPlan.status)"
-              class="form-field schedule-field"
-            >
-              <label>执行方式</label>
-              <select
-                v-model="editExecutionMode"
-                class="execution-mode-select"
-              >
-                <option value="immediate">立即执行</option>
-                <option value="scheduled">定时执行</option>
-              </select>
-              <div
-                v-if="editExecutionMode === 'scheduled'"
-                class="schedule-datetime"
-              >
-                <input
-                  v-model="editScheduledDateTime"
-                  type="datetime-local"
-                  :min="new Date().toISOString().slice(0, 16)"
-                >
-                <span
-                  v-if="editScheduledDateTime"
-                  class="schedule-preview"
-                >
-                  计划将于 {{ new Date(editScheduledDateTime).toLocaleString('zh-CN') }} 自动开始执行
-                </span>
-              </div>
-            </div>
-          </div>
-          <div class="dialog-footer">
-            <button
-              class="btn btn-secondary"
-              @click="closeEditDialog"
-            >
-              取消
-            </button>
-            <button
-              class="btn btn-primary"
-              :disabled="!editPlanName.trim()"
-              @click="saveEdit"
-            >
-              保存
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- 拆分配置对话框 -->
-      <div
-        v-if="showSplitConfigDialog"
-        class="dialog-overlay"
-        @click.self="closeSplitConfigDialog"
-      >
-        <div class="dialog">
-          <div class="dialog-header">
-            <h4>
-              <span class="dialog-icon">🤖</span>
-              选择拆分配置
-            </h4>
-            <button
-              class="btn-close"
-              @click="closeSplitConfigDialog"
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path d="M18 6L6 18M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-          <div class="dialog-body">
-            <p class="split-config-desc">
-              计划「{{ splitConfigPlan?.name }}」尚未配置拆分智能体和模型，请先选择后继续。
-            </p>
-            <div class="form-field">
-              <label>拆分智能体 <span class="required">*</span></label>
-              <select
-                v-model="splitConfigAgentId"
-                class="project-select"
-              >
-                <option
-                  v-for="option in agentOptions"
-                  :key="option.value"
-                  :value="option.value"
-                >
-                  {{ option.label }}
-                </option>
-              </select>
-            </div>
-            <div class="form-field">
-              <label>拆分模型 <span class="required">*</span></label>
-              <select
-                v-model="splitConfigModelId"
-                class="project-select"
-                :disabled="splitConfigModelOptions.length === 0"
-              >
-                <option
-                  v-for="option in splitConfigModelOptions"
-                  :key="option.value"
-                  :value="option.value"
-                >
-                  {{ option.label }}
-                </option>
-              </select>
-            </div>
-          </div>
-          <div class="dialog-footer">
-            <button
-              class="btn btn-secondary"
-              @click="closeSplitConfigDialog"
-            >
-              取消
-            </button>
-            <button
-              class="btn btn-primary"
-              :disabled="!canStartSplitFromList"
-              @click="confirmSplitConfigAndStart"
-            >
-              开始拆分
-            </button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
-
-    <!-- 任务拆分对话框 -->
     <TaskSplitDialog />
   </div>
 </template>
@@ -1426,201 +984,6 @@ function canEdit(plan: Plan): boolean {
   gap: var(--spacing-1, 0.25rem);
 }
 
-.plan-item {
-  display: flex;
-  align-items: stretch;
-  padding: 0;
-  border-radius: var(--radius-md, 8px);
-  cursor: pointer;
-  transition: all var(--transition-fast, 150ms) var(--easing-default);
-  background-color: var(--color-surface, #fff);
-  border: 1px solid var(--color-border-light, #f1f5f9);
-  overflow: hidden;
-}
-
-.plan-item:hover {
-  border-color: var(--color-border, #e2e8f0);
-  box-shadow: var(--shadow-sm, 0 1px 3px 0 rgb(0 0 0 / 0.1));
-}
-
-.plan-item.active {
-  border-color: var(--color-primary, #60a5fa);
-  box-shadow: 0 0 0 3px var(--color-primary-light, #dbeafe);
-}
-
-.plan-status-bar {
-  width: 4px;
-  flex-shrink: 0;
-}
-
-.plan-status-bar.gray { background-color: #94a3b8; }
-.plan-status-bar.blue { background-color: #60a5fa; }
-.plan-status-bar.green { background-color: #10b981; }
-.plan-status-bar.purple { background-color: #8b5cf6; }
-.plan-status-bar.orange { background-color: #f59e0b; }
-.plan-status-bar.yellow { background-color: #fbbf24; }
-
-.plan-info {
-  flex: 1;
-  min-width: 0;
-  padding: var(--spacing-2, 0.5rem) var(--spacing-3, 0.75rem);
-  display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-}
-
-.plan-name-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.plan-name {
-  flex: 1;
-  min-width: 0;
-  font-size: var(--font-size-sm, 13px);
-  font-weight: var(--font-weight-medium, 500);
-  color: var(--color-text-primary, #1e293b);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.plan-status-chip {
-  flex-shrink: 0;
-  border-radius: var(--radius-full, 9999px);
-  padding: 0.125rem 0.4rem;
-  font-size: 0.625rem;
-  font-weight: var(--font-weight-medium, 500);
-}
-
-.plan-status-chip.gray {
-  color: #64748b;
-  background-color: #f1f5f9;
-}
-
-.plan-status-chip.blue {
-  color: #1d4ed8;
-  background-color: #dbeafe;
-}
-
-.plan-status-chip.green {
-  color: #166534;
-  background-color: #dcfce7;
-}
-
-.plan-status-chip.purple {
-  color: #7c3aed;
-  background-color: #f3e8ff;
-}
-
-.plan-status-chip.orange {
-  color: #b45309;
-  background-color: #fef3c7;
-}
-
-.plan-status-chip.yellow {
-  color: #92400e;
-  background-color: #fef3c7;
-}
-
-.plan-desc {
-  font-size: var(--font-size-xs, 12px);
-  color: var(--color-text-secondary, #64748b);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.plan-time {
-  font-size: 0.6875rem;
-  color: var(--color-text-tertiary, #94a3b8);
-  margin-top: 0.125rem;
-}
-
-.plan-metrics {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  margin-top: 0.375rem;
-}
-
-.plan-metric {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.125rem 0.375rem;
-  border-radius: var(--radius-sm, 4px);
-  font-size: 0.6875rem;
-  font-weight: var(--font-weight-medium, 500);
-  line-height: 1.2;
-}
-
-.plan-metric.split {
-  color: #0f766e;
-  background-color: #ccfbf1;
-}
-
-.plan-metric.queue {
-  color: #1d4ed8;
-  background-color: #dbeafe;
-}
-
-.plan-metric.done {
-  color: #166534;
-  background-color: #dcfce7;
-}
-
-.plan-metric.failed {
-  color: #b91c1c;
-  background-color: #fee2e2;
-}
-
-.plan-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 0 var(--spacing-1, 0.25rem);
-  opacity: 1;
-}
-
-.btn-action {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: var(--radius-sm, 4px);
-  background: transparent;
-  color: var(--color-text-tertiary, #94a3b8);
-  cursor: pointer;
-  transition: all var(--transition-fast, 150ms);
-}
-
-.btn-action:hover {
-  background-color: var(--color-bg-secondary, #f1f5f9);
-}
-
-.btn-split:hover {
-  color: var(--color-primary, #3b82f6);
-  background-color: var(--color-primary-light, #dbeafe);
-}
-
-.btn-resume-split:hover {
-  color: #8b5cf6;
-  background-color: #f5f3ff;
-}
-
-.btn-edit:hover {
-  color: var(--color-success, #10b981);
-  background-color: var(--color-success-light, #d1fae5);
-}
-
-.btn-delete:hover {
-  color: var(--color-error, #ef4444);
-  background-color: var(--color-error-light, #fee2e2);
-}
-
 .empty-state {
   text-align: center;
   padding: var(--spacing-8, 2rem) var(--spacing-4, 1rem);
@@ -1644,297 +1007,5 @@ function canEdit(plan: Plan): boolean {
   font-size: var(--font-size-xs, 12px);
   color: var(--color-text-tertiary, #94a3b8);
   margin: 0;
-}
-
-/* Dialog styles */
-.dialog-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: var(--color-bg-overlay, rgba(0, 0, 0, 0.5));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: var(--z-modal-backdrop, 1040);
-  backdrop-filter: blur(4px);
-}
-
-.dialog {
-  background-color: var(--color-surface, #fff);
-  border-radius: var(--radius-lg, 12px);
-  width: 90%;
-  max-width: 32rem;
-  box-shadow: var(--shadow-xl, 0 20px 25px -5px rgba(0, 0, 0, 0.1));
-  animation: dialogIn 0.2s var(--easing-out);
-}
-
-@keyframes dialogIn {
-  from {
-    opacity: 0;
-    transform: scale(0.95) translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
-.dialog-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--spacing-4, 1rem) var(--spacing-5, 1.25rem);
-  border-bottom: 1px solid var(--color-border, #e2e8f0);
-}
-.dialog-header h4 {
-  margin: 0;
-  font-size: var(--font-size-base, 14px);
-  font-weight: var(--font-weight-semibold, 600);
-  color: var(--color-text-primary, #1e293b);
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-2, 0.5rem);
-}
-
-.dialog-icon {
-  font-size: 1.125rem;
-}
-.btn-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--spacing-1, 0.25rem);
-  border: none;
-  background: transparent;
-  color: var(--color-text-tertiary, #94a3b8);
-  cursor: pointer;
-  border-radius: var(--radius-md, 8px);
-  transition: all var(--transition-fast, 150ms);
-}
-.btn-close:hover {
-  background-color: var(--color-surface-hover, #f8fafc);
-  color: var(--color-text-primary, #1e293b);
-}
-.dialog-body {
-  padding: var(--spacing-5, 1.25rem);
-}
-.form-field {
-  margin-bottom: var(--spacing-4, 1rem);
-}
-.form-field label {
-  display: block;
-  margin-bottom: var(--spacing-2, 0.5rem);
-  font-size: var(--font-size-xs, 12px);
-  font-weight: var(--font-weight-medium, 500);
-  color: var(--color-text-secondary, #64748b);
-}
-.required {
-  color: var(--color-error, #ef4444);
-}
-.form-field input,
-.form-field textarea {
-  width: 100%;
-  padding: var(--spacing-2, 0.5rem) var(--spacing-3, 0.75rem);
-  border: 1px solid var(--color-border, #e2e8f0);
-  border-radius: var(--radius-md, 8px);
-  background-color: var(--color-surface, #fff);
-  color: var(--color-text-primary, #1e293b);
-  font-size: var(--font-size-sm, 13px);
-  transition: all var(--transition-fast, 150ms);
-}
-.form-field input::placeholder,
-.form-field textarea::placeholder {
-  color: var(--color-text-tertiary, #94a3b8);
-}
-.form-field input:focus,
-.form-field textarea:focus {
-  outline: none;
-  border-color: var(--color-primary, #60a5fa);
-  box-shadow: 0 0 0 3px var(--color-primary-light, #dbeafe);
-}
-.form-row {
-  display: flex;
-  gap: var(--spacing-3, 0.75rem);
-}
-.form-row .form-field {
-  flex: 1;
-}
-.field-hint {
-  display: block;
-  margin-top: var(--spacing-1, 0.25rem);
-  font-size: 0.6875rem;
-  color: var(--color-text-tertiary, #94a3b8);
-}
-.hint-box {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--spacing-2, 0.5rem);
-  padding: var(--spacing-3, 0.75rem);
-  background-color: var(--color-primary-light, #eff6ff);
-  border-radius: var(--radius-md, 8px);
-  font-size: var(--font-size-xs, 12px);
-  color: var(--color-primary, #3b82f6);
-  line-height: 1.4;
-}
-.hint-box svg {
-  flex-shrink: 0;
-  margin-top: 1px;
-}
-.dialog-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--spacing-3, 0.75rem);
-  padding: var(--spacing-4, 1rem) var(--spacing-5, 1.25rem);
-  border-top: 1px solid var(--color-border, #e2e8f0);
-  background-color: var(--color-bg-secondary, #f8fafc);
-  border-radius: 0 0 var(--radius-lg, 12px) var(--radius-lg, 12px);
-}
-.btn {
-  padding: var(--spacing-2, 0.5rem) var(--spacing-4, 1rem);
-  border-radius: var(--radius-md, 8px);
-  font-size: var(--font-size-sm, 13px);
-  font-weight: var(--font-weight-medium, 500);
-  cursor: pointer;
-  transition: all var(--transition-fast, 150ms);
-}
-.btn-primary {
-  background-color: var(--color-primary, #3b82f6);
-  color: white;
-  border: none;
-}
-.btn-primary:hover:not(:disabled) {
-  background-color: var(--color-primary-hover, #2563eb);
-}
-.btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.btn-secondary {
-  background-color: var(--color-surface, #fff);
-  color: var(--color-text-primary, #1e293b);
-  border: 1px solid var(--color-border, #e2e8f0);
-}
-.btn-secondary:hover {
-  background-color: var(--color-surface-hover, #f8fafc);
-  border-color: var(--color-border-dark, #cbd5e1);
-}
-/* 项目选择器样式 */
-.project-select {
-  width: 100%;
-  padding: var(--spacing-2, 0.5rem) var(--spacing-3, 0.75rem);
-  border: 1px solid var(--color-border, #e2e8f0);
-  border-radius: var(--radius-md, 8px);
-  background-color: var(--color-surface, #fff);
-  color: var(--color-text-primary, #1e293b);
-  font-size: var(--font-size-sm, 13px);
-  transition: all var(--transition-fast, 150ms);
-  cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 0.75rem center;
-}
-.project-select:focus {
-  outline: none;
-  border-color: var(--color-primary, #60a5fa);
-  box-shadow: 0 0 0 3px var(--color-primary-light, #dbeafe);
-}
-.project-select:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-  background-color: var(--color-bg-secondary, #f8fafc);
-}
-.split-config-desc {
-  margin: 0 0 1rem;
-  font-size: var(--font-size-sm, 13px);
-  color: var(--color-text-secondary, #64748b);
-  line-height: 1.5;
-}
-
-/* 定时执行样式 */
-.plan-schedule-chip {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  border-radius: var(--radius-full, 9999px);
-  padding: 0.125rem 0.4rem;
-  font-size: 0.625rem;
-  font-weight: var(--font-weight-medium, 500);
-  color: #7c3aed;
-  background-color: #f3e8ff;
-}
-
-.schedule-field {
-  margin-top: var(--spacing-4, 1rem);
-  padding-top: var(--spacing-3, 0.75rem);
-  border-top: 1px solid var(--color-border, #e2e8f0);
-}
-
-.execution-mode-select {
-  width: 100%;
-  padding: var(--spacing-2, 0.5rem) var(--spacing-8, 2rem) var(--spacing-2, 0.5rem) var(--spacing-3, 0.75rem);
-  border: 1px solid var(--color-border, #e2e8f0);
-  border-radius: var(--radius-md, 8px);
-  font-size: var(--font-size-sm, 13px);
-  color: var(--color-text-primary, #1e293b);
-  background-color: var(--color-surface, #fff);
-  cursor: pointer;
-  transition: all var(--transition-fast, 150ms);
-  appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right var(--spacing-3, 0.75rem) center;
-  background-size: 16px;
-}
-
-.execution-mode-select:hover {
-  border-color: var(--color-primary, #60a5fa);
-}
-
-.execution-mode-select:focus {
-  outline: none;
-  border-color: var(--color-primary, #60a5fa);
-  box-shadow: 0 0 0 3px var(--color-primary-light, #dbeafe);
-}
-
-.execution-mode-select option {
-  padding: var(--spacing-2, 0.5rem);
-  background-color: var(--color-surface, #fff);
-  color: var(--color-text-primary, #1e293b);
-}
-
-.schedule-datetime {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.schedule-datetime input[type="date"],
-.schedule-datetime input[type="time"] {
-  padding: var(--spacing-2, 0.5rem);
-  border: 1px solid var(--color-border, #e2e8f0);
-  border-radius: var(--radius-md, 8px);
-  font-size: var(--font-size-sm, 13px);
-  color: var(--color-text-primary, #1e293b);
-  background-color: var(--color-surface, #fff);
-}
-
-.schedule-datetime input[type="date"]:focus,
-.schedule-datetime input[type="time"]:focus {
-  outline: none;
-  border-color: var(--color-primary, #60a5fa);
-  box-shadow: 0 0 0 3px var(--color-primary-light, #dbeafe);
-}
-
-.schedule-preview {
-  font-size: var(--font-size-xs, 12px);
-  color: var(--color-text-secondary, #64748b);
-  font-style: italic;
 }
 </style>

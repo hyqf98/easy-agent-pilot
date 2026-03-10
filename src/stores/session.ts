@@ -147,6 +147,11 @@ export const useSessionStore = defineStore('session', () => {
     }
   })
 
+  function replaceProjectSessions(projectId: string, projectSessions: Session[]) {
+    const otherSessions = sessions.value.filter(session => session.projectId !== projectId)
+    sessions.value = [...otherSessions, ...projectSessions]
+  }
+
   // Actions
   async function loadSessions(projectId: string) {
     isLoading.value = true
@@ -154,10 +159,9 @@ export const useSessionStore = defineStore('session', () => {
     const notificationStore = useNotificationStore()
     try {
       const rustSessions = await invoke<RustSession[]>('list_sessions', { projectId })
-      sessions.value = rustSessions.map(transformSession)
+      replaceProjectSessions(projectId, rustSessions.map(transformSession))
     } catch (error) {
       console.error('Failed to load sessions:', error)
-      sessions.value = []
       loadError.value = getErrorMessage(error)
       notificationStore.networkError(
         '加载会话列表',

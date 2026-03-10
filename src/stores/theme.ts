@@ -169,6 +169,7 @@ export const useThemeStore = defineStore('theme', () => {
   async function setTheme(newMode: ThemeMode) {
     mode.value = newMode
     applyTheme()
+    applyThemeColor(currentThemeColor.value)
     // 保存到数据库
     await saveThemeMode(newMode)
   }
@@ -187,17 +188,63 @@ export const useThemeStore = defineStore('theme', () => {
   // 应用主题色到 CSS 变量
   function applyThemeColor(themeColor: PresetThemeColor) {
     const root = document.documentElement
+    const darkMode = isDark.value
+
     root.style.setProperty('--color-primary', themeColor.primaryColor)
     root.style.setProperty('--color-primary-hover', themeColor.primaryColorHover)
     root.style.setProperty('--color-primary-active', themeColor.primaryColorActive)
-    root.style.setProperty('--color-primary-light', themeColor.primaryColorLight)
-    root.style.setProperty('--color-primary-dark', themeColor.primaryColorDark)
+    root.style.setProperty(
+      '--color-primary-light',
+      darkMode
+        ? `color-mix(in srgb, ${themeColor.primaryColor} 22%, #0f172a)`
+        : themeColor.primaryColorLight
+    )
+    root.style.setProperty(
+      '--color-primary-dark',
+      darkMode
+        ? `color-mix(in srgb, ${themeColor.primaryColor} 38%, white)`
+        : themeColor.primaryColorDark
+    )
     root.style.setProperty('--color-border-focus', themeColor.primaryColor)
+    root.style.setProperty(
+      '--color-active-bg',
+      darkMode
+        ? `color-mix(in srgb, ${themeColor.primaryColor} 20%, #0f172a)`
+        : themeColor.primaryColorLight
+    )
+    root.style.setProperty(
+      '--color-active-bg-hover',
+      darkMode
+        ? `color-mix(in srgb, ${themeColor.primaryColor} 28%, #0f172a)`
+        : `color-mix(in srgb, ${themeColor.primaryColor} 16%, white)`
+    )
+    root.style.setProperty(
+      '--color-active-border',
+      darkMode
+        ? `color-mix(in srgb, ${themeColor.primaryColor} 72%, white)`
+        : themeColor.primaryColor
+    )
+    root.style.setProperty(
+      '--color-active-text',
+      darkMode
+        ? `color-mix(in srgb, ${themeColor.primaryColor} 44%, white)`
+        : themeColor.primaryColorDark
+    )
 
     // 同步更新 info 颜色（通常与主色一致）
     root.style.setProperty('--color-info', themeColor.primaryColor)
-    root.style.setProperty('--color-info-light', themeColor.primaryColorLight)
-    root.style.setProperty('--color-info-dark', themeColor.primaryColorDark)
+    root.style.setProperty(
+      '--color-info-light',
+      darkMode
+        ? `color-mix(in srgb, ${themeColor.primaryColor} 20%, #0f172a)`
+        : themeColor.primaryColorLight
+    )
+    root.style.setProperty(
+      '--color-info-dark',
+      darkMode
+        ? `color-mix(in srgb, ${themeColor.primaryColor} 44%, white)`
+        : themeColor.primaryColorDark
+    )
   }
 
   // 设置主题色
@@ -236,6 +283,7 @@ export const useThemeStore = defineStore('theme', () => {
     }
 
     applyTheme()
+    applyThemeColor(currentThemeColor.value)
 
     // 监听系统主题变化
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {

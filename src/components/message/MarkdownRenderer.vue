@@ -9,8 +9,8 @@ const props = defineProps<{ content: string }>()
 const containerRef = ref<HTMLDivElement | null>(null)
 
 // 存储代码块原始内容，用于复制功能
-const codeBlockContents = new Map<string, string>()
-let codeBlockCounter = 0
+const codeBlockContents = ref(new Map<string, string>())
+const codeBlockCounter = ref(0)
 
 // 创建 MarkdownIt 实例，配置语法高亮
 const md = new MarkdownIt({
@@ -19,8 +19,8 @@ const md = new MarkdownIt({
   typographer: true,
   highlight: (str: string, lang: string): string => {
     // 生成唯一 ID 并存储原始代码
-    const blockId = `code-block-${codeBlockCounter++}`
-    codeBlockContents.set(blockId, str)
+    const blockId = `code-block-${codeBlockCounter.value++}`
+    codeBlockContents.value.set(blockId, str)
 
     // 确定语言标签
     let languageLabel = lang || 'auto'
@@ -128,7 +128,7 @@ const handleCopyClick = async (e: MouseEvent): Promise<void> => {
     e.preventDefault()
     const codeId = copyBtn.dataset.codeId
     if (codeId) {
-      const codeContent = codeBlockContents.get(codeId)
+      const codeContent = codeBlockContents.value.get(codeId)
       if (codeContent) {
         try {
           await navigator.clipboard.writeText(codeContent)
@@ -153,8 +153,8 @@ const handleClick = async (e: MouseEvent): Promise<void> => {
 
 // 清理代码块内容缓存
 const clearCodeBlockContents = (): void => {
-  codeBlockContents.clear()
-  codeBlockCounter = 0
+  codeBlockContents.value.clear()
+  codeBlockCounter.value = 0
 }
 
 // 监听内容变化，清理旧的缓存

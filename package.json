@@ -8,6 +8,8 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "tauri:clean": "cargo clean --manifest-path src-tauri/Cargo.toml",
+    "tauri:clean:debug": "cargo clean --manifest-path src-tauri/Cargo.toml --profile dev",
     "typecheck": "vue-tsc --noEmit",
     "lint": "eslint src --fix",
     "test:claude-json": "node scripts/test-claude-program-json-output.mjs"

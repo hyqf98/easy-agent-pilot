@@ -52,10 +52,6 @@ macro_rules! log_error {
 
 #[async_trait]
 impl AgentExecutionStrategy for CodexSdkStrategy {
-    fn name(&self) -> &str {
-        "Codex SDK"
-    }
-
     fn supports(&self, agent_type: &str, provider: &str) -> bool {
         agent_type == "sdk" && provider == "codex"
     }

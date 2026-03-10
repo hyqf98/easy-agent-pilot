@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useTaskExecutionStore } from '@/stores/taskExecution'
 import { useTaskStore } from '@/stores/task'
 import type { Task, TaskPriority } from '@/types/plan'
@@ -14,16 +15,11 @@ const emit = defineEmits<{
   (e: 'retry', task: Task): void
   (e: 'edit', task: Task): void
   (e: 'delete', task: Task): void
-  (e: 'skip', task: Task): void
 }>()
 
 const taskExecutionStore = useTaskExecutionStore()
 const taskStore = useTaskStore()
-
-// 任务执行状态
-const executionState = computed(() => {
-  return taskExecutionStore.getExecutionState(props.task.id)
-})
+const { t } = useI18n()
 
 // 是否正在执行（包括排队中）
 const isExecuting = computed(() => {
@@ -52,10 +48,12 @@ const unmetDependenciesCount = computed(() => {
 
 // 执行状态文本
 const executionStatusText = computed(() => {
-  if (isWaitingInput.value) return '等待输入'
-  if (isRunning.value) return '执行中...'
-  if (queuePosition.value > 0) return `排队中 #${queuePosition.value}`
-  if (unmetDependenciesCount.value > 0) return `等待依赖 (${unmetDependenciesCount.value})`
+  if (isWaitingInput.value) return t('task.execution.waitingInput')
+  if (isRunning.value) return t('task.execution.running')
+  if (queuePosition.value > 0) return t('task.execution.queued', { position: queuePosition.value })
+  if (unmetDependenciesCount.value > 0) {
+    return t('task.execution.waitingDependencies', { count: unmetDependenciesCount.value })
+  }
   return ''
 })
 
@@ -67,11 +65,6 @@ const showStopButton = computed(() => {
 // 是否显示重试按钮 - 执行失败(failed)的任务显示
 const showRetryButton = computed(() => {
   return props.task.status === 'failed'
-})
-
-// 是否显示跳过按钮 - 等待输入的任务显示
-const showSkipButton = computed(() => {
-  return isWaitingInput.value
 })
 
 // 是否显示删除按钮 - 待办且未执行中，或已完成的任务
@@ -88,12 +81,6 @@ const showEditButton = computed(() => {
 })
 
 // 优先级标签
-const priorityLabels: Record<TaskPriority, string> = {
-  low: '低',
-  medium: '中',
-  high: '高'
-}
-
 // 优先级颜色
 const priorityColors: Record<TaskPriority, string> = {
   low: 'gray',
@@ -103,7 +90,7 @@ const priorityColors: Record<TaskPriority, string> = {
 
 // 获取优先级标签
 function getPriorityLabel(priority: TaskPriority): string {
-  return priorityLabels[priority] || priority
+  return t(`task.priority.${priority}`)
 }
 
 // 获取优先级颜色
@@ -140,11 +127,6 @@ function handleDelete(event: Event) {
   emit('delete', props.task)
 }
 
-// 跳过任务
-function handleSkip(event: Event) {
-  event.stopPropagation()
-  emit('skip', props.task)
-}
 </script>
 
 <template>
@@ -183,7 +165,7 @@ function handleSkip(event: Event) {
       class="waiting-input-badge"
     >
       <span class="badge-icon">⏸</span>
-      <span class="badge-text">等待输入</span>
+      <span class="badge-text">{{ t('task.execution.waitingInput') }}</span>
     </div>
 
     <!-- 执行状态指示器 -->
@@ -205,14 +187,14 @@ function handleSkip(event: Event) {
         v-if="task.retryCount > 0"
         class="retry-count"
       >
-        重试: {{ task.retryCount }}/{{ task.maxRetries }}
+        {{ t('task.retryCount', { current: task.retryCount, max: task.maxRetries }) }}
       </span>
       <span
         v-if="task.errorMessage"
         class="error-hint"
         :title="task.errorMessage"
       >
-        ⚠️ 错误
+        ⚠️ {{ t('task.errorHint') }}
       </span>
     </div>
 
@@ -228,7 +210,7 @@ function handleSkip(event: Event) {
           v-if="task.dependencies?.length"
           class="deps"
         >
-          {{ task.dependencies.length }} 依赖
+          {{ t('task.dependenciesCount', { count: task.dependencies.length }) }}
         </span>
       </div>
 
@@ -237,7 +219,7 @@ function handleSkip(event: Event) {
         <button
           v-if="showStopButton"
           class="btn-action btn-stop"
-          title="停止执行"
+          :title="t('task.actions.stop')"
           @click="handleStop"
         >
           <svg
@@ -262,7 +244,7 @@ function handleSkip(event: Event) {
         <button
           v-if="showRetryButton"
           class="btn-action btn-retry"
-          title="重试"
+          :title="t('task.actions.retry')"
           @click="handleRetry"
         >
           <svg
@@ -282,7 +264,7 @@ function handleSkip(event: Event) {
         <button
           v-if="showEditButton"
           class="btn-action btn-edit"
-          title="编辑"
+          :title="t('task.actions.edit')"
           @click="handleEdit"
         >
           <svg
@@ -302,7 +284,7 @@ function handleSkip(event: Event) {
         <button
           v-if="showDeleteButton"
           class="btn-action btn-delete"
-          title="删除"
+          :title="t('task.actions.delete')"
           @click="handleDelete"
         >
           <svg

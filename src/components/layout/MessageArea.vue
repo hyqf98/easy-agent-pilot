@@ -760,6 +760,20 @@ const handleRetry = async (message: Message) => {
   }
 }
 
+const handleMessageFormSubmit = async (formId: string, values: Record<string, unknown>) => {
+  if (!currentSessionId.value || !currentAgent.value || isSending.value) {
+    return
+  }
+
+  const payload = JSON.stringify({
+    type: 'form_response',
+    formId,
+    values
+  }, null, 2)
+
+  await sendWithCurrentAgent(payload)
+}
+
 const handleKeyDown = (e: KeyboardEvent) => {
   // 如果文件选择器打开，让 FileMentionDropdown 处理键盘事件
   if (showFileMention.value) {
@@ -797,6 +811,7 @@ watch(() => sessionStore.currentSessionId, async (sessionId) => {
       v-if="sessionStore.currentSessionId"
       class="message-area__list"
       @retry="handleRetry"
+      @form-submit="handleMessageFormSubmit"
     />
 
     <!-- 空状态 -->

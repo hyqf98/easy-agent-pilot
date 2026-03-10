@@ -2,7 +2,7 @@
 import { onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useMarketplaceStore } from '@/stores/marketplace'
-import { EaIcon, EaLoading } from '@/components/common'
+import { EaIcon } from '@/components/common'
 import MarketplaceTabs from './MarketplaceTabs.vue'
 import McpMarketList from './mcp/McpMarketList.vue'
 import SkillMarketList from './skills/SkillMarketList.vue'

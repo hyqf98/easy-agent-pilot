@@ -7,9 +7,6 @@ use super::types::ExecutionRequest;
 /// 智能体执行策略 Trait
 #[async_trait]
 pub trait AgentExecutionStrategy: Send + Sync {
-    /// 策略名称
-    fn name(&self) -> &str;
-
     /// 检查是否支持给定的智能体类型和提供者
     fn supports(&self, agent_type: &str, provider: &str) -> bool;
 

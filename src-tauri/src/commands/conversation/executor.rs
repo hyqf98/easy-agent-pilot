@@ -58,7 +58,7 @@ impl Default for StrategyRegistry {
     }
 }
 
-/// 全局策略注册表
+// 全局策略注册表
 lazy_static::lazy_static! {
     static ref REGISTRY: Arc<tokio::sync::RwLock<StrategyRegistry>> =
         Arc::new(tokio::sync::RwLock::new(StrategyRegistry::new()));

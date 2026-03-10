@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import i18n from '@/i18n'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -6,7 +7,7 @@ const routes: RouteRecordRaw[] = [
     name: 'home',
     component: () => import('@/views/HomeView.vue'),
     meta: {
-      title: 'Easy Agent Pilot'
+      titleKey: 'routes.home'
     }
   },
   {
@@ -14,7 +15,7 @@ const routes: RouteRecordRaw[] = [
     name: 'settings',
     component: () => import('@/views/SettingsView.vue'),
     meta: {
-      title: '设置'
+      titleKey: 'routes.settings'
     }
   },
   {
@@ -22,7 +23,7 @@ const routes: RouteRecordRaw[] = [
     name: 'mcp-test',
     component: () => import('@/views/McpTestView.vue'),
     meta: {
-      title: 'MCP 工具测试'
+      titleKey: 'routes.mcpTest'
     }
   },
   {
@@ -45,7 +46,8 @@ export const router = createRouter({
 
 // 路由守卫 - 更新页面标题
 router.beforeEach((to, _from, next) => {
-  const title = to.meta.title as string | undefined
+  const titleKey = to.meta.titleKey as string | undefined
+  const title = titleKey ? i18n.global.t(titleKey) : undefined
   if (title) {
     document.title = title
   }

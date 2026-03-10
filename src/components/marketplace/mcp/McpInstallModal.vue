@@ -2,8 +2,9 @@
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAgentStore } from '@/stores/agent'
+import { useProjectStore } from '@/stores/project'
 import { useMarketplaceStore, type McpInstallInput } from '@/stores/marketplace'
-import { EaIcon, EaButton, EaInput, EaModal, EaSelect, EaLoading } from '@/components/common'
+import { EaIcon, EaButton, EaInput, EaModal, EaSelect } from '@/components/common'
 import type { McpMarketItem } from '@/types/marketplace'
 
 interface Props {
@@ -19,6 +20,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const agentStore = useAgentStore()
+const projectStore = useProjectStore()
 const marketplaceStore = useMarketplaceStore()
 
 // 表单状态
@@ -42,6 +44,8 @@ const cliAgents = computed(() => {
 const selectedAgent = computed(() => {
   return cliAgents.value.find(a => a.id === selectedAgentId.value)
 })
+
+const currentProjectPath = computed(() => projectStore.currentProject?.path ?? null)
 
 // 默认命令
 const defaultCommand = computed(() => {
@@ -89,7 +93,7 @@ async function handleInstall() {
       args: customArgs.value || defaultArgs.value || null,
       env: Object.keys(customEnv.value).length > 0 ? { ...customEnv.value } : null,
       scope: scope.value,
-      project_path: scope.value === 'project' ? selectedAgent.value.projectPath : null
+      project_path: scope.value === 'project' ? currentProjectPath.value : null
     }
 
     const result = await marketplaceStore.installMcp(input)
@@ -236,16 +240,14 @@ onMounted(() => {
             <EaInput
               v-model="envKey"
               :placeholder="t('marketplace.envKey')"
-              size="sm"
             />
             <EaInput
               v-model="envValue"
               :placeholder="t('marketplace.envValue')"
-              size="sm"
             />
             <EaButton
-              variant="ghost"
-              size="sm"
+              type="ghost"
+              size="small"
               :disabled="!envKey || !envValue"
               @click="addEnv"
             >

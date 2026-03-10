@@ -26,11 +26,11 @@ const isDepDropdownOpen = ref(false)
 const depDropdownRef = ref<HTMLElement | null>(null)
 
 // 优先级选项
-const priorityOptions = [
-  { label: '低', value: 'low' },
-  { label: '中', value: 'medium' },
-  { label: '高', value: 'high' }
-]
+const priorityOptions = computed(() => [
+  { label: t('taskSplit.priority.low'), value: 'low' },
+  { label: t('taskSplit.priority.medium'), value: 'medium' },
+  { label: t('taskSplit.priority.high'), value: 'high' }
+])
 
 // 优先级颜色
 const priorityColors: Record<TaskPriority, string> = {
@@ -63,10 +63,10 @@ function saveEdit() {
 // 删除任务
 async function removeTask(index: number) {
   const task = props.tasks[index]
-  const taskName = task?.title?.trim() || `任务 ${index + 1}`
+  const taskName = task?.title?.trim() || `${t('taskSplit.newTask')} ${index + 1}`
   const confirmed = await confirmDialog.danger(
-    `确定要删除任务「${taskName}」吗？`,
-    '删除任务'
+    t('taskSplit.removeTaskConfirmMessage', { name: taskName }),
+    t('taskSplit.removeTaskConfirmTitle')
   )
 
   if (confirmed) {
@@ -77,7 +77,7 @@ async function removeTask(index: number) {
 // 添加新任务
 function addTask() {
   const newTask: AITaskItem = {
-    title: '新任务',
+    title: t('taskSplit.newTask'),
     description: '',
     priority: 'medium',
     implementationSteps: [],
@@ -89,6 +89,10 @@ function addTask() {
   // 自动开始编辑新任务
   editingIndex.value = props.tasks.length - 1
   editForm.value = { ...newTask }
+}
+
+function getPriorityLabel(priority: TaskPriority) {
+  return t(`taskSplit.priority.${priority}`)
 }
 
 // 添加步骤
@@ -179,8 +183,8 @@ onUnmounted(() => {
     <div class="preview-header">
       <h4>
         <span class="header-icon">📋</span>
-        任务列表
-        <span class="task-count">{{ tasks.length }} 个任务</span>
+        {{ t('taskSplit.taskList') }}
+        <span class="task-count">{{ t('taskSplit.taskCount', { count: tasks.length }) }}</span>
       </h4>
       <button
         class="btn-add"
@@ -196,7 +200,7 @@ onUnmounted(() => {
         >
           <path d="M12 5v14M5 12h14" />
         </svg>
-        添加任务
+        {{ t('taskSplit.addTask') }}
       </button>
     </div>
 
@@ -220,12 +224,12 @@ onUnmounted(() => {
               class="priority-badge"
               :class="priorityColors[task.priority]"
             >
-              {{ task.priority === 'high' ? '高' : task.priority === 'medium' ? '中' : '低' }}
+              {{ getPriorityLabel(task.priority) }}
             </span>
             <div class="task-actions">
               <button
                 class="btn-icon"
-                title="继续拆分"
+                :title="t('taskSplit.resplit')"
                 @click="emit('resplit', index)"
               >
                 <svg
@@ -242,7 +246,7 @@ onUnmounted(() => {
               </button>
               <button
                 class="btn-icon"
-                title="编辑"
+                :title="t('taskSplit.edit')"
                 @click="startEdit(index)"
               >
                 <svg

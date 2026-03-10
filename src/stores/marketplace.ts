@@ -9,10 +9,7 @@ import type {
   PluginMarketItem,
   PluginMarketDetail,
   MarketQuery,
-  MarketListResponse,
-  InstallConfig,
-  InstallStatus,
-  InstallResult
+  MarketListResponse
 } from '@/types/marketplace'
 
 // MCP安装输入

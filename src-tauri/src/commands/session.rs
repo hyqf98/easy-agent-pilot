@@ -2,6 +2,8 @@ use anyhow::Result;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
+use super::support::{now_rfc3339, open_db_connection, open_db_connection_with_foreign_keys};
+
 /// 会话数据结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
@@ -38,12 +40,6 @@ pub struct UpdateSessionInput {
     pub agent_type: Option<String>,
 }
 
-/// 获取数据库路径
-fn get_db_path() -> Result<std::path::PathBuf> {
-    let persistence_dir = super::get_persistence_dir_path()?;
-    Ok(persistence_dir.join("data").join("easy-agent.db"))
-}
-
 /// 生成默认会话名称（带时间戳）
 fn generate_default_session_name() -> String {
     let now = chrono::Local::now();
@@ -53,8 +49,7 @@ fn generate_default_session_name() -> String {
 /// 获取指定项目的所有会话
 #[tauri::command]
 pub fn list_sessions(project_id: String) -> Result<Vec<Session>, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
     let mut stmt = conn
         .prepare(
@@ -103,11 +98,10 @@ pub fn list_sessions(project_id: String) -> Result<Vec<Session>, String> {
 /// 创建新会话
 #[tauri::command]
 pub fn create_session(input: CreateSessionInput) -> Result<Session, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
     let id = uuid::Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let name = input.name.unwrap_or_else(generate_default_session_name);
     let status = input.status.unwrap_or_else(|| "idle".to_string());
 
@@ -150,10 +144,9 @@ pub fn create_session(input: CreateSessionInput) -> Result<Session, String> {
 /// 更新会话
 #[tauri::command]
 pub fn update_session(id: String, input: UpdateSessionInput) -> Result<Session, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = now_rfc3339();
 
     // 构建动态更新语句
     let mut updates: Vec<String> = vec!["updated_at = ?1".to_string()];
@@ -286,12 +279,7 @@ fn get_session_by_id(conn: &Connection, id: &str) -> Result<Session, String> {
 /// 删除会话
 #[tauri::command]
 pub fn delete_session(id: String) -> Result<(), String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
-
-    // 启用外键约束以触发级联删除
-    conn.execute("PRAGMA foreign_keys = ON", [])
-        .map_err(|e| e.to_string())?;
+    let conn = open_db_connection_with_foreign_keys().map_err(|e| e.to_string())?;
 
     conn.execute("DELETE FROM sessions WHERE id = ?1", [&id])
         .map_err(|e| e.to_string())?;
@@ -302,10 +290,9 @@ pub fn delete_session(id: String) -> Result<(), String> {
 /// 切换会话固定状态
 #[tauri::command]
 pub fn toggle_session_pin(id: String) -> Result<Session, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = now_rfc3339();
 
     // 先获取当前固定状态
     let current_pinned: bool = conn

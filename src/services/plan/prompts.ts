@@ -92,11 +92,126 @@ export function buildOutputCorrectionPrompt(minTaskCount: number): string {
 - 禁止 markdown 代码块和额外文字`
 }
 
-export function buildPlanSplitJsonSchema(minTaskCount: number): string {
+type PlanSplitSchemaProvider = 'claude' | 'codex' | 'generic'
+
+function buildPlanSplitFieldSchema() {
+  return {
+    type: 'object',
+    required: ['name', 'label', 'type'],
+    properties: {
+      name: { type: 'string', minLength: 1 },
+      label: { type: 'string', minLength: 1 },
+      type: {
+        type: 'string',
+        enum: ['text', 'textarea', 'select', 'multiselect', 'number', 'checkbox', 'radio', 'date', 'slider']
+      },
+      required: { type: 'boolean' },
+      placeholder: { type: 'string' },
+      options: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['label', 'value'],
+          properties: {
+            label: { type: 'string' },
+            value: {}
+          },
+          additionalProperties: true
+        }
+      },
+      validation: {
+        type: 'object',
+        additionalProperties: true
+      }
+    },
+    additionalProperties: true
+  }
+}
+
+function buildPlanSplitFormSchema() {
+  return {
+    type: 'object',
+    required: ['formId', 'title', 'fields'],
+    properties: {
+      formId: { type: 'string', minLength: 1 },
+      title: { type: 'string', minLength: 1 },
+      description: { type: 'string' },
+      submitText: { type: 'string' },
+      fields: {
+        type: 'array',
+        minItems: 1,
+        items: buildPlanSplitFieldSchema()
+      }
+    },
+    additionalProperties: true
+  }
+}
+
+function buildPlanSplitTaskSchema() {
+  return {
+    type: 'object',
+    required: ['title', 'description', 'priority', 'implementationSteps', 'testSteps', 'acceptanceCriteria'],
+    properties: {
+      title: { type: 'string', minLength: 1 },
+      description: { type: 'string', minLength: 1 },
+      priority: { type: 'string', enum: ['high', 'medium', 'low'] },
+      implementationSteps: {
+        type: 'array',
+        minItems: 1,
+        items: { type: 'string', minLength: 1 }
+      },
+      testSteps: {
+        type: 'array',
+        minItems: 1,
+        items: { type: 'string', minLength: 1 }
+      },
+      acceptanceCriteria: {
+        type: 'array',
+        minItems: 1,
+        items: { type: 'string', minLength: 1 }
+      },
+      dependsOn: {
+        type: 'array',
+        description: '依赖的任务标题列表（必须先完成的任务）',
+        items: { type: 'string' }
+      }
+    },
+    additionalProperties: false
+  }
+}
+
+function buildCodexPlanSplitJsonSchema(minTaskCount: number) {
   const normalizedMinTaskCount = Math.max(1, Math.floor(minTaskCount || 1))
 
-  // 避免 oneOf，同时保留关键字段约束，减少 structured_output 重试失败与下游解析失败。
-  const schema = {
+  // Codex 的 response_format schema 不支持 allOf/if/then，使用扁平结构，
+  // 由后端解析器继续校验 form_request / task_split 的语义完整性。
+  return {
+    type: 'object',
+    required: ['type'],
+    properties: {
+      type: { type: 'string', enum: ['form_request', 'task_split'] },
+      question: { type: 'string' },
+      forms: {
+        type: 'array',
+        minItems: 1,
+        items: buildPlanSplitFormSchema()
+      },
+      formSchema: buildPlanSplitFormSchema(),
+      status: { type: 'string', enum: ['DONE'] },
+      tasks: {
+        type: 'array',
+        minItems: normalizedMinTaskCount,
+        items: buildPlanSplitTaskSchema()
+      }
+    },
+    additionalProperties: false
+  }
+}
+
+function buildClaudePlanSplitJsonSchema(minTaskCount: number) {
+  const normalizedMinTaskCount = Math.max(1, Math.floor(minTaskCount || 1))
+
+  return {
     type: 'object',
     required: ['type'],
     properties: {
@@ -127,99 +242,9 @@ export function buildPlanSplitJsonSchema(minTaskCount: number): string {
             forms: {
               type: 'array',
               minItems: 1,
-              items: {
-                type: 'object',
-                required: ['formId', 'title', 'fields'],
-                properties: {
-                  formId: { type: 'string', minLength: 1 },
-                  title: { type: 'string', minLength: 1 },
-                  description: { type: 'string' },
-                  submitText: { type: 'string' },
-                  fields: {
-                    type: 'array',
-                    minItems: 1,
-                    items: {
-                      type: 'object',
-                      required: ['name', 'label', 'type'],
-                      properties: {
-                        name: { type: 'string', minLength: 1 },
-                        label: { type: 'string', minLength: 1 },
-                        type: {
-                          type: 'string',
-                          enum: ['text', 'textarea', 'select', 'multiselect', 'number', 'checkbox', 'radio', 'date', 'slider']
-                        },
-                        required: { type: 'boolean' },
-                        placeholder: { type: 'string' },
-                        options: {
-                          type: 'array',
-                          items: {
-                            type: 'object',
-                            required: ['label', 'value'],
-                            properties: {
-                              label: { type: 'string' },
-                              value: {}
-                            },
-                            additionalProperties: true
-                          }
-                        },
-                        validation: {
-                          type: 'object',
-                          additionalProperties: true
-                        }
-                      },
-                      additionalProperties: true
-                    }
-                  }
-                },
-                additionalProperties: true
-              }
+              items: buildPlanSplitFormSchema()
             },
-            formSchema: {
-              type: 'object',
-              required: ['formId', 'title', 'fields'],
-              properties: {
-                formId: { type: 'string', minLength: 1 },
-                title: { type: 'string', minLength: 1 },
-                description: { type: 'string' },
-                submitText: { type: 'string' },
-                fields: {
-                  type: 'array',
-                  minItems: 1,
-                  items: {
-                    type: 'object',
-                    required: ['name', 'label', 'type'],
-                    properties: {
-                      name: { type: 'string', minLength: 1 },
-                      label: { type: 'string', minLength: 1 },
-                      type: {
-                        type: 'string',
-                        enum: ['text', 'textarea', 'select', 'multiselect', 'number', 'checkbox', 'radio', 'date', 'slider']
-                      },
-                      required: { type: 'boolean' },
-                      placeholder: { type: 'string' },
-                      options: {
-                        type: 'array',
-                        items: {
-                          type: 'object',
-                          required: ['label', 'value'],
-                          properties: {
-                            label: { type: 'string' },
-                            value: {}
-                          },
-                          additionalProperties: true
-                        }
-                      },
-                      validation: {
-                        type: 'object',
-                        additionalProperties: true
-                      }
-                    },
-                    additionalProperties: true
-                  }
-                }
-              },
-              additionalProperties: true
-            }
+            formSchema: buildPlanSplitFormSchema()
           }
         }
       },
@@ -239,42 +264,23 @@ export function buildPlanSplitJsonSchema(minTaskCount: number): string {
             tasks: {
               type: 'array',
               minItems: normalizedMinTaskCount,
-              items: {
-                type: 'object',
-                required: ['title', 'description', 'priority', 'implementationSteps', 'testSteps', 'acceptanceCriteria'],
-                properties: {
-                  title: { type: 'string', minLength: 1 },
-                  description: { type: 'string', minLength: 1 },
-                  priority: { type: 'string', enum: ['high', 'medium', 'low'] },
-                  implementationSteps: {
-                    type: 'array',
-                    minItems: 1,
-                    items: { type: 'string', minLength: 1 }
-                  },
-                  testSteps: {
-                    type: 'array',
-                    minItems: 1,
-                    items: { type: 'string', minLength: 1 }
-                  },
-                  acceptanceCriteria: {
-                    type: 'array',
-                    minItems: 1,
-                    items: { type: 'string', minLength: 1 }
-                  },
-                  dependsOn: {
-                    type: 'array',
-                    description: '依赖的任务标题列表（必须先完成的任务）',
-                    items: { type: 'string' }
-                  }
-                },
-                additionalProperties: false
-              }
+              items: buildPlanSplitTaskSchema()
             }
           }
         }
       }
     ]
   }
+}
+
+export function buildPlanSplitJsonSchema(
+  minTaskCount: number,
+  provider: PlanSplitSchemaProvider = 'generic'
+): string {
+  const normalizedProvider = provider.toLowerCase() as PlanSplitSchemaProvider
+  const schema = normalizedProvider === 'codex'
+    ? buildCodexPlanSplitJsonSchema(minTaskCount)
+    : buildClaudePlanSplitJsonSchema(minTaskCount)
 
   return JSON.stringify(schema)
 }

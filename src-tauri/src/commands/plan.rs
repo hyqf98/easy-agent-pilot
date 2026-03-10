@@ -1,53 +1,7 @@
 use anyhow::Result;
-use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
-/// 计划状态
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PlanStatus {
-    Draft,
-    Planning,
-    Executing,
-    Completed,
-    Paused,
-}
-
-impl From<String> for PlanStatus {
-    fn from(s: String) -> Self {
-        match s.as_str() {
-            "draft" => PlanStatus::Draft,
-            "planning" => PlanStatus::Planning,
-            "executing" => PlanStatus::Executing,
-            "completed" => PlanStatus::Completed,
-            "paused" => PlanStatus::Paused,
-            _ => PlanStatus::Draft,
-        }
-    }
-}
-
-impl From<PlanStatus> for String {
-    fn from(status: PlanStatus) -> Self {
-        match status {
-            PlanStatus::Draft => "draft".to_string(),
-            PlanStatus::Planning => "planning".to_string(),
-            PlanStatus::Executing => "executing".to_string(),
-            PlanStatus::Completed => "completed".to_string(),
-            PlanStatus::Paused => "paused".to_string(),
-        }
-    }
-}
-
-/// 智能体角色
-#[allow(dead_code)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum AgentRole {
-    Planner,
-    Executor,
-    Reviewer,
-    Researcher,
-}
+use super::support::{now_rfc3339, open_db_connection, open_db_connection_with_foreign_keys};
 
 /// 计划数据结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,6 +45,15 @@ pub struct RustPlan {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(untagged)]
+pub enum UpdateField<T> {
+    Value(T),
+    Null,
+    #[default]
+    Missing,
+}
+
 /// 创建计划输入
 #[derive(Debug, Deserialize)]
 pub struct CreatePlanInput {
@@ -108,24 +71,30 @@ pub struct CreatePlanInput {
 /// 更新计划输入
 #[derive(Debug, Deserialize)]
 pub struct UpdatePlanInput {
-    pub name: Option<String>,
-    pub description: Option<String>,
-    pub split_agent_id: Option<String>,
-    pub split_model_id: Option<String>,
-    pub status: Option<String>,
-    pub agent_team: Option<Vec<String>>,
-    pub granularity: Option<i32>,
-    pub max_retry_count: Option<i32>,
-    pub execution_status: Option<String>,
-    pub current_task_id: Option<String>,
-    pub scheduled_at: Option<String>,
-    pub schedule_status: Option<String>,
-}
-
-/// 获取数据库路径
-fn get_db_path() -> Result<std::path::PathBuf> {
-    let persistence_dir = super::get_persistence_dir_path()?;
-    Ok(persistence_dir.join("data").join("easy-agent.db"))
+    #[serde(default)]
+    pub name: UpdateField<String>,
+    #[serde(default)]
+    pub description: UpdateField<String>,
+    #[serde(default)]
+    pub split_agent_id: UpdateField<String>,
+    #[serde(default)]
+    pub split_model_id: UpdateField<String>,
+    #[serde(default)]
+    pub status: UpdateField<String>,
+    #[serde(default)]
+    pub agent_team: UpdateField<Vec<String>>,
+    #[serde(default)]
+    pub granularity: UpdateField<i32>,
+    #[serde(default)]
+    pub max_retry_count: UpdateField<i32>,
+    #[serde(default)]
+    pub execution_status: UpdateField<String>,
+    #[serde(default)]
+    pub current_task_id: UpdateField<String>,
+    #[serde(default)]
+    pub scheduled_at: UpdateField<String>,
+    #[serde(default)]
+    pub schedule_status: UpdateField<String>,
 }
 
 /// 将 RustPlan 转换为 Plan
@@ -157,8 +126,7 @@ fn transform_plan(rust_plan: RustPlan) -> Plan {
 /// 获取指定项目的所有计划
 #[tauri::command]
 pub fn list_plans(project_id: String) -> Result<Vec<Plan>, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
     let mut stmt = conn
         .prepare(
@@ -209,8 +177,7 @@ pub fn list_plans(project_id: String) -> Result<Vec<Plan>, String> {
 /// 获取单个计划
 #[tauri::command]
 pub fn get_plan(id: String) -> Result<Plan, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
     let rust_plan = conn
         .query_row(
@@ -253,11 +220,10 @@ pub fn get_plan(id: String) -> Result<Plan, String> {
 /// 创建新计划
 #[tauri::command]
 pub fn create_plan(input: CreatePlanInput) -> Result<Plan, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
     let id = uuid::Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let status = "draft".to_string();
     let execution_status = "idle".to_string();
     let agent_team_json = input
@@ -329,60 +295,59 @@ pub fn create_plan(input: CreatePlanInput) -> Result<Plan, String> {
 /// 更新计划
 #[tauri::command]
 pub fn update_plan(id: String, input: UpdatePlanInput) -> Result<Plan, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = now_rfc3339();
 
     // 构建动态更新语句
     let mut updates: Vec<String> = vec!["updated_at = ?1".to_string()];
     let mut param_index = 2;
 
-    if input.name.is_some() {
+    if !matches!(input.name, UpdateField::Missing) {
         updates.push(format!("name = ?{}", param_index));
         param_index += 1;
     }
-    if input.description.is_some() {
+    if !matches!(input.description, UpdateField::Missing) {
         updates.push(format!("description = ?{}", param_index));
         param_index += 1;
     }
-    if input.split_agent_id.is_some() {
+    if !matches!(input.split_agent_id, UpdateField::Missing) {
         updates.push(format!("split_agent_id = ?{}", param_index));
         param_index += 1;
     }
-    if input.split_model_id.is_some() {
+    if !matches!(input.split_model_id, UpdateField::Missing) {
         updates.push(format!("split_model_id = ?{}", param_index));
         param_index += 1;
     }
-    if input.status.is_some() {
+    if !matches!(input.status, UpdateField::Missing) {
         updates.push(format!("status = ?{}", param_index));
         param_index += 1;
     }
-    if input.agent_team.is_some() {
+    if !matches!(input.agent_team, UpdateField::Missing) {
         updates.push(format!("agent_team = ?{}", param_index));
         param_index += 1;
     }
-    if input.granularity.is_some() {
+    if !matches!(input.granularity, UpdateField::Missing) {
         updates.push(format!("granularity = ?{}", param_index));
         param_index += 1;
     }
-    if input.max_retry_count.is_some() {
+    if !matches!(input.max_retry_count, UpdateField::Missing) {
         updates.push(format!("max_retry_count = ?{}", param_index));
         param_index += 1;
     }
-    if input.execution_status.is_some() {
+    if !matches!(input.execution_status, UpdateField::Missing) {
         updates.push(format!("execution_status = ?{}", param_index));
         param_index += 1;
     }
-    if input.current_task_id.is_some() {
+    if !matches!(input.current_task_id, UpdateField::Missing) {
         updates.push(format!("current_task_id = ?{}", param_index));
         param_index += 1;
     }
-    if input.scheduled_at.is_some() {
+    if !matches!(input.scheduled_at, UpdateField::Missing) {
         updates.push(format!("scheduled_at = ?{}", param_index));
         param_index += 1;
     }
-    if input.schedule_status.is_some() {
+    if !matches!(input.schedule_status, UpdateField::Missing) {
         updates.push(format!("schedule_status = ?{}", param_index));
         param_index += 1;
     }
@@ -401,65 +366,114 @@ pub fn update_plan(id: String, input: UpdatePlanInput) -> Result<Plan, String> {
         .map_err(|e| e.to_string())?;
     param_count += 1;
 
-    if let Some(ref name) = input.name {
+    if let UpdateField::Value(ref name) = input.name {
         stmt.raw_bind_parameter(param_count, name)
             .map_err(|e| e.to_string())?;
         param_count += 1;
     }
-    if let Some(ref description) = input.description {
-        stmt.raw_bind_parameter(param_count, description)
-            .map_err(|e| e.to_string())?;
+    if !matches!(input.description, UpdateField::Missing) {
+        match input.description {
+            UpdateField::Value(ref description) => stmt
+                .raw_bind_parameter(param_count, description)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Null => stmt
+                .raw_bind_parameter(param_count, rusqlite::types::Null)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Missing => {}
+        }
         param_count += 1;
     }
-    if let Some(ref split_agent_id) = input.split_agent_id {
-        stmt.raw_bind_parameter(param_count, split_agent_id)
-            .map_err(|e| e.to_string())?;
+    if !matches!(input.split_agent_id, UpdateField::Missing) {
+        match input.split_agent_id {
+            UpdateField::Value(ref split_agent_id) => stmt
+                .raw_bind_parameter(param_count, split_agent_id)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Null => stmt
+                .raw_bind_parameter(param_count, rusqlite::types::Null)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Missing => {}
+        }
         param_count += 1;
     }
-    if let Some(ref split_model_id) = input.split_model_id {
-        stmt.raw_bind_parameter(param_count, split_model_id)
-            .map_err(|e| e.to_string())?;
+    if !matches!(input.split_model_id, UpdateField::Missing) {
+        match input.split_model_id {
+            UpdateField::Value(ref split_model_id) => stmt
+                .raw_bind_parameter(param_count, split_model_id)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Null => stmt
+                .raw_bind_parameter(param_count, rusqlite::types::Null)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Missing => {}
+        }
         param_count += 1;
     }
-    if let Some(ref status) = input.status {
+    if let UpdateField::Value(ref status) = input.status {
         stmt.raw_bind_parameter(param_count, status)
             .map_err(|e| e.to_string())?;
         param_count += 1;
     }
-    if let Some(ref agent_team) = input.agent_team {
+    if let UpdateField::Value(ref agent_team) = input.agent_team {
         let json = serde_json::to_string(agent_team).unwrap_or_else(|_| "[]".to_string());
         stmt.raw_bind_parameter(param_count, json)
             .map_err(|e| e.to_string())?;
         param_count += 1;
     }
-    if let Some(granularity) = input.granularity {
+    if let UpdateField::Value(granularity) = input.granularity {
         stmt.raw_bind_parameter(param_count, granularity)
             .map_err(|e| e.to_string())?;
         param_count += 1;
     }
-    if let Some(max_retry_count) = input.max_retry_count {
+    if let UpdateField::Value(max_retry_count) = input.max_retry_count {
         stmt.raw_bind_parameter(param_count, max_retry_count)
             .map_err(|e| e.to_string())?;
         param_count += 1;
     }
-    if let Some(ref execution_status) = input.execution_status {
-        stmt.raw_bind_parameter(param_count, execution_status)
-            .map_err(|e| e.to_string())?;
+    if !matches!(input.execution_status, UpdateField::Missing) {
+        match input.execution_status {
+            UpdateField::Value(ref execution_status) => stmt
+                .raw_bind_parameter(param_count, execution_status)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Null => stmt
+                .raw_bind_parameter(param_count, rusqlite::types::Null)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Missing => {}
+        }
         param_count += 1;
     }
-    if let Some(ref current_task_id) = input.current_task_id {
-        stmt.raw_bind_parameter(param_count, current_task_id)
-            .map_err(|e| e.to_string())?;
+    if !matches!(input.current_task_id, UpdateField::Missing) {
+        match input.current_task_id {
+            UpdateField::Value(ref current_task_id) => stmt
+                .raw_bind_parameter(param_count, current_task_id)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Null => stmt
+                .raw_bind_parameter(param_count, rusqlite::types::Null)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Missing => {}
+        }
         param_count += 1;
     }
-    if let Some(ref scheduled_at) = input.scheduled_at {
-        stmt.raw_bind_parameter(param_count, scheduled_at)
-            .map_err(|e| e.to_string())?;
+    if !matches!(input.scheduled_at, UpdateField::Missing) {
+        match input.scheduled_at {
+            UpdateField::Value(ref scheduled_at) => stmt
+                .raw_bind_parameter(param_count, scheduled_at)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Null => stmt
+                .raw_bind_parameter(param_count, rusqlite::types::Null)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Missing => {}
+        }
         param_count += 1;
     }
-    if let Some(ref schedule_status) = input.schedule_status {
-        stmt.raw_bind_parameter(param_count, schedule_status)
-            .map_err(|e| e.to_string())?;
+    if !matches!(input.schedule_status, UpdateField::Missing) {
+        match input.schedule_status {
+            UpdateField::Value(ref schedule_status) => stmt
+                .raw_bind_parameter(param_count, schedule_status)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Null => stmt
+                .raw_bind_parameter(param_count, rusqlite::types::Null)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Missing => {}
+        }
         param_count += 1;
     }
 
@@ -509,12 +523,7 @@ pub fn update_plan(id: String, input: UpdatePlanInput) -> Result<Plan, String> {
 /// 删除计划
 #[tauri::command]
 pub fn delete_plan(id: String) -> Result<(), String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
-
-    // 启用外键约束以触发级联删除
-    conn.execute("PRAGMA foreign_keys = ON", [])
-        .map_err(|e| e.to_string())?;
+    let conn = open_db_connection_with_foreign_keys().map_err(|e| e.to_string())?;
 
     conn.execute("DELETE FROM plans WHERE id = ?1", [&id])
         .map_err(|e| e.to_string())?;
@@ -525,8 +534,7 @@ pub fn delete_plan(id: String) -> Result<(), String> {
 /// 获取所有待执行的定时计划
 #[tauri::command]
 pub fn list_scheduled_plans() -> Result<Vec<Plan>, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
     let mut stmt = conn
         .prepare(
@@ -577,10 +585,9 @@ pub fn list_scheduled_plans() -> Result<Vec<Plan>, String> {
 /// 取消计划定时
 #[tauri::command]
 pub fn cancel_plan_schedule(id: String) -> Result<Plan, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = now_rfc3339();
 
     conn.execute(
         "UPDATE plans SET schedule_status = 'cancelled', scheduled_at = NULL, updated_at = ?1 WHERE id = ?2",

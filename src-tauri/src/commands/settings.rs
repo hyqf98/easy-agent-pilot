@@ -1,8 +1,9 @@
 use anyhow::Result;
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+
+use super::support::{now_rfc3339, open_db_connection};
 
 /// 应用设置项
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -13,17 +14,10 @@ pub struct AppSetting {
     pub updated_at: String,
 }
 
-/// 获取数据库路径
-fn get_db_path() -> Result<PathBuf> {
-    let persistence_dir = super::get_persistence_dir_path()?;
-    Ok(persistence_dir.join("data").join("easy-agent.db"))
-}
-
 /// 获取单个设置值
 #[tauri::command]
 pub fn get_app_setting(key: String) -> Result<Option<String>, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
     let mut stmt = conn
         .prepare("SELECT value FROM app_settings WHERE key = ?1")
@@ -40,8 +34,7 @@ pub fn get_app_setting(key: String) -> Result<Option<String>, String> {
 /// 获取所有设置
 #[tauri::command]
 pub fn get_all_app_settings() -> Result<HashMap<String, String>, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
     let mut stmt = conn
         .prepare("SELECT key, value FROM app_settings")
@@ -61,10 +54,9 @@ pub fn get_all_app_settings() -> Result<HashMap<String, String>, String> {
 /// 保存单个设置
 #[tauri::command]
 pub fn save_app_setting(key: String, value: String) -> Result<(), String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
-    let updated_at = chrono::Utc::now().to_rfc3339();
+    let updated_at = now_rfc3339();
 
     conn.execute(
         "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
@@ -78,12 +70,11 @@ pub fn save_app_setting(key: String, value: String) -> Result<(), String> {
 /// 批量保存设置
 #[tauri::command]
 pub fn save_app_settings(settings: HashMap<String, String>) -> Result<(), String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let mut conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let mut conn = open_db_connection().map_err(|e| e.to_string())?;
 
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-    let updated_at = chrono::Utc::now().to_rfc3339();
+    let updated_at = now_rfc3339();
 
     for (key, value) in settings {
         tx.execute(
@@ -101,8 +92,7 @@ pub fn save_app_settings(settings: HashMap<String, String>) -> Result<(), String
 /// 删除单个设置
 #[tauri::command]
 pub fn delete_app_setting(key: String) -> Result<(), String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
     conn.execute("DELETE FROM app_settings WHERE key = ?1", [&key])
         .map_err(|e| e.to_string())?;
@@ -113,8 +103,7 @@ pub fn delete_app_setting(key: String) -> Result<(), String> {
 /// 清除所有设置
 #[tauri::command]
 pub fn clear_app_settings() -> Result<(), String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
     conn.execute("DELETE FROM app_settings", [])
         .map_err(|e| e.to_string())?;

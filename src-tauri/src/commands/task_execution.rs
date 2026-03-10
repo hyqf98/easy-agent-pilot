@@ -1,6 +1,8 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
+use super::support::{now_rfc3339, open_db_connection};
+
 /// 执行日志数据结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionLog {
@@ -11,15 +13,6 @@ pub struct ExecutionLog {
     pub content: String,
     pub metadata: Option<String>,
     pub created_at: String,
-}
-
-/// 创建执行日志输入
-#[derive(Debug, Deserialize)]
-pub struct CreateExecutionLogInput {
-    pub task_id: String,
-    pub log_type: String,
-    pub content: String,
-    pub metadata: Option<String>,
 }
 
 /// 任务执行结果（结构化）
@@ -77,15 +70,15 @@ pub struct PlanExecutionProgress {
     pub tasks: Vec<PlanExecutionTaskProgress>,
 }
 
-/// 获取数据库路径
-fn get_db_path() -> Result<std::path::PathBuf> {
-    let persistence_dir = super::get_persistence_dir_path()?;
-    Ok(persistence_dir.join("data").join("easy-agent.db"))
-}
-
 fn parse_json_string_array(value: Option<String>) -> Vec<String> {
     match value {
-        Some(raw) => serde_json::from_str::<Vec<String>>(&raw).unwrap_or_default(),
+        Some(raw) => serde_json::from_str::<Vec<String>>(&raw).unwrap_or_else(|error| {
+            eprintln!(
+                "[task_execution] Failed to parse JSON string array: {} | raw={}",
+                error, raw
+            );
+            Vec::new()
+        }),
         None => Vec::new(),
     }
 }
@@ -98,11 +91,10 @@ pub fn create_task_execution_log(
     content: String,
     metadata: Option<String>,
 ) -> Result<ExecutionLog, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
     let id = uuid::Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = now_rfc3339();
 
     conn.execute(
         "INSERT INTO task_execution_logs (id, task_id, log_type, content, metadata, created_at)
@@ -124,8 +116,7 @@ pub fn create_task_execution_log(
 /// 获取任务的执行日志列表
 #[tauri::command]
 pub fn list_task_execution_logs(task_id: String) -> Result<Vec<ExecutionLog>, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
     let mut stmt = conn
         .prepare(
@@ -157,8 +148,7 @@ pub fn list_task_execution_logs(task_id: String) -> Result<Vec<ExecutionLog>, St
 /// 清除任务的执行日志
 #[tauri::command]
 pub fn clear_task_execution_logs(task_id: String) -> Result<(), String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
     conn.execute(
         "DELETE FROM task_execution_logs WHERE task_id = ?1",
@@ -174,10 +164,9 @@ pub fn clear_task_execution_logs(task_id: String) -> Result<(), String> {
 pub fn save_task_execution_result(
     input: SaveTaskExecutionResultInput,
 ) -> Result<TaskExecutionResultRecord, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let id = uuid::Uuid::new_v4().to_string();
 
     let (plan_id, task_title_snapshot, task_description_snapshot): (
@@ -266,8 +255,7 @@ pub fn list_recent_plan_results(
     plan_id: String,
     limit: Option<i32>,
 ) -> Result<Vec<TaskExecutionResultRecord>, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
     let safe_limit = limit.unwrap_or(50).clamp(1, 500);
 
@@ -308,8 +296,7 @@ pub fn list_recent_plan_results(
 /// 获取计划执行进度详情（右侧面板使用）
 #[tauri::command]
 pub fn list_plan_execution_progress(plan_id: String) -> Result<PlanExecutionProgress, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
     let mut stmt = conn
         .prepare(
@@ -378,8 +365,7 @@ pub fn list_plan_execution_progress(plan_id: String) -> Result<PlanExecutionProg
 /// 获取任务执行日志统计
 #[tauri::command]
 pub fn get_task_execution_log_stats(task_id: String) -> Result<ExecutionLogStats, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
     let count: i32 = conn
         .query_row(
@@ -415,11 +401,11 @@ pub struct ExecutionLogStats {
 /// 清除计划的执行结果（同时清除关联任务的日志）
 #[tauri::command]
 pub fn clear_plan_execution_results(plan_id: String) -> Result<i32, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let mut conn = open_db_connection().map_err(|e| e.to_string())?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
 
     // 获取计划下所有任务 ID
-    let task_ids: Vec<String> = conn
+    let task_ids: Vec<String> = tx
         .query_row(
             "SELECT GROUP_CONCAT(id) FROM tasks WHERE plan_id = ?1",
             [&plan_id],
@@ -433,33 +419,34 @@ pub fn clear_plan_execution_results(plan_id: String) -> Result<i32, String> {
         .unwrap_or_default();
 
     // 清除任务执行日志
-    let mut logs_deleted = 0;
-    for task_id in &task_ids {
-        let affected = conn
-            .execute(
-                "DELETE FROM task_execution_logs WHERE task_id = ?1",
-                [task_id],
-            )
-            .map_err(|e| e.to_string())?;
-        logs_deleted += affected;
-    }
+    let logs_deleted = if task_ids.is_empty() {
+        0
+    } else {
+        let placeholders = (0..task_ids.len()).map(|_| "?").collect::<Vec<_>>().join(", ");
+        let sql = format!(
+            "DELETE FROM task_execution_logs WHERE task_id IN ({})",
+            placeholders
+        );
+        let params = rusqlite::params_from_iter(task_ids.iter());
+        tx.execute(&sql, params).map_err(|e| e.to_string())?
+    };
 
-    // 清除任务执行结果
-    let results_deleted = conn
+    let results_deleted = tx
         .execute(
             "DELETE FROM task_execution_results WHERE plan_id = ?1",
             [&plan_id],
         )
         .map_err(|e| e.to_string())?;
 
-    // 清除任务表中的执行结果字段
-    conn.execute(
+    tx.execute(
         "UPDATE tasks SET last_result_status = NULL, last_result_summary = NULL,
          last_result_files = NULL, last_fail_reason = NULL, last_result_at = NULL
          WHERE plan_id = ?1",
         [&plan_id],
     )
     .map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
 
     Ok(logs_deleted as i32 + results_deleted as i32)
 }

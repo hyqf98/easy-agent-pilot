@@ -1,29 +1,7 @@
 use anyhow::Result;
-use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
-/// 任务状态
-#[allow(dead_code)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TaskStatus {
-    Pending,
-    InProgress,
-    Completed,
-    Blocked,
-    Failed,
-    Cancelled,
-}
-
-/// 任务优先级
-#[allow(dead_code)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TaskPriority {
-    Low,
-    Medium,
-    High,
-}
+use super::support::{now_rfc3339, open_db_connection, open_db_connection_with_foreign_keys};
 
 /// 任务数据结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,6 +67,15 @@ pub struct RustTask {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(untagged)]
+pub enum UpdateField<T> {
+    Value(T),
+    Null,
+    #[default]
+    Missing,
+}
+
 /// 创建任务输入
 #[derive(Debug, Deserialize)]
 pub struct CreateTaskInput {
@@ -113,24 +100,42 @@ pub struct CreateTaskInput {
 /// 更新任务输入
 #[derive(Debug, Deserialize)]
 pub struct UpdateTaskInput {
-    pub title: Option<String>,
-    pub description: Option<String>,
-    pub status: Option<String>,
-    pub priority: Option<String>,
-    pub assignee: Option<String>,
-    pub session_id: Option<String>,
-    pub progress_file: Option<String>,
-    pub dependencies: Option<Vec<String>>,
-    pub order: Option<i32>,
-    pub retry_count: Option<i32>,
-    pub max_retries: Option<i32>,
-    pub error_message: Option<String>,
-    pub implementation_steps: Option<Vec<String>>,
-    pub test_steps: Option<Vec<String>>,
-    pub acceptance_criteria: Option<Vec<String>>,
-    pub block_reason: Option<String>,
-    pub input_request: Option<serde_json::Value>,
-    pub input_response: Option<serde_json::Value>,
+    #[serde(default)]
+    pub title: UpdateField<String>,
+    #[serde(default)]
+    pub description: UpdateField<String>,
+    #[serde(default)]
+    pub status: UpdateField<String>,
+    #[serde(default)]
+    pub priority: UpdateField<String>,
+    #[serde(default)]
+    pub assignee: UpdateField<String>,
+    #[serde(default)]
+    pub session_id: UpdateField<String>,
+    #[serde(default)]
+    pub progress_file: UpdateField<String>,
+    #[serde(default)]
+    pub dependencies: UpdateField<Vec<String>>,
+    #[serde(default)]
+    pub order: UpdateField<i32>,
+    #[serde(default)]
+    pub retry_count: UpdateField<i32>,
+    #[serde(default)]
+    pub max_retries: UpdateField<i32>,
+    #[serde(default)]
+    pub error_message: UpdateField<String>,
+    #[serde(default)]
+    pub implementation_steps: UpdateField<Vec<String>>,
+    #[serde(default)]
+    pub test_steps: UpdateField<Vec<String>>,
+    #[serde(default)]
+    pub acceptance_criteria: UpdateField<Vec<String>>,
+    #[serde(default)]
+    pub block_reason: UpdateField<String>,
+    #[serde(default)]
+    pub input_request: UpdateField<serde_json::Value>,
+    #[serde(default)]
+    pub input_response: UpdateField<serde_json::Value>,
 }
 
 /// 批量更新任务顺序输入
@@ -143,12 +148,6 @@ pub struct ReorderTasksInput {
 pub struct TaskOrderItem {
     pub id: String,
     pub order: i32,
-}
-
-/// 获取数据库路径
-fn get_db_path() -> Result<std::path::PathBuf> {
-    let persistence_dir = super::get_persistence_dir_path()?;
-    Ok(persistence_dir.join("data").join("easy-agent.db"))
 }
 
 /// 将 RustTask 转换为 Task
@@ -204,8 +203,7 @@ fn transform_task(rust_task: RustTask) -> Task {
 /// 获取指定计划的所有任务
 #[tauri::command]
 pub fn list_tasks(plan_id: String) -> Result<Vec<Task>, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
     let mut stmt = conn
         .prepare(
@@ -266,8 +264,7 @@ pub fn list_tasks(plan_id: String) -> Result<Vec<Task>, String> {
 /// 获取单个任务
 #[tauri::command]
 pub fn get_task(id: String) -> Result<Task, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
     let rust_task = conn
         .query_row(
@@ -320,11 +317,10 @@ pub fn get_task(id: String) -> Result<Task, String> {
 /// 创建新任务
 #[tauri::command]
 pub fn create_task(input: CreateTaskInput) -> Result<Task, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
     let id = uuid::Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let status = "pending".to_string();
     let priority = input.priority.unwrap_or_else(|| "medium".to_string());
     let dependencies_json = input
@@ -433,84 +429,83 @@ pub fn create_task(input: CreateTaskInput) -> Result<Task, String> {
 /// 更新任务
 #[tauri::command]
 pub fn update_task(id: String, input: UpdateTaskInput) -> Result<Task, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = now_rfc3339();
 
     // 构建动态更新语句
     let mut updates: Vec<String> = vec!["updated_at = ?1".to_string()];
     let mut param_index = 2;
 
-    if input.title.is_some() {
+    if !matches!(input.title, UpdateField::Missing) {
         updates.push(format!("title = ?{}", param_index));
         param_index += 1;
     }
-    if input.description.is_some() {
+    if !matches!(input.description, UpdateField::Missing) {
         updates.push(format!("description = ?{}", param_index));
         param_index += 1;
     }
-    if input.status.is_some() {
+    if !matches!(input.status, UpdateField::Missing) {
         updates.push(format!("status = ?{}", param_index));
         param_index += 1;
     }
-    if input.priority.is_some() {
+    if !matches!(input.priority, UpdateField::Missing) {
         updates.push(format!("priority = ?{}", param_index));
         param_index += 1;
     }
-    if input.assignee.is_some() {
+    if !matches!(input.assignee, UpdateField::Missing) {
         updates.push(format!("assignee = ?{}", param_index));
         param_index += 1;
     }
-    if input.session_id.is_some() {
+    if !matches!(input.session_id, UpdateField::Missing) {
         updates.push(format!("session_id = ?{}", param_index));
         param_index += 1;
     }
-    if input.progress_file.is_some() {
+    if !matches!(input.progress_file, UpdateField::Missing) {
         updates.push(format!("progress_file = ?{}", param_index));
         param_index += 1;
     }
-    if input.dependencies.is_some() {
+    if !matches!(input.dependencies, UpdateField::Missing) {
         updates.push(format!("dependencies = ?{}", param_index));
         param_index += 1;
     }
-    if input.order.is_some() {
+    if !matches!(input.order, UpdateField::Missing) {
         updates.push(format!("task_order = ?{}", param_index));
         param_index += 1;
     }
-    if input.retry_count.is_some() {
+    if !matches!(input.retry_count, UpdateField::Missing) {
         updates.push(format!("retry_count = ?{}", param_index));
         param_index += 1;
     }
-    if input.max_retries.is_some() {
+    if !matches!(input.max_retries, UpdateField::Missing) {
         updates.push(format!("max_retries = ?{}", param_index));
         param_index += 1;
     }
-    if input.error_message.is_some() {
+    if !matches!(input.error_message, UpdateField::Missing) {
         updates.push(format!("error_message = ?{}", param_index));
         param_index += 1;
     }
-    if input.implementation_steps.is_some() {
+    if !matches!(input.implementation_steps, UpdateField::Missing) {
         updates.push(format!("implementation_steps = ?{}", param_index));
         param_index += 1;
     }
-    if input.test_steps.is_some() {
+    if !matches!(input.test_steps, UpdateField::Missing) {
         updates.push(format!("test_steps = ?{}", param_index));
         param_index += 1;
     }
-    if input.acceptance_criteria.is_some() {
+    if !matches!(input.acceptance_criteria, UpdateField::Missing) {
         updates.push(format!("acceptance_criteria = ?{}", param_index));
         param_index += 1;
     }
-    if input.block_reason.is_some() {
+    if !matches!(input.block_reason, UpdateField::Missing) {
         updates.push(format!("block_reason = ?{}", param_index));
         param_index += 1;
     }
-    if input.input_request.is_some() {
+    if !matches!(input.input_request, UpdateField::Missing) {
         updates.push(format!("input_request = ?{}", param_index));
         param_index += 1;
     }
-    if input.input_response.is_some() {
+    if !matches!(input.input_response, UpdateField::Missing) {
         updates.push(format!("input_response = ?{}", param_index));
         param_index += 1;
     }
@@ -529,100 +524,160 @@ pub fn update_task(id: String, input: UpdateTaskInput) -> Result<Task, String> {
         .map_err(|e| e.to_string())?;
     param_count += 1;
 
-    if let Some(ref title) = input.title {
+    if let UpdateField::Value(ref title) = input.title {
         stmt.raw_bind_parameter(param_count, title)
             .map_err(|e| e.to_string())?;
         param_count += 1;
     }
-    if let Some(ref description) = input.description {
-        stmt.raw_bind_parameter(param_count, description)
-            .map_err(|e| e.to_string())?;
+    if !matches!(input.description, UpdateField::Missing) {
+        match input.description {
+            UpdateField::Value(ref description) => stmt
+                .raw_bind_parameter(param_count, description)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Null => stmt
+                .raw_bind_parameter(param_count, rusqlite::types::Null)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Missing => {}
+        }
         param_count += 1;
     }
-    if let Some(ref status) = input.status {
+    if let UpdateField::Value(ref status) = input.status {
         stmt.raw_bind_parameter(param_count, status)
             .map_err(|e| e.to_string())?;
         param_count += 1;
     }
-    if let Some(ref priority) = input.priority {
+    if let UpdateField::Value(ref priority) = input.priority {
         stmt.raw_bind_parameter(param_count, priority)
             .map_err(|e| e.to_string())?;
         param_count += 1;
     }
-    if let Some(ref assignee) = input.assignee {
-        stmt.raw_bind_parameter(param_count, assignee)
-            .map_err(|e| e.to_string())?;
+    if !matches!(input.assignee, UpdateField::Missing) {
+        match input.assignee {
+            UpdateField::Value(ref assignee) => stmt
+                .raw_bind_parameter(param_count, assignee)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Null => stmt
+                .raw_bind_parameter(param_count, rusqlite::types::Null)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Missing => {}
+        }
         param_count += 1;
     }
-    if let Some(ref session_id) = input.session_id {
-        stmt.raw_bind_parameter(param_count, session_id)
-            .map_err(|e| e.to_string())?;
+    if !matches!(input.session_id, UpdateField::Missing) {
+        match input.session_id {
+            UpdateField::Value(ref session_id) => stmt
+                .raw_bind_parameter(param_count, session_id)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Null => stmt
+                .raw_bind_parameter(param_count, rusqlite::types::Null)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Missing => {}
+        }
         param_count += 1;
     }
-    if let Some(ref progress_file) = input.progress_file {
-        stmt.raw_bind_parameter(param_count, progress_file)
-            .map_err(|e| e.to_string())?;
+    if !matches!(input.progress_file, UpdateField::Missing) {
+        match input.progress_file {
+            UpdateField::Value(ref progress_file) => stmt
+                .raw_bind_parameter(param_count, progress_file)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Null => stmt
+                .raw_bind_parameter(param_count, rusqlite::types::Null)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Missing => {}
+        }
         param_count += 1;
     }
-    if let Some(ref dependencies) = input.dependencies {
+    if let UpdateField::Value(ref dependencies) = input.dependencies {
         let json = serde_json::to_string(dependencies).unwrap_or_else(|_| "[]".to_string());
         stmt.raw_bind_parameter(param_count, json)
             .map_err(|e| e.to_string())?;
         param_count += 1;
     }
-    if let Some(order) = input.order {
+    if let UpdateField::Value(order) = input.order {
         stmt.raw_bind_parameter(param_count, order)
             .map_err(|e| e.to_string())?;
         param_count += 1;
     }
-    if let Some(retry_count) = input.retry_count {
+    if let UpdateField::Value(retry_count) = input.retry_count {
         stmt.raw_bind_parameter(param_count, retry_count)
             .map_err(|e| e.to_string())?;
         param_count += 1;
     }
-    if let Some(max_retries) = input.max_retries {
+    if let UpdateField::Value(max_retries) = input.max_retries {
         stmt.raw_bind_parameter(param_count, max_retries)
             .map_err(|e| e.to_string())?;
         param_count += 1;
     }
-    if let Some(ref error_message) = input.error_message {
-        stmt.raw_bind_parameter(param_count, error_message)
-            .map_err(|e| e.to_string())?;
+    if !matches!(input.error_message, UpdateField::Missing) {
+        match input.error_message {
+            UpdateField::Value(ref error_message) => stmt
+                .raw_bind_parameter(param_count, error_message)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Null => stmt
+                .raw_bind_parameter(param_count, rusqlite::types::Null)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Missing => {}
+        }
         param_count += 1;
     }
-    if let Some(ref implementation_steps) = input.implementation_steps {
+    if let UpdateField::Value(ref implementation_steps) = input.implementation_steps {
         let json = serde_json::to_string(implementation_steps).unwrap_or_else(|_| "[]".to_string());
         stmt.raw_bind_parameter(param_count, json)
             .map_err(|e| e.to_string())?;
         param_count += 1;
     }
-    if let Some(ref test_steps) = input.test_steps {
+    if let UpdateField::Value(ref test_steps) = input.test_steps {
         let json = serde_json::to_string(test_steps).unwrap_or_else(|_| "[]".to_string());
         stmt.raw_bind_parameter(param_count, json)
             .map_err(|e| e.to_string())?;
         param_count += 1;
     }
-    if let Some(ref acceptance_criteria) = input.acceptance_criteria {
+    if let UpdateField::Value(ref acceptance_criteria) = input.acceptance_criteria {
         let json = serde_json::to_string(acceptance_criteria).unwrap_or_else(|_| "[]".to_string());
         stmt.raw_bind_parameter(param_count, json)
             .map_err(|e| e.to_string())?;
         param_count += 1;
     }
-    if let Some(ref block_reason) = input.block_reason {
-        stmt.raw_bind_parameter(param_count, block_reason)
-            .map_err(|e| e.to_string())?;
+    if !matches!(input.block_reason, UpdateField::Missing) {
+        match input.block_reason {
+            UpdateField::Value(ref block_reason) => stmt
+                .raw_bind_parameter(param_count, block_reason)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Null => stmt
+                .raw_bind_parameter(param_count, rusqlite::types::Null)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Missing => {}
+        }
         param_count += 1;
     }
-    if let Some(ref input_request) = input.input_request {
-        let json = serde_json::to_string(input_request).unwrap_or_else(|_| "{}".to_string());
-        stmt.raw_bind_parameter(param_count, json)
-            .map_err(|e| e.to_string())?;
+    if !matches!(input.input_request, UpdateField::Missing) {
+        match input.input_request {
+            UpdateField::Value(ref input_request) => {
+                let json = serde_json::to_string(input_request).unwrap_or_else(|_| "{}".to_string());
+                stmt.raw_bind_parameter(param_count, json)
+                    .map_err(|e| e.to_string())?;
+            }
+            UpdateField::Null => {
+                stmt.raw_bind_parameter(param_count, rusqlite::types::Null)
+                    .map_err(|e| e.to_string())?;
+            }
+            UpdateField::Missing => {}
+        }
         param_count += 1;
     }
-    if let Some(ref input_response) = input.input_response {
-        let json = serde_json::to_string(input_response).unwrap_or_else(|_| "{}".to_string());
-        stmt.raw_bind_parameter(param_count, json)
-            .map_err(|e| e.to_string())?;
+    if !matches!(input.input_response, UpdateField::Missing) {
+        match input.input_response {
+            UpdateField::Value(ref input_response) => {
+                let json = serde_json::to_string(input_response).unwrap_or_else(|_| "{}".to_string());
+                stmt.raw_bind_parameter(param_count, json)
+                    .map_err(|e| e.to_string())?;
+            }
+            UpdateField::Null => {
+                stmt.raw_bind_parameter(param_count, rusqlite::types::Null)
+                    .map_err(|e| e.to_string())?;
+            }
+            UpdateField::Missing => {}
+        }
         param_count += 1;
     }
 
@@ -695,10 +750,9 @@ pub fn update_task(id: String, input: UpdateTaskInput) -> Result<Task, String> {
 /// 批量更新任务顺序
 #[tauri::command]
 pub fn reorder_tasks(input: ReorderTasksInput) -> Result<(), String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
 
     for item in input.task_orders {
@@ -717,8 +771,7 @@ pub fn reorder_tasks(input: ReorderTasksInput) -> Result<(), String> {
 /// 删除任务
 #[tauri::command]
 pub fn delete_task(id: String) -> Result<(), String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection_with_foreign_keys().map_err(|e| e.to_string())?;
 
     conn.execute("DELETE FROM tasks WHERE id = ?1", [&id])
         .map_err(|e| e.to_string())?;
@@ -729,8 +782,7 @@ pub fn delete_task(id: String) -> Result<(), String> {
 /// 获取任务的子任务
 #[tauri::command]
 pub fn list_subtasks(parent_id: String) -> Result<Vec<Task>, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
     let mut stmt = conn
         .prepare(
@@ -791,10 +843,9 @@ pub fn list_subtasks(parent_id: String) -> Result<Vec<Task>, String> {
 /// 重试任务 - 重置重试计数并恢复pending状态
 #[tauri::command]
 pub fn retry_task(id: String) -> Result<Task, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = now_rfc3339();
 
     conn.execute(
         "UPDATE tasks SET status = 'pending', retry_count = 0, error_message = NULL, updated_at = ?1 WHERE id = ?2",
@@ -854,10 +905,9 @@ pub fn retry_task(id: String) -> Result<Task, String> {
 /// 批量更新任务状态
 #[tauri::command]
 pub fn batch_update_status(plan_id: String, status: String) -> Result<Vec<Task>, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = now_rfc3339();
 
     // 只更新 pending 状态的任务
     conn.execute(
@@ -926,10 +976,9 @@ pub fn batch_update_status(plan_id: String, status: String) -> Result<Vec<Task>,
 /// 停止任务执行
 #[tauri::command]
 pub fn stop_task(id: String) -> Result<Task, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = now_rfc3339();
 
     // 将任务状态改为 pending，保留当前重试计数
     conn.execute(
@@ -990,8 +1039,7 @@ pub fn stop_task(id: String) -> Result<Task, String> {
 /// 根据会话 ID 查找关联的任务和计划
 #[tauri::command]
 pub fn get_task_by_session_id(session_id: String) -> Result<Option<Task>, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
     let result = conn.query_row(
         r#"
@@ -1050,10 +1098,9 @@ pub fn batch_create_tasks(
     plan_id: String,
     tasks: Vec<CreateTaskInput>,
 ) -> Result<Vec<Task>, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
 
     // 获取当前最大顺序
@@ -1196,10 +1243,9 @@ pub struct SaveSplitSessionInput {
 /// 保存或更新拆分会话
 #[tauri::command]
 pub fn save_split_session(input: SaveSplitSessionInput) -> Result<TaskSplitSession, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = now_rfc3339();
     let status = input.status.unwrap_or_else(|| "processing".to_string());
     let granularity = input.granularity.unwrap_or(20);
 
@@ -1268,8 +1314,7 @@ pub fn save_split_session(input: SaveSplitSessionInput) -> Result<TaskSplitSessi
 /// 获取拆分会话
 #[tauri::command]
 pub fn get_split_session(plan_id: String) -> Result<Option<TaskSplitSession>, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
     let result = conn.query_row(
         "SELECT id, plan_id, status, raw_content, parsed_output, parse_error, granularity,
@@ -1300,8 +1345,7 @@ pub fn get_split_session(plan_id: String) -> Result<Option<TaskSplitSession>, St
 /// 删除拆分会话
 #[tauri::command]
 pub fn delete_split_session(plan_id: String) -> Result<(), String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
     conn.execute(
         "DELETE FROM task_split_sessions WHERE plan_id = ?1",

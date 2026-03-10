@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import KanbanColumn from './KanbanColumn.vue'
 import TaskEditModal from './TaskEditModal.vue'
 import { usePlanStore } from '@/stores/plan'
@@ -12,6 +13,7 @@ const planStore = usePlanStore()
 const taskStore = useTaskStore()
 const taskExecutionStore = useTaskExecutionStore()
 const confirmDialog = useConfirmDialog()
+const { t } = useI18n()
 const emit = defineEmits<{
   (e: 'task-click', task: Task): void
 }>()
@@ -22,6 +24,14 @@ const editingTask = ref<Task | null>(null)
 
 // 当前计划 ID
 const currentPlanId = computed(() => planStore.currentPlanId)
+const emptyTasksByStatus: Record<TaskStatus, Task[]> = {
+  pending: [],
+  in_progress: [],
+  completed: [],
+  blocked: [],
+  failed: [],
+  cancelled: []
+}
 
 // 当前计划的任务
 const tasks = computed(() => {
@@ -31,7 +41,7 @@ const tasks = computed(() => {
 
 // 任务按状态分组
 const tasksByStatus = computed(() => {
-  if (!currentPlanId.value) return {}
+  if (!currentPlanId.value) return emptyTasksByStatus
 
   const result: Record<TaskStatus, Task[]> = {
     pending: [],
@@ -67,13 +77,13 @@ const taskStats = computed(() => ({
 }))
 
 // 看板列配置
-const columns: Array<{ status: TaskStatus; label: string; color: string }> = [
-  { status: 'pending', label: '待办', color: 'gray' },
-  { status: 'in_progress', label: '进行中', color: 'blue' },
-  { status: 'completed', label: '已完成', color: 'green' },
-  { status: 'blocked', label: '阻塞', color: 'yellow' },
-  { status: 'failed', label: '执行失败', color: 'red' }
-]
+const columns = computed<Array<{ status: TaskStatus; label: string; color: string }>>(() => [
+  { status: 'pending', label: t('taskBoard.columns.pending'), color: 'gray' },
+  { status: 'in_progress', label: t('taskBoard.columns.in_progress'), color: 'blue' },
+  { status: 'completed', label: t('taskBoard.columns.completed'), color: 'green' },
+  { status: 'blocked', label: t('taskBoard.columns.blocked'), color: 'yellow' },
+  { status: 'failed', label: t('taskBoard.columns.failed'), color: 'red' }
+])
 
 // 加载任务数据
 async function loadTasks() {
@@ -88,13 +98,6 @@ watch(currentPlanId, (newPlanId) => {
     loadTasks()
   }
 }, { immediate: true })
-
-// 组件挂载时加载任务
-onMounted(() => {
-  if (currentPlanId.value) {
-    loadTasks()
-  }
-})
 
 // 处理任务拖放（跨列）
 async function handleTaskDrop(taskId: string, newStatus: TaskStatus) {
@@ -244,8 +247,8 @@ async function handleTaskRetry(task: Task) {
 // 删除任务
 async function handleTaskDelete(task: Task) {
   const confirmed = await confirmDialog.danger(
-    `确定要删除任务「${task.title}」吗？`,
-    '删除任务'
+    t('taskBoard.deleteTaskMessage', { name: task.title }),
+    t('taskBoard.deleteTaskTitle')
   )
 
   if (confirmed) {
@@ -309,17 +312,17 @@ function handleEditSaved() {
     <div class="board-header">
       <div class="header-left">
         <h3 class="title">
-          任务看板
+          {{ t('taskBoard.title') }}
         </h3>
       </div>
       <div class="header-right">
         <!-- 任务统计 -->
         <div class="task-stats">
-          <span class="stat-item completed">{{ taskStats.completed }} 完成</span>
-          <span class="stat-item in-progress">{{ taskStats.inProgress }} 进行中</span>
-          <span class="stat-item blocked">{{ taskStats.blocked }} 阻塞</span>
-          <span class="stat-item pending">{{ taskStats.pending }} 待办</span>
-          <span class="stat-item failed">{{ taskStats.failed }} 失败</span>
+          <span class="stat-item completed">{{ t('taskBoard.stats.completed', { count: taskStats.completed }) }}</span>
+          <span class="stat-item in-progress">{{ t('taskBoard.stats.inProgress', { count: taskStats.inProgress }) }}</span>
+          <span class="stat-item blocked">{{ t('taskBoard.stats.blocked', { count: taskStats.blocked }) }}</span>
+          <span class="stat-item pending">{{ t('taskBoard.stats.pending', { count: taskStats.pending }) }}</span>
+          <span class="stat-item failed">{{ t('taskBoard.stats.failed', { count: taskStats.failed }) }}</span>
         </div>
       </div>
     </div>
@@ -328,14 +331,14 @@ function handleEditSaved() {
       v-if="!currentPlanId"
       class="empty-state"
     >
-      <span>请先选择一个计划</span>
+      <span>{{ t('taskBoard.emptyNoPlan') }}</span>
     </div>
 
     <div
       v-else-if="tasks.length === 0"
       class="empty-state"
     >
-      <span>暂无任务，请先进行任务拆分</span>
+      <span>{{ t('taskBoard.emptyNoTasks') }}</span>
     </div>
 
     <div

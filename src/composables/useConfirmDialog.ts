@@ -15,7 +15,7 @@ interface ConfirmDialogState extends ConfirmDialogOptions {
   resolve: ((value: boolean) => void) | null
 }
 
-const state = ref<ConfirmDialogState>({
+const defaultState = (): ConfirmDialogState => ({
   visible: false,
   type: 'warning',
   title: '',
@@ -25,6 +25,8 @@ const state = ref<ConfirmDialogState>({
   confirmButtonType: 'danger',
   resolve: null
 })
+
+const state = ref<ConfirmDialogState>(defaultState())
 
 /**
  * useConfirmDialog - 确认对话框 composable
@@ -90,22 +92,28 @@ export function useConfirmDialog() {
    * 处理用户确认
    */
   function handleConfirm() {
-    if (state.value.resolve) {
-      state.value.resolve(true)
+    const { resolve, ...rest } = state.value
+    resolve?.(true)
+    state.value = {
+      ...defaultState(),
+      ...rest,
+      visible: false,
+      resolve: null
     }
-    state.value.visible = false
-    state.value.resolve = null
   }
 
   /**
    * 处理用户取消
    */
   function handleCancel() {
-    if (state.value.resolve) {
-      state.value.resolve(false)
+    const { resolve, ...rest } = state.value
+    resolve?.(false)
+    state.value = {
+      ...defaultState(),
+      ...rest,
+      visible: false,
+      resolve: null
     }
-    state.value.visible = false
-    state.value.resolve = null
   }
 
   return {

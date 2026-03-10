@@ -175,10 +175,6 @@ impl Drop for TempSchemaFile {
 
 #[async_trait]
 impl AgentExecutionStrategy for CodexCliStrategy {
-    fn name(&self) -> &str {
-        "Codex CLI"
-    }
-
     fn supports(&self, agent_type: &str, provider: &str) -> bool {
         agent_type == "cli" && provider == "codex"
     }

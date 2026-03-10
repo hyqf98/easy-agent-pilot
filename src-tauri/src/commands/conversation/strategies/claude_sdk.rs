@@ -43,18 +43,8 @@ macro_rules! log_info {
     };
 }
 
-macro_rules! log_error {
-    ($($arg:tt)*) => {
-        eprintln!("[ERROR][claude-sdk] {}", format!($($arg)*))
-    };
-}
-
 #[async_trait]
 impl AgentExecutionStrategy for ClaudeSdkStrategy {
-    fn name(&self) -> &str {
-        "Claude SDK"
-    }
-
     fn supports(&self, agent_type: &str, provider: &str) -> bool {
         agent_type == "sdk" && (provider == "claude" || provider.is_empty())
     }

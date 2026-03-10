@@ -4,11 +4,11 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use lazy_static::lazy_static;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
-/// 活动定时器存储
+// 活动定时器存储
 lazy_static! {
     static ref ACTIVE_TIMERS: Arc<RwLock<HashMap<String, JoinHandle<()>>>> =
         Arc::new(RwLock::new(HashMap::new()));
@@ -163,16 +163,6 @@ pub async fn register_plan_timer(
     // 存储定时器句柄
     let mut timers = ACTIVE_TIMERS.write().await;
     timers.insert(plan_id.to_string(), handle);
-}
-
-/// 取消计划定时器
-pub async fn cancel_plan_timer(plan_id: &str) {
-    let mut timers = ACTIVE_TIMERS.write().await;
-
-    if let Some(handle) = timers.remove(plan_id) {
-        handle.abort();
-        println!("Cancelled timer for plan {}", plan_id);
-    }
 }
 
 /// 触发计划执行

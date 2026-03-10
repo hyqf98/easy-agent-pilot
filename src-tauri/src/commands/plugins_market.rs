@@ -1,7 +1,7 @@
 use anyhow::Result;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 
@@ -129,9 +129,7 @@ pub struct PluginMarketQuery {
 
 /// Get database connection
 fn get_db_connection() -> Result<Connection, String> {
-    let persistence_dir = crate::commands::get_persistence_dir_path().map_err(|e| e.to_string())?;
-    let db_path = persistence_dir.join("data").join("easy-agent.db");
-    Connection::open(&db_path).map_err(|e| e.to_string())
+    crate::commands::market_source_support::open_market_db_connection()
 }
 
 /// Market source response structure
@@ -140,35 +138,39 @@ struct MarketSourceResponse {
     plugins: Vec<PluginMarketItem>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct PluginMarketSourceBundle {
+    #[serde(default)]
+    plugins: Vec<PluginMarketItem>,
+    #[serde(default)]
+    plugin_details: Vec<PluginMarketDetail>,
+    #[serde(default)]
+    plugin_files: HashMap<String, Vec<PluginFileContent>>,
+}
+
 /// Fetch plugins from all enabled market sources
 #[tauri::command]
 pub async fn fetch_plugins_market(
     query: PluginMarketQuery,
 ) -> Result<PluginMarketListResponse, String> {
-    // Get enabled market sources from database
     let conn = get_db_connection()?;
     let sources = get_enabled_plugin_sources(&conn)?;
 
     if sources.is_empty() {
-        // Return mock data if no sources configured
-        return Ok(get_mock_plugins_data(query));
+        return Ok(PluginMarketListResponse {
+            items: Vec::new(),
+            total: 0,
+        });
     }
 
-    // Fetch from all sources in parallel
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .user_agent("Easy-Agent-Pilot/1.0")
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    let client = crate::commands::market_source_support::build_market_http_client()?;
 
     let mut all_items: Vec<PluginMarketItem> = Vec::new();
     let mut seen_ids: HashSet<String> = HashSet::new();
 
-    // Fetch from each source
     for source in sources {
         match fetch_plugins_from_source(&client, &source.url_or_path, &source.name).await {
             Ok(items) => {
-                // Merge and dedupe
                 for item in items {
                     if !seen_ids.contains(&item.id) {
                         seen_ids.insert(item.id.clone());
@@ -182,12 +184,6 @@ pub async fn fetch_plugins_market(
         }
     }
 
-    // If no items fetched, use mock data
-    if all_items.is_empty() {
-        return Ok(get_mock_plugins_data(query));
-    }
-
-    // Apply filters
     let mut filtered_items = all_items;
 
     // Filter by category (component type)
@@ -230,14 +226,47 @@ pub async fn fetch_plugins_market(
 /// Fetch plugin detail by ID
 #[tauri::command]
 pub async fn fetch_plugin_detail(plugin_id: String) -> Result<PluginMarketDetail, String> {
-    // For now, return mock detail data
-    // In production, this would fetch from the market source
-    let mock_details = get_mock_plugin_details();
+    let conn = get_db_connection()?;
+    let sources = get_enabled_plugin_sources(&conn)?;
+    if sources.is_empty() {
+        return Err("No plugin market source configured".to_string());
+    }
 
-    mock_details
-        .into_iter()
-        .find(|d| d.id == plugin_id)
-        .ok_or_else(|| format!("Plugin not found: {}", plugin_id))
+    let client = crate::commands::market_source_support::build_market_http_client()?;
+
+    for source in sources {
+        let payload = match crate::commands::market_source_support::read_market_source_payload(
+            &client,
+            &source.url_or_path,
+            "plugins.json",
+        )
+        .await
+        {
+            Ok(payload) => payload,
+            Err(error) => {
+                eprintln!("Failed to read plugin source {}: {}", source.name, error);
+                continue;
+            }
+        };
+
+        let bundle = match parse_plugin_market_payload(&payload, &source.name) {
+            Ok(bundle) => bundle,
+            Err(error) => {
+                eprintln!("Failed to parse plugin source {}: {}", source.name, error);
+                continue;
+            }
+        };
+
+        if let Some(detail) = bundle.plugin_details.into_iter().find(|item| item.id == plugin_id) {
+            return Ok(detail);
+        }
+
+        if let Some(item) = bundle.plugins.into_iter().find(|item| item.id == plugin_id) {
+            return Ok(synthesize_plugin_detail(item));
+        }
+    }
+
+    Err(format!("Plugin not found in configured sources: {}", plugin_id))
 }
 
 /// Plugin source from database
@@ -274,289 +303,150 @@ async fn fetch_plugins_from_source(
     url: &str,
     source_name: &str,
 ) -> Result<Vec<PluginMarketItem>, String> {
-    // Try to fetch from URL
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+    let text = crate::commands::market_source_support::read_market_source_payload(
+        client,
+        url,
+        "plugins.json",
+    )
+    .await?;
+    let bundle = parse_plugin_market_payload(&text, source_name)?;
+    Ok(bundle.plugins)
+}
 
-    if !response.status().is_success() {
-        return Err(format!("HTTP error: {}", response.status()));
+fn parse_plugin_market_payload(
+    text: &str,
+    source_name: &str,
+) -> Result<PluginMarketSourceBundle, String> {
+    if let Ok(mut bundle) = serde_json::from_str::<PluginMarketSourceBundle>(text) {
+        for item in &mut bundle.plugins {
+            item.source_market = source_name.to_string();
+        }
+        for detail in &mut bundle.plugin_details {
+            detail.source_market = source_name.to_string();
+        }
+        return Ok(bundle);
     }
 
-    // Parse response
-    let text = response
-        .text()
-        .await
-        .map_err(|e| format!("Failed to read response: {}", e))?;
+    if let Ok(market_response) = serde_json::from_str::<MarketSourceResponse>(text) {
+        let plugins = market_response
+            .plugins
+            .into_iter()
+            .map(|mut item| {
+                item.source_market = source_name.to_string();
+                item
+            })
+            .collect();
 
-    // Try to parse as market response
-    match serde_json::from_str::<MarketSourceResponse>(&text) {
-        Ok(market_response) => {
-            // Add source_market to each item
-            let items = market_response
-                .plugins
-                .into_iter()
-                .map(|mut item| {
-                    item.source_market = source_name.to_string();
-                    item
-                })
-                .collect();
-            Ok(items)
-        }
-        Err(e) => {
-            // Try parsing as direct array
-            match serde_json::from_str::<Vec<PluginMarketItem>>(&text) {
-                Ok(items) => {
-                    let items = items
-                        .into_iter()
-                        .map(|mut item| {
-                            item.source_market = source_name.to_string();
-                            item
-                        })
-                        .collect();
-                    Ok(items)
-                }
-                Err(_) => Err(format!("Failed to parse response: {}", e)),
-            }
-        }
+        return Ok(PluginMarketSourceBundle {
+            plugins,
+            ..PluginMarketSourceBundle::default()
+        });
+    }
+
+    if let Ok(items) = serde_json::from_str::<Vec<PluginMarketItem>>(text) {
+        let plugins = items
+            .into_iter()
+            .map(|mut item| {
+                item.source_market = source_name.to_string();
+                item
+            })
+            .collect();
+
+        return Ok(PluginMarketSourceBundle {
+            plugins,
+            ..PluginMarketSourceBundle::default()
+        });
+    }
+
+    Err("Failed to parse plugin market payload".to_string())
+}
+
+fn synthesize_plugin_detail(item: PluginMarketItem) -> PluginMarketDetail {
+    PluginMarketDetail {
+        id: item.id,
+        name: item.name,
+        version: item.version,
+        description: item.description.clone(),
+        full_description: item.description,
+        source_market: item.source_market,
+        author: item.author,
+        component_types: item.component_types,
+        tags: item.tags,
+        repository_url: item.repository_url,
+        homepage_url: item.homepage_url,
+        license: "Unknown".to_string(),
+        downloads: item.downloads,
+        rating: item.rating,
+        components: Vec::new(),
+        version_history: Vec::new(),
+        config_options: Vec::new(),
+        created_at: item.created_at,
+        updated_at: item.updated_at,
     }
 }
 
-/// Get mock plugins data for development/testing
-fn get_mock_plugins_data(query: PluginMarketQuery) -> PluginMarketListResponse {
-    let all_items = vec![
-        PluginMarketItem {
-            id: "plugin-dev-tools".to_string(),
-            name: "Developer Tools Pack".to_string(),
-            version: "2.1.0".to_string(),
-            description: "Comprehensive development tools including code generation, debugging assistants, and testing utilities. Essential for any developer workflow.".to_string(),
-            source_market: "官方仓库".to_string(),
-            author: "Anthropic".to_string(),
-            component_types: vec!["skill".to_string(), "mcp".to_string(), "prompt".to_string()],
-            tags: vec!["development".to_string(), "tools".to_string(), "coding".to_string()],
-            repository_url: Some("https://github.com/anthropics/claude-code".to_string()),
-            homepage_url: Some("https://docs.anthropic.com".to_string()),
-            downloads: 15000,
-            rating: 4.8,
-            created_at: "2024-01-15T00:00:00Z".to_string(),
-            updated_at: "2024-02-20T00:00:00Z".to_string(),
-        },
-        PluginMarketItem {
-            id: "plugin-frontend-suite".to_string(),
-            name: "Frontend Suite".to_string(),
-            version: "1.5.2".to_string(),
-            description: "Complete frontend development toolkit with React components, Tailwind utilities, and modern CSS patterns. Build beautiful UIs faster.".to_string(),
-            source_market: "官方仓库".to_string(),
-            author: "Anthropic".to_string(),
-            component_types: vec!["skill".to_string(), "agent".to_string()],
-            tags: vec!["frontend".to_string(), "react".to_string(), "css".to_string(), "ui".to_string()],
-            repository_url: Some("https://github.com/anthropics/claude-code".to_string()),
-            homepage_url: None,
-            downloads: 8500,
-            rating: 4.6,
-            created_at: "2024-01-20T00:00:00Z".to_string(),
-            updated_at: "2024-02-18T00:00:00Z".to_string(),
-        },
-        PluginMarketItem {
-            id: "plugin-data-analysis".to_string(),
-            name: "Data Analysis Toolkit".to_string(),
-            version: "3.0.1".to_string(),
-            description: "Powerful data analysis tools including SQL helpers, data visualization, and statistical analysis components. Perfect for data scientists.".to_string(),
-            source_market: "社区仓库".to_string(),
-            author: "DataTools Inc".to_string(),
-            component_types: vec!["skill".to_string(), "mcp".to_string(), "workflow".to_string()],
-            tags: vec!["data".to_string(), "sql".to_string(), "analytics".to_string(), "visualization".to_string()],
-            repository_url: Some("https://github.com/datatools/analysis-toolkit".to_string()),
-            homepage_url: Some("https://datatools.io".to_string()),
-            downloads: 6200,
-            rating: 4.5,
-            created_at: "2024-02-01T00:00:00Z".to_string(),
-            updated_at: "2024-02-25T00:00:00Z".to_string(),
-        },
-        PluginMarketItem {
-            id: "plugin-doc-writer".to_string(),
-            name: "Documentation Writer Pro".to_string(),
-            version: "1.2.0".to_string(),
-            description: "Professional documentation writing assistant with templates, style guides, and multi-format export. Create beautiful docs effortlessly.".to_string(),
-            source_market: "官方仓库".to_string(),
-            author: "Anthropic".to_string(),
-            component_types: vec!["skill".to_string(), "prompt".to_string()],
-            tags: vec!["documentation".to_string(), "writing".to_string(), "markdown".to_string()],
-            repository_url: Some("https://github.com/anthropics/claude-code".to_string()),
-            homepage_url: None,
-            downloads: 9800,
-            rating: 4.7,
-            created_at: "2024-01-25T00:00:00Z".to_string(),
-            updated_at: "2024-02-22T00:00:00Z".to_string(),
-        },
-        PluginMarketItem {
-            id: "plugin-api-designer".to_string(),
-            name: "API Designer".to_string(),
-            version: "2.0.0".to_string(),
-            description: "Design and document RESTful APIs with OpenAPI spec generation, endpoint testing, and client SDK generation support.".to_string(),
-            source_market: "社区仓库".to_string(),
-            author: "APITools".to_string(),
-            component_types: vec!["skill".to_string(), "mcp".to_string(), "agent".to_string()],
-            tags: vec!["api".to_string(), "openapi".to_string(), "rest".to_string()],
-            repository_url: Some("https://github.com/apitools/designer".to_string()),
-            homepage_url: Some("https://apitools.dev".to_string()),
-            downloads: 4500,
-            rating: 4.4,
-            created_at: "2024-02-05T00:00:00Z".to_string(),
-            updated_at: "2024-02-20T00:00:00Z".to_string(),
-        },
-        PluginMarketItem {
-            id: "plugin-test-automation".to_string(),
-            name: "Test Automation Suite".to_string(),
-            version: "1.8.3".to_string(),
-            description: "Comprehensive test automation with unit tests, integration tests, and E2E testing support. Includes mocking and coverage reporting.".to_string(),
-            source_market: "社区仓库".to_string(),
-            author: "TestMasters".to_string(),
-            component_types: vec!["skill".to_string(), "workflow".to_string()],
-            tags: vec!["testing".to_string(), "automation".to_string(), "tdd".to_string()],
-            repository_url: Some("https://github.com/testmasters/automation".to_string()),
-            homepage_url: None,
-            downloads: 7200,
-            rating: 4.6,
-            created_at: "2024-01-30T00:00:00Z".to_string(),
-            updated_at: "2024-02-24T00:00:00Z".to_string(),
-        },
-        PluginMarketItem {
-            id: "plugin-git-workflow".to_string(),
-            name: "Git Workflow Manager".to_string(),
-            version: "1.4.0".to_string(),
-            description: "Enhanced Git workflow with smart branching, conflict resolution, and PR templates. Integrates with GitHub, GitLab, and Bitbucket.".to_string(),
-            source_market: "官方仓库".to_string(),
-            author: "Anthropic".to_string(),
-            component_types: vec!["skill".to_string(), "prompt".to_string(), "workflow".to_string()],
-            tags: vec!["git".to_string(), "workflow".to_string(), "github".to_string()],
-            repository_url: Some("https://github.com/anthropics/claude-code".to_string()),
-            homepage_url: None,
-            downloads: 11000,
-            rating: 4.9,
-            created_at: "2024-01-10T00:00:00Z".to_string(),
-            updated_at: "2024-02-28T00:00:00Z".to_string(),
-        },
-        PluginMarketItem {
-            id: "plugin-cloud-deploy".to_string(),
-            name: "Cloud Deployment Kit".to_string(),
-            version: "2.2.1".to_string(),
-            description: "Deploy to AWS, GCP, and Azure with infrastructure-as-code templates, CI/CD pipelines, and monitoring dashboards.".to_string(),
-            source_market: "社区仓库".to_string(),
-            author: "CloudMasters".to_string(),
-            component_types: vec!["skill".to_string(), "mcp".to_string(), "workflow".to_string()],
-            tags: vec!["cloud".to_string(), "aws".to_string(), "deployment".to_string(), "devops".to_string()],
-            repository_url: Some("https://github.com/cloudmasters/deploy-kit".to_string()),
-            homepage_url: Some("https://cloudmasters.io".to_string()),
-            downloads: 5800,
-            rating: 4.3,
-            created_at: "2024-02-08T00:00:00Z".to_string(),
-            updated_at: "2024-02-26T00:00:00Z".to_string(),
-        },
-        PluginMarketItem {
-            id: "plugin-code-review".to_string(),
-            name: "Code Review Assistant".to_string(),
-            version: "1.6.0".to_string(),
-            description: "AI-powered code review with style checking, security scanning, and performance analysis. Improve code quality automatically.".to_string(),
-            source_market: "官方仓库".to_string(),
-            author: "Anthropic".to_string(),
-            component_types: vec!["skill".to_string(), "agent".to_string()],
-            tags: vec!["review".to_string(), "quality".to_string(), "security".to_string()],
-            repository_url: Some("https://github.com/anthropics/claude-code".to_string()),
-            homepage_url: None,
-            downloads: 13200,
-            rating: 4.8,
-            created_at: "2024-01-18T00:00:00Z".to_string(),
-            updated_at: "2024-02-25T00:00:00Z".to_string(),
-        },
-        PluginMarketItem {
-            id: "plugin-mobile-dev".to_string(),
-            name: "Mobile Development Pack".to_string(),
-            version: "1.0.5".to_string(),
-            description: "Build mobile apps with React Native and Flutter helpers. Includes device testing, app store deployment, and performance profiling.".to_string(),
-            source_market: "社区仓库".to_string(),
-            author: "MobileDev Co".to_string(),
-            component_types: vec!["skill".to_string(), "mcp".to_string()],
-            tags: vec!["mobile".to_string(), "react-native".to_string(), "flutter".to_string()],
-            repository_url: Some("https://github.com/mobiledev/pack".to_string()),
-            homepage_url: Some("https://mobiledev.tools".to_string()),
-            downloads: 3800,
-            rating: 4.2,
-            created_at: "2024-02-12T00:00:00Z".to_string(),
-            updated_at: "2024-02-27T00:00:00Z".to_string(),
-        },
-        PluginMarketItem {
-            id: "plugin-database-tools".to_string(),
-            name: "Database Tools".to_string(),
-            version: "2.5.0".to_string(),
-            description: "Database management with SQL generation, schema migration, query optimization, and support for PostgreSQL, MySQL, MongoDB, and Redis.".to_string(),
-            source_market: "社区仓库".to_string(),
-            author: "DBTools Team".to_string(),
-            component_types: vec!["skill".to_string(), "mcp".to_string(), "workflow".to_string()],
-            tags: vec!["database".to_string(), "sql".to_string(), "migration".to_string()],
-            repository_url: Some("https://github.com/dbtools/tools".to_string()),
-            homepage_url: None,
-            downloads: 6700,
-            rating: 4.5,
-            created_at: "2024-01-28T00:00:00Z".to_string(),
-            updated_at: "2024-02-23T00:00:00Z".to_string(),
-        },
-        PluginMarketItem {
-            id: "plugin-ai-agents".to_string(),
-            name: "AI Agents Collection".to_string(),
-            version: "1.1.0".to_string(),
-            description: "Pre-built AI agents for common tasks: research, summarization, translation, and content generation. Multi-agent orchestration support.".to_string(),
-            source_market: "官方仓库".to_string(),
-            author: "Anthropic".to_string(),
-            component_types: vec!["agent".to_string(), "workflow".to_string()],
-            tags: vec!["ai".to_string(), "agents".to_string(), "automation".to_string()],
-            repository_url: Some("https://github.com/anthropics/claude-code".to_string()),
-            homepage_url: None,
-            downloads: 9500,
-            rating: 4.7,
-            created_at: "2024-02-03T00:00:00Z".to_string(),
-            updated_at: "2024-02-21T00:00:00Z".to_string(),
-        },
-    ];
+async fn load_plugin_install_payload(
+    plugin_id: &str,
+) -> Result<(PluginMarketDetail, Vec<PluginFileContent>), String> {
+    let conn = get_db_connection()?;
+    let sources = get_enabled_plugin_sources(&conn)?;
+    if sources.is_empty() {
+        return Err("No plugin market source configured".to_string());
+    }
 
-    // Filter by category (component type)
-    let mut filtered_items: Vec<PluginMarketItem> = all_items;
-    if let Some(category) = &query.category {
-        if !category.is_empty() && category != "all" {
-            filtered_items = filtered_items
-                .into_iter()
-                .filter(|item| item.component_types.contains(category))
-                .collect();
+    let client = crate::commands::market_source_support::build_market_http_client()?;
+
+    for source in sources {
+        let payload = match crate::commands::market_source_support::read_market_source_payload(
+            &client,
+            &source.url_or_path,
+            "plugins.json",
+        )
+        .await
+        {
+            Ok(payload) => payload,
+            Err(error) => {
+                eprintln!("Failed to read plugin source {}: {}", source.name, error);
+                continue;
+            }
+        };
+
+        let bundle = match parse_plugin_market_payload(&payload, &source.name) {
+            Ok(bundle) => bundle,
+            Err(error) => {
+                eprintln!("Failed to parse plugin source {}: {}", source.name, error);
+                continue;
+            }
+        };
+
+        let plugin_files = bundle.plugin_files.get(plugin_id).cloned();
+        let detail = bundle
+            .plugin_details
+            .into_iter()
+            .find(|item| item.id == plugin_id)
+            .or_else(|| {
+                bundle
+                    .plugins
+                    .into_iter()
+                    .find(|item| item.id == plugin_id)
+                    .map(synthesize_plugin_detail)
+            });
+
+        if let Some(detail) = detail {
+            let files = plugin_files.ok_or_else(|| {
+                format!(
+                    "Plugin source '{}' does not provide installable files for {}",
+                    source.name, plugin_id
+                )
+            })?;
+            return Ok((detail, files));
         }
     }
 
-    // Filter by search
-    if let Some(search) = &query.search {
-        if !search.is_empty() {
-            let search_lower = search.to_lowercase();
-            filtered_items = filtered_items
-                .into_iter()
-                .filter(|item| {
-                    item.name.to_lowercase().contains(&search_lower)
-                        || item.description.to_lowercase().contains(&search_lower)
-                        || item.author.to_lowercase().contains(&search_lower)
-                        || item
-                            .tags
-                            .iter()
-                            .any(|t| t.to_lowercase().contains(&search_lower))
-                })
-                .collect();
-        }
-    }
-
-    let total = filtered_items.len() as u64;
-
-    PluginMarketListResponse {
-        items: filtered_items,
-        total,
-    }
+    Err(format!(
+        "Plugin {} was not found in configured plugin market sources",
+        plugin_id
+    ))
 }
 
 // ============== Plugin Installation Types ==============
@@ -687,90 +577,6 @@ fn save_installed_plugins(plugins: &[InstalledPlugin]) -> Result<PathBuf, String
     Ok(plugins_json_path)
 }
 
-/// Get mock plugin files for installation
-fn get_mock_plugin_files(plugin_id: &str) -> Vec<PluginFileContent> {
-    // In production, this would download from the market source
-    match plugin_id {
-        "plugin-dev-tools" => vec![
-            PluginFileContent {
-                relative_path: "skills/code-generator.md".to_string(),
-                content: r#"---
-name: code-generator
-description: Generate code from templates and specifications
-trigger: When user asks to generate boilerplate code
----
-
-# Code Generator
-
-You are a code generation assistant. Help users generate clean, well-structured code based on their specifications.
-
-## Guidelines
-- Follow language-specific best practices
-- Include appropriate error handling
-- Add comments for complex logic
-"#.to_string(),
-            },
-            PluginFileContent {
-                relative_path: "skills/debug-analyzer.md".to_string(),
-                content: r#"---
-name: debug-analyzer
-description: Analyze errors and suggest fixes
-trigger: When encountering errors or bugs
----
-
-# Debug Analyzer
-
-You are a debugging assistant. Help users identify and fix issues in their code.
-
-## Process
-1. Analyze the error message
-2. Identify the root cause
-3. Suggest potential fixes
-4. Verify the solution
-"#.to_string(),
-            },
-            PluginFileContent {
-                relative_path: "prompts/code-review.md".to_string(),
-                content: r#"---
-name: code-review
-description: Structured code review template
----
-
-# Code Review Template
-
-Review the following code for:
-- Correctness
-- Performance
-- Security
-- Maintainability
-- Style consistency
-"#.to_string(),
-            },
-        ],
-        "plugin-frontend-suite" => vec![
-            PluginFileContent {
-                relative_path: "skills/component-generator.md".to_string(),
-                content: r#"---
-name: component-generator
-description: Generate React components from specs
-trigger: When user asks to create a new component
----
-
-# Component Generator
-
-Generate React components following best practices.
-
-## Guidelines
-- Use TypeScript
-- Follow component composition patterns
-- Include proper typing
-"#.to_string(),
-            },
-        ],
-        _ => vec![],
-    }
-}
-
 /// Install plugin to CLI
 #[tauri::command]
 pub async fn install_plugin(input: PluginInstallInput) -> Result<PluginInstallResult, String> {
@@ -778,22 +584,15 @@ pub async fn install_plugin(input: PluginInstallInput) -> Result<PluginInstallRe
     let backup_base = crate::commands::install::get_backup_base_dir().map_err(|e| e.to_string())?;
     let backup_dir = backup_base.join(&session_id);
     fs::create_dir_all(&backup_dir).map_err(|e| e.to_string())?;
+    let (plugin_detail, plugin_files) = load_plugin_install_payload(&input.plugin_id).await?;
 
-    // Get CLI config directory
     let config_dir =
         get_cli_config_dir(&input.cli_path, &input.scope, input.project_path.as_deref())?;
-
-    // Ensure config directory exists
     fs::create_dir_all(&config_dir).map_err(|e| format!("Failed to create config dir: {}", e))?;
 
-    // Get plugin files (mock for now, would download from market in production)
-    let plugin_files = get_mock_plugin_files(&input.plugin_id);
-
-    // Filter by selected components
     let files_to_install: Vec<_> = plugin_files
         .into_iter()
         .filter(|f| {
-            // Extract component name from path
             let file_name = PathBuf::from(&f.relative_path)
                 .file_stem()
                 .map(|s| s.to_string_lossy().to_string())
@@ -902,16 +701,16 @@ pub async fn install_plugin(input: PluginInstallInput) -> Result<PluginInstallRe
         // Update existing
         if let Some(plugin) = plugins.iter_mut().find(|p| p.id == input.plugin_id) {
             plugin.version = input.plugin_version.clone();
+            plugin.source_market = plugin_detail.source_market.clone();
             plugin.components = installed_components.clone();
             plugin.enabled = true;
         }
     } else {
-        // Add new
         plugins.push(InstalledPlugin {
             id: input.plugin_id.clone(),
             name: input.plugin_name.clone(),
             version: input.plugin_version.clone(),
-            source_market: "官方仓库".to_string(), // Would come from market data
+            source_market: plugin_detail.source_market,
             cli_path: input.cli_path.clone(),
             scope: input.scope.clone(),
             components: installed_components.clone(),
@@ -1027,175 +826,3 @@ pub fn uninstall_plugin(plugin_id: String) -> Result<PluginInstallResult, String
     })
 }
 
-/// Get mock plugin details
-fn get_mock_plugin_details() -> Vec<PluginMarketDetail> {
-    vec![
-        PluginMarketDetail {
-            id: "plugin-dev-tools".to_string(),
-            name: "Developer Tools Pack".to_string(),
-            version: "2.1.0".to_string(),
-            description: "Comprehensive development tools including code generation, debugging assistants, and testing utilities.".to_string(),
-            full_description: r#"The Developer Tools Pack is a comprehensive suite of tools designed to enhance your development workflow. It includes:
-
-**Code Generation Tools**
-- Generate boilerplate code for common patterns
-- Create type definitions and interfaces
-- Build CRUD operations automatically
-
-**Debugging Assistants**
-- Systematic debugging workflows
-- Error analysis and resolution guides
-- Performance profiling helpers
-
-**Testing Utilities**
-- Unit test generation
-- Integration test scaffolding
-- Mock data creation
-
-This plugin is essential for any developer looking to improve their productivity and code quality."#.to_string(),
-            source_market: "官方仓库".to_string(),
-            author: "Anthropic".to_string(),
-            component_types: vec!["skill".to_string(), "mcp".to_string(), "prompt".to_string()],
-            tags: vec!["development".to_string(), "tools".to_string(), "coding".to_string()],
-            repository_url: Some("https://github.com/anthropics/claude-code".to_string()),
-            homepage_url: Some("https://docs.anthropic.com".to_string()),
-            license: "MIT".to_string(),
-            downloads: 15000,
-            rating: 4.8,
-            components: vec![
-                PluginComponent {
-                    name: "Code Generator".to_string(),
-                    component_type: "skill".to_string(),
-                    description: "Generate code from templates and specifications".to_string(),
-                    version: "2.1.0".to_string(),
-                },
-                PluginComponent {
-                    name: "Debug Analyzer".to_string(),
-                    component_type: "skill".to_string(),
-                    description: "Analyze errors and suggest fixes".to_string(),
-                    version: "2.1.0".to_string(),
-                },
-                PluginComponent {
-                    name: "Test Helper".to_string(),
-                    component_type: "mcp".to_string(),
-                    description: "MCP server for test execution".to_string(),
-                    version: "2.1.0".to_string(),
-                },
-                PluginComponent {
-                    name: "Code Review Prompt".to_string(),
-                    component_type: "prompt".to_string(),
-                    description: "Structured code review template".to_string(),
-                    version: "2.1.0".to_string(),
-                },
-            ],
-            version_history: vec![
-                PluginVersion {
-                    version: "2.1.0".to_string(),
-                    release_notes: "Added new debugging workflows and improved code generation".to_string(),
-                    released_at: "2024-02-20T00:00:00Z".to_string(),
-                },
-                PluginVersion {
-                    version: "2.0.0".to_string(),
-                    release_notes: "Major rewrite with MCP support and new testing utilities".to_string(),
-                    released_at: "2024-02-01T00:00:00Z".to_string(),
-                },
-                PluginVersion {
-                    version: "1.5.0".to_string(),
-                    release_notes: "Added code generation templates and improved performance".to_string(),
-                    released_at: "2024-01-15T00:00:00Z".to_string(),
-                },
-            ],
-            config_options: vec![
-                PluginConfigOption {
-                    name: "default_language".to_string(),
-                    description: "Default programming language for code generation".to_string(),
-                    required: false,
-                    default_value: Some("typescript".to_string()),
-                },
-                PluginConfigOption {
-                    name: "test_framework".to_string(),
-                    description: "Preferred testing framework".to_string(),
-                    required: false,
-                    default_value: Some("jest".to_string()),
-                },
-            ],
-            created_at: "2024-01-15T00:00:00Z".to_string(),
-            updated_at: "2024-02-20T00:00:00Z".to_string(),
-        },
-        PluginMarketDetail {
-            id: "plugin-frontend-suite".to_string(),
-            name: "Frontend Suite".to_string(),
-            version: "1.5.2".to_string(),
-            description: "Complete frontend development toolkit with React components, Tailwind utilities, and modern CSS patterns.".to_string(),
-            full_description: r#"The Frontend Suite provides everything you need for modern frontend development:
-
-**React Components**
-- Pre-built component library
-- Customizable design system
-- Accessibility-first approach
-
-**Tailwind Utilities**
-- Custom utility generators
-- Responsive design helpers
-- Dark mode support
-
-**CSS Patterns**
-- Modern CSS solutions
-- Animation utilities
-- Layout generators
-
-Build beautiful, responsive UIs in record time with this comprehensive toolkit."#.to_string(),
-            source_market: "官方仓库".to_string(),
-            author: "Anthropic".to_string(),
-            component_types: vec!["skill".to_string(), "agent".to_string()],
-            tags: vec!["frontend".to_string(), "react".to_string(), "css".to_string(), "ui".to_string()],
-            repository_url: Some("https://github.com/anthropics/claude-code".to_string()),
-            homepage_url: None,
-            license: "MIT".to_string(),
-            downloads: 8500,
-            rating: 4.6,
-            components: vec![
-                PluginComponent {
-                    name: "Component Generator".to_string(),
-                    component_type: "skill".to_string(),
-                    description: "Generate React components from specs".to_string(),
-                    version: "1.5.2".to_string(),
-                },
-                PluginComponent {
-                    name: "Style Agent".to_string(),
-                    component_type: "agent".to_string(),
-                    description: "AI agent for styling and theming".to_string(),
-                    version: "1.5.2".to_string(),
-                },
-            ],
-            version_history: vec![
-                PluginVersion {
-                    version: "1.5.2".to_string(),
-                    release_notes: "Bug fixes and performance improvements".to_string(),
-                    released_at: "2024-02-18T00:00:00Z".to_string(),
-                },
-                PluginVersion {
-                    version: "1.5.0".to_string(),
-                    release_notes: "Added Tailwind utility generators".to_string(),
-                    released_at: "2024-02-10T00:00:00Z".to_string(),
-                },
-            ],
-            config_options: vec![
-                PluginConfigOption {
-                    name: "framework".to_string(),
-                    description: "Frontend framework preference".to_string(),
-                    required: false,
-                    default_value: Some("react".to_string()),
-                },
-                PluginConfigOption {
-                    name: "css_framework".to_string(),
-                    description: "CSS framework to use".to_string(),
-                    required: false,
-                    default_value: Some("tailwind".to_string()),
-                },
-            ],
-            created_at: "2024-01-20T00:00:00Z".to_string(),
-            updated_at: "2024-02-18T00:00:00Z".to_string(),
-        },
-    ]
-}

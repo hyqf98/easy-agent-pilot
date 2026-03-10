@@ -11,7 +11,7 @@ use crate::commands::conversation::abort::{
     clear_abort_flag, register_session_pid, set_abort_flag, should_abort, unregister_session_pid,
 };
 use crate::commands::conversation::strategy::AgentExecutionStrategy;
-use crate::commands::conversation::types::{CliStreamEvent, ExecutionRequest, McpServerConfig};
+use crate::commands::conversation::types::{CliStreamEvent, ExecutionRequest};
 use crate::commands::plan_split::{record_plan_split_event, SplitStreamRecord};
 
 /// Claude CLI 策略
@@ -77,81 +77,8 @@ impl StdoutReadOutcome {
     }
 }
 
-/// 构建 MCP 配置 JSON
-fn build_mcp_config_json(servers: &[McpServerConfig]) -> String {
-    let mut mcp_servers = serde_json::Map::new();
-
-    for server in servers {
-        let server_name = &server.name;
-        let mut server_config = serde_json::json!({});
-
-        match server.transport_type.as_str() {
-            "stdio" => {
-                let mut args_list = Vec::new();
-                if let Some(args_str) = &server.args {
-                    // 优先尝试 JSON 数组解析
-                    if let Ok(arr) = serde_json::from_str::<Vec<String>>(args_str) {
-                        args_list = arr;
-                    } else {
-                        // 回退到换行符分割（兼容旧格式）
-                        args_list.extend(args_str.lines().filter(|l| !l.is_empty()).map(|s| s.to_string()));
-                    }
-                }
-
-                let mut env_map = serde_json::Map::new();
-                if let Some(env_str) = &server.env {
-                    if let Ok(env_obj) = serde_json::from_str::<serde_json::Value>(env_str) {
-                        if let Some(obj) = env_obj.as_object() {
-                            for (k, v) in obj {
-                                env_map.insert(k.clone(), v.clone());
-                            }
-                        }
-                    }
-                }
-
-                server_config = serde_json::json!({
-                    "command": server.command.clone().unwrap_or_default(),
-                    "args": args_list,
-                    "env": env_map
-                });
-            }
-            "http" | "sse" => {
-                let mut headers_map = serde_json::Map::new();
-                if let Some(headers_str) = &server.headers {
-                    if let Ok(headers_obj) = serde_json::from_str::<serde_json::Value>(headers_str)
-                    {
-                        if let Some(obj) = headers_obj.as_object() {
-                            for (k, v) in obj {
-                                headers_map.insert(k.clone(), v.clone());
-                            }
-                        }
-                    }
-                }
-
-                server_config = serde_json::json!({
-                    "url": server.url.clone().unwrap_or_default(),
-                    "headers": headers_map
-                });
-            }
-            _ => {}
-        }
-
-        mcp_servers.insert(server_name.clone(), server_config);
-    }
-
-    let mcp_config = serde_json::json!({
-        "mcpServers": mcp_servers
-    });
-
-    serde_json::to_string(&mcp_config).unwrap_or_else(|_| "{}".to_string())
-}
-
 #[async_trait]
 impl AgentExecutionStrategy for ClaudeCliStrategy {
-    fn name(&self) -> &str {
-        "Claude CLI"
-    }
-
     fn supports(&self, agent_type: &str, provider: &str) -> bool {
         agent_type == "cli" && provider == "claude"
     }
@@ -184,7 +111,6 @@ impl AgentExecutionStrategy for ClaudeCliStrategy {
         let json_schema = request.json_schema.clone();
         let extra_cli_args = request.extra_cli_args.clone();
         let messages = request.messages.clone();
-        let mcp_servers = request.mcp_servers.clone();
         let is_stream_json = cli_output_format == "stream-json";
         let schema_text = json_schema
             .as_deref()
@@ -927,7 +853,6 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
             }
         }
         "message_delta" => {
-            let delta = json.get("delta")?;
             let usage = json.get("usage");
 
             let input_tokens = usage

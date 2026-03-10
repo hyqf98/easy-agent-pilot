@@ -1,35 +1,25 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Message } from '@/stores/message'
 import { conversationService } from '@/services/conversation'
-import { EaIcon } from '@/components/common'
-import MarkdownRenderer from './MarkdownRenderer.vue'
+import StructuredContentRenderer from './StructuredContentRenderer.vue'
 import ToolCallDisplay from './ToolCallDisplay.vue'
 import ThinkingDisplay from './ThinkingDisplay.vue'
 import CompressionMessageBubble from './CompressionMessageBubble.vue'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const props = defineProps<{ message: Message; sessionId?: string }>()
-const emit = defineEmits<{ retry: [message: Message] }>()
+const emit = defineEmits<{
+  retry: [message: Message]
+  formSubmit: [formId: string, values: Record<string, unknown>]
+}>()
 
 const isUser = computed(() => props.message.role === 'user')
 const isAssistant = computed(() => props.message.role === 'assistant')
 const isCompression = computed(() => props.message.role === 'compression')
 const isStreaming = computed(() => props.message.status === 'streaming')
-const isInterrupted = computed(() => props.message.status === 'interrupted')
 const isError = computed(() => props.message.status === 'error')
-
-// 调试：监听 toolCalls 变化
-watch(() => props.message.toolCalls, (newToolCalls) => {
-  if (newToolCalls && newToolCalls.length > 0) {
-    console.log('[MessageBubble] toolCalls 变化:', {
-      messageId: props.message.id,
-      toolCallsCount: newToolCalls.length,
-      toolCalls: newToolCalls
-    })
-  }
-}, { deep: true })
 
 // 停止流式输出
 const handleStop = () => {
@@ -38,10 +28,10 @@ const handleStop = () => {
   }
 }
 
-// 格式化时间戳为 HH:MM 格式
+// 格式化时间戳为 HH:MM 格式，并跟随当前界面语言
 const formattedTime = computed(() => {
   const date = new Date(props.message.createdAt)
-  return date.toLocaleTimeString('zh-CN', {
+  return date.toLocaleTimeString(locale.value, {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false
@@ -109,11 +99,11 @@ const statusInfo = computed(() => {
 
   switch (props.message.status) {
     case 'pending':
-      return { text: '发送中', icon: 'loading', class: 'status--pending' }
+      return { text: t('message.status.userPending'), icon: 'loading', class: 'status--pending' }
     case 'error':
-      return { text: '发送失败', icon: 'error', class: 'status--error' }
+      return { text: t('message.status.userError'), icon: 'error', class: 'status--error' }
     case 'completed':
-      return { text: '已发送', icon: 'check', class: 'status--completed' }
+      return { text: t('message.status.userCompleted'), icon: 'check', class: 'status--completed' }
     default:
       return null
   }
@@ -125,13 +115,13 @@ const assistantStatusInfo = computed(() => {
 
   switch (props.message.status) {
     case 'streaming':
-      return { text: '生成中', icon: 'loading', class: 'status--streaming' }
+      return { text: t('message.status.assistantStreaming'), icon: 'loading', class: 'status--streaming' }
     case 'interrupted':
       return { text: t('message.status.interrupted'), icon: 'square', class: 'status--interrupted' }
     case 'error':
-      return { text: '生成失败', icon: 'error', class: 'status--error' }
+      return { text: t('message.status.assistantError'), icon: 'error', class: 'status--error' }
     case 'completed':
-      return { text: '已完成', icon: 'check', class: 'status--completed' }
+      return { text: t('message.status.assistantCompleted'), icon: 'check', class: 'status--completed' }
     default:
       return null
   }
@@ -143,6 +133,10 @@ const errorMessage = computed(() => props.message.errorMessage || t('message.fai
 // 处理重试
 const handleRetry = () => {
   emit('retry', props.message)
+}
+
+const handleFormSubmit = (formId: string, values: Record<string, unknown>) => {
+  emit('formSubmit', formId, values)
 }
 </script>
 
@@ -177,9 +171,11 @@ const handleRetry = () => {
       </Transition>
 
       <div class="message-bubble__content">
-        <MarkdownRenderer
+        <StructuredContentRenderer
           v-if="!isUser"
           :content="message.content"
+          :interactive-forms="isAssistant"
+          @form-submit="handleFormSubmit"
         />
         <div
           v-else
@@ -286,6 +282,7 @@ const handleRetry = () => {
         <button
           v-if="isAssistant && !isStreaming && (isError || message.content)"
           class="message-bubble__retry"
+          :title="t('message.retry')"
           @click="handleRetry"
         >
           {{ t('message.retry') }}

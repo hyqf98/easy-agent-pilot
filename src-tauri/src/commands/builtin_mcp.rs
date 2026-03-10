@@ -3,13 +3,12 @@
 //! 提供无需外部依赖的 MCP 测试工具，用于在没有 Node.js/Python 的环境中测试 MCP 功能。
 
 use anyhow::Result;
-use rmcp::model::{CallToolResult, Content};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::env;
 use sysinfo::System;
 
-use super::mcp::{McpTool, McpToolsListResult};
+use super::mcp::McpTool;
 
 /// 内置服务器 ID
 pub const BUILTIN_SERVER_ID: &str = "__builtin__";
@@ -36,14 +35,6 @@ pub struct AddInput {
     /// 第二个数字
     pub b: i64,
 }
-
-/// GetTimestamp 工具输入参数（无参数）
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetTimestampInput {}
-
-/// GetSystemInfo 工具输入参数（无参数）
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetSystemInfoInput {}
 
 // ============================================================================
 // 工具列表和调用函数
@@ -161,35 +152,6 @@ pub async fn call_builtin_tool(tool_name: &str, params: Value) -> Result<Value, 
         }
         _ => Err(format!("Unknown builtin tool: {}", tool_name)),
     }
-}
-
-/// 获取内置服务器信息（用于 list_mcp_servers）
-pub fn get_builtin_server_info() -> McpToolsListResult {
-    let tools = get_builtin_tools();
-    McpToolsListResult {
-        success: true,
-        message: format!("成功获取 {} 个内置工具", tools.len()),
-        tools,
-    }
-}
-
-/// 将内部结果转换为 MCP CallToolResult 格式
-pub fn convert_to_call_tool_result(result: Value) -> CallToolResult {
-    CallToolResult::success(vec![Content::text(
-        serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string()),
-    )])
-}
-
-/// 获取内置服务器配置（用于在服务器列表中显示）
-pub fn get_builtin_server_config() -> Value {
-    json!({
-        "id": BUILTIN_SERVER_ID,
-        "name": BUILTIN_SERVER_NAME,
-        "server_type": "builtin",
-        "description": "内置 MCP 服务器，无需安装任何依赖",
-        "enabled": true,
-        "tool_count": get_builtin_tools().len() as i32,
-    })
 }
 
 #[cfg(test)]

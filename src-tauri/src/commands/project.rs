@@ -1,8 +1,9 @@
 use anyhow::Result;
-use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+
+use super::support::{now_rfc3339, open_db_connection, open_db_connection_with_foreign_keys};
 
 /// 文件操作结果
 #[derive(Debug, Serialize)]
@@ -72,17 +73,10 @@ pub struct CreateProjectInput {
     pub description: Option<String>,
 }
 
-/// 获取数据库路径
-fn get_db_path() -> Result<std::path::PathBuf> {
-    let persistence_dir = super::get_persistence_dir_path()?;
-    Ok(persistence_dir.join("data").join("easy-agent.db"))
-}
-
 /// 获取所有项目
 #[tauri::command]
 pub fn list_projects() -> Result<Vec<Project>, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
     let mut stmt = conn
         .prepare(
@@ -122,8 +116,7 @@ pub fn list_projects() -> Result<Vec<Project>, String> {
 /// 创建新项目
 #[tauri::command]
 pub fn create_project(input: CreateProjectInput) -> Result<Project, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
     // 解析并创建项目目录
     let resolved_path = resolve_path(&input.path)?;
@@ -136,7 +129,7 @@ pub fn create_project(input: CreateProjectInput) -> Result<Project, String> {
     }
 
     let id = uuid::Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = now_rfc3339();
 
     conn.execute(
         "INSERT INTO projects (id, name, path, description, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -165,10 +158,9 @@ pub fn create_project(input: CreateProjectInput) -> Result<Project, String> {
 /// 更新项目
 #[tauri::command]
 pub fn update_project(id: String, input: CreateProjectInput) -> Result<Project, String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
 
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = now_rfc3339();
 
     conn.execute(
         "UPDATE projects SET name = ?1, path = ?2, description = ?3, updated_at = ?4 WHERE id = ?5",
@@ -190,12 +182,7 @@ pub fn update_project(id: String, input: CreateProjectInput) -> Result<Project, 
 /// 删除项目（级联删除关联的会话和消息）
 #[tauri::command]
 pub fn delete_project(id: String) -> Result<(), String> {
-    let db_path = get_db_path().map_err(|e| e.to_string())?;
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
-
-    // 启用外键约束以触发级联删除
-    conn.execute("PRAGMA foreign_keys = ON", [])
-        .map_err(|e| e.to_string())?;
+    let conn = open_db_connection_with_foreign_keys().map_err(|e| e.to_string())?;
 
     conn.execute("DELETE FROM projects WHERE id = ?1", [&id])
         .map_err(|e| e.to_string())?;

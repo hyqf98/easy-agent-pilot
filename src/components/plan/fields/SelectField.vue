@@ -175,7 +175,7 @@ const selectDisplayValue = computed(() => {
   padding: 0.42rem 0.65rem;
   border: 1px solid color-mix(in srgb, var(--form-accent, #4f46e5) 22%, #ccd7e5);
   border-radius: 0.6rem;
-  background-color: #fff;
+  background-color: var(--color-surface, #ffffff);
   color: var(--color-text-primary, #0f172a);
   font-size: 0.82rem;
   transition: border-color 0.15s, box-shadow 0.15s;

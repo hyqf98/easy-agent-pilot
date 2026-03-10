@@ -105,7 +105,7 @@ onUnmounted(() => {
       <EaToast />
       <EaLoadingOverlay />
       <EaConfirmDialog
-        v-model:visible="confirmDialog.state.value.visible"
+        :visible="confirmDialog.state.value.visible"
         :type="confirmDialog.state.value.type"
         :title="confirmDialog.state.value.title"
         :message="confirmDialog.state.value.message"

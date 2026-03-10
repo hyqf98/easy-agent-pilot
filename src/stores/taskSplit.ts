@@ -122,7 +122,9 @@ function buildExecutionRequest(
     systemPrompt: llmMessages.find(message => message.role === 'system')?.content,
     maxTokens: agent.type === 'sdk' ? 4096 : undefined,
     cliOutputFormat: agent.type === 'cli' ? 'stream-json' : undefined,
-    jsonSchema: agent.type === 'cli' ? buildPlanSplitJsonSchema(context.granularity) : undefined,
+    jsonSchema: agent.type === 'cli'
+      ? buildPlanSplitJsonSchema(context.granularity, provider.toLowerCase() === 'codex' ? 'codex' : 'claude')
+      : undefined,
     executionMode: 'task_split',
     responseMode: 'stream_text'
   }

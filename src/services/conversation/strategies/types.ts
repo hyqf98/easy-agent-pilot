@@ -214,9 +214,9 @@ export interface MessageInput {
 }
 
 /**
- * CLI 流式事件（后端返回）
+ * 后端流式事件（CLI/SDK 共用）
  */
-export interface CliStreamEvent {
+export interface BackendStreamEvent {
   /** 事件类型 */
   type: 'content' | 'tool_use' | 'tool_input_delta' | 'tool_result' | 'error' | 'done' | 'thinking' | 'thinking_start'
   /** 会话 ID */
@@ -241,30 +241,5 @@ export interface CliStreamEvent {
   model?: string
 }
 
-/**
- * SDK 流式事件（后端返回）
- */
-export interface SdkStreamEvent {
-  /** 事件类型 */
-  type: 'content' | 'tool_use' | 'tool_result' | 'error' | 'done' | 'thinking'
-  /** 会话 ID */
-  sessionId: string
-  /** 内容 */
-  content?: string
-  /** 工具名称 */
-  toolName?: string
-  /** 工具调用 ID */
-  toolCallId?: string
-  /** 工具输入 */
-  toolInput?: string
-  /** 工具结果 */
-  toolResult?: string
-  /** 错误信息 */
-  error?: string
-  /** 输入 token 数量 */
-  inputTokens?: number
-  /** 输出 token 数量 */
-  outputTokens?: number
-  /** 模型名称 */
-  model?: string
-}
+export type CliStreamEvent = BackendStreamEvent
+export type SdkStreamEvent = BackendStreamEvent

@@ -13,7 +13,7 @@ import type {
 } from '@/types/taskExecution'
 import type { ToolCall } from '@/stores/message'
 import type { StreamEvent, McpServerConfig } from '@/services/conversation/strategies/types'
-import type { Task, DynamicFormSchema, AIFormRequest } from '@/types/plan'
+import type { Task, AIFormRequest } from '@/types/plan'
 import { useTaskStore } from '@/stores/task'
 import { usePlanStore } from '@/stores/plan'
 import { useProjectStore } from '@/stores/project'
@@ -21,6 +21,8 @@ import { useAgentStore } from '@/stores/agent'
 import { agentExecutor } from '@/services/conversation/AgentExecutor'
 import type { ConversationContext } from '@/services/conversation/strategies/types'
 import { invoke } from '@tauri-apps/api/core'
+import { extractFirstFormRequest } from '@/utils/structuredContent'
+import { buildExecutionPrompt, parseExecutionResult } from '@/utils/taskExecutionText'
 
 /**
  * 任务执行状态管理 Store
@@ -164,10 +166,117 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
     return state
   }
 
+  function getPlanTasks(planId: string): Task[] {
+    const taskStore = useTaskStore()
+    return taskStore.tasks.filter(task => task.planId === planId)
+  }
+
+  async function markTaskInProgress(taskId: string): Promise<void> {
+    const taskStore = useTaskStore()
+    const task = taskStore.tasks.find(item => item.id === taskId)
+    if (!task || task.status === 'in_progress') return
+
+    await taskStore.updateTask(taskId, {
+      status: 'in_progress',
+      errorMessage: undefined,
+      blockReason: undefined
+    })
+  }
+
+  async function syncPlanRuntimeState(planId: string): Promise<void> {
+    const planStore = usePlanStore()
+    const plan = planStore.plans.find(item => item.id === planId)
+    if (!plan) return
+
+    const tasksInPlan = getPlanTasks(planId)
+    const queue = executionQueues.value.get(planId)
+    const currentTaskId = queue?.currentTaskId ?? null
+    const hasQueued = (queue?.pendingTaskIds.length ?? 0) > 0
+    const hasBlocked = tasksInPlan.some(task => task.status === 'blocked')
+    const hasPending = tasksInPlan.some(task => task.status === 'pending')
+    const hasInProgress = tasksInPlan.some(task => task.status === 'in_progress')
+    const allTerminal = tasksInPlan.length > 0 && tasksInPlan.every(task =>
+      ['completed', 'failed', 'cancelled'].includes(task.status)
+    )
+
+    if (allTerminal) {
+      if (
+        plan.status !== 'completed'
+        || plan.executionStatus !== 'completed'
+        || Boolean(plan.currentTaskId)
+      ) {
+        await planStore.updatePlan(planId, {
+          status: 'completed',
+          executionStatus: 'completed',
+          currentTaskId: undefined
+        })
+      }
+      return
+    }
+
+    if (currentTaskId || hasQueued || hasInProgress) {
+      if (
+        plan.status !== 'executing'
+        || plan.executionStatus !== 'running'
+        || plan.currentTaskId !== currentTaskId
+      ) {
+        await planStore.updatePlan(planId, {
+          status: 'executing',
+          executionStatus: 'running',
+          currentTaskId: currentTaskId ?? undefined
+        })
+      }
+      return
+    }
+
+    if (
+      hasBlocked
+      || hasPending
+      || plan.executionStatus === 'running'
+      || Boolean(plan.currentTaskId)
+    ) {
+      await planStore.updatePlan(planId, {
+        status: 'executing',
+        executionStatus: 'paused',
+        currentTaskId: undefined
+      })
+    }
+  }
+
+  async function seedReadyPendingTasks(planId: string): Promise<void> {
+    const taskStore = useTaskStore()
+    let queue = executionQueues.value.get(planId)
+    if (!queue) {
+      queue = {
+        planId,
+        currentTaskId: null,
+        pendingTaskIds: []
+      }
+      executionQueues.value.set(planId, queue)
+    }
+
+    const readyTasks = taskStore.getReadyTasks(planId)
+
+    for (const task of readyTasks) {
+      const state = executionStates.value.get(task.id)
+      const alreadyTracked = queue.currentTaskId === task.id
+        || queue.pendingTaskIds.includes(task.id)
+        || state?.status === 'running'
+        || state?.status === 'queued'
+      if (alreadyTracked) continue
+
+      await markTaskInProgress(task.id)
+      initExecutionState(task.id).status = 'queued'
+      queue.pendingTaskIds.push(task.id)
+    }
+  }
+
   /**
    * 将任务加入执行队列
    */
   async function enqueueTask(planId: string, taskId: string): Promise<void> {
+    await markTaskInProgress(taskId)
+
     // 确保队列存在
     let queue = executionQueues.value.get(planId)
     if (!queue) {
@@ -188,11 +297,13 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
         queue.pendingTaskIds.push(taskId)
         state.status = 'queued'
       }
+      await syncPlanRuntimeState(planId)
       return
     }
 
     // 开始执行
     queue.currentTaskId = taskId
+    await syncPlanRuntimeState(planId)
     await executeTask(planId, taskId)
   }
 
@@ -250,6 +361,9 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
       type: 'system',
       content: `开始执行任务: ${task.title}${task.retryCount > 0 ? ` (重试第 ${task.retryCount} 次)` : ''}`
     })
+    await syncPlanRuntimeState(planId)
+
+    let skipQueueAdvance = false
 
     try {
       // 获取智能体配置
@@ -388,8 +502,9 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
           })
 
           // 重新加入队列执行（延迟一小段时间）
-          state.status = 'idle'
+          state.status = 'queued'
           state.completedAt = new Date().toISOString()
+          skipQueueAdvance = true
 
           // 使用 setTimeout 延迟重试，避免立即重试
           setTimeout(() => {
@@ -438,7 +553,9 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
       // 确保所有缓冲的日志都被持久化
       await flushPendingLogs(taskId)
       // 处理队列中下一个任务
-      await processNextInQueue(planId)
+      if (!skipQueueAdvance) {
+        await processNextInQueue(planId)
+      }
     }
   }
 
@@ -806,6 +923,8 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
       type: 'system',
       content: '用户跳过了此任务'
     })
+
+    await syncPlanRuntimeState(task.planId)
   }
 
   /**
@@ -814,13 +933,19 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
   async function blockTaskForInput(taskId: string, request: AIFormRequest): Promise<void> {
     const taskStore = useTaskStore()
     const state = executionStates.value.get(taskId)
+    const task = taskStore.tasks.find(item => item.id === taskId)
+    const formSchema = request.formSchema ?? request.forms?.[0]
+
+    if (!formSchema) {
+      throw new Error('AI 表单请求缺少表单结构')
+    }
 
     // 更新任务状态
     await taskStore.updateTask(taskId, {
       status: 'blocked',
       blockReason: 'waiting_input',
       inputRequest: {
-        formSchema: request.formSchema,
+        formSchema,
         question: request.question,
         requestedAt: new Date().toISOString()
       }
@@ -836,8 +961,12 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
     await addExecutionLog({
       taskId,
       type: 'system',
-      content: `任务等待用户输入: ${request.question || request.formSchema.title}`
+      content: `任务等待用户输入: ${request.question || formSchema.title}`
     })
+
+    if (task) {
+      await syncPlanRuntimeState(task.planId)
+    }
   }
 
   /**
@@ -849,6 +978,9 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
 
     // 清除当前任务
     queue.currentTaskId = null
+
+    // 自动补充依赖已满足的待办任务
+    await seedReadyPendingTasks(planId)
 
     // 查找下一个可执行任务
     const nextTaskId = await findNextExecutableTask(planId, queue.pendingTaskIds)
@@ -870,14 +1002,17 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
 
       // 执行下一个任务
       await executeTask(planId, nextTaskId)
+      return
     }
+
+    await syncPlanRuntimeState(planId)
   }
 
   /**
    * 查找下一个可执行任务
    * 跳过阻塞任务，检查依赖关系
    */
-  async function findNextExecutableTask(planId: string, candidates: string[]): Promise<string | null> {
+  async function findNextExecutableTask(_planId: string, candidates: string[]): Promise<string | null> {
     const taskStore = useTaskStore()
 
     for (const taskId of candidates) {
@@ -957,6 +1092,8 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
           }
         }
       }
+
+      await syncPlanRuntimeState(task.planId)
     }
   }
 
@@ -1005,6 +1142,21 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
           }
         })()
       }))
+
+      const task = useTaskStore().tasks.find(item => item.id === taskId)
+      if (task?.status === 'blocked' && task.blockReason === 'waiting_input') {
+        state.status = 'waiting_input'
+      } else if (task?.status === 'in_progress') {
+        state.status = 'running'
+      } else if (task?.status === 'completed') {
+        state.status = 'completed'
+      } else if (task?.status === 'failed') {
+        state.status = 'failed'
+      } else if (task?.status === 'cancelled') {
+        state.status = 'stopped'
+      } else if (task?.status === 'pending' && state.status !== 'queued') {
+        state.status = 'idle'
+      }
 
     } catch (error) {
       console.warn('[TaskExecution] Failed to load logs:', error)
@@ -1088,203 +1240,9 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
   }
 })
 
-function parseExecutionResult(content: string): { summary: string; files: string[] } {
-  const trimmed = content.trim()
-  if (!trimmed) {
-    return {
-      summary: '任务已执行完成（无详细输出）',
-      files: []
-    }
-  }
-
-  const jsonBlocks = Array.from(trimmed.matchAll(/```json\s*([\s\S]*?)```/g))
-  for (let index = jsonBlocks.length - 1; index >= 0; index -= 1) {
-    const rawJson = jsonBlocks[index][1]
-    try {
-      const parsed = JSON.parse(rawJson) as {
-        result_summary?: string
-        generated_files?: unknown
-        modified_files?: unknown
-        changed_files?: unknown
-      }
-      const summary = (parsed.result_summary || '').trim()
-      const generatedFiles = normalizeStringArray(parsed.generated_files).map(file => `added:${file}`)
-      const modifiedFiles = normalizeStringArray(parsed.modified_files).map(file => `modified:${file}`)
-      const changedFiles = normalizeStringArray(parsed.changed_files).map(file => `changed:${file}`)
-      const files = uniqueStrings([...generatedFiles, ...modifiedFiles, ...changedFiles])
-
-      if (summary || files.length > 0) {
-        return {
-          summary: summary || fallbackSummary(trimmed),
-          files
-        }
-      }
-    } catch {
-      // ignore invalid JSON block and continue fallback parsing
-    }
-  }
-
-  return {
-    summary: fallbackSummary(trimmed),
-    files: uniqueStrings(extractFileLinks(trimmed).map(file => `changed:${file}`))
-  }
-}
-
-function normalizeStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-  return value
-    .filter(item => typeof item === 'string')
-    .map(item => item.trim())
-    .filter(Boolean)
-}
-
-function fallbackSummary(content: string): string {
-  const normalized = content.replace(/\s+/g, ' ').trim()
-  if (normalized.length <= 280) {
-    return normalized
-  }
-  return `${normalized.slice(0, 280)}...`
-}
-
-function extractFileLinks(content: string): string[] {
-  const files: string[] = []
-
-  // markdown 链接: [label](path)
-  const markdownLinks = content.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)
-  for (const match of markdownLinks) {
-    if (match[1]) {
-      files.push(match[1].trim())
-    }
-  }
-
-  // 代码内路径: `src/foo.ts`
-  const inlineCodePaths = content.matchAll(/`([^`\n]+(?:\/|\\)[^`\n]+)`/g)
-  for (const match of inlineCodePaths) {
-    if (match[1]) {
-      files.push(match[1].trim())
-    }
-  }
-
-  return files
-}
-
-function uniqueStrings(values: string[]): string[] {
-  return Array.from(new Set(values.filter(Boolean)))
-}
-
-function buildRecentResultsContext(results: TaskExecutionResultRecord[]): string {
-  if (results.length === 0) return ''
-
-  const lines: string[] = []
-  lines.push('## 历史任务（参考）')
-  lines.push('')
-
-  results.forEach((result, index) => {
-    const status = result.result_status === 'success' ? '✓' : '✗'
-    lines.push(`${index + 1}. [${status}] ${result.task_title_snapshot}`)
-    if (result.result_summary) {
-      lines.push(`   摘要: ${fallbackSummary(result.result_summary)}`)
-    }
-    if (result.fail_reason) {
-      lines.push(`   失败: ${result.fail_reason}`)
-    }
-  })
-
-  return lines.join('\n')
-}
-
-/**
- * 构建任务执行提示
- */
-function buildExecutionPrompt(task: Task, recentResults: TaskExecutionResultRecord[] = []): string {
-  const parts: string[] = []
-
-  parts.push(`# 任务执行`)
-  parts.push('')
-  const recentContext = buildRecentResultsContext(recentResults)
-  if (recentContext) {
-    parts.push(recentContext)
-    parts.push('')
-  }
-  parts.push(`## 任务标题`)
-  parts.push(task.title)
-  parts.push('')
-
-  if (task.description) {
-    parts.push(`## 任务描述`)
-    parts.push(task.description)
-    parts.push('')
-  }
-
-  if (task.implementationSteps && task.implementationSteps.length > 0) {
-    parts.push(`## 实现步骤`)
-    task.implementationSteps.forEach((step, index) => {
-      parts.push(`${index + 1}. ${step}`)
-    })
-    parts.push('')
-  }
-
-  if (task.testSteps && task.testSteps.length > 0) {
-    parts.push(`## 测试步骤`)
-    task.testSteps.forEach((step, index) => {
-      parts.push(`${index + 1}. ${step}`)
-    })
-    parts.push('')
-  }
-
-  if (task.acceptanceCriteria && task.acceptanceCriteria.length > 0) {
-    parts.push(`## 验收标准`)
-    task.acceptanceCriteria.forEach((criteria) => {
-      parts.push(`- [ ] ${criteria}`)
-    })
-    parts.push('')
-  }
-
-  // 添加用户之前提交的输入（如果有）
-  if (task.inputResponse && Object.keys(task.inputResponse).length > 0) {
-    parts.push(`## 用户输入`)
-    parts.push(`用户已提供以下信息：`)
-    Object.entries(task.inputResponse).forEach(([key, value]) => {
-      parts.push(`- ${key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`)
-    })
-    parts.push('')
-  }
-
-  parts.push(`---`)
-  parts.push('')
-  parts.push(`请按照以上要求执行任务。`)
-  parts.push('')
-  parts.push(`**如需用户输入**，输出 JSON：`)
-  parts.push('```json')
-  parts.push('{"type":"form_request","question":"问题描述","formSchema":{"formId":"id","title":"标题","fields":[{"name":"字段","label":"标签","type":"text"}]}}')
-  parts.push('```')
-  parts.push('')
-  parts.push(`**任务完成时**，输出 JSON：`)
-  parts.push('```json')
-  parts.push('{"result_summary":"完成摘要","generated_files":[],"modified_files":[]}')
-  parts.push('```')
-
-  return parts.join('\n')
-}
-
 /**
  * 解析 AI 输出中的表单请求
  */
 function parseFormRequest(content: string): AIFormRequest | null {
-  const jsonMatch = content.match(/```json\s*([\s\S]*?)```/)
-  if (!jsonMatch) return null
-
-  try {
-    const parsed = JSON.parse(jsonMatch[1])
-    if (parsed.type === 'form_request' && parsed.formSchema) {
-      return {
-        type: 'form_request',
-        question: parsed.question || '需要您的输入',
-        formSchema: parsed.formSchema as DynamicFormSchema
-      }
-    }
-  } catch {
-    // 解析失败，不是有效的 JSON
-  }
-  return null
+  return extractFirstFormRequest(content)
 }

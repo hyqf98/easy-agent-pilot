@@ -291,14 +291,14 @@ onMounted(() => {
 }
 
 .btn-secondary {
-  background-color: #ffffff;
+  background-color: var(--color-surface, #ffffff);
   color: var(--color-text-primary, #1e293b);
   border: 1px solid color-mix(in srgb, var(--form-accent) 20%, #cfd8e3);
 }
 
 .btn-secondary:hover {
   border-color: color-mix(in srgb, var(--form-accent) 40%, #b6c4d5);
-  background-color: color-mix(in srgb, var(--form-accent) 4%, #ffffff);
+  background-color: color-mix(in srgb, var(--form-accent) 4%, var(--color-surface, #ffffff));
 }
 
 .dynamic-form :deep(.form-field) {
@@ -362,7 +362,7 @@ onMounted(() => {
   box-shadow:
     0 0 0 3px color-mix(in srgb, var(--form-accent) 16%, transparent),
     0 5px 12px rgba(79, 70, 229, 0.1);
-  background-color: #ffffff;
+  background-color: var(--color-surface, #ffffff);
 }
 
 .dynamic-form :deep(.input.has-error),
@@ -385,7 +385,7 @@ onMounted(() => {
   padding: 0.32rem 0.6rem;
   border: 1px solid color-mix(in srgb, var(--form-accent) 24%, #cdd7e5);
   border-radius: 999px;
-  background: linear-gradient(180deg, #ffffff, #f8fbff);
+  background: linear-gradient(180deg, var(--color-surface, #ffffff), var(--color-bg-secondary, #f8fbff));
   color: var(--color-text-secondary, #475569);
   transition: all 0.14s ease;
 }
@@ -396,7 +396,7 @@ onMounted(() => {
   height: 0.6rem;
   border-radius: 50%;
   border: 1.5px solid color-mix(in srgb, var(--form-accent) 40%, #64748b);
-  background: #fff;
+  background: var(--color-surface, #ffffff);
   transition: inherit;
 }
 

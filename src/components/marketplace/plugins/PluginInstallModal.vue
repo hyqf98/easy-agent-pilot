@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAgentStore } from '@/stores/agent'
+import { useProjectStore } from '@/stores/project'
 import { useMarketplaceStore, type PluginInstallInput } from '@/stores/marketplace'
 import { EaIcon, EaButton, EaModal, EaSelect } from '@/components/common'
 import type { PluginMarketItem } from '@/types/marketplace'
@@ -19,6 +20,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const agentStore = useAgentStore()
+const projectStore = useProjectStore()
 const marketplaceStore = useMarketplaceStore()
 
 const selectedAgentId = ref<string>('')
@@ -36,6 +38,8 @@ const cliAgents = computed(() => {
 const selectedAgent = computed(() => {
   return cliAgents.value.find(a => a.id === selectedAgentId.value)
 })
+
+const currentProjectPath = computed(() => projectStore.currentProject?.path ?? null)
 
 const canInstall = computed(() => {
   return selectedAgentId.value && selectedComponents.value.length > 0 && !isInstalling.value
@@ -64,7 +68,7 @@ async function handleInstall() {
       plugin_version: props.pluginItem.version,
       cli_path: selectedAgent.value.cliPath || 'claude',
       scope: scope.value,
-      project_path: scope.value === 'project' ? selectedAgent.value.projectPath : null,
+      project_path: scope.value === 'project' ? currentProjectPath.value : null,
       selected_components: selectedComponents.value,
       config_values: { ...configValues.value }
     }

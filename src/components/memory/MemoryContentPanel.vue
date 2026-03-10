@@ -188,8 +188,8 @@ async function handleRefresh() {
               v-for="memory in memories"
               :key="memory.id"
               :memory="memory"
-              @toggle-select="handleToggleSelect"
-              @click="handleMemoryClick(memory)"
+              @toggle-select="() => handleToggleSelect(memory.id)"
+              @click="() => handleMemoryClick(memory)"
             />
           </div>
         </div>

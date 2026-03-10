@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { ToolCall } from '@/stores/message'
 
 const props = defineProps<{ toolCall: ToolCall }>()
+const { t } = useI18n()
 
 // 折叠状态 - 默认展开工具调用，收起结果
 const isExpanded = ref(true)
@@ -94,7 +96,7 @@ const resultPreview = computed(() => {
       </div>
       <div class="tool-call__header-right">
         <span class="tool-call__toggle">
-          {{ isExpanded ? '收起' : '展开' }}
+          {{ isExpanded ? t('message.collapse') : t('message.expand') }}
         </span>
         <span
           class="tool-call__chevron"
@@ -112,7 +114,7 @@ const resultPreview = computed(() => {
       <div class="tool-call__section">
         <div class="tool-call__section-title">
           <span>📥</span>
-          <span>参数</span>
+          <span>{{ t('message.parameters') }}</span>
         </div>
         <pre class="tool-call__code">{{ formattedArguments }}</pre>
       </div>
@@ -128,10 +130,10 @@ const resultPreview = computed(() => {
         >
           <div class="tool-call__section-title">
             <span>📤</span>
-            <span>结果</span>
+            <span>{{ t('message.result') }}</span>
           </div>
           <div class="tool-call__section-toggle">
-            <span>{{ isResultExpanded ? '收起' : '展开' }}</span>
+            <span>{{ isResultExpanded ? t('message.collapse') : t('message.expand') }}</span>
             <span
               class="tool-call__chevron"
               :class="{ 'tool-call__chevron--expanded': isResultExpanded }"
@@ -159,7 +161,7 @@ const resultPreview = computed(() => {
       >
         <div class="tool-call__section-title">
           <span>⚠️</span>
-          <span>错误</span>
+          <span>{{ t('message.error') }}</span>
         </div>
         <div class="tool-call__error">
           {{ toolCall.errorMessage }}

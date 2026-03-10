@@ -126,6 +126,16 @@ function handleMouseLeave() {
   color: var(--color-primary);
 }
 
+[data-theme='dark'] .settings-nav__item--active {
+  background-color: var(--color-active-bg);
+  color: var(--color-active-text);
+}
+
+[data-theme='dark'] .settings-nav__item--active:hover {
+  background-color: var(--color-active-bg-hover);
+  color: var(--color-active-text);
+}
+
 .settings-nav__label {
   flex: 1;
   white-space: nowrap;

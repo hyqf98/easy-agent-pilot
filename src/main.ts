@@ -16,13 +16,6 @@ const app = createApp(App)
 // 使用 Pinia 状态管理
 app.use(pinia)
 
-// Pinia HMR 支持 - 确保热更新时 store 状态正确保留
-if (import.meta.hot) {
-  import.meta.hot.accept(() => {
-    // HMR 时不需要额外操作，Pinia 会自动处理
-  })
-}
-
 // 使用 Vue Router
 app.use(router)
 

@@ -10,6 +10,7 @@ import ExecutionTimeline from '@/components/message/ExecutionTimeline.vue'
 import type { AITaskItem, TaskResplitConfig } from '@/types/plan'
 import type { TimelineEntry } from '@/types/timeline'
 import { buildToolCallFromLogs, extractDynamicFormSchema } from '@/utils/toolCallLog'
+import { containsFormSchema } from '@/utils/structuredContent'
 
 const planStore = usePlanStore()
 const taskSplitStore = useTaskSplitStore()
@@ -102,7 +103,12 @@ const timelineEntries = computed<TimelineEntry[]>(() => {
     new Date(left.timestamp || 0).getTime() - new Date(right.timestamp || 0).getTime()
   )
 
-  if (activeFormSchema.value && !showPreview.value) {
+  const activeFormAlreadyRendered = Boolean(
+    activeFormSchema.value
+    && taskSplitStore.messages.some(message => containsFormSchema(message.content, activeFormSchema.value?.formId))
+  )
+
+  if (activeFormSchema.value && !showPreview.value && !activeFormAlreadyRendered) {
     entries.push({
       id: `form-${activeFormSchema.value.formId}`,
       type: 'form',
@@ -317,6 +323,7 @@ watch(messageRenderState, async () => {
                   :entries="timelineEntries"
                   @form-submit="handleTimelineFormSubmit"
                   @form-cancel="closeDialog"
+                  @message-form-submit="(_formId, values) => handleTimelineFormSubmit('', values)"
                 />
 
                 <div
@@ -757,8 +764,8 @@ watch(messageRenderState, async () => {
 .split-log-panel__entry {
   padding: 0.7rem 0.8rem;
   border-radius: 0.75rem;
-  background: white;
-  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, rgba(148, 163, 184, 0.18));
 }
 
 .split-log-panel__entry-type {
@@ -796,13 +803,13 @@ watch(messageRenderState, async () => {
 }
 
 .btn-secondary {
-  background: #fff;
-  color: #334155;
-  border: 1px solid rgba(148, 163, 184, 0.42);
+  background: var(--color-surface, #ffffff);
+  color: var(--color-text-primary, #334155);
+  border: 1px solid var(--color-border, rgba(148, 163, 184, 0.42));
 }
 
 .btn-secondary:hover {
-  background: linear-gradient(180deg, #ffffff, #f5f9ff);
+  background: linear-gradient(180deg, var(--color-surface, #ffffff), var(--color-bg-secondary, #f5f9ff));
   border-color: rgba(99, 102, 241, 0.35);
 }
 

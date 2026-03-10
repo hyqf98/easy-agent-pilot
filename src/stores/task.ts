@@ -35,8 +35,8 @@ interface RustTask {
   test_steps?: string | string[] // JSON 字符串或数组
   acceptance_criteria?: string | string[] // JSON 字符串或数组
   block_reason?: string
-  input_request?: string // JSON 字符串
-  input_response?: string // JSON 字符串
+  input_request?: string | Record<string, unknown> // JSON 字符串或对象
+  input_response?: string | Record<string, unknown> // JSON 字符串或对象
   created_at: string
   updated_at: string
 }
@@ -68,8 +68,13 @@ function transformTask(rustTask: RustTask): Task {
   const acceptanceCriteria = parseStringArray(rustTask.acceptance_criteria)
 
   // 解析 input_request 和 input_response
-  const parseJsonValue = (value?: string | null): Record<string, unknown> | undefined => {
+  const parseJsonValue = (
+    value?: string | Record<string, unknown> | null
+  ): Record<string, unknown> | undefined => {
     if (!value) return undefined
+    if (typeof value === 'object') {
+      return value
+    }
     try {
       const parsed = JSON.parse(value)
       if (typeof parsed === 'object' && parsed !== null) return parsed
@@ -287,28 +292,28 @@ export const useTaskStore = defineStore('task', () => {
 
   async function updateTask(id: string, updates: UpdateTaskInput): Promise<Task> {
     const notificationStore = useNotificationStore()
-    const input = {
-      title: updates.title ?? null,
-      description: updates.description ?? null,
-      status: updates.status ?? null,
-      priority: updates.priority ?? null,
-      assignee: updates.assignee ?? null,
-      agent_id: updates.agentId ?? null,
-      model_id: updates.modelId ?? null,
-      session_id: updates.sessionId ?? null,
-      progress_file: updates.progressFile ?? null,
-      dependencies: updates.dependencies ?? null,
-      order: updates.order ?? null,
-      retry_count: updates.retryCount ?? null,
-      max_retries: updates.maxRetries ?? null,
-      error_message: updates.errorMessage ?? null,
-      implementation_steps: updates.implementationSteps ?? null,
-      test_steps: updates.testSteps ?? null,
-      acceptance_criteria: updates.acceptanceCriteria ?? null,
-      block_reason: updates.blockReason ?? null,
-      input_request: updates.inputRequest ?? null,
-      input_response: updates.inputResponse ?? null
-    }
+    const input: Record<string, unknown> = {}
+
+    if ('title' in updates) input.title = updates.title ?? null
+    if ('description' in updates) input.description = updates.description ?? null
+    if ('status' in updates) input.status = updates.status ?? null
+    if ('priority' in updates) input.priority = updates.priority ?? null
+    if ('assignee' in updates) input.assignee = updates.assignee ?? null
+    if ('agentId' in updates) input.agent_id = updates.agentId ?? null
+    if ('modelId' in updates) input.model_id = updates.modelId ?? null
+    if ('sessionId' in updates) input.session_id = updates.sessionId ?? null
+    if ('progressFile' in updates) input.progress_file = updates.progressFile ?? null
+    if ('dependencies' in updates) input.dependencies = updates.dependencies ?? null
+    if ('order' in updates) input.order = updates.order ?? null
+    if ('retryCount' in updates) input.retry_count = updates.retryCount ?? null
+    if ('maxRetries' in updates) input.max_retries = updates.maxRetries ?? null
+    if ('errorMessage' in updates) input.error_message = updates.errorMessage ?? null
+    if ('implementationSteps' in updates) input.implementation_steps = updates.implementationSteps ?? null
+    if ('testSteps' in updates) input.test_steps = updates.testSteps ?? null
+    if ('acceptanceCriteria' in updates) input.acceptance_criteria = updates.acceptanceCriteria ?? null
+    if ('blockReason' in updates) input.block_reason = updates.blockReason ?? null
+    if ('inputRequest' in updates) input.input_request = updates.inputRequest ?? null
+    if ('inputResponse' in updates) input.input_response = updates.inputResponse ?? null
 
     try {
       const rustTask = await invoke<RustTask>('update_task', { id, input })

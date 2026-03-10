@@ -163,20 +163,20 @@ export const usePlanStore = defineStore('plan', () => {
 
   async function updatePlan(id: string, updates: UpdatePlanInput): Promise<Plan> {
     const notificationStore = useNotificationStore()
-    const input = {
-      name: updates.name ?? null,
-      description: updates.description ?? null,
-      split_agent_id: updates.splitAgentId ?? null,
-      split_model_id: updates.splitModelId ?? null,
-      status: updates.status ?? null,
-      execution_status: updates.executionStatus ?? null,
-      current_task_id: updates.currentTaskId ?? null,
-      agent_team: updates.agentTeam ?? null,
-      granularity: updates.granularity ?? null,
-      max_retry_count: updates.maxRetryCount ?? null,
-      scheduled_at: updates.scheduledAt ?? null,
-      schedule_status: updates.scheduleStatus ?? null
-    }
+    const input: Record<string, unknown> = {}
+
+    if ('name' in updates) input.name = updates.name ?? null
+    if ('description' in updates) input.description = updates.description ?? null
+    if ('splitAgentId' in updates) input.split_agent_id = updates.splitAgentId ?? null
+    if ('splitModelId' in updates) input.split_model_id = updates.splitModelId ?? null
+    if ('status' in updates) input.status = updates.status ?? null
+    if ('executionStatus' in updates) input.execution_status = updates.executionStatus ?? null
+    if ('currentTaskId' in updates) input.current_task_id = updates.currentTaskId ?? null
+    if ('agentTeam' in updates) input.agent_team = updates.agentTeam ?? null
+    if ('granularity' in updates) input.granularity = updates.granularity ?? null
+    if ('maxRetryCount' in updates) input.max_retry_count = updates.maxRetryCount ?? null
+    if ('scheduledAt' in updates) input.scheduled_at = updates.scheduledAt ?? null
+    if ('scheduleStatus' in updates) input.schedule_status = updates.scheduleStatus ?? null
 
     try {
       const rustPlan = await invoke<RustPlan>('update_plan', { id, input })

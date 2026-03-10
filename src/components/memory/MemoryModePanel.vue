@@ -62,7 +62,7 @@ onMounted(async () => {
     <button
       v-if="detailPanelOpen"
       class="collapse-button"
-      title="收起详情面板"
+      :title="t('common.collapse')"
       @click="closeDetailPanel"
     >
       <svg

@@ -3,13 +3,12 @@ import { computed, ref } from 'vue'
 import { useMemoryStore } from '@/stores/memory'
 import { useI18n } from 'vue-i18n'
 import { EaIcon } from '@/components/common'
-import type { MemoryCategory } from '@/types/memory'
 
 interface Props {
   selectedId?: string | null
 }
 
-const props = defineProps<Props>()
+defineProps<Props>()
 const emit = defineEmits<{
   select: [categoryId: string | null]
 }>()

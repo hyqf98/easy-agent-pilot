@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 defineProps<{ thinking: string }>()
+const { t } = useI18n()
 
 // 折叠状态 - 默认收起
 const isExpanded = ref(false)
@@ -21,12 +23,12 @@ const toggleExpand = () => {
     >
       <div class="thinking-display__header-left">
         <span class="thinking-display__icon">💭</span>
-        <span class="thinking-display__title">思考过程</span>
-        <span class="thinking-display__badge">Thinking</span>
+        <span class="thinking-display__title">{{ t('message.thinking') }}</span>
+        <span class="thinking-display__badge">{{ t('message.thinking') }}</span>
       </div>
       <div class="thinking-display__header-right">
         <span class="thinking-display__toggle">
-          {{ isExpanded ? '收起' : '展开' }}
+          {{ isExpanded ? t('message.collapse') : t('message.expand') }}
         </span>
         <span
           class="thinking-display__chevron"
