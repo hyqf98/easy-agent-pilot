@@ -1357,11 +1357,13 @@ export default {
     },
     actions: {
       executeAll: 'Run all',
-      startExecution: 'Resume'
+      startExecution: 'Resume',
+      addTask: 'Add Task'
     },
     tooltips: {
       executeAll: 'Run all pending tasks',
-      startExecution: 'Resume in-progress tasks'
+      startExecution: 'Resume in-progress tasks',
+      addTask: 'Add a new task to pending list'
     },
     emptyColumn: 'No tasks'
   },

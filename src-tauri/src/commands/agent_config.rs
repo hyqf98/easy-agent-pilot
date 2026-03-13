@@ -1,10 +1,10 @@
-use anyhow::Result;
-use rusqlite::{Connection, Row};
-use serde::{Deserialize, Serialize};
 use super::support::{
     bind_optional, bind_optional_mapped, bind_value, bool_from_int, now_rfc3339,
     open_db_connection, UpdateSqlBuilder,
 };
+use anyhow::Result;
+use rusqlite::{Connection, Row};
+use serde::{Deserialize, Serialize};
 
 // ============================================================================
 // MCP 配置相关结构和命令
@@ -115,10 +115,6 @@ const CODEX_BUILTIN_MODELS: &[BuiltinModelDef] = &[
     ("gpt-5", "GPT-5", 1, false, Some(128000)),
     ("gpt-5.1", "GPT-5.1", 2, false, Some(128000)),
     ("gpt-5.2", "GPT-5.2", 3, false, Some(128000)),
-    ("gpt-4.5", "GPT-4.5", 4, false, Some(128000)),
-    ("o3", "O3", 5, false, Some(200000)),
-    ("o3-mini", "O3 Mini", 6, false, Some(200000)),
-    ("o4-mini", "O4 Mini", 7, false, Some(200000)),
 ];
 
 const CLAUDE_BUILTIN_MODELS: &[BuiltinModelDef] = &[
@@ -156,6 +152,22 @@ fn builtin_models_for_provider(provider: &str) -> &'static [BuiltinModelDef] {
     } else {
         CLAUDE_BUILTIN_MODELS
     }
+}
+
+fn is_legacy_codex_builtin_model(model_id: &str) -> bool {
+    matches!(model_id, "gpt-4.5" | "o3" | "o3-mini" | "o4-mini")
+}
+
+fn is_codex_agent(conn: &Connection, agent_id: &str) -> Result<bool, String> {
+    let provider = conn
+        .query_row(
+            "SELECT provider FROM agents WHERE id = ?1",
+            [agent_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    Ok(provider.as_deref() == Some("codex"))
 }
 
 fn list_configs<T, F>(
@@ -257,8 +269,12 @@ fn clear_default_models(conn: &Connection, agent_id: &str) -> Result<(), String>
 }
 
 fn get_model_agent_id(conn: &Connection, id: &str) -> Result<String, String> {
-    conn.query_row("SELECT agent_id FROM agent_models WHERE id = ?1", [id], |row| row.get(0))
-        .map_err(|e| e.to_string())
+    conn.query_row(
+        "SELECT agent_id FROM agent_models WHERE id = ?1",
+        [id],
+        |row| row.get(0),
+    )
+    .map_err(|e| e.to_string())
 }
 
 fn insert_builtin_models(
@@ -311,7 +327,12 @@ fn insert_builtin_models(
 #[tauri::command]
 pub fn list_agent_mcp_configs(agent_id: String) -> Result<Vec<AgentMcpConfig>, String> {
     let conn = open_conn()?;
-    list_configs(&conn, MCP_SELECT_BY_AGENT_SQL, &agent_id, map_agent_mcp_config_row)
+    list_configs(
+        &conn,
+        MCP_SELECT_BY_AGENT_SQL,
+        &agent_id,
+        map_agent_mcp_config_row,
+    )
 }
 
 /// 创建 MCP 配置
@@ -388,8 +409,7 @@ pub fn update_agent_mcp_config(
     let mut param_count = 1;
     bind_value(&mut stmt, &mut param_count, &now).map_err(|e| e.to_string())?;
     bind_optional(&mut stmt, &mut param_count, &input.name).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.transport_type)
-        .map_err(|e| e.to_string())?;
+    bind_optional(&mut stmt, &mut param_count, &input.transport_type).map_err(|e| e.to_string())?;
     bind_optional(&mut stmt, &mut param_count, &input.command).map_err(|e| e.to_string())?;
     bind_optional(&mut stmt, &mut param_count, &input.args).map_err(|e| e.to_string())?;
     bind_optional(&mut stmt, &mut param_count, &input.env).map_err(|e| e.to_string())?;
@@ -397,7 +417,11 @@ pub fn update_agent_mcp_config(
     bind_optional(&mut stmt, &mut param_count, &input.headers).map_err(|e| e.to_string())?;
     bind_optional(&mut stmt, &mut param_count, &input.scope).map_err(|e| e.to_string())?;
     bind_optional_mapped(&mut stmt, &mut param_count, &input.enabled, |enabled| {
-        if *enabled { 1 } else { 0 }
+        if *enabled {
+            1
+        } else {
+            0
+        }
     })
     .map_err(|e| e.to_string())?;
     bind_value(&mut stmt, &mut param_count, &id).map_err(|e| e.to_string())?;
@@ -547,17 +571,18 @@ pub fn update_agent_skills_config(
     let mut param_count = 1;
     bind_value(&mut stmt, &mut param_count, &now).map_err(|e| e.to_string())?;
     bind_optional(&mut stmt, &mut param_count, &input.name).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.description)
-        .map_err(|e| e.to_string())?;
+    bind_optional(&mut stmt, &mut param_count, &input.description).map_err(|e| e.to_string())?;
     bind_optional(&mut stmt, &mut param_count, &input.skill_path).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.scripts_path)
-        .map_err(|e| e.to_string())?;
+    bind_optional(&mut stmt, &mut param_count, &input.scripts_path).map_err(|e| e.to_string())?;
     bind_optional(&mut stmt, &mut param_count, &input.references_path)
         .map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.assets_path)
-        .map_err(|e| e.to_string())?;
+    bind_optional(&mut stmt, &mut param_count, &input.assets_path).map_err(|e| e.to_string())?;
     bind_optional_mapped(&mut stmt, &mut param_count, &input.enabled, |enabled| {
-        if *enabled { 1 } else { 0 }
+        if *enabled {
+            1
+        } else {
+            0
+        }
     })
     .map_err(|e| e.to_string())?;
     bind_value(&mut stmt, &mut param_count, &id).map_err(|e| e.to_string())?;
@@ -569,7 +594,12 @@ pub fn update_agent_skills_config(
 
 /// 获取单个 Skills 配置
 fn get_skills_config_by_id(conn: &Connection, id: &str) -> Result<AgentSkillsConfig, String> {
-    fetch_config_by_id(conn, SKILLS_SELECT_BY_ID_SQL, id, map_agent_skills_config_row)
+    fetch_config_by_id(
+        conn,
+        SKILLS_SELECT_BY_ID_SQL,
+        id,
+        map_agent_skills_config_row,
+    )
 }
 
 /// 删除 Skills 配置
@@ -696,12 +726,14 @@ pub fn update_agent_plugins_config(
     bind_value(&mut stmt, &mut param_count, &now).map_err(|e| e.to_string())?;
     bind_optional(&mut stmt, &mut param_count, &input.name).map_err(|e| e.to_string())?;
     bind_optional(&mut stmt, &mut param_count, &input.version).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.description)
-        .map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.plugin_path)
-        .map_err(|e| e.to_string())?;
+    bind_optional(&mut stmt, &mut param_count, &input.description).map_err(|e| e.to_string())?;
+    bind_optional(&mut stmt, &mut param_count, &input.plugin_path).map_err(|e| e.to_string())?;
     bind_optional_mapped(&mut stmt, &mut param_count, &input.enabled, |enabled| {
-        if *enabled { 1 } else { 0 }
+        if *enabled {
+            1
+        } else {
+            0
+        }
     })
     .map_err(|e| e.to_string())?;
     bind_value(&mut stmt, &mut param_count, &id).map_err(|e| e.to_string())?;
@@ -713,7 +745,12 @@ pub fn update_agent_plugins_config(
 
 /// 获取单个 Plugins 配置
 fn get_plugins_config_by_id(conn: &Connection, id: &str) -> Result<AgentPluginsConfig, String> {
-    fetch_config_by_id(conn, PLUGINS_SELECT_BY_ID_SQL, id, map_agent_plugins_config_row)
+    fetch_config_by_id(
+        conn,
+        PLUGINS_SELECT_BY_ID_SQL,
+        id,
+        map_agent_plugins_config_row,
+    )
 }
 
 /// 删除 Plugins 配置
@@ -781,12 +818,19 @@ pub struct CreateBuiltinModelsInput {
 #[tauri::command]
 pub fn list_agent_models(agent_id: String) -> Result<Vec<AgentModelConfig>, String> {
     let conn = open_conn()?;
-    list_configs(
+    let mut models = list_configs(
         &conn,
         MODELS_SELECT_BY_AGENT_SQL,
         &agent_id,
         map_agent_model_config_row,
-    )
+    )?;
+
+    if is_codex_agent(&conn, &agent_id)? {
+        models
+            .retain(|model| !(model.is_builtin && is_legacy_codex_builtin_model(&model.model_id)));
+    }
+
+    Ok(models)
 }
 
 /// 创建模型配置
@@ -892,19 +936,25 @@ pub fn update_agent_model(
     let mut param_count = 1;
     bind_value(&mut stmt, &mut param_count, &now).map_err(|e| e.to_string())?;
     bind_optional(&mut stmt, &mut param_count, &input.model_id).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.display_name)
-        .map_err(|e| e.to_string())?;
+    bind_optional(&mut stmt, &mut param_count, &input.display_name).map_err(|e| e.to_string())?;
     bind_optional_mapped(&mut stmt, &mut param_count, &input.is_default, |value| {
-        if *value { 1 } else { 0 }
+        if *value {
+            1
+        } else {
+            0
+        }
     })
     .map_err(|e| e.to_string())?;
     bind_optional(&mut stmt, &mut param_count, &input.sort_order).map_err(|e| e.to_string())?;
     bind_optional_mapped(&mut stmt, &mut param_count, &input.enabled, |value| {
-        if *value { 1 } else { 0 }
+        if *value {
+            1
+        } else {
+            0
+        }
     })
     .map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.context_window)
-        .map_err(|e| e.to_string())?;
+    bind_optional(&mut stmt, &mut param_count, &input.context_window).map_err(|e| e.to_string())?;
     bind_value(&mut stmt, &mut param_count, &id).map_err(|e| e.to_string())?;
 
     stmt.raw_execute().map_err(|e| e.to_string())?;
@@ -914,7 +964,12 @@ pub fn update_agent_model(
 
 /// 获取单个模型配置
 fn get_model_config_by_id(conn: &Connection, id: &str) -> Result<AgentModelConfig, String> {
-    fetch_config_by_id(conn, MODELS_SELECT_BY_ID_SQL, id, map_agent_model_config_row)
+    fetch_config_by_id(
+        conn,
+        MODELS_SELECT_BY_ID_SQL,
+        id,
+        map_agent_model_config_row,
+    )
 }
 
 /// 删除模型配置

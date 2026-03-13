@@ -128,14 +128,14 @@ pub fn list_provider_profiles(cli_type: Option<String>) -> Result<Vec<ProviderPr
     let profiles = if cli_type.is_some() {
         let ct = cli_type.unwrap();
         stmt.query_map([&ct], map_provider_profile_row)
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?
     } else {
         stmt.query_map([], map_provider_profile_row)
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?
     };
 
     Ok(profiles)
@@ -147,7 +147,11 @@ pub fn get_provider_profile(id: String) -> Result<ProviderProfile, String> {
     let conn = open_conn()?;
 
     let profile = conn
-        .query_row(PROVIDER_PROFILE_SELECT_BY_ID_SQL, [&id], map_provider_profile_row)
+        .query_row(
+            PROVIDER_PROFILE_SELECT_BY_ID_SQL,
+            [&id],
+            map_provider_profile_row,
+        )
         .map_err(|e| e.to_string())?;
 
     Ok(profile)
@@ -238,7 +242,8 @@ pub fn update_provider_profile(
     bind_optional(&mut stmt, &mut param_count, &input.base_url).map_err(|e| e.to_string())?;
     bind_optional(&mut stmt, &mut param_count, &input.provider_name).map_err(|e| e.to_string())?;
     bind_optional(&mut stmt, &mut param_count, &input.main_model).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.reasoning_model).map_err(|e| e.to_string())?;
+    bind_optional(&mut stmt, &mut param_count, &input.reasoning_model)
+        .map_err(|e| e.to_string())?;
     bind_optional(&mut stmt, &mut param_count, &input.haiku_model).map_err(|e| e.to_string())?;
     bind_optional(&mut stmt, &mut param_count, &input.sonnet_default).map_err(|e| e.to_string())?;
     bind_optional(&mut stmt, &mut param_count, &input.opus_default).map_err(|e| e.to_string())?;
@@ -253,7 +258,11 @@ pub fn update_provider_profile(
 
 /// 获取单个 Provider 配置
 fn get_provider_profile_by_id(conn: &Connection, id: &str) -> Result<ProviderProfile, String> {
-    conn.query_row(PROVIDER_PROFILE_SELECT_BY_ID_SQL, [id], map_provider_profile_row)
+    conn.query_row(
+        PROVIDER_PROFILE_SELECT_BY_ID_SQL,
+        [id],
+        map_provider_profile_row,
+    )
     .map_err(|e| e.to_string())
 }
 
@@ -273,7 +282,11 @@ pub fn delete_provider_profile(id: String) -> Result<(), String> {
 pub fn get_active_provider_profile(cli_type: String) -> Result<Option<ProviderProfile>, String> {
     let conn = open_conn()?;
 
-    let result = conn.query_row(PROVIDER_PROFILE_SELECT_ACTIVE_SQL, [&cli_type], map_provider_profile_row);
+    let result = conn.query_row(
+        PROVIDER_PROFILE_SELECT_ACTIVE_SQL,
+        [&cli_type],
+        map_provider_profile_row,
+    );
 
     match result {
         Ok(profile) => Ok(Some(profile)),

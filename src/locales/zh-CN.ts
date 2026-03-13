@@ -897,11 +897,13 @@ const zhCN = {
     },
     actions: {
       executeAll: '一键执行',
-      startExecution: '开始'
+      startExecution: '开始',
+      addTask: '添加任务'
     },
     tooltips: {
       executeAll: '一键执行所有待办任务',
-      startExecution: '开始执行进行中的任务'
+      startExecution: '开始执行进行中的任务',
+      addTask: '添加新任务到待办列表'
     },
     emptyColumn: '暂无任务'
   },

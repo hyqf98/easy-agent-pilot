@@ -137,7 +137,10 @@ fn parse_json_vec<T: DeserializeOwned>(raw: Option<&String>) -> Vec<T> {
         .unwrap_or_default()
 }
 
-fn read_session(conn: &rusqlite::Connection, plan_id: &str) -> Result<Option<PlanSplitSession>, String> {
+fn read_session(
+    conn: &rusqlite::Connection,
+    plan_id: &str,
+) -> Result<Option<PlanSplitSession>, String> {
     let result = conn.query_row(
         "SELECT id, plan_id, status, execution_session_id, raw_content, parsed_output,
                 parse_error, error_message, granularity, llm_messages_json, messages_json,
@@ -155,7 +158,10 @@ fn read_session(conn: &rusqlite::Connection, plan_id: &str) -> Result<Option<Pla
     }
 }
 
-fn insert_or_update_session(conn: &rusqlite::Connection, session: &PlanSplitSession) -> Result<(), String> {
+fn insert_or_update_session(
+    conn: &rusqlite::Connection,
+    session: &PlanSplitSession,
+) -> Result<(), String> {
     let existing: Option<String> = conn
         .query_row(
             "SELECT id FROM task_split_sessions WHERE plan_id = ?1",
@@ -277,7 +283,10 @@ fn build_form_response_prompt(form_id: &str, values: &Value) -> String {
             .iter()
             .map(|(key, value)| {
                 if value.is_object() || value.is_array() {
-                    format!("{key}: {}", serde_json::to_string(value).unwrap_or_default())
+                    format!(
+                        "{key}: {}",
+                        serde_json::to_string(value).unwrap_or_default()
+                    )
                 } else if let Some(text) = value.as_str() {
                     format!("{key}: {text}")
                 } else {
@@ -358,30 +367,63 @@ fn extract_json_candidates(raw: &str) -> Vec<String> {
 }
 
 fn as_non_empty_string(value: Option<&Value>) -> Option<String> {
-    value.and_then(|item| item.as_str()).map(str::trim).filter(|item| !item.is_empty()).map(ToOwned::to_owned)
+    value
+        .and_then(|item| item.as_str())
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 fn as_string_array(value: Option<&Value>) -> Vec<String> {
-    value.and_then(|item| item.as_array())
+    value
+        .and_then(|item| item.as_array())
         .map(|items| {
             items
                 .iter()
-                .filter_map(|item| item.as_str().map(str::trim).filter(|text| !text.is_empty()).map(ToOwned::to_owned))
+                .filter_map(|item| {
+                    item.as_str()
+                        .map(str::trim)
+                        .filter(|text| !text.is_empty())
+                        .map(ToOwned::to_owned)
+                })
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default()
 }
 
 fn normalize_task(task: &Value) -> Result<Value, String> {
-    let task_obj = task.as_object().ok_or_else(|| "tasks 中存在无效任务对象。".to_string())?;
-    let title = as_non_empty_string(task_obj.get("title")).ok_or_else(|| "任务缺少 title。".to_string())?;
-    let description = as_non_empty_string(task_obj.get("description")).ok_or_else(|| "任务缺少 description。".to_string())?;
-    let priority = as_non_empty_string(task_obj.get("priority")).ok_or_else(|| "任务缺少 priority。".to_string())?;
-    let implementation_steps = as_string_array(task_obj.get("implementationSteps").or_else(|| task_obj.get("implementation_steps")).or_else(|| task_obj.get("steps")));
-    let test_steps = as_string_array(task_obj.get("testSteps").or_else(|| task_obj.get("test_steps")).or_else(|| task_obj.get("testingSteps")).or_else(|| task_obj.get("testing_steps")));
-    let acceptance_criteria = as_string_array(task_obj.get("acceptanceCriteria").or_else(|| task_obj.get("acceptance_criteria")));
+    let task_obj = task
+        .as_object()
+        .ok_or_else(|| "tasks 中存在无效任务对象。".to_string())?;
+    let title =
+        as_non_empty_string(task_obj.get("title")).ok_or_else(|| "任务缺少 title。".to_string())?;
+    let description = as_non_empty_string(task_obj.get("description"))
+        .ok_or_else(|| "任务缺少 description。".to_string())?;
+    let priority = as_non_empty_string(task_obj.get("priority"))
+        .ok_or_else(|| "任务缺少 priority。".to_string())?;
+    let implementation_steps = as_string_array(
+        task_obj
+            .get("implementationSteps")
+            .or_else(|| task_obj.get("implementation_steps"))
+            .or_else(|| task_obj.get("steps")),
+    );
+    let test_steps = as_string_array(
+        task_obj
+            .get("testSteps")
+            .or_else(|| task_obj.get("test_steps"))
+            .or_else(|| task_obj.get("testingSteps"))
+            .or_else(|| task_obj.get("testing_steps")),
+    );
+    let acceptance_criteria = as_string_array(
+        task_obj
+            .get("acceptanceCriteria")
+            .or_else(|| task_obj.get("acceptance_criteria")),
+    );
     if implementation_steps.is_empty() || test_steps.is_empty() || acceptance_criteria.is_empty() {
-        return Err("任务步骤字段不能为空（implementationSteps/testSteps/acceptanceCriteria）。".to_string());
+        return Err(
+            "任务步骤字段不能为空（implementationSteps/testSteps/acceptanceCriteria）。"
+                .to_string(),
+        );
     }
 
     let mut normalized = serde_json::Map::new();
@@ -390,7 +432,12 @@ fn normalize_task(task: &Value) -> Result<Value, String> {
     normalized.insert("priority".to_string(), Value::String(priority));
     normalized.insert(
         "implementationSteps".to_string(),
-        Value::Array(implementation_steps.into_iter().map(Value::String).collect()),
+        Value::Array(
+            implementation_steps
+                .into_iter()
+                .map(Value::String)
+                .collect(),
+        ),
     );
     normalized.insert(
         "testSteps".to_string(),
@@ -400,7 +447,11 @@ fn normalize_task(task: &Value) -> Result<Value, String> {
         "acceptanceCriteria".to_string(),
         Value::Array(acceptance_criteria.into_iter().map(Value::String).collect()),
     );
-    if let Some(depends_on) = task_obj.get("dependsOn").or_else(|| task_obj.get("depends_on")).and_then(|value| value.as_array()) {
+    if let Some(depends_on) = task_obj
+        .get("dependsOn")
+        .or_else(|| task_obj.get("depends_on"))
+        .and_then(|value| value.as_array())
+    {
         normalized.insert("dependsOn".to_string(), Value::Array(depends_on.clone()));
     }
     Ok(Value::Object(normalized))
@@ -408,7 +459,11 @@ fn normalize_task(task: &Value) -> Result<Value, String> {
 
 fn normalize_form_schema(schema: &Value) -> Option<Value> {
     let schema_obj = schema.as_object()?;
-    let form_id = as_non_empty_string(schema_obj.get("formId").or_else(|| schema_obj.get("form_id")))?;
+    let form_id = as_non_empty_string(
+        schema_obj
+            .get("formId")
+            .or_else(|| schema_obj.get("form_id")),
+    )?;
     let title = as_non_empty_string(schema_obj.get("title"))?;
     let fields = schema_obj.get("fields")?.as_array()?.clone();
     if fields.is_empty() {
@@ -418,11 +473,24 @@ fn normalize_form_schema(schema: &Value) -> Option<Value> {
     let mut normalized = serde_json::Map::new();
     normalized.insert("formId".to_string(), Value::String(form_id));
     normalized.insert("title".to_string(), Value::String(title));
-    if let Some(description) = schema_obj.get("description").and_then(|value| value.as_str()) {
-        normalized.insert("description".to_string(), Value::String(description.to_string()));
+    if let Some(description) = schema_obj
+        .get("description")
+        .and_then(|value| value.as_str())
+    {
+        normalized.insert(
+            "description".to_string(),
+            Value::String(description.to_string()),
+        );
     }
-    if let Some(submit_text) = schema_obj.get("submitText").or_else(|| schema_obj.get("submit_text")).and_then(|value| value.as_str()) {
-        normalized.insert("submitText".to_string(), Value::String(submit_text.to_string()));
+    if let Some(submit_text) = schema_obj
+        .get("submitText")
+        .or_else(|| schema_obj.get("submit_text"))
+        .and_then(|value| value.as_str())
+    {
+        normalized.insert(
+            "submitText".to_string(),
+            Value::String(submit_text.to_string()),
+        );
     }
     normalized.insert("fields".to_string(), Value::Array(fields));
     Some(Value::Object(normalized))
@@ -443,16 +511,29 @@ fn parse_split_output(raw_content: &str, min_task_count: i32) -> Result<ParsedSp
             Some(object) => object,
             None => continue,
         };
-        let output_type = as_non_empty_string(record.get("type")).unwrap_or_default().to_lowercase();
+        let output_type = as_non_empty_string(record.get("type"))
+            .unwrap_or_default()
+            .to_lowercase();
         if output_type == "form_request" {
-            let question = as_non_empty_string(record.get("question")).unwrap_or_else(|| "请先补充以下信息。".to_string());
+            let question = as_non_empty_string(record.get("question"))
+                .unwrap_or_else(|| "请先补充以下信息。".to_string());
             let mut forms = record
                 .get("forms")
                 .and_then(|value| value.as_array())
-                .map(|items| items.iter().filter_map(normalize_form_schema).collect::<Vec<_>>())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(normalize_form_schema)
+                        .collect::<Vec<_>>()
+                })
                 .unwrap_or_default();
             if forms.is_empty() {
-                if let Some(schema) = record.get("formSchema").or_else(|| record.get("form_schema")).or_else(|| record.get("schema")).and_then(normalize_form_schema) {
+                if let Some(schema) = record
+                    .get("formSchema")
+                    .or_else(|| record.get("form_schema"))
+                    .or_else(|| record.get("schema"))
+                    .and_then(normalize_form_schema)
+                {
                     forms.push(schema);
                 }
             }
@@ -466,11 +547,19 @@ fn parse_split_output(raw_content: &str, min_task_count: i32) -> Result<ParsedSp
             .get("done")
             .and_then(|value| value.as_bool())
             .unwrap_or(false)
-            || as_non_empty_string(record.get("status").or_else(|| record.get("state")).or_else(|| record.get("phase")))
-                .map(|value| value.to_uppercase() == "DONE")
-                .unwrap_or(false);
+            || as_non_empty_string(
+                record
+                    .get("status")
+                    .or_else(|| record.get("state"))
+                    .or_else(|| record.get("phase")),
+            )
+            .map(|value| value.to_uppercase() == "DONE")
+            .unwrap_or(false);
 
-        if output_type == "task_split" || output_type == "done" || (is_done && record.get("tasks").is_some()) {
+        if output_type == "task_split"
+            || output_type == "done"
+            || (is_done && record.get("tasks").is_some())
+        {
             if !is_done {
                 return Err("task_split 必须包含 status: DONE。".to_string());
             }
@@ -479,7 +568,10 @@ fn parse_split_output(raw_content: &str, min_task_count: i32) -> Result<ParsedSp
                 .and_then(|value| value.as_array())
                 .ok_or_else(|| "task_split 缺少 tasks 数组。".to_string())?;
             if tasks_raw.len() < min_task_count.max(1) as usize {
-                return Err(format!("拆分任务数量不足，至少需要 {} 个。", min_task_count.max(1)));
+                return Err(format!(
+                    "拆分任务数量不足，至少需要 {} 个。",
+                    min_task_count.max(1)
+                ));
             }
             let mut tasks = Vec::with_capacity(tasks_raw.len());
             for task in tasks_raw {
@@ -562,9 +654,14 @@ fn serialize_json<T: Serialize>(value: &T) -> Result<String, String> {
     serde_json::to_string(value).map_err(|error| error.to_string())
 }
 
-fn refresh_session_after_turn(app: &AppHandle, plan_id: &str, session_id: &str) -> Result<(), String> {
+fn refresh_session_after_turn(
+    app: &AppHandle,
+    plan_id: &str,
+    session_id: &str,
+) -> Result<(), String> {
     let conn = open_db_connection().map_err(|error| error.to_string())?;
-    let mut session = read_session(&conn, plan_id)?.ok_or_else(|| "计划拆分会话不存在".to_string())?;
+    let mut session =
+        read_session(&conn, plan_id)?.ok_or_else(|| "计划拆分会话不存在".to_string())?;
     if session.status == "stopped" {
         emit_session_updated(app, &session);
         return Ok(());
@@ -575,14 +672,11 @@ fn refresh_session_after_turn(app: &AppHandle, plan_id: &str, session_id: &str) 
         Ok(output) => Ok((output, raw_content.clone())),
         Err(content_error) => {
             let structured_outputs = load_structured_output_logs(&conn, session_id)?;
-            let parsed_from_tool = structured_outputs
-                .iter()
-                .rev()
-                .find_map(|candidate| {
-                    parse_split_output(candidate, session.granularity)
-                        .ok()
-                        .map(|output| (output, candidate.clone()))
-                });
+            let parsed_from_tool = structured_outputs.iter().rev().find_map(|candidate| {
+                parse_split_output(candidate, session.granularity)
+                    .ok()
+                    .map(|output| (output, candidate.clone()))
+            });
 
             parsed_from_tool.ok_or(content_error)
         }
@@ -607,7 +701,10 @@ fn refresh_session_after_turn(app: &AppHandle, plan_id: &str, session_id: &str) 
                 match &output {
                     ParsedSplitOutput::FormRequest { question, .. } => question.clone(),
                     ParsedSplitOutput::TaskSplit { tasks } => {
-                        format!("DONE：任务拆分完成，共生成 {} 个任务，请确认。", tasks.len())
+                        format!(
+                            "DONE：任务拆分完成，共生成 {} 个任务，请确认。",
+                            tasks.len()
+                        )
                     }
                 },
             );
@@ -638,7 +735,11 @@ fn refresh_session_after_turn(app: &AppHandle, plan_id: &str, session_id: &str) 
             }
         }
         Err(error_message) => {
-            append_ui_message(&mut messages, "assistant", format!("解析失败：{error_message}"));
+            append_ui_message(
+                &mut messages,
+                "assistant",
+                format!("解析失败：{error_message}"),
+            );
             session.status = "failed".to_string();
             session.parse_error = Some(error_message.clone());
             session.error_message = Some(error_message);
@@ -726,7 +827,8 @@ pub fn mark_plan_split_failed(
     error_message: &str,
 ) -> Result<(), String> {
     let conn = open_db_connection().map_err(|error| error.to_string())?;
-    let mut session = read_session(&conn, plan_id)?.ok_or_else(|| "计划拆分会话不存在".to_string())?;
+    let mut session =
+        read_session(&conn, plan_id)?.ok_or_else(|| "计划拆分会话不存在".to_string())?;
     if session.status == "stopped" {
         emit_session_updated(app, &session);
         return Ok(());
@@ -741,7 +843,11 @@ pub fn mark_plan_split_failed(
     session.completed_at = Some(now);
     session.raw_content = Some(load_content_logs(&conn, session_id).unwrap_or_default());
     let mut messages = load_messages_json(session.messages_json.as_ref());
-    append_ui_message(&mut messages, "assistant", format!("拆分失败：{error_message}"));
+    append_ui_message(
+        &mut messages,
+        "assistant",
+        format!("拆分失败：{error_message}"),
+    );
     session.messages_json = Some(serialize_json(&messages)?);
     insert_or_update_session(&conn, &session)?;
     emit_session_updated(app, &session);
@@ -807,29 +913,36 @@ pub fn list_plan_split_logs(plan_id: String) -> Result<Vec<PlanSplitLog>, String
         )
         .map_err(|error| error.to_string())?;
 
-    let logs = stmt.query_map([&plan_id], |row| {
-        Ok(PlanSplitLog {
-            id: row.get(0)?,
-            plan_id: row.get(1)?,
-            session_id: row.get(2)?,
-            log_type: row.get(3)?,
-            content: row.get(4)?,
-            metadata: row.get(5)?,
-            created_at: row.get(6)?,
+    let logs = stmt
+        .query_map([&plan_id], |row| {
+            Ok(PlanSplitLog {
+                id: row.get(0)?,
+                plan_id: row.get(1)?,
+                session_id: row.get(2)?,
+                log_type: row.get(3)?,
+                content: row.get(4)?,
+                metadata: row.get(5)?,
+                created_at: row.get(6)?,
+            })
         })
-    })
-    .map_err(|error| error.to_string())?
-    .collect::<Result<Vec<_>, _>>()
-    .map_err(|error| error.to_string())?;
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
 
     Ok(logs)
 }
 
 #[tauri::command]
-pub fn start_plan_split(app: AppHandle, input: StartPlanSplitInput) -> Result<PlanSplitSession, String> {
+pub fn start_plan_split(
+    app: AppHandle,
+    input: StartPlanSplitInput,
+) -> Result<PlanSplitSession, String> {
     let conn = open_db_connection().map_err(|error| error.to_string())?;
-    conn.execute("DELETE FROM plan_split_logs WHERE plan_id = ?1", [&input.plan_id])
-        .map_err(|error| error.to_string())?;
+    conn.execute(
+        "DELETE FROM plan_split_logs WHERE plan_id = ?1",
+        [&input.plan_id],
+    )
+    .map_err(|error| error.to_string())?;
 
     let mut request = input.execution_request.clone();
     request.plan_id = Some(input.plan_id.clone());
@@ -856,7 +969,8 @@ pub fn submit_plan_split_form(
     input: SubmitPlanSplitFormInput,
 ) -> Result<PlanSplitSession, String> {
     let conn = open_db_connection().map_err(|error| error.to_string())?;
-    let mut session = read_session(&conn, &input.plan_id)?.ok_or_else(|| "计划拆分会话不存在".to_string())?;
+    let mut session =
+        read_session(&conn, &input.plan_id)?.ok_or_else(|| "计划拆分会话不存在".to_string())?;
 
     let forms = load_form_queue(session.form_queue_json.as_ref());
     let current_index = session.current_form_index.unwrap_or(0).max(0) as usize;
@@ -867,8 +981,12 @@ pub fn submit_plan_split_form(
     let active_form = forms[current_index]
         .as_object()
         .ok_or_else(|| "活动表单结构无效。".to_string())?;
-    let active_form_id = as_non_empty_string(active_form.get("formId").or_else(|| active_form.get("form_id")))
-        .ok_or_else(|| "活动表单缺少 formId。".to_string())?;
+    let active_form_id = as_non_empty_string(
+        active_form
+            .get("formId")
+            .or_else(|| active_form.get("form_id")),
+    )
+    .ok_or_else(|| "活动表单缺少 formId。".to_string())?;
     if active_form_id != input.form_id {
         return Err("提交的表单不是当前活动表单。".to_string());
     }
@@ -920,7 +1038,10 @@ pub fn submit_plan_split_form(
 }
 
 #[tauri::command]
-pub async fn stop_plan_split(app: AppHandle, plan_id: String) -> Result<Option<PlanSplitSession>, String> {
+pub async fn stop_plan_split(
+    app: AppHandle,
+    plan_id: String,
+) -> Result<Option<PlanSplitSession>, String> {
     let conn = open_db_connection().map_err(|error| error.to_string())?;
     let Some(mut session) = read_session(&conn, &plan_id)? else {
         return Ok(None);
@@ -965,7 +1086,10 @@ pub async fn clear_plan_split_session(plan_id: String) -> Result<(), String> {
     }
     conn.execute("DELETE FROM plan_split_logs WHERE plan_id = ?1", [&plan_id])
         .map_err(|error| error.to_string())?;
-    conn.execute("DELETE FROM task_split_sessions WHERE plan_id = ?1", [&plan_id])
-        .map_err(|error| error.to_string())?;
+    conn.execute(
+        "DELETE FROM task_split_sessions WHERE plan_id = ?1",
+        [&plan_id],
+    )
+    .map_err(|error| error.to_string())?;
     Ok(())
 }

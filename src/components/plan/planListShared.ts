@@ -29,6 +29,7 @@ export type PlanTabKey = 'draft' | 'splitting' | 'executing' | 'completed'
 export interface PlanCreateFormState {
   name: string
   description: string
+  splitMode: 'ai' | 'manual'    // 拆分模式
   granularity: number
   maxRetryCount: number
   splitAgentId: string | null
@@ -40,6 +41,11 @@ export interface PlanCreateFormState {
 export interface PlanEditFormState {
   name: string
   description: string
+  splitMode: 'ai' | 'manual'
+  granularity: number
+  maxRetryCount: number
+  splitAgentId: string | null
+  splitModelId: string
   executionMode: 'immediate' | 'scheduled'
   scheduledDateTime: string
 }

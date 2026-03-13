@@ -94,8 +94,8 @@ impl Default for McpMarketQuery {
 }
 
 fn build_mcp_market_url(query: &McpMarketQuery) -> Result<Url, String> {
-    let mut url = Url::parse(MCP_MARKET_BASE_URL)
-        .map_err(|e| format!("Invalid MCP market URL: {}", e))?;
+    let mut url =
+        Url::parse(MCP_MARKET_BASE_URL).map_err(|e| format!("Invalid MCP market URL: {}", e))?;
 
     {
         let mut pairs = url.query_pairs_mut();
@@ -127,14 +127,16 @@ fn sanitize_mcp_key(name: &str) -> String {
     }
 }
 
-fn create_settings_backup(settings_path: &PathBuf, error_prefix: &str) -> Result<Option<String>, String> {
+fn create_settings_backup(
+    settings_path: &PathBuf,
+    error_prefix: &str,
+) -> Result<Option<String>, String> {
     if !settings_path.exists() {
         return Ok(None);
     }
 
     let backup = settings_path.with_extension("json.backup");
-    fs::copy(settings_path, &backup)
-        .map_err(|e| format!("{error_prefix}: {}", e))?;
+    fs::copy(settings_path, &backup).map_err(|e| format!("{error_prefix}: {}", e))?;
     Ok(Some(backup.to_string_lossy().to_string()))
 }
 
@@ -331,7 +333,8 @@ pub async fn install_mcp_to_cli(input: McpInstallInput) -> Result<McpInstallResu
     let backup_path = create_settings_backup(&settings_path, "创建备份失败")?;
 
     // Build MCP server config
-    let mcp_config = build_installed_mcp_config(input.command.clone(), input.args.clone(), input.env.clone());
+    let mcp_config =
+        build_installed_mcp_config(input.command.clone(), input.args.clone(), input.env.clone());
 
     let write_result = {
         let mcp_servers = ensure_mcp_servers_object(&mut settings)?;

@@ -4,6 +4,7 @@ import { useSessionExecutionStore } from '@/stores/sessionExecution'
 import { useProjectStore } from '@/stores/project'
 import { useAgentStore, type AgentConfig } from '@/stores/agent'
 import { useTokenStore } from '@/stores/token'
+import { useMemoryStore } from '@/stores/memory'
 import { agentExecutor } from './AgentExecutor'
 import type { ConversationContext, StreamEvent } from './strategies/types'
 import { compressionService } from '@/services/compression/CompressionService'
@@ -44,6 +45,7 @@ export class ConversationService {
     const sessionExecutionStore = useSessionExecutionStore()
     const projectStore = useProjectStore()
     const agentStore = useAgentStore()
+    const memoryStore = useMemoryStore()
 
     // 获取智能体配置
     const agent = agentStore.agents.find(a => a.id === agentId)
@@ -61,12 +63,18 @@ export class ConversationService {
 
     try {
       // 添加用户消息
-      await messageStore.addMessage({
+      const userMessage = await messageStore.addMessage({
         sessionId,
         role: 'user',
         content,
         attachments,
         status: 'completed'
+      })
+
+      await memoryStore.captureUserMessage({
+        sessionId,
+        messageId: userMessage.id,
+        content
       })
 
       // 更新会话最后消息

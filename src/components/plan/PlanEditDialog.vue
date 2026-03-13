@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import type { Plan, PlanStatus } from '@/types/plan'
-import type { PlanEditFormState } from './planListShared'
+import type { AgentOption, ModelOption, PlanEditFormState } from './planListShared'
 
 const props = defineProps<{
   visible: boolean
   plan: Plan | null
   form: PlanEditFormState
+  agentOptions: AgentOption[]
+  modelOptions: ModelOption[]
 }>()
 
 const emit = defineEmits<{
@@ -23,6 +25,10 @@ function canEditSchedule(status: PlanStatus | undefined): boolean {
 }
 
 const minDateTime = new Date().toISOString().slice(0, 16)
+
+function isDraftEditable(status: PlanStatus | undefined): boolean {
+  return status === 'draft'
+}
 </script>
 
 <template>
@@ -60,7 +66,7 @@ const minDateTime = new Date().toISOString().slice(0, 16)
             <input
               :value="props.form.name"
               type="text"
-              placeholder="请输入计划名称"
+              placeholder="例如：用户认证模块开发"
               autofocus
               @input="updateField('name', ($event.target as HTMLInputElement).value)"
             >
@@ -75,6 +81,141 @@ const minDateTime = new Date().toISOString().slice(0, 16)
             />
           </div>
 
+          <template v-if="isDraftEditable(props.plan?.status)">
+            <div class="form-field">
+              <label>任务拆分模式</label>
+              <div class="mode-options">
+                <label
+                  class="mode-option"
+                  :class="{ active: props.form.splitMode === 'ai' }"
+                >
+                  <input
+                    type="radio"
+                    :checked="props.form.splitMode === 'ai'"
+                    @change="updateField('splitMode', 'ai')"
+                  >
+                  <span class="mode-icon">✨</span>
+                  <div class="mode-content">
+                    <span class="mode-label">AI 协同</span>
+                    <span class="mode-desc">AI 帮助拆分任务</span>
+                  </div>
+                </label>
+                <label
+                  class="mode-option"
+                  :class="{ active: props.form.splitMode === 'manual' }"
+                >
+                  <input
+                    type="radio"
+                    :checked="props.form.splitMode === 'manual'"
+                    @change="updateField('splitMode', 'manual')"
+                  >
+                  <span class="mode-icon">✋</span>
+                  <div class="mode-content">
+                    <span class="mode-label">手动模式</span>
+                    <span class="mode-desc">自己创建任务</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <template v-if="props.form.splitMode === 'ai'">
+              <div class="form-row">
+                <div class="form-field">
+                  <label>拆分智能体</label>
+                  <select
+                    :value="props.form.splitAgentId ?? ''"
+                    class="project-select"
+                    @change="updateField('splitAgentId', (($event.target as HTMLSelectElement).value || null))"
+                  >
+                    <option value="">
+                      请选择智能体
+                    </option>
+                    <option
+                      v-for="option in props.agentOptions"
+                      :key="option.value"
+                      :value="option.value"
+                    >
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label>拆分模型</label>
+                  <select
+                    :value="props.form.splitModelId"
+                    class="project-select"
+                    :disabled="props.modelOptions.length === 0"
+                    @change="updateField('splitModelId', ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option value="">
+                      请选择模型
+                    </option>
+                    <option
+                      v-for="option in props.modelOptions"
+                      :key="option.value"
+                      :value="option.value"
+                    >
+                      {{ option.label }}
+                    </option>
+                  </select>
+                  <span
+                    v-if="props.modelOptions.length === 0"
+                    class="field-hint"
+                  >当前智能体暂无可用模型，请先在设置中配置模型</span>
+                </div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-field">
+                  <label>任务拆分颗粒度</label>
+                  <input
+                    :value="props.form.granularity"
+                    type="number"
+                    min="5"
+                    max="50"
+                    placeholder="建议 5-50"
+                    @input="updateField('granularity', Number(($event.target as HTMLInputElement).value))"
+                  >
+                  <span class="field-hint">数值越小，任务粒度越细</span>
+                </div>
+                <div class="form-field">
+                  <label>最大重试次数</label>
+                  <input
+                    :value="props.form.maxRetryCount"
+                    type="number"
+                    min="1"
+                    max="5"
+                    placeholder="建议 1-3"
+                    @input="updateField('maxRetryCount', Number(($event.target as HTMLInputElement).value))"
+                  >
+                  <span class="field-hint">任务失败后的最大重试次数</span>
+                </div>
+              </div>
+            </template>
+
+            <div
+              v-else
+              class="hint-box hint-box-manual"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="10"
+                />
+                <path d="M12 16v-4M12 8h.01" />
+              </svg>
+              <span>手动模式下，保存后可在任务看板中继续手动维护任务</span>
+            </div>
+          </template>
+
           <div
             v-if="canEditSchedule(props.plan?.status)"
             class="form-field schedule-field"
@@ -85,8 +226,12 @@ const minDateTime = new Date().toISOString().slice(0, 16)
               class="execution-mode-select"
               @change="updateField('executionMode', ($event.target as HTMLSelectElement).value as PlanEditFormState['executionMode'])"
             >
-              <option value="immediate">立即执行</option>
-              <option value="scheduled">定时执行</option>
+              <option value="immediate">
+                立即执行
+              </option>
+              <option value="scheduled">
+                定时执行
+              </option>
             </select>
             <div
               v-if="props.form.executionMode === 'scheduled'"
@@ -143,7 +288,11 @@ const minDateTime = new Date().toISOString().slice(0, 16)
   background-color: var(--color-surface, #fff);
   border-radius: var(--radius-lg, 12px);
   width: 90%;
-  max-width: 32rem;
+  max-width: 40rem;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   box-shadow: var(--shadow-xl, 0 20px 25px -5px rgba(0, 0, 0, 0.1));
   animation: dialog-in 0.2s var(--easing-out);
 }
@@ -200,7 +349,15 @@ const minDateTime = new Date().toISOString().slice(0, 16)
 }
 
 .dialog-body {
+  flex: 1;
+  overflow-y: auto;
   padding: var(--spacing-5, 1.25rem);
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-4, 1rem);
 }
 
 .form-field {
@@ -220,8 +377,10 @@ const minDateTime = new Date().toISOString().slice(0, 16)
 }
 
 .form-field input,
-.form-field textarea {
+.form-field textarea,
+.form-field select {
   width: 100%;
+  box-sizing: border-box;
   padding: var(--spacing-2, 0.5rem) var(--spacing-3, 0.75rem);
   border: 1px solid var(--color-border, #e2e8f0);
   border-radius: var(--radius-md, 8px);
@@ -238,10 +397,82 @@ const minDateTime = new Date().toISOString().slice(0, 16)
 
 .form-field input:focus,
 .form-field textarea:focus,
-.execution-mode-select:focus {
+.form-field select:focus {
   outline: none;
   border-color: var(--color-primary, #60a5fa);
   box-shadow: 0 0 0 3px var(--color-primary-light, #dbeafe);
+}
+
+.field-hint,
+.schedule-preview {
+  display: block;
+  margin-top: var(--spacing-2, 0.5rem);
+  font-size: var(--font-size-xs, 12px);
+  color: var(--color-text-tertiary, #94a3b8);
+}
+
+.mode-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-3, 0.75rem);
+}
+
+.mode-option {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3, 0.75rem);
+  padding: var(--spacing-4, 1rem);
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: var(--radius-lg, 12px);
+  cursor: pointer;
+  transition: all var(--transition-fast, 150ms);
+}
+
+.mode-option input {
+  display: none;
+}
+
+.mode-option.active {
+  border-color: var(--color-primary, #60a5fa);
+  background: var(--color-primary-light, #eff6ff);
+}
+
+.mode-icon {
+  font-size: 1.25rem;
+}
+
+.mode-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.mode-label {
+  font-size: var(--font-size-sm, 13px);
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--color-text-primary, #1e293b);
+}
+
+.mode-desc {
+  font-size: var(--font-size-xs, 12px);
+  color: var(--color-text-tertiary, #94a3b8);
+}
+
+.hint-box {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-2, 0.5rem);
+  margin-bottom: var(--spacing-4, 1rem);
+  padding: var(--spacing-3, 0.75rem);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-primary-light, #eff6ff);
+  color: var(--color-primary, #2563eb);
+  font-size: var(--font-size-xs, 12px);
+}
+
+.hint-box-manual {
+  background: color-mix(in srgb, #22c55e 8%, #fff);
+  color: #15803d;
 }
 
 .schedule-field {
@@ -252,32 +483,10 @@ const minDateTime = new Date().toISOString().slice(0, 16)
 
 .execution-mode-select {
   width: 100%;
-  padding: var(--spacing-2, 0.5rem) var(--spacing-8, 2rem) var(--spacing-2, 0.5rem) var(--spacing-3, 0.75rem);
-  border: 1px solid var(--color-border, #e2e8f0);
-  border-radius: var(--radius-md, 8px);
-  font-size: var(--font-size-sm, 13px);
-  color: var(--color-text-primary, #1e293b);
-  background-color: var(--color-surface, #fff);
-  cursor: pointer;
-  transition: all var(--transition-fast, 150ms);
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right var(--spacing-3, 0.75rem) center;
-  background-size: 16px;
 }
 
 .schedule-datetime {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.schedule-preview {
-  font-size: var(--font-size-xs, 12px);
-  color: var(--color-text-secondary, #64748b);
-  font-style: italic;
+  margin-top: var(--spacing-3, 0.75rem);
 }
 
 .dialog-footer {
@@ -286,8 +495,7 @@ const minDateTime = new Date().toISOString().slice(0, 16)
   gap: var(--spacing-3, 0.75rem);
   padding: var(--spacing-4, 1rem) var(--spacing-5, 1.25rem);
   border-top: 1px solid var(--color-border, #e2e8f0);
-  background-color: var(--color-bg-secondary, #f8fafc);
-  border-radius: 0 0 var(--radius-lg, 12px) var(--radius-lg, 12px);
+  background: var(--color-bg-secondary, #f8fafc);
 }
 
 .btn {
@@ -299,14 +507,16 @@ const minDateTime = new Date().toISOString().slice(0, 16)
   transition: all var(--transition-fast, 150ms);
 }
 
-.btn-primary {
-  background-color: var(--color-primary, #3b82f6);
-  color: white;
-  border: none;
+.btn-secondary {
+  border: 1px solid var(--color-border, #e2e8f0);
+  background: var(--color-surface, #fff);
+  color: var(--color-text-secondary, #64748b);
 }
 
-.btn-primary:hover:not(:disabled) {
-  background-color: var(--color-primary-hover, #2563eb);
+.btn-primary {
+  border: none;
+  background: var(--color-primary, #3b82f6);
+  color: #fff;
 }
 
 .btn-primary:disabled {
@@ -314,14 +524,14 @@ const minDateTime = new Date().toISOString().slice(0, 16)
   cursor: not-allowed;
 }
 
-.btn-secondary {
-  background-color: var(--color-surface, #fff);
-  color: var(--color-text-primary, #1e293b);
-  border: 1px solid var(--color-border, #e2e8f0);
-}
+@media (max-width: 640px) {
+  .dialog {
+    width: calc(100vw - 1.5rem);
+  }
 
-.btn-secondary:hover {
-  background-color: var(--color-surface-hover, #f8fafc);
-  border-color: var(--color-border-dark, #cbd5e1);
+  .form-row,
+  .mode-options {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

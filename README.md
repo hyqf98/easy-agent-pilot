@@ -1,199 +1,218 @@
 # Easy Agent Pilot
 
-<div align="center">
-  <img src="images/main-interface.png" alt="Easy Agent Pilot" width="800">
-</div>
+Easy Agent Pilot 是一个基于 Tauri 2 + Vue 3 + Rust + SQLite 的本地 AI Agent 工作台，用来把项目导入、会话协作、计划拆分、任务执行、MCP 扩展和本地数据管理放到一个桌面应用里统一完成。
 
-一个基于 **Tauri 2 + Vue 3** 构建的 AI Agent 桌面管理工具，提供智能对话、项目管理、计划管理、记忆管理等功能，帮助开发者更高效地与 AI 协作。
+本 README 的截图和流程说明，均来自一次真实的端到端验证：
 
-## 特性
+- 清空本地数据库后，以纯净状态启动应用
+- 导入示例项目 `/Users/haijun/Work/frontend/demo`
+- 从首页开始完整走通“导入项目 -> 会话 -> 计划拆分 -> 任务看板 -> 设置中心”
+- 使用 Tauri MCP 实际操作应用并截图
 
-### 核心功能
+> 本次验证使用的数据目录为 `~/.easy-agent`，数据库为 `~/.easy-agent/data/easy-agent.db`。
 
-- **智能对话** - 支持多种 AI 模型，流式输出，代码高亮显示
-- **项目管理** - 多项目支持，快速切换，文件树浏览
-- **计划管理** - 创建开发计划，任务看板，进度跟踪
-- **记忆管理** - 分类存储重要信息，快速检索
-- **文件编辑** - 内置 Monaco 编辑器，支持语法高亮
+## 核心能力
 
-### 高级特性
+- 项目工作区：导入本地目录，围绕项目建立独立上下文
+- 会话协作：按项目维护会话，承载与 Agent 的持续对话
+- 计划模式：把自然语言目标拆成结构化计划与任务
+- 任务看板：按待办、进行中、完成、阻塞、失败管理任务
+- 设置中心：管理 CLI、Agent、MCP、Skills、Plugins、配置切换、会话和数据
+- 本地优先：所有数据落在本地 SQLite，可导出、导入、清理和备份
 
-- **MCP 插件** - 支持 Model Context Protocol，扩展 AI 能力
-- **技能市场** - 一键安装各种技能扩展
-- **多智能体** - 支持配置多个 AI Agent，灵活切换
-- **主题定制** - 支持亮色/暗色主题，自定义配色
-- **国际化** - 支持中文/英文多语言
+## 启动后的空白状态
 
-## 截图
+首次启动或清空数据库后，应用会进入一个没有项目、没有会话、没有任务的纯净状态，便于从零开始创建演示或真实工作流。
 
-### 主界面
+![空白首页](images/home-empty.png)
 
-<div align="center">
-  <img src="images/main-interface.png" alt="主界面" width="700">
-</div>
+## 1. 导入项目
 
-工作区包含文件树、会话列表和消息区域，提供完整的开发工作流支持。
+应用的起点是“导入项目”。导入后，项目会成为工作区、会话、计划、记忆和任务的统一上下文。
 
-### 智能对话
+![导入项目弹窗](images/project-import-dialog.png)
 
-<div align="center">
-  <img src="images/chat-session.png" alt="会话聊天" width="700">
-</div>
+导入 `demo` 后，工作区左侧会显示项目列表，右侧进入空项目状态，准备开始第一轮协作。
 
-支持流式输出、代码高亮、智能体选择等功能。
+![项目工作区空态](images/workspace-empty-project.png)
 
-### 智能体选择
+## 2. 工作区与会话
 
-<div align="center">
-  <img src="images/agent-selector.png" alt="智能体选择器" width="700">
-</div>
+工作区负责承接日常对话。你可以为当前项目创建多个会话，把探索、实现、排障、评审分开管理。
 
-轻松切换不同的 AI Agent 和模型。
+![工作区会话视图](images/workspace-session.png)
 
-### 计划管理
+这一层的重点不是简单聊天，而是把会话与项目绑定，使后续计划拆分、任务执行、记忆沉淀都能复用同一份上下文。
 
-<div align="center">
-  <img src="images/plan-mode.png" alt="计划模式" width="700">
-</div>
+## 3. 计划模式与任务拆分
 
-创建和管理开发计划，支持任务分解和进度跟踪。
+计划模式是整个产品最核心的工作流。它把“我要完成什么”转成“有哪些任务、依赖、验收标准、测试步骤”。
 
-### 任务看板
+### 3.1 创建计划
 
-<div align="center">
-  <img src="images/task-board.png" alt="任务看板" width="700">
-</div>
+计划支持名称、描述、拆分模式、拆分粒度、最大重试次数、拆分 Agent / 模型以及立即执行 / 定时执行。
 
-可视化任务管理，支持待办、进行中、已完成等状态。
+![创建计划](images/plan-create-dialog.png)
 
-### 记忆管理
+### 3.2 拆分异常可见
 
-<div align="center">
-  <img src="images/memory-mode.png" alt="记忆管理" width="700">
-</div>
+当模型输出不满足约束时，系统会保留拆分过程和错误信息，便于继续拆分、修复配置或重新发起。
 
-分类存储重要信息，支持快速检索和编辑。
+![计划拆分错误态](images/plan-split-error.png)
 
-### 文件编辑器
+### 3.3 拆分成功预览
 
-<div align="center">
-  <img src="images/file-editor.png" alt="文件编辑器" width="700">
-</div>
+在信息足够时，系统会生成结构化任务列表，并在确认前展示完整预览。每个任务都带有优先级、描述、实现步骤、测试步骤和依赖关系。
 
-内置 Monaco 编辑器，支持语法高亮和代码编辑。
+![计划拆分成功预览](images/plan-split-success.png)
 
-### 设置
+### 3.4 任务看板落地
 
-| 通用设置 | Agent 配置 |
-|:---:|:---:|
-| <img src="images/settings-general.png" alt="通用设置" width="350"> | <img src="images/settings-agents.png" alt="Agent 配置" width="350"> |
+确认后，拆分结果会正式写入任务库并进入看板。本次实测中，`Schema 直连验证` 被成功拆成 23 个任务，并完整进入待办列。
 
-| 技能配置 | 主题设置 |
-|:---:|:---:|
-| <img src="images/settings-lsp.png" alt="技能配置" width="350"> | <img src="images/settings-theme.png" alt="主题设置" width="350"> |
+![任务看板](images/plan-task-board.png)
 
-### 技能市场
+任务看板不是孤立的列表，它同时联动了：
 
-<div align="center">
-  <img src="images/marketplace.png" alt="技能市场" width="700">
-</div>
+- 左侧计划列表：显示计划状态、任务总数、执行列表、完成数、失败数
+- 中间看板：管理任务流转和一键执行
+- 右侧详情：展示计划总览、当前执行位置和任务进度
 
-浏览和安装各种技能扩展，增强 AI 能力。
+## 4. 设置中心
 
-## 安装
+设置中心是第二个核心区域。这里不仅是偏好设置，更承担了 CLI、Agent、MCP、Skills、Plugins、配置切换、数据治理等系统级能力。
 
-### 系统要求
+### 4.1 通用设置
 
-- **macOS**: 10.15 (Catalina) 或更高版本
-- **Windows**: Windows 10 或更高版本
-- **Linux**: 主流发行版 (Ubuntu 20.04+, Fedora 36+ 等)
+这里集中管理语言、字体、自动保存、删除确认、回车发送、会话压缩策略、编辑器行为等基础选项。
 
-### 下载安装
+![通用设置](images/settings-general-live.png)
 
-前往 [Releases](https://github.com/your-username/easy-agent-pilot/releases) 页面下载对应平台的安装包：
+### 4.2 CLI 下载管理
 
-- **macOS**: `.dmg` 或 `.app`
-- **Windows**: `.msi` 或 `.exe`
-- **Linux**: `.AppImage` 或 `.deb`
+应用会自动探测本机可用 CLI，并显示安装状态、路径、版本以及升级入口。本次环境中同时识别出了 Claude CLI 与 Codex CLI。
 
-## 快速开始
+![CLI 下载管理](images/settings-cli-download.png)
 
-### 1. 导入项目
+### 4.3 技能市场
 
-点击侧边栏的"工作区"按钮，然后点击"导入项目"选择你的项目目录。
+技能市场用于发现 MCP 服务、Skills 与 Plugins。即使市场源暂时不可用，界面也会给出明确失败态和重试入口，而不是静默失败。
 
-### 2. 配置智能体
+![技能市场](images/settings-skill-market.png)
 
-使用 `Cmd+,` (macOS) 或 `Ctrl+,` (Windows/Linux) 打开设置，在"Agent 配置"中添加你的 AI API 密钥。
+### 4.4 MCP / Skills / Plugins 管理
 
-### 3. 开始对话
+技能配置页是设置中心里最关键的一块，覆盖了扩展能力的增删改查和调试验证。
 
-选择一个智能体，在输入框中输入你的问题或任务，即可开始与 AI 协作。
+| MCP 服务 | Skills 管理 | Plugins 管理 |
+| --- | --- | --- |
+| ![MCP 服务](images/settings-skill-mcp.png) | ![Skills 管理](images/settings-skill-skills.png) | ![Plugins 管理](images/settings-skill-plugins.png) |
 
-## 技术栈
+这部分适合管理：
 
-- **[Tauri 2](https://tauri.app/)** - 跨平台桌面应用框架
-- **[Vue 3](https://vuejs.org/)** - 渐进式 JavaScript 框架
-- **[TypeScript](https://www.typescriptlang.org/)** - 类型安全的 JavaScript
-- **[Naive UI](https://www.naiveui.com/)** - Vue 3 组件库
-- **[Tailwind CSS](https://tailwindcss.com/)** - 原子化 CSS 框架
-- **[Monaco Editor](https://microsoft.github.io/monaco-editor/)** - 代码编辑器
-- **[Pinia](https://pinia.vuejs.org/)** - Vue 状态管理
-- **[SQLite](https://www.sqlite.org/)** - 本地数据库
+- 已安装 MCP 服务的配置和启停
+- 本地 Skill 的发现、安装和启用
+- 插件扩展的加载与维护
 
-## 开发
+### 4.5 MCP 工具调试
 
-### 环境准备
+设置中心内置了工具调试器，可以直接调用 MCP 工具并查看返回结果，方便验证服务是否真的接通，而不是只停留在配置页面。
 
-1. 安装 [Node.js](https://nodejs.org/) (v18+)
-2. 安装 [pnpm](https://pnpm.io/)
-3. 安装 [Rust](https://www.rust-lang.org/)
-4. 安装 Tauri CLI 依赖（参考 [Tauri 官方文档](https://tauri.app/start/create-project/)）
+| 调试器 | 执行结果 |
+| --- | --- |
+| ![MCP 工具调试器](images/settings-mcp-tool-tester.png) | ![MCP 工具执行结果](images/settings-mcp-tool-result.png) |
+
+### 4.6 配置快速切换
+
+配置切换页用于在不同 Provider 或 CLI 配置之间快速切换，适合同时维护 Claude CLI、Codex CLI 等多套环境。
+
+![配置快速切换](images/settings-config-switch.png)
+
+### 4.7 会话管理
+
+会话管理页支持按智能体或项目筛选历史 CLI 会话，统一查看、批量删除或清理陈旧会话。
+
+![会话管理](images/settings-session-management.png)
+
+### 4.8 数据管理
+
+数据管理页提供数据路径展示、数据导出、数据导入、重建安装会话等能力，适合迁移、备份和清理本地状态。
+
+![数据管理](images/settings-data-management.png)
+
+## 5. 本次实测结果
+
+这次 README 编写不是静态整理，而是伴随真实验证完成的。已经确认的关键结果如下：
+
+- 纯净数据库启动正常，项目导入流程可用
+- 工作区会话界面可正常创建和承载项目上下文
+- 计划拆分链路已经可以稳定产出结构化任务
+- `Schema 直连验证` 计划成功生成 23 个任务并落入任务看板
+- MCP / Skills / Plugins / 会话管理 / 数据管理等设置页均可正常打开
+- MCP 工具调试器可进入实际调用与结果查看流程
+
+## 6. 文档编写过程中修复并复测的问题
+
+本次测试过程中发现并修复了两个影响核心流程的问题：
+
+- Codex CLI 的严格 JSON Schema 与当前 `response_format` 约束不兼容，导致任务拆分失败
+- 计划页默认停留在 `draft` 标签，导致无草稿时列表看起来像“空白”，拆分完成后也不利于立刻查看结果
+
+已修复的实现位置：
+
+- [src/services/plan/prompts.ts](/Users/haijun/Work/frontend/easy-agent-pilot/src/services/plan/prompts.ts)
+- [src/components/plan/PlanList.vue](/Users/haijun/Work/frontend/easy-agent-pilot/src/components/plan/PlanList.vue)
+- [src/components/plan/TaskSplitDialog.vue](/Users/haijun/Work/frontend/easy-agent-pilot/src/components/plan/TaskSplitDialog.vue)
+
+修复后已完成回归验证：
+
+- 任务拆分成功结束并显示 `DONE`
+- 确认后任务正确入库
+- 计划列表会自动切换到有数据的状态标签
+- 当前计划会重新选中，任务看板立即显示结果
+
+## 7. 快速开始
+
+### 运行环境
+
+- Node.js 18+
+- pnpm
+- Rust
+- Tauri 2 构建依赖
 
 ### 本地开发
 
 ```bash
-# 克隆仓库
-git clone https://github.com/your-username/easy-agent-pilot.git
-cd easy-agent-pilot
-
-# 安装依赖
 pnpm install
-
-# 启动开发服务器
-pnpm tauri dev
+pnpm dev --host 127.0.0.1 --port 1420
+cd src-tauri
+cargo run --no-default-features
 ```
 
-### 构建发布
+### 首次体验建议流程
 
-```bash
-# 构建生产版本
-pnpm tauri build
-```
+1. 启动应用并确认处于纯净状态
+2. 导入你的本地项目目录
+3. 在工作区创建会话，确认 Agent 可正常对话
+4. 进入计划模式，创建一个计划并发起拆分
+5. 在任务看板中确认任务数量、依赖关系与状态流转
+6. 打开设置中心，检查 CLI、MCP、Skills、Plugins、数据管理等配置
 
-### 项目结构
+## 技术栈
 
-```
+- Tauri 2
+- Vue 3
+- TypeScript
+- Rust
+- SQLite
+- Pinia
+
+## 目录说明
+
+```text
 easy-agent-pilot/
-├── src/                    # Vue 前端源码
-│   ├── components/         # Vue 组件
-│   ├── stores/             # Pinia 状态管理
-│   ├── services/           # 服务层
-│   ├── locales/            # 国际化文件
-│   └── types/              # TypeScript 类型定义
-├── src-tauri/              # Tauri 后端源码
-│   ├── src/                # Rust 源码
-│   └── tauri.conf.json     # Tauri 配置
-├── images/                 # 文档截图
-└── package.json            # 项目配置
+├── src/                # Vue 前端
+├── src-tauri/          # Rust / Tauri 后端
+├── images/             # README 截图
+└── README.md
 ```
-
-## 许可证
-
-[MIT License](LICENSE)
-
----
-
-<div align="center">
-  Made with ❤️ by Easy Agent Team
-</div>

@@ -427,7 +427,10 @@ pub fn clear_plan_execution_results(plan_id: String) -> Result<i32, String> {
     let logs_deleted = if task_ids.is_empty() {
         0
     } else {
-        let placeholders = (0..task_ids.len()).map(|_| "?").collect::<Vec<_>>().join(", ");
+        let placeholders = (0..task_ids.len())
+            .map(|_| "?")
+            .collect::<Vec<_>>()
+            .join(", ");
         let sql = format!(
             "DELETE FROM task_execution_logs WHERE task_id IN ({})",
             placeholders

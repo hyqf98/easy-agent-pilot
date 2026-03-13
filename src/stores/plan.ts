@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useNotificationStore } from './notification'
 import { getErrorMessage } from '@/utils/api'
-import type { Plan, PlanStatus, PlanExecutionStatus, ScheduleStatus, CreatePlanInput, UpdatePlanInput, AgentRole } from '@/types/plan'
+import type { Plan, PlanStatus, PlanExecutionStatus, ScheduleStatus, CreatePlanInput, UpdatePlanInput, AgentRole, PlanSplitMode } from '@/types/plan'
 
 // Rust 后端返回的 snake_case 结构
 interface RustPlan {
@@ -11,6 +11,7 @@ interface RustPlan {
   project_id: string
   name: string
   description?: string
+  split_mode: string
   split_agent_id?: string
   split_model_id?: string
   status: string
@@ -48,6 +49,7 @@ function transformPlan(rustPlan: RustPlan): Plan {
     projectId: rustPlan.project_id,
     name: rustPlan.name,
     description: rustPlan.description,
+    splitMode: (rustPlan.split_mode || 'ai') as PlanSplitMode,
     splitAgentId: rustPlan.split_agent_id,
     splitModelId: rustPlan.split_model_id,
     status: rustPlan.status as PlanStatus,
@@ -137,6 +139,7 @@ export const usePlanStore = defineStore('plan', () => {
       project_id: input.projectId,
       name: input.name,
       description: input.description ?? null,
+      split_mode: input.splitMode ?? 'ai',
       split_agent_id: input.splitAgentId ?? null,
       split_model_id: input.splitModelId ?? null,
       agent_team: input.agentTeam ?? null,
@@ -167,6 +170,7 @@ export const usePlanStore = defineStore('plan', () => {
 
     if ('name' in updates) input.name = updates.name ?? null
     if ('description' in updates) input.description = updates.description ?? null
+    if ('splitMode' in updates) input.split_mode = updates.splitMode ?? null
     if ('splitAgentId' in updates) input.split_agent_id = updates.splitAgentId ?? null
     if ('splitModelId' in updates) input.split_model_id = updates.splitModelId ?? null
     if ('status' in updates) input.status = updates.status ?? null

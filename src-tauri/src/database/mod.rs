@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rusqlite::{params, Connection};
+use rusqlite::Connection;
 
 /// 鏁版嵁搴撳垵濮嬪寲 SQL 鑴氭湰
 const INIT_SQL: &str = r#"
@@ -465,6 +465,21 @@ const INIT_SQL: &str = r#"
     CREATE INDEX IF NOT EXISTS idx_memory_compressions_memory ON memory_compressions(memory_id);
 "#;
 
+fn table_has_column(conn: &Connection, table_name: &str, column_name: &str) -> Result<bool> {
+    let pragma_sql = format!("PRAGMA table_info({})", table_name);
+    let mut stmt = conn.prepare(&pragma_sql)?;
+    let mut rows = stmt.query([])?;
+
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == column_name {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
 /// 鍒濆鍖栨暟鎹簱
 pub fn init_database() -> Result<()> {
     // 鑾峰彇鎸佷箙鍖栫洰褰?
@@ -677,6 +692,7 @@ pub fn init_database() -> Result<()> {
         "ALTER TABLE plans ADD COLUMN split_model_id TEXT",
         "ALTER TABLE plans ADD COLUMN scheduled_at TEXT",
         "ALTER TABLE plans ADD COLUMN schedule_status TEXT DEFAULT 'none'",
+        "ALTER TABLE plans ADD COLUMN split_mode TEXT DEFAULT 'ai'",
     ];
 
     for migration in plans_migrations {
@@ -821,150 +837,96 @@ pub fn init_database() -> Result<()> {
         }
     }
 
-    // ==================== 璁板繂绠＄悊鐩稿叧琛ㄨ縼绉?====================
-
-    // memory_categories 琛紙璁板繂鍒嗙被锛?
-    let memory_categories_table_sql = r#"
-        CREATE TABLE IF NOT EXISTS memory_categories (
-            id TEXT PRIMARY KEY,
-            parent_id TEXT,
-            name TEXT NOT NULL,
-            icon TEXT,
-            color TEXT,
-            description TEXT,
-            order_index INTEGER DEFAULT 0,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            FOREIGN KEY (parent_id) REFERENCES memory_categories(id) ON DELETE CASCADE
-        )
-    "#;
-    if let Err(e) = conn.execute(memory_categories_table_sql, []) {
-        println!("Memory categories table migration warning: {}", e);
-    }
-
-    // 鍒涘缓绱㈠紩
-    let memory_categories_indexes = [
-        "CREATE INDEX IF NOT EXISTS idx_memory_categories_parent ON memory_categories(parent_id)",
+    // ==================== Memory domain rebuild ====================
+    let cleanup_legacy_memory_tables = [
+        "DROP TABLE IF EXISTS memory_compressions",
+        "DROP TABLE IF EXISTS user_memories",
+        "DROP TABLE IF EXISTS memory_categories",
     ];
-    for migration in memory_categories_indexes {
+    for migration in cleanup_legacy_memory_tables {
         if let Err(e) = conn.execute(migration, []) {
-            println!("Memory categories index migration warning: {}", e);
+            println!("Legacy memory cleanup warning: {}", e);
         }
     }
 
-    // user_memories 琛紙鐢ㄦ埛璁板繂锛?
-    let user_memories_table_sql = r#"
-        CREATE TABLE IF NOT EXISTS user_memories (
+    let needs_memory_rebuild = !table_has_column(&conn, "memory_libraries", "content_md")?;
+    if needs_memory_rebuild {
+        let rebuild_tables = [
+            "DROP TABLE IF EXISTS memory_merge_runs",
+            "DROP TABLE IF EXISTS raw_memory_records",
+            "DROP TABLE IF EXISTS memory_items",
+            "DROP TABLE IF EXISTS memory_extractions",
+            "DROP TABLE IF EXISTS memory_records",
+            "DROP TABLE IF EXISTS memory_libraries",
+        ];
+        for migration in rebuild_tables {
+            if let Err(e) = conn.execute(migration, []) {
+                println!("Memory rebuild cleanup warning: {}", e);
+            }
+        }
+    }
+
+    let memory_libraries_table_sql = r#"
+        CREATE TABLE IF NOT EXISTS memory_libraries (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            content_md TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    "#;
+    if let Err(e) = conn.execute(memory_libraries_table_sql, []) {
+        println!("Memory libraries table migration warning: {}", e);
+    }
+
+    let raw_memory_records_table_sql = r#"
+        CREATE TABLE IF NOT EXISTS raw_memory_records (
             id TEXT PRIMARY KEY,
             session_id TEXT,
-            category_id TEXT,
-            title TEXT NOT NULL,
+            project_id TEXT,
+            message_id TEXT UNIQUE,
             content TEXT NOT NULL,
-            compressed_content TEXT,
-            is_compressed INTEGER DEFAULT 0,
-            source_type TEXT DEFAULT 'auto',
-            source_message_ids TEXT,
-            tags TEXT,
-            metadata TEXT,
+            source_role TEXT NOT NULL DEFAULT 'user',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-            FOREIGN KEY (category_id) REFERENCES memory_categories(id) ON DELETE SET NULL
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
         )
     "#;
-    if let Err(e) = conn.execute(user_memories_table_sql, []) {
-        println!("User memories table migration warning: {}", e);
+    if let Err(e) = conn.execute(raw_memory_records_table_sql, []) {
+        println!("Raw memory records table migration warning: {}", e);
     }
 
-    // 鍒涘缓绱㈠紩
-    let user_memories_indexes = [
-        "CREATE INDEX IF NOT EXISTS idx_user_memories_session ON user_memories(session_id)",
-        "CREATE INDEX IF NOT EXISTS idx_user_memories_category ON user_memories(category_id)",
-        "CREATE INDEX IF NOT EXISTS idx_user_memories_created ON user_memories(created_at DESC)",
-    ];
-    for migration in user_memories_indexes {
-        if let Err(e) = conn.execute(migration, []) {
-            println!("User memories index migration warning: {}", e);
-        }
-    }
-
-    // memory_compressions 琛紙璁板繂鍘嬬缉鍘嗗彶锛?
-    let memory_compressions_table_sql = r#"
-        CREATE TABLE IF NOT EXISTS memory_compressions (
+    let memory_merge_runs_table_sql = r#"
+        CREATE TABLE IF NOT EXISTS memory_merge_runs (
             id TEXT PRIMARY KEY,
-            memory_id TEXT NOT NULL,
-            original_content TEXT NOT NULL,
-            compressed_content TEXT NOT NULL,
-            compression_ratio REAL,
+            library_id TEXT NOT NULL,
+            source_record_ids TEXT NOT NULL,
+            source_record_count INTEGER NOT NULL DEFAULT 0,
+            previous_content_md TEXT NOT NULL DEFAULT '',
+            merged_content_md TEXT NOT NULL DEFAULT '',
+            agent_id TEXT,
             model_id TEXT,
             created_at TEXT NOT NULL,
-            FOREIGN KEY (memory_id) REFERENCES user_memories(id) ON DELETE CASCADE
+            FOREIGN KEY (library_id) REFERENCES memory_libraries(id) ON DELETE CASCADE
         )
     "#;
-    if let Err(e) = conn.execute(memory_compressions_table_sql, []) {
-        println!("Memory compressions table migration warning: {}", e);
+    if let Err(e) = conn.execute(memory_merge_runs_table_sql, []) {
+        println!("Memory merge runs table migration warning: {}", e);
     }
 
-    // 鍒涘缓绱㈠紩
-    let memory_compressions_indexes = [
-        "CREATE INDEX IF NOT EXISTS idx_memory_compressions_memory ON memory_compressions(memory_id)",
-        "CREATE INDEX IF NOT EXISTS idx_memory_compressions_created ON memory_compressions(created_at DESC)",
+    let memory_indexes = [
+        "CREATE INDEX IF NOT EXISTS idx_memory_libraries_updated ON memory_libraries(updated_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_raw_memory_records_created ON raw_memory_records(created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_raw_memory_records_project ON raw_memory_records(project_id, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_raw_memory_records_session ON raw_memory_records(session_id, created_at DESC)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_raw_memory_records_message ON raw_memory_records(message_id) WHERE message_id IS NOT NULL",
+        "CREATE INDEX IF NOT EXISTS idx_memory_merge_runs_library_created ON memory_merge_runs(library_id, created_at DESC)",
     ];
-    for migration in memory_compressions_indexes {
+    for migration in memory_indexes {
         if let Err(e) = conn.execute(migration, []) {
-            println!("Memory compressions index migration warning: {}", e);
-        }
-    }
-
-    // 鎻掑叆榛樿鍒嗙被鏁版嵁锛堝鏋滀笉瀛樺湪锛?
-    let now = chrono::Utc::now().to_rfc3339();
-    let default_categories = [
-        (
-            "cat-user-info",
-            "User Info",
-            "user",
-            "#3b82f6",
-            "User profile and preferences",
-            1,
-        ),
-        (
-            "cat-project",
-            "Project Memory",
-            "folder",
-            "#10b981",
-            "Project-related knowledge",
-            2,
-        ),
-        (
-            "cat-skills",
-            "Skills Knowledge",
-            "zap",
-            "#f59e0b",
-            "Knowledge distilled into reusable skills",
-            3,
-        ),
-        (
-            "cat-general",
-            "General Memory",
-            "archive",
-            "#6b7280",
-            "Other general memories",
-            4,
-        ),
-    ];
-
-    for (id, name, icon, color, description, order_index) in default_categories {
-        let exists: bool = conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM memory_categories WHERE id = ?1)",
-            [id],
-            |row| row.get(0),
-        )?;
-
-        if !exists {
-            conn.execute(
-                "INSERT INTO memory_categories (id, name, icon, color, description, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                params![id, name, icon, color, description, order_index, &now, &now],
-            )?;
+            println!("Memory index migration warning: {}", e);
         }
     }
 

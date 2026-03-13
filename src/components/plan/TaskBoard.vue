@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
 import KanbanColumn from './KanbanColumn.vue'
 import TaskEditModal from './TaskEditModal.vue'
@@ -22,8 +22,31 @@ const emit = defineEmits<{
 const showEditModal = ref(false)
 const editingTask = ref<Task | null>(null)
 
+// 创建任务对话框状态
+const showCreateModal = ref(false)
+const createMode = ref<'create' | 'edit'>('create')
+
 // 当前计划 ID
 const currentPlanId = computed(() => planStore.currentPlanId)
+
+// 当前计划
+const currentPlan = computed(() => planStore.currentPlan)
+
+// 是否为手动模式
+const isManualMode = computed(() => currentPlan.value?.splitMode === 'manual')
+
+// 新任务模板
+const newTaskTemplate = reactive<Partial<Task>>({
+  planId: '',
+  title: '',
+  description: '',
+  status: 'pending',
+  priority: 'medium',
+  order: 0,
+  retryCount: 0,
+  maxRetries: 3
+})
+
 const emptyTasksByStatus: Record<TaskStatus, Task[]> = {
   pending: [],
   in_progress: [],
@@ -305,6 +328,62 @@ function handleEditSaved() {
   showEditModal.value = false
   editingTask.value = null
 }
+
+// 打开创建任务对话框
+function openCreateTaskModal() {
+  if (!currentPlanId.value) return
+
+  // 重置任务模板
+  Object.assign(newTaskTemplate, {
+    planId: currentPlanId.value,
+    title: '',
+    description: '',
+    status: 'pending',
+    priority: 'medium',
+    order: tasks.value.length,
+    retryCount: 0,
+    maxRetries: 3,
+    implementationSteps: [],
+    testSteps: [],
+    acceptanceCriteria: []
+  })
+
+  createMode.value = 'create'
+  showCreateModal.value = true
+}
+
+// 处理创建任务
+async function handleTaskCreated(taskData: Partial<Task>) {
+  if (!currentPlanId.value) return
+
+  try {
+    await taskStore.createTask({
+      planId: currentPlanId.value,
+      title: taskData.title || '',
+      description: taskData.description,
+      priority: taskData.priority,
+      order: tasks.value.length,
+      maxRetries: taskData.maxRetries || 3,
+      implementationSteps: taskData.implementationSteps,
+      testSteps: taskData.testSteps,
+      acceptanceCriteria: taskData.acceptanceCriteria
+    })
+    showCreateModal.value = false
+  } catch (error) {
+    console.error('Failed to create task:', error)
+  }
+}
+
+// 标记计划为就绪状态
+async function markPlanAsReady() {
+  if (!currentPlanId.value) return
+
+  try {
+    await planStore.markPlanAsReady(currentPlanId.value)
+  } catch (error) {
+    console.error('Failed to mark plan as ready:', error)
+  }
+}
 </script>
 
 <template>
@@ -316,6 +395,32 @@ function handleEditSaved() {
         </h3>
       </div>
       <div class="header-right">
+        <!-- 添加任务按钮（所有模式和状态都可以添加） -->
+        <button
+          class="btn btn-primary btn-add-task"
+          @click="openCreateTaskModal"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          添加任务
+        </button>
+        <!-- 手动模式+规划状态：显示标记就绪按钮 -->
+        <button
+          v-if="isManualMode && currentPlan?.status === 'planning' && tasks.length > 0"
+          class="btn btn-secondary"
+          @click="markPlanAsReady"
+        >
+          标记就绪
+        </button>
+
         <!-- 任务统计 -->
         <div class="task-stats">
           <span class="stat-item completed">{{ t('taskBoard.stats.completed', { count: taskStats.completed }) }}</span>
@@ -332,13 +437,6 @@ function handleEditSaved() {
       class="empty-state"
     >
       <span>{{ t('taskBoard.emptyNoPlan') }}</span>
-    </div>
-
-    <div
-      v-else-if="tasks.length === 0"
-      class="empty-state"
-    >
-      <span>{{ t('taskBoard.emptyNoTasks') }}</span>
     </div>
 
     <div
@@ -361,6 +459,7 @@ function handleEditSaved() {
         @task-delete="handleTaskDelete"
         @execute-all="handleExecuteAll"
         @start-execution="handleStartExecution"
+        @add-task="openCreateTaskModal"
       />
     </div>
 
@@ -370,6 +469,14 @@ function handleEditSaved() {
       v-model:visible="showEditModal"
       :task="editingTask"
       @saved="handleEditSaved"
+    />
+
+    <!-- 创建任务对话框 -->
+    <TaskEditModal
+      v-model:visible="showCreateModal"
+      :task="newTaskTemplate as Task"
+      mode="create"
+      @saved="handleTaskCreated"
     />
   </div>
 </template>

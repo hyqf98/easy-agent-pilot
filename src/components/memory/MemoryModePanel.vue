@@ -1,155 +1,789 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { EaButton, EaInput } from '@/components/common'
+import EaSelect, { type SelectOption } from '@/components/common/EaSelect.vue'
 import { useMemoryStore } from '@/stores/memory'
-import { useI18n } from 'vue-i18n'
-import CategoryTree from './CategoryTree.vue'
-import MemoryContentPanel from './MemoryContentPanel.vue'
-import MemoryDetail from './MemoryDetail.vue'
-import type { UserMemory } from '@/types/memory'
+import { useProjectStore } from '@/stores/project'
+import type {
+  CreateMemoryLibraryInput,
+  CreateRawMemoryRecordInput,
+  MemoryLibrary,
+  RawMemoryRecord,
+  UpdateMemoryLibraryInput,
+  UpdateRawMemoryRecordInput
+} from '@/types/memory'
+import MemoryLibraryModal from './MemoryLibraryModal.vue'
+import RawMemoryModal from './RawMemoryModal.vue'
+import MemoryMergeModal from './MemoryMergeModal.vue'
 
-const { t } = useI18n()
 const memoryStore = useMemoryStore()
+const projectStore = useProjectStore()
 
-// 右侧详情面板
-const detailPanelOpen = ref(false)
-const selectedMemory = ref<UserMemory | null>(null)
+const search = ref('')
+const projectFilter = ref<string>('all')
+const selectedRecordId = ref<string | null>(null)
+const libraryModalVisible = ref(false)
+const libraryEditing = ref<MemoryLibrary | null>(null)
+const rawModalVisible = ref(false)
+const rawEditing = ref<RawMemoryRecord | null>(null)
+const mergeModalVisible = ref(false)
+const libraryContentDraft = ref('')
+const libraryContentDirty = ref(false)
 
-// 当前选中的分类ID（null 表示全部）
-const currentCategoryId = computed(() => memoryStore.currentCategoryId)
+let filterTimer: ReturnType<typeof setTimeout> | null = null
 
-// 打开记忆详情
-function handleMemoryClick(memory: UserMemory) {
-  selectedMemory.value = memory
-  detailPanelOpen.value = true
+const selectedRecord = computed(() =>
+  memoryStore.rawRecords.find((record) => record.id === selectedRecordId.value) ?? null
+)
+
+const projectOptions = computed<SelectOption[]>(() => [
+  { value: 'all', label: '全部项目' },
+  ...projectStore.projects.map((project) => ({
+    value: project.id,
+    label: project.name
+  }))
+])
+
+const sortedLibraries = computed(() =>
+  [...memoryStore.libraries].sort((left, right) =>
+    new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
+  )
+)
+
+const canSaveLibrary = computed(() => {
+  return Boolean(memoryStore.activeLibrary && libraryContentDirty.value)
+})
+
+watch(
+  () => memoryStore.activeLibrary,
+  (library) => {
+    libraryContentDraft.value = library?.contentMd ?? ''
+    libraryContentDirty.value = false
+  },
+  { immediate: true }
+)
+
+watch(search, triggerReload)
+watch(projectFilter, triggerReload)
+
+function triggerReload() {
+  if (filterTimer) {
+    clearTimeout(filterTimer)
+  }
+  filterTimer = setTimeout(() => {
+    void reloadRawRecords()
+  }, 180)
 }
 
-// 关闭详情面板
-function closeDetailPanel() {
-  detailPanelOpen.value = false
-  selectedMemory.value = null
+async function reloadRawRecords() {
+  await memoryStore.loadRawRecords({
+    search: search.value.trim() || undefined,
+    projectId: projectFilter.value !== 'all' ? projectFilter.value : undefined
+  })
 }
 
-// 分类选择变化
-function handleCategorySelect(categoryId: string | null) {
-  memoryStore.setCurrentCategory(categoryId)
+function openLibraryCreate() {
+  libraryEditing.value = null
+  libraryModalVisible.value = true
 }
 
-// 初始化加载数据
+function openLibraryEdit(library: MemoryLibrary) {
+  libraryEditing.value = library
+  libraryModalVisible.value = true
+}
+
+function openRawCreate() {
+  rawEditing.value = null
+  rawModalVisible.value = true
+}
+
+function openRawEdit(record: RawMemoryRecord) {
+  rawEditing.value = record
+  rawModalVisible.value = true
+}
+
+async function handleLibrarySubmit(payload: { name: string; description?: string }) {
+  if (libraryEditing.value) {
+    await memoryStore.updateLibrary(libraryEditing.value.id, payload as UpdateMemoryLibraryInput)
+  } else {
+    await memoryStore.createLibrary(payload as CreateMemoryLibraryInput)
+  }
+  libraryModalVisible.value = false
+}
+
+async function handleRawSubmit(payload: { content: string }) {
+  if (rawEditing.value) {
+    const record = await memoryStore.updateRawRecord(rawEditing.value.id, payload as UpdateRawMemoryRecordInput)
+    selectedRecordId.value = record.id
+  } else {
+    const record = await memoryStore.createRawRecord({
+      content: payload.content,
+      projectId: projectStore.currentProjectId ?? undefined,
+      sourceRole: 'user'
+    } as CreateRawMemoryRecordInput)
+    selectedRecordId.value = record.id
+  }
+  rawModalVisible.value = false
+}
+
+async function handleDeleteLibrary(library: MemoryLibrary) {
+  if (!window.confirm(`确定删除记忆库「${library.name}」吗？`)) return
+  await memoryStore.deleteLibrary(library.id)
+}
+
+async function handleDeleteRecord(record: RawMemoryRecord) {
+  if (!window.confirm('确定删除这条原始记忆吗？')) return
+  await memoryStore.deleteRawRecord(record.id)
+  if (selectedRecordId.value === record.id) {
+    selectedRecordId.value = null
+  }
+}
+
+async function handleSaveLibrary() {
+  const library = memoryStore.activeLibrary
+  if (!library) return
+
+  const updated = await memoryStore.updateLibrary(library.id, {
+    contentMd: libraryContentDraft.value
+  })
+  libraryContentDraft.value = updated.contentMd
+  libraryContentDirty.value = false
+}
+
+async function handleMergeConfirm(payload: { libraryId: string; agentId?: string }) {
+  mergeModalVisible.value = false
+  const result = await memoryStore.mergeIntoLibrary({
+    libraryId: payload.libraryId,
+    agentId: payload.agentId,
+    recordIds: memoryStore.selectedRecordIds
+  })
+  libraryContentDraft.value = result.library.contentMd
+  libraryContentDirty.value = false
+}
+
 onMounted(async () => {
   await memoryStore.initialize()
+  if (projectStore.projects.length === 0) {
+    await projectStore.loadProjects()
+  }
+})
+
+onUnmounted(() => {
+  if (filterTimer) {
+    clearTimeout(filterTimer)
+  }
 })
 </script>
 
 <template>
-  <div class="memory-mode-panel">
-    <!-- 左侧：分类树 -->
-    <div class="category-tree-container">
-      <CategoryTree
-        :selected-id="currentCategoryId"
-        @select="handleCategorySelect"
-      />
-    </div>
+  <div class="memory-mode">
+    <aside class="memory-mode__libraries">
+      <div class="memory-panel-heading">
+        <div>
+          <p class="memory-panel-heading__eyebrow">
+            Memory Libraries
+          </p>
+          <h2>记忆库</h2>
+        </div>
+        <EaButton
+          type="secondary"
+          size="small"
+          @click="openLibraryCreate"
+        >
+          新建
+        </EaButton>
+      </div>
 
-    <!-- 中间：记忆列表 -->
-    <div
-      class="memory-content-container"
-      :class="{ 'memory-content-container--with-detail': detailPanelOpen }"
-    >
-      <MemoryContentPanel @memory-click="handleMemoryClick" />
-    </div>
-
-    <!-- 收起按钮 - 放在交界处 -->
-    <button
-      v-if="detailPanelOpen"
-      class="collapse-button"
-      :title="t('common.collapse')"
-      @click="closeDetailPanel"
-    >
-      <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
+      <div
+        v-if="memoryStore.isLoadingLibraries && !memoryStore.libraries.length"
+        class="memory-empty"
       >
-        <polyline points="9 18 15 12 9 6" />
-      </svg>
-    </button>
+        正在加载记忆库...
+      </div>
 
-    <!-- 右侧：记忆详情 -->
-    <div
-      v-if="detailPanelOpen && selectedMemory"
-      class="memory-detail-container"
-    >
-      <MemoryDetail
-        :memory="selectedMemory"
-        @close="closeDetailPanel"
-      />
-    </div>
+      <div
+        v-else-if="!sortedLibraries.length"
+        class="memory-empty"
+      >
+        还没有记忆库，先创建一个 Markdown 记忆库。
+      </div>
+
+      <div
+        v-else
+        class="memory-library-list"
+      >
+        <button
+          v-for="library in sortedLibraries"
+          :key="library.id"
+          type="button"
+          class="memory-library-card"
+          :class="{ 'memory-library-card--active': library.id === memoryStore.activeLibraryId }"
+          @click="memoryStore.setActiveLibrary(library.id)"
+        >
+          <div class="memory-library-card__head">
+            <div>
+              <strong>{{ library.name }}</strong>
+              <p>{{ library.description || '未填写说明' }}</p>
+            </div>
+            <span>{{ new Date(library.updatedAt).toLocaleDateString() }}</span>
+          </div>
+          <div class="memory-library-card__foot">
+            <button
+              type="button"
+              class="memory-inline-action"
+              @click.stop="openLibraryEdit(library)"
+            >
+              编辑
+            </button>
+            <button
+              type="button"
+              class="memory-inline-action memory-inline-action--danger"
+              @click.stop="handleDeleteLibrary(library)"
+            >
+              删除
+            </button>
+          </div>
+        </button>
+      </div>
+    </aside>
+
+    <section class="memory-mode__records">
+      <div class="memory-panel-heading">
+        <div>
+          <p class="memory-panel-heading__eyebrow">
+            Raw Memory Pool
+          </p>
+          <h2>原始记忆数据</h2>
+        </div>
+        <div class="memory-toolbar__actions">
+          <EaButton
+            type="secondary"
+            size="small"
+            @click="openRawCreate"
+          >
+            手动添加
+          </EaButton>
+          <EaButton
+            type="secondary"
+            size="small"
+            @click="reloadRawRecords"
+          >
+            刷新
+          </EaButton>
+        </div>
+      </div>
+
+      <div class="memory-filters">
+        <EaInput
+          v-model="search"
+          placeholder="搜索原始记忆内容"
+        />
+        <EaSelect
+          v-model="projectFilter"
+          :options="projectOptions"
+        />
+      </div>
+
+      <div class="memory-records-toolbar">
+        <div class="memory-records-toolbar__summary">
+          <span>共 {{ memoryStore.rawRecords.length }} 条</span>
+          <span v-if="memoryStore.selectedRecordIds.length">已勾选 {{ memoryStore.selectedRecordIds.length }} 条</span>
+        </div>
+        <div class="memory-toolbar__actions">
+          <EaButton
+            type="ghost"
+            size="small"
+            :disabled="memoryStore.selectedRecordIds.length === 0"
+            @click="memoryStore.clearSelectedRecords()"
+          >
+            清空勾选
+          </EaButton>
+          <EaButton
+            size="small"
+            :disabled="memoryStore.selectedRecordIds.length === 0 || !memoryStore.libraries.length"
+            :loading="memoryStore.isMerging"
+            @click="mergeModalVisible = true"
+          >
+            AI 压缩到记忆库
+          </EaButton>
+        </div>
+      </div>
+
+      <div
+        v-if="selectedRecord"
+        class="memory-record-preview"
+      >
+        <div class="memory-record-preview__head">
+          <div>
+            <strong>当前查看</strong>
+            <span>{{ selectedRecord.projectName || '未关联项目' }} / {{ selectedRecord.sessionName || '未关联会话' }}</span>
+          </div>
+          <div class="memory-toolbar__actions">
+            <EaButton
+              type="secondary"
+              size="small"
+              @click="openRawEdit(selectedRecord)"
+            >
+              编辑
+            </EaButton>
+            <EaButton
+              type="danger"
+              size="small"
+              @click="handleDeleteRecord(selectedRecord)"
+            >
+              删除
+            </EaButton>
+          </div>
+        </div>
+        <pre>{{ selectedRecord.content }}</pre>
+      </div>
+
+      <div
+        v-if="memoryStore.isLoadingRecords && !memoryStore.rawRecords.length"
+        class="memory-empty"
+      >
+        正在加载原始记忆...
+      </div>
+
+      <div
+        v-else-if="!memoryStore.rawRecords.length"
+        class="memory-empty"
+      >
+        还没有原始记忆数据。你在会话面板发送的用户消息会自动进入这里。
+      </div>
+
+      <div
+        v-else
+        class="memory-record-list"
+      >
+        <article
+          v-for="record in memoryStore.rawRecords"
+          :key="record.id"
+          class="memory-record-card"
+          :class="{ 'memory-record-card--active': record.id === selectedRecordId }"
+          @click="selectedRecordId = record.id"
+        >
+          <label
+            class="memory-record-card__check"
+            @click.stop
+          >
+            <input
+              type="checkbox"
+              :checked="memoryStore.selectedRecordIds.includes(record.id)"
+              @change="memoryStore.toggleRecordSelection(record.id)"
+            >
+            <span>{{ new Date(record.createdAt).toLocaleString() }}</span>
+          </label>
+
+          <div class="memory-record-card__content">
+            <p>{{ record.content }}</p>
+          </div>
+
+          <div class="memory-record-card__meta">
+            <span>{{ record.projectName || '未关联项目' }}</span>
+            <span>{{ record.sessionName || '未关联会话' }}</span>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <aside class="memory-mode__library-editor">
+      <div class="memory-panel-heading">
+        <div>
+          <p class="memory-panel-heading__eyebrow">
+            Markdown Library
+          </p>
+          <h2>{{ memoryStore.activeLibrary?.name || '选择记忆库' }}</h2>
+          <p class="memory-library-editor__desc">
+            {{ memoryStore.activeLibrary?.description || '记忆库是一篇持续维护的 Markdown 文档。' }}
+          </p>
+        </div>
+      </div>
+
+      <div
+        v-if="!memoryStore.activeLibrary"
+        class="memory-empty"
+      >
+        从左侧选择一个记忆库，或先创建新的记忆库。
+      </div>
+
+      <template v-else>
+        <div class="memory-library-editor__toolbar">
+          <span>最后更新 {{ new Date(memoryStore.activeLibrary.updatedAt).toLocaleString() }}</span>
+          <EaButton
+            size="small"
+            :disabled="!canSaveLibrary"
+            :loading="memoryStore.isSavingLibrary"
+            @click="handleSaveLibrary"
+          >
+            保存 Markdown
+          </EaButton>
+        </div>
+
+        <textarea
+          v-model="libraryContentDraft"
+          class="memory-library-editor__textarea"
+          placeholder="这里是记忆库的完整 Markdown 内容"
+          @input="libraryContentDirty = true"
+        />
+
+        <section class="memory-merge-history">
+          <div class="memory-merge-history__head">
+            <strong>最近压缩记录</strong>
+            <span v-if="memoryStore.isLoadingMergeRuns">加载中...</span>
+          </div>
+
+          <div
+            v-if="!memoryStore.mergeRuns.length"
+            class="memory-merge-history__empty"
+          >
+            还没有压缩记录。
+          </div>
+
+          <div
+            v-else
+            class="memory-merge-history__list"
+          >
+            <article
+              v-for="run in memoryStore.mergeRuns.slice(0, 6)"
+              :key="run.id"
+              class="memory-merge-history__item"
+            >
+              <div class="memory-merge-history__meta">
+                <span>{{ new Date(run.createdAt).toLocaleString() }}</span>
+                <span>{{ run.sourceRecordCount }} 条原始记忆</span>
+              </div>
+              <p>{{ run.agentId || '未记录智能体' }} / {{ run.modelId || '默认模型' }}</p>
+            </article>
+          </div>
+        </section>
+      </template>
+    </aside>
+
+    <MemoryLibraryModal
+      v-model:visible="libraryModalVisible"
+      :library="libraryEditing"
+      :loading="memoryStore.isSavingLibrary"
+      @submit="handleLibrarySubmit"
+    />
+
+    <RawMemoryModal
+      v-model:visible="rawModalVisible"
+      :record="rawEditing"
+      @submit="handleRawSubmit"
+    />
+
+    <MemoryMergeModal
+      v-model:visible="mergeModalVisible"
+      :libraries="memoryStore.libraries"
+      :selected-count="memoryStore.selectedRecordIds.length"
+      :current-library-id="memoryStore.activeLibraryId"
+      :loading="memoryStore.isMerging"
+      @confirm="handleMergeConfirm"
+    />
   </div>
 </template>
 
 <style scoped>
-.memory-mode-panel {
-  display: flex;
+.memory-mode {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1.1fr) minmax(380px, 0.9fr);
   height: 100%;
-  background-color: var(--bg-primary, #fff);
-  position: relative;
-}
-
-.category-tree-container {
-  width: 280px;
-  flex-shrink: 0;
-  border-right: 1px solid var(--border-color, #e5e7eb);
-}
-
-.memory-content-container {
-  flex: 1;
   min-width: 0;
+  background:
+    radial-gradient(circle at top left, rgba(191, 219, 254, 0.18), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(251, 191, 36, 0.12), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.92));
 }
 
-.memory-content-container--with-detail {
-  border-right: 1px solid var(--border-color, #e5e7eb);
-}
-
-.collapse-button {
-  position: absolute;
-  right: 400px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 20px;
-  height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background-color: var(--color-surface, #fff);
-  border: 1px solid var(--border-color, #e5e7eb);
-  border-right: none;
-  border-radius: 6px 0 0 6px;
-  cursor: pointer;
-  z-index: 10;
-  color: var(--color-text-secondary, #64748b);
-  transition: all 0.15s ease;
-}
-
-.collapse-button:hover {
-  background-color: var(--color-bg-secondary, #f8fafc);
-  color: var(--color-text-primary, #1e293b);
-  width: 24px;
-}
-
-.collapse-button:active {
-  width: 20px;
-}
-
-.memory-detail-container {
-  width: 400px;
-  flex-shrink: 0;
+.memory-mode__libraries,
+.memory-mode__records,
+.memory-mode__library-editor {
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  border-left: 1px solid var(--border-color, #e5e7eb);
+  gap: 16px;
+  padding: 24px 20px;
+}
+
+.memory-mode__libraries,
+.memory-mode__records {
+  border-right: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.memory-panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.memory-panel-heading h2 {
+  margin: 2px 0 0;
+  color: #0f172a;
+  line-height: 1;
+  font-size: 30px;
+  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+}
+
+.memory-panel-heading__eyebrow {
+  margin: 0;
+  color: #64748b;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+.memory-empty {
+  padding: 18px;
+  border: 1px dashed rgba(148, 163, 184, 0.45);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.8);
+  color: #64748b;
+  line-height: 1.7;
+}
+
+.memory-library-list,
+.memory-record-list,
+.memory-merge-history__list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.memory-library-card,
+.memory-record-card,
+.memory-record-preview,
+.memory-merge-history__item {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.04);
+}
+
+.memory-library-card {
+  padding: 16px;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.memory-library-card:hover,
+.memory-record-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(14, 116, 144, 0.28);
+  box-shadow: 0 24px 50px rgba(14, 116, 144, 0.08);
+}
+
+.memory-library-card--active,
+.memory-record-card--active {
+  border-color: rgba(15, 118, 110, 0.38);
+  box-shadow: 0 24px 50px rgba(15, 118, 110, 0.12);
+}
+
+.memory-library-card__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.memory-library-card__head strong {
+  display: block;
+  color: #0f172a;
+  font-size: 16px;
+}
+
+.memory-library-card__head p,
+.memory-merge-history__item p {
+  margin: 6px 0 0;
+  color: #64748b;
+  line-height: 1.6;
+}
+
+.memory-library-card__head span,
+.memory-record-card__check span,
+.memory-record-card__meta,
+.memory-library-editor__toolbar,
+.memory-merge-history__meta {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.memory-library-card__foot,
+.memory-toolbar__actions,
+.memory-library-editor__toolbar,
+.memory-record-preview__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.memory-inline-action {
+  border: none;
+  background: transparent;
+  color: #0f766e;
+  cursor: pointer;
+  padding: 0;
+  font-size: 13px;
+}
+
+.memory-inline-action--danger {
+  color: #b91c1c;
+}
+
+.memory-filters,
+.memory-records-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  gap: 12px;
+  align-items: center;
+}
+
+.memory-records-toolbar {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.memory-records-toolbar__summary {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.memory-record-card {
+  padding: 16px;
+  cursor: pointer;
+}
+
+.memory-record-card__check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.memory-record-card__check input {
+  margin: 0;
+}
+
+.memory-record-card__content p {
+  margin: 12px 0;
+  color: #0f172a;
+  line-height: 1.7;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.memory-record-card__meta {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.memory-record-preview {
+  padding: 16px;
+}
+
+.memory-record-preview__head strong {
+  display: block;
+  color: #0f172a;
+}
+
+.memory-record-preview__head span {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.memory-record-preview pre {
+  margin: 14px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #0f172a;
+  line-height: 1.75;
+}
+
+.memory-library-editor__desc {
+  margin: 10px 0 0;
+  color: #64748b;
+  line-height: 1.7;
+}
+
+.memory-library-editor__textarea {
+  flex: 1;
+  min-height: 320px;
+  resize: none;
+  padding: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.96));
+  color: #111827;
+  font: 500 14px/1.8 var(--font-family-mono, "SFMono-Regular", Consolas, monospace);
+  outline: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.memory-library-editor__textarea:focus {
+  border-color: rgba(15, 118, 110, 0.42);
+  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.12);
+}
+
+.memory-merge-history {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.memory-merge-history__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  color: #0f172a;
+}
+
+.memory-merge-history__empty {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.memory-merge-history__item {
+  padding: 14px 16px;
+}
+
+.memory-merge-history__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+@media (max-width: 1440px) {
+  .memory-mode {
+    grid-template-columns: 280px minmax(0, 1fr) minmax(320px, 0.9fr);
+  }
+}
+
+@media (max-width: 1180px) {
+  .memory-mode {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .memory-mode__libraries,
+  .memory-mode__records {
+    border-right: none;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  }
+
+  .memory-library-editor__textarea {
+    min-height: 420px;
+  }
 }
 </style>

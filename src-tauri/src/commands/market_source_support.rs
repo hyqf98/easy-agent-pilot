@@ -45,11 +45,19 @@ pub async fn read_market_source_payload(
     }
 
     let local_path = resolve_local_source_path(trimmed, default_file_name)?;
-    fs::read_to_string(&local_path)
-        .map_err(|e| format!("Failed to read market source {}: {}", local_path.display(), e))
+    fs::read_to_string(&local_path).map_err(|e| {
+        format!(
+            "Failed to read market source {}: {}",
+            local_path.display(),
+            e
+        )
+    })
 }
 
-fn resolve_local_source_path(url_or_path: &str, default_file_name: &str) -> Result<PathBuf, String> {
+fn resolve_local_source_path(
+    url_or_path: &str,
+    default_file_name: &str,
+) -> Result<PathBuf, String> {
     let expanded = if url_or_path == "~" {
         dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?
     } else if let Some(relative) = url_or_path.strip_prefix("~/") {

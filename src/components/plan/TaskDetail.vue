@@ -1,10 +1,15 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useAgentStore } from '@/stores/agent'
+import { usePlanStore } from '@/stores/plan'
 import { useTaskStore } from '@/stores/task'
 import type { Task } from '@/types/plan'
+import { resolvePlanTaskAgentSelection } from '@/utils/planExecutionProgress'
 import AgentRoleBadge from './AgentRoleBadge.vue'
 import TaskEditModal from './TaskEditModal.vue'
 
+const agentStore = useAgentStore()
+const planStore = usePlanStore()
 const taskStore = useTaskStore()
 
 // 当前任务
@@ -68,6 +73,39 @@ const dependencies = computed(() => {
     .filter((t): t is Task => t !== undefined)
 })
 
+const currentPlan = computed(() => {
+  if (!currentTask.value) return null
+  return planStore.plans.find(plan => plan.id === currentTask.value?.planId) || null
+})
+
+const executionConfig = computed(() => {
+  if (!currentTask.value) {
+    return {
+      agentLabel: '未指定',
+      modelLabel: '使用默认模型',
+      sourceLabel: ''
+    }
+  }
+
+  const selection = resolvePlanTaskAgentSelection(
+    {
+      agent_id: currentTask.value.agentId ?? null,
+      model_id: currentTask.value.modelId ?? null
+    },
+    currentPlan.value
+  )
+
+  const agent = selection.agentId
+    ? agentStore.agents.find(item => item.id === selection.agentId)
+    : null
+
+  return {
+    agentLabel: agent?.name || selection.agentId || '未指定',
+    modelLabel: selection.modelId || '使用默认模型',
+    sourceLabel: selection.source === 'plan' ? '来源于计划默认配置' : ''
+  }
+})
+
 // 状态标签映射
 const statusLabels: Record<string, string> = {
   pending: '待办',
@@ -117,6 +155,26 @@ function goToDependency(task: Task) {
             class="task-desc"
           >
             {{ currentTask.description }}
+          </p>
+        </div>
+
+        <div class="section">
+          <h5 class="section-title">
+            执行配置
+          </h5>
+          <div class="info-item">
+            <span class="info-label">执行智能体</span>
+            <span class="info-value">{{ executionConfig.agentLabel }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">执行模型</span>
+            <span class="info-value">{{ executionConfig.modelLabel }}</span>
+          </div>
+          <p
+            v-if="executionConfig.sourceLabel"
+            class="info-hint"
+          >
+            {{ executionConfig.sourceLabel }}
           </p>
         </div>
 
@@ -557,6 +615,12 @@ function goToDependency(task: Task) {
 
 .info-link:hover {
   text-decoration: underline;
+}
+
+.info-hint {
+  margin: var(--spacing-2, 0.5rem) 0 0;
+  font-size: var(--font-size-xs, 12px);
+  color: var(--color-text-tertiary, #94a3b8);
 }
 
 .form-field {

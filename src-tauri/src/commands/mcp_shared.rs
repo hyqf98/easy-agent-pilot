@@ -1,6 +1,6 @@
 use serde_json::{json, Map, Value};
-use std::fs;
 use std::collections::HashMap;
+use std::fs;
 use std::path::Path;
 use tokio::process::Command as TokioCommand;
 
@@ -29,8 +29,13 @@ pub fn build_platform_command(command: &str, args: &[String]) -> TokioCommand {
 }
 
 pub fn parse_args_string(args: Option<&str>) -> Vec<String> {
-    args.map(|value| value.split_whitespace().map(|item| item.to_string()).collect())
-        .unwrap_or_default()
+    args.map(|value| {
+        value
+            .split_whitespace()
+            .map(|item| item.to_string())
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 pub fn parse_string_map_json(raw: Option<&str>) -> HashMap<String, String> {
@@ -48,11 +53,7 @@ pub fn parse_string_map_json(raw: Option<&str>) -> HashMap<String, String> {
         .unwrap_or_default()
 }
 
-pub fn build_stdio_command(
-    command: &str,
-    args: Option<&str>,
-    env: Option<&str>,
-) -> TokioCommand {
+pub fn build_stdio_command(command: &str, args: Option<&str>, env: Option<&str>) -> TokioCommand {
     let args_vec = parse_args_string(args);
     let env_map = parse_string_map_json(env);
     let mut cmd = build_platform_command(command, &args_vec);
@@ -73,9 +74,7 @@ pub fn read_json_config_or_default(path: &Path, default_value: Value) -> Result<
     Ok(serde_json::from_str(&content).unwrap_or(default_value))
 }
 
-pub fn ensure_mcp_servers_object(
-    settings: &mut Value,
-) -> Result<&mut Map<String, Value>, String> {
+pub fn ensure_mcp_servers_object(settings: &mut Value) -> Result<&mut Map<String, Value>, String> {
     if !settings.is_object() {
         *settings = json!({});
     }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
+import { ref, watch, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useTaskStore } from '@/stores/task'
 import { useAgentStore } from '@/stores/agent'
@@ -8,18 +8,21 @@ import { usePlanStore } from '@/stores/plan'
 import { useNotificationStore } from '@/stores/notification'
 import { getErrorMessage } from '@/utils/api'
 import { checkCircularDependency, getAvailableDependencies } from '@/composables'
-import type { Task } from '@/types/plan'
+import type { Task, TaskPriority } from '@/types/plan'
 import EaModal from '@/components/common/EaModal.vue'
 
 const props = defineProps<{
   visible: boolean
   task: Task
+  mode?: 'edit' | 'create'
 }>()
 
 const emit = defineEmits<{
   (e: 'update:visible', value: boolean): void
-  (e: 'saved'): void
+  (e: 'saved', taskData: Partial<Task>): void
 }>()
+
+const isCreateMode = computed(() => props.mode === 'create')
 
 const taskStore = useTaskStore()
 const agentStore = useAgentStore()
@@ -38,22 +41,30 @@ const form = ref({
   implementationSteps: [...(props.task.implementationSteps || [])],
   testSteps: [...(props.task.testSteps || [])],
   acceptanceCriteria: [...(props.task.acceptanceCriteria || [])],
-  dependencies: [...(props.task.dependencies || [])]
+  dependencies: [...(props.task.dependencies || [])],
+  maxRetries: props.task.maxRetries ?? 3
 })
-const inheritPlanAgent = ref(!props.task.agentId)
 
 const isSaving = ref(false)
+
+// 可折叠区域状态
+const expandedSections = ref({
+  details: true
+})
+
+function toggleSection(section: 'details') {
+  expandedSections.value[section] = !expandedSections.value[section]
+}
 
 // 依赖下拉框状态
 const isDepDropdownOpen = ref(false)
 const depDropdownRef = ref<HTMLElement | null>(null)
-
-// 智能体下拉框状态
-const isAgentDropdownOpen = ref(false)
-const agentDropdownRef = ref<HTMLElement | null>(null)
+const formScrollRef = ref<HTMLElement | null>(null)
+const depDropdownDirection = ref<'up' | 'down'>('down')
+const depDropdownMaxHeight = ref(220)
 
 // 优先级选项
-const priorityOptions = [
+const priorityOptions: Array<{ label: string; value: TaskPriority }> = [
   { label: '低', value: 'low' },
   { label: '中', value: 'medium' },
   { label: '高', value: 'high' }
@@ -68,26 +79,41 @@ const currentPlan = computed(() =>
   planStore.plans.find(plan => plan.id === props.task.planId) || null
 )
 
-const defaultPlanAgentLabel = computed(() => {
-  const planAgentId = currentPlan.value?.splitAgentId
-  if (!planAgentId) {
-    return '当前计划未配置默认智能体'
-  }
+const CONTROL_CHARACTERS_PATTERN = new RegExp('[\\\\u0000-\\\\u0008\\\\u000B\\\\u000C\\\\u000E-\\\\u001F\\\\u007F]', 'g')
 
-  const agent = agentStore.agents.find(item => item.id === planAgentId)
-  const modelLabel = currentPlan.value?.splitModelId ? ` / ${currentPlan.value.splitModelId}` : ''
-  return `${agent?.name || planAgentId}${modelLabel}`
-})
+function sanitizeText(value: string | null | undefined): string {
+  return (value || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(CONTROL_CHARACTERS_PATTERN, '')
+}
+
+function sanitizeTextList(values: string[] | null | undefined): string[] {
+  return (values || []).map(item => sanitizeText(item))
+}
+
+function buildFormState(task: Task) {
+  const relatedPlan = planStore.plans.find(plan => plan.id === task.planId) || null
+
+  return {
+    title: sanitizeText(task.title),
+    description: sanitizeText(task.description),
+    priority: task.priority,
+    agentId: task.agentId || relatedPlan?.splitAgentId || undefined,
+    modelId: task.modelId ?? relatedPlan?.splitModelId ?? '',
+    implementationSteps: sanitizeTextList(task.implementationSteps),
+    testSteps: sanitizeTextList(task.testSteps),
+    acceptanceCriteria: sanitizeTextList(task.acceptanceCriteria),
+    dependencies: [...(task.dependencies || [])],
+    maxRetries: task.maxRetries ?? 3
+  }
+}
 
 // 模型选项 - 根据选择的智能体动态获取
 const modelOptions = computed(() => {
-  const effectiveAgentId = inheritPlanAgent.value
-    ? currentPlan.value?.splitAgentId
-    : form.value.agentId
+  if (!form.value.agentId) return []
 
-  if (!effectiveAgentId) return []
   const configs = agentConfigStore
-    .getModelsConfigs(effectiveAgentId)
+    .getModelsConfigs(form.value.agentId)
     .filter(config => config.enabled)
   return configs.map(c => ({
     value: c.modelId,
@@ -95,54 +121,46 @@ const modelOptions = computed(() => {
   }))
 })
 
-// 切换智能体下拉框
-function toggleAgentDropdown() {
-  isAgentDropdownOpen.value = !isAgentDropdownOpen.value
-}
-
-// 选择智能体
-function selectAgent(agentId: string) {
-  form.value.agentId = agentId
-  inheritPlanAgent.value = false
-  // 切换智能体时，清空模型选择
-  form.value.modelId = undefined
-  isAgentDropdownOpen.value = false
-}
-
-function usePlanDefaultAgent() {
-  inheritPlanAgent.value = true
-  form.value.agentId = undefined
-  form.value.modelId = undefined
-  isAgentDropdownOpen.value = false
-}
-
 // 获取智能体名称
 function getAgentName(agentId: string): string {
   const agent = agentStore.agents.find(a => a.id === agentId)
   return agent?.name || agentId
 }
 
+const executionConfigHint = computed(() => {
+  if (!currentPlan.value?.splitAgentId) {
+    return '当前计划未配置默认执行智能体，可直接为任务单独选择。'
+  }
+
+  const agentName = getAgentName(currentPlan.value.splitAgentId)
+  const modelLabel = currentPlan.value.splitModelId ? ` / ${currentPlan.value.splitModelId}` : ''
+  return `默认来源于计划配置：${agentName}${modelLabel}`
+})
+
 // 监听 task 变化，更新表单
 watch(() => props.task, (newTask) => {
-  form.value = {
-    title: newTask.title,
-    description: newTask.description || '',
-    priority: newTask.priority,
-    agentId: newTask.agentId || undefined,
-    modelId: newTask.modelId || undefined,
-    implementationSteps: [...(newTask.implementationSteps || [])],
-    testSteps: [...(newTask.testSteps || [])],
-    acceptanceCriteria: [...(newTask.acceptanceCriteria || [])],
-    dependencies: [...(newTask.dependencies || [])]
-  }
-  inheritPlanAgent.value = !newTask.agentId
+  form.value = buildFormState(newTask)
 }, { immediate: true })
 
 watch(
-  () => inheritPlanAgent.value ? currentPlan.value?.splitAgentId : form.value.agentId,
+  () => currentPlan.value,
+  (plan) => {
+    if (!plan) return
+    if (!form.value.agentId && plan.splitAgentId) {
+      form.value.agentId = plan.splitAgentId
+    }
+    if ((form.value.modelId === undefined || form.value.modelId === null) && plan.splitModelId) {
+      form.value.modelId = plan.splitModelId
+    }
+  },
+  { immediate: true }
+)
+
+watch(
+  () => form.value.agentId,
   async (agentId) => {
     if (!agentId) {
-      form.value.modelId = undefined
+      form.value.modelId = ''
       return
     }
 
@@ -152,20 +170,23 @@ watch(
       .filter(config => config.enabled)
 
     if (availableModels.length === 0) {
-      form.value.modelId = undefined
+      form.value.modelId = ''
       return
     }
 
-    const preferredModelId = inheritPlanAgent.value
-      ? currentPlan.value?.splitModelId
-      : form.value.modelId
+    const preferredModelId = form.value.modelId ?? ''
+
+    if (preferredModelId === '') {
+      form.value.modelId = ''
+      return
+    }
 
     if (preferredModelId && availableModels.some(model => model.modelId === preferredModelId)) {
       form.value.modelId = preferredModelId
       return
     }
 
-    form.value.modelId = availableModels.find(model => model.isDefault)?.modelId || availableModels[0]?.modelId
+    form.value.modelId = ''
   },
   { immediate: true }
 )
@@ -193,6 +214,28 @@ const selectedDependencyLabels = computed(() => {
 // 切换依赖下拉框
 function toggleDepDropdown() {
   isDepDropdownOpen.value = !isDepDropdownOpen.value
+  if (isDepDropdownOpen.value) {
+    void nextTick(() => {
+      updateDependencyDropdownLayout()
+    })
+  }
+}
+
+function updateDependencyDropdownLayout() {
+  const selectorRect = depDropdownRef.value?.getBoundingClientRect()
+  const scrollRect = formScrollRef.value?.getBoundingClientRect()
+
+  if (!selectorRect || !scrollRect) return
+
+  const safeGap = 12
+  const preferredHeight = 240
+  const spaceBelow = Math.max(0, scrollRect.bottom - selectorRect.bottom - safeGap)
+  const spaceAbove = Math.max(0, selectorRect.top - scrollRect.top - safeGap)
+  const shouldOpenUp = spaceBelow < 180 && spaceAbove > spaceBelow
+  const availableSpace = shouldOpenUp ? spaceAbove : spaceBelow
+
+  depDropdownDirection.value = shouldOpenUp ? 'up' : 'down'
+  depDropdownMaxHeight.value = Math.max(120, Math.min(preferredHeight, availableSpace))
 }
 
 // 检查选择依赖时是否会导致循环依赖
@@ -233,9 +276,6 @@ function handleClickOutside(event: MouseEvent) {
   if (depDropdownRef.value && !depDropdownRef.value.contains(event.target as Node)) {
     isDepDropdownOpen.value = false
   }
-  if (agentDropdownRef.value && !agentDropdownRef.value.contains(event.target as Node)) {
-    isAgentDropdownOpen.value = false
-  }
 }
 
 onMounted(() => {
@@ -243,10 +283,12 @@ onMounted(() => {
     void agentStore.loadAgents()
   }
   document.addEventListener('click', handleClickOutside)
+  window.addEventListener('resize', updateDependencyDropdownLayout)
 })
 
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
+  window.removeEventListener('resize', updateDependencyDropdownLayout)
 })
 
 // 添加步骤
@@ -266,25 +308,35 @@ async function handleSave() {
     return
   }
 
+  const taskData: Partial<Task> = {
+    title: sanitizeText(form.value.title),
+    description: sanitizeText(form.value.description),
+    priority: form.value.priority,
+    agentId: form.value.agentId,
+    modelId: form.value.modelId || undefined,
+    implementationSteps: form.value.implementationSteps.map(sanitizeText).filter(s => s.trim()),
+    testSteps: form.value.testSteps.map(sanitizeText).filter(s => s.trim()),
+    acceptanceCriteria: form.value.acceptanceCriteria.map(sanitizeText).filter(s => s.trim()),
+    dependencies: form.value.dependencies,
+    maxRetries: form.value.maxRetries
+  }
+
   try {
     isSaving.value = true
-    await taskStore.updateTask(props.task.id, {
-      title: form.value.title,
-      description: form.value.description,
-      priority: form.value.priority,
-      agentId: inheritPlanAgent.value ? undefined : form.value.agentId,
-      modelId: inheritPlanAgent.value ? undefined : form.value.modelId,
-      implementationSteps: form.value.implementationSteps.filter(s => s.trim()),
-      testSteps: form.value.testSteps.filter(s => s.trim()),
-      acceptanceCriteria: form.value.acceptanceCriteria.filter(s => s.trim()),
-      dependencies: form.value.dependencies
-    })
 
-    notificationStore.success('保存成功', '任务已更新')
-    emit('saved')
-    close()
+    if (isCreateMode.value) {
+      // 创建模式：通过 emit 传递数据给父组件处理
+      emit('saved', taskData)
+      close()
+    } else {
+      // 编辑模式：直接更新任务
+      await taskStore.updateTask(props.task.id, taskData)
+      notificationStore.success('保存成功', '任务已更新')
+      emit('saved', taskData)
+      close()
+    }
   } catch (error) {
-    console.error('Failed to update task:', error)
+    console.error('Failed to save task:', error)
     notificationStore.error('保存失败', getErrorMessage(error))
   } finally {
     isSaving.value = false
@@ -300,11 +352,27 @@ function close() {
 <template>
   <EaModal
     :visible="visible"
+    content-class="task-edit-modal-dialog"
+    overlay-class="task-edit-modal-overlay"
     @update:visible="emit('update:visible', $event)"
   >
-    <div class="task-edit-modal">
+    <template #header>
       <div class="modal-header">
-        <h3>编辑任务</h3>
+        <div class="header-title">
+          <div class="header-icon">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            </svg>
+          </div>
+          <h3>{{ isCreateMode ? '创建新任务' : '编辑任务' }}</h3>
+        </div>
         <button
           class="btn-close"
           @click="close"
@@ -321,45 +389,182 @@ function close() {
           </svg>
         </button>
       </div>
+    </template>
 
-      <div class="modal-body">
-        <div class="form-field">
-          <label>标题 <span class="required">*</span></label>
-          <input
-            v-model="form.title"
-            type="text"
-            placeholder="任务标题"
-          >
-        </div>
-
-        <div class="form-field">
-          <label>描述</label>
-          <textarea
-            v-model="form.description"
-            rows="3"
-            placeholder="任务描述"
-          />
-        </div>
-
-        <div class="form-field">
-          <label>优先级</label>
-          <div class="priority-select-wrap">
-            <select
-              v-model="form.priority"
-              class="priority-select"
-            >
-              <option
-                v-for="opt in priorityOptions"
-                :key="opt.value"
-                :value="opt.value"
-              >
-                {{ opt.label }}
-              </option>
-            </select>
+    <div
+      class="task-edit-modal"
+      :class="{ 'task-edit-modal--dropdown-active': isDepDropdownOpen }"
+    >
+      <div
+        ref="formScrollRef"
+        class="modal-body"
+      >
+        <!-- 基本信息 -->
+        <div class="form-section">
+          <div class="section-title">
             <svg
-              class="select-arrow"
-              width="14"
-              height="14"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <circle
+                cx="12"
+                cy="12"
+                r="10"
+              />
+              <path d="M12 16v-4M12 8h.01" />
+            </svg>
+            基本信息
+          </div>
+
+          <div class="form-grid">
+            <div class="form-field full-width">
+              <label>任务标题 <span class="required">*</span></label>
+              <input
+                v-model="form.title"
+                type="text"
+                placeholder="输入任务标题..."
+                class="input-title"
+              >
+            </div>
+
+            <div class="form-field full-width">
+              <label>任务描述</label>
+              <textarea
+                v-model="form.description"
+                rows="3"
+                placeholder="描述任务的目标和要求..."
+              />
+            </div>
+
+            <div class="form-field">
+              <label>优先级</label>
+              <div class="priority-buttons">
+                <button
+                  v-for="opt in priorityOptions"
+                  :key="opt.value"
+                  type="button"
+                  class="priority-btn"
+                  :class="[opt.value, { active: form.priority === opt.value }]"
+                  @click="form.priority = opt.value"
+                >
+                  <span class="priority-dot" />
+                  {{ opt.label }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 智能体配置 -->
+        <div class="form-section">
+          <div class="section-title">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path d="M12 2a3 3 0 00-3 3v4a3 3 0 006 0V5a3 3 0 00-3-3z" />
+              <path d="M19 10v2a7 7 0 01-14 0v-2" />
+              <line
+                x1="12"
+                y1="19"
+                x2="12"
+                y2="22"
+              />
+            </svg>
+            执行配置
+          </div>
+
+          <div class="form-grid">
+            <div class="form-field full-width">
+              <label>{{ t('task.selectAgent') }}</label>
+              <select
+                v-model="form.agentId"
+                class="execution-select"
+              >
+                <option value="">
+                  {{ t('task.selectAgentPlaceholder') }}
+                </option>
+                <option
+                  v-for="agent in agentOptions"
+                  :key="agent.id"
+                  :value="agent.id"
+                >
+                  {{ agent.name }} ({{ agent.type === 'cli' ? 'CLI' : 'SDK' }})
+                </option>
+              </select>
+              <span class="field-hint">{{ executionConfigHint }}</span>
+            </div>
+
+            <div class="form-field full-width">
+              <label>{{ t('task.selectModel') }}</label>
+              <select
+                v-model="form.modelId"
+                class="execution-select"
+                :disabled="modelOptions.length === 0"
+              >
+                <option
+                  v-if="modelOptions.length === 0"
+                  value=""
+                >
+                  当前智能体暂无可用模型
+                </option>
+                <option
+                  v-for="opt in modelOptions"
+                  :key="opt.value"
+                  :value="opt.value"
+                >
+                  {{ opt.label }}
+                </option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- 任务详情 -->
+        <div class="form-section collapsible">
+          <div
+            class="section-header"
+            @click="toggleSection('details')"
+          >
+            <div class="section-title">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                <polyline points="14,2 14,8 20,8" />
+                <line
+                  x1="16"
+                  y1="13"
+                  x2="8"
+                  y2="13"
+                />
+                <line
+                  x1="16"
+                  y1="17"
+                  x2="8"
+                  y2="17"
+                />
+              </svg>
+              任务详情
+            </div>
+            <svg
+              class="section-chevron"
+              :class="{ expanded: expandedSections.details }"
+              width="16"
+              height="16"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -368,211 +573,304 @@ function close() {
               <path d="M6 9l6 6 6-6" />
             </svg>
           </div>
-        </div>
-
-        <!-- 智能体选择 -->
-        <div
-          ref="agentDropdownRef"
-          class="form-field"
-        >
-          <label>{{ t('task.selectAgent') }}</label>
-          <div class="agent-inherit-panel">
-            <button
-              type="button"
-              class="agent-inherit-button"
-              :class="{ active: inheritPlanAgent }"
-              @click="usePlanDefaultAgent"
-            >
-              继承计划默认智能体
-            </button>
-            <span class="agent-inherit-hint">{{ defaultPlanAgentLabel }}</span>
-          </div>
-          <div class="agent-dropdown">
-            <button
-              type="button"
-              class="agent-trigger"
-              :class="{ open: isAgentDropdownOpen, muted: inheritPlanAgent }"
-              @click.stop="toggleAgentDropdown"
-            >
-              <span
-                class="agent-display"
-                :class="{ placeholder: inheritPlanAgent || !form.agentId }"
-              >
-                {{ inheritPlanAgent ? '继承计划默认智能体' : (form.agentId ? getAgentName(form.agentId) : t('task.selectAgentPlaceholder')) }}
-              </span>
-              <svg
-                class="agent-arrow"
-                :class="{ rotated: isAgentDropdownOpen }"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path d="M6 9l6 6 6-6" />
-              </svg>
-            </button>
-            <div
-              v-show="isAgentDropdownOpen"
-              class="agent-dropdown-menu"
-            >
-              <div
-                class="agent-option"
-                :class="{ selected: inheritPlanAgent }"
-                @click="usePlanDefaultAgent"
-              >
-                <span class="agent-option-name">继承计划默认智能体</span>
-                <span class="agent-option-type">默认</span>
-              </div>
-              <div
-                v-for="agent in agentOptions"
-                :key="agent.id"
-                class="agent-option"
-                :class="{ selected: form.agentId === agent.id }"
-                @click="selectAgent(agent.id)"
-              >
-                <span class="agent-option-name">{{ agent.name }}</span>
-                <span class="agent-option-type">{{ agent.type === 'cli' ? 'CLI' : 'SDK' }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 模型选择 -->
-        <div
-          v-if="modelOptions.length > 0"
-          class="form-field"
-        >
-          <label>{{ t('task.selectModel') }}</label>
-          <select
-            v-model="form.modelId"
-            class="model-select"
-            :disabled="inheritPlanAgent"
+          <div
+            v-show="expandedSections.details"
+            class="section-content"
           >
-            <option
-              value=""
-              disabled
-            >
-              {{ t('task.selectModel') }}
-            </option>
-            <option
-              v-for="opt in modelOptions"
-              :key="opt.value"
-              :value="opt.value"
-            >
-              {{ opt.label }}{{ inheritPlanAgent && currentPlan?.splitModelId === opt.value ? '（计划默认）' : '' }}
-            </option>
-          </select>
-        </div>
+            <!-- 实现步骤 -->
+            <div class="form-field">
+              <label>
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path d="M12 20V10M18 20V4M6 20v-4" />
+                </svg>
+                实现步骤
+              </label>
+              <div class="steps-container">
+                <div
+                  v-for="(_, i) in form.implementationSteps"
+                  :key="i"
+                  class="step-card"
+                >
+                  <span class="step-number">{{ i + 1 }}</span>
+                  <textarea
+                    v-model="form.implementationSteps[i]"
+                    class="step-textarea"
+                    rows="3"
+                    spellcheck="false"
+                    :placeholder="`描述第 ${i + 1} 步操作...`"
+                  />
+                  <button
+                    class="step-remove"
+                    @click="removeStep('implementationSteps', i)"
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <path d="M18 6L6 18M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                <button
+                  class="add-step-btn"
+                  @click="addStep('implementationSteps')"
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                  添加步骤
+                </button>
+              </div>
+            </div>
 
-        <div class="form-field">
-          <label>
-            实现步骤
-            <button
-              class="btn-add-step"
-              @click="addStep('implementationSteps')"
-            >+ 添加</button>
-          </label>
-          <div class="steps-list">
-            <div
-              v-for="(_, i) in form.implementationSteps"
-              :key="i"
-              class="step-item"
-            >
-              <input
-                v-model="form.implementationSteps[i]"
-                type="text"
-                :placeholder="`步骤 ${i + 1}`"
-              >
-              <button
-                class="btn-remove-step"
-                @click="removeStep('implementationSteps', i)"
-              >
-                ×
-              </button>
+            <!-- 测试步骤 -->
+            <div class="form-field">
+              <label>
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path d="M9 11l3 3L22 4" />
+                  <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
+                </svg>
+                测试步骤
+              </label>
+              <div class="steps-container">
+                <div
+                  v-for="(_, i) in form.testSteps"
+                  :key="i"
+                  class="step-card test"
+                >
+                  <span class="step-number">{{ i + 1 }}</span>
+                  <textarea
+                    v-model="form.testSteps[i]"
+                    class="step-textarea"
+                    rows="3"
+                    spellcheck="false"
+                    :placeholder="`描述第 ${i + 1} 步测试...`"
+                  />
+                  <button
+                    class="step-remove"
+                    @click="removeStep('testSteps', i)"
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <path d="M18 6L6 18M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                <button
+                  class="add-step-btn test"
+                  @click="addStep('testSteps')"
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                  添加测试
+                </button>
+              </div>
+            </div>
+
+            <!-- 验收标准 -->
+            <div class="form-field">
+              <label>
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path d="M22 11.08V12a10 10 0 11-5.93-9.14" />
+                  <polyline points="22,4 12,14.01 9,11.01" />
+                </svg>
+                验收标准
+              </label>
+              <div class="criteria-container">
+                <div
+                  v-for="(_, i) in form.acceptanceCriteria"
+                  :key="i"
+                  class="criteria-card"
+                >
+                  <span class="criteria-icon">
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <polyline points="20,6 9,17 4,12" />
+                    </svg>
+                  </span>
+                  <textarea
+                    v-model="form.acceptanceCriteria[i]"
+                    class="criteria-textarea"
+                    rows="3"
+                    spellcheck="false"
+                    :placeholder="`验收标准 ${i + 1}...`"
+                  />
+                  <button
+                    class="criteria-remove"
+                    @click="removeStep('acceptanceCriteria', i)"
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <path d="M18 6L6 18M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                <button
+                  class="add-criteria-btn"
+                  @click="addStep('acceptanceCriteria')"
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                  添加标准
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
-        <div class="form-field">
-          <label>
-            测试步骤
-            <button
-              class="btn-add-step"
-              @click="addStep('testSteps')"
-            >+ 添加</button>
-          </label>
-          <div class="steps-list">
-            <div
-              v-for="(_, i) in form.testSteps"
-              :key="i"
-              class="step-item"
+        <!-- 依赖关系 -->
+        <div class="form-section">
+          <div class="section-title">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
             >
-              <input
-                v-model="form.testSteps[i]"
-                type="text"
-                :placeholder="`步骤 ${i + 1}`"
-              >
-              <button
-                class="btn-remove-step"
-                @click="removeStep('testSteps', i)"
-              >
-                ×
-              </button>
-            </div>
+              <circle
+                cx="18"
+                cy="5"
+                r="3"
+              />
+              <circle
+                cx="6"
+                cy="12"
+                r="3"
+              />
+              <circle
+                cx="18"
+                cy="19"
+                r="3"
+              />
+              <line
+                x1="8.59"
+                y1="13.51"
+                x2="15.42"
+                y2="17.49"
+              />
+              <line
+                x1="15.41"
+                y1="6.51"
+                x2="8.59"
+                y2="10.49"
+              />
+            </svg>
+            依赖关系
           </div>
-        </div>
 
-        <div class="form-field">
-          <label>
-            验收标准
-            <button
-              class="btn-add-step"
-              @click="addStep('acceptanceCriteria')"
-            >+ 添加</button>
-          </label>
-          <div class="steps-list">
-            <div
-              v-for="(_, i) in form.acceptanceCriteria"
-              :key="i"
-              class="step-item"
-            >
-              <input
-                v-model="form.acceptanceCriteria[i]"
-                type="text"
-                :placeholder="`标准 ${i + 1}`"
-              >
-              <button
-                class="btn-remove-step"
-                @click="removeStep('acceptanceCriteria', i)"
-              >
-                ×
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- 依赖任务 -->
-        <div class="form-field">
-          <label>{{ t('task.dependencies') }}</label>
           <div
             v-if="dependencyOptions.length > 0"
             ref="depDropdownRef"
-            class="dep-dropdown"
-            :class="{ open: isDepDropdownOpen }"
+            class="dependency-selector"
+            :class="[
+              { open: isDepDropdownOpen },
+              depDropdownDirection === 'up' ? 'dependency-selector--up' : 'dependency-selector--down'
+            ]"
           >
             <div
-              class="dep-dropdown-trigger"
+              class="dependency-trigger"
               @click.stop="toggleDepDropdown"
             >
-              <div class="dep-selected-tags">
-                <span
-                  v-if="selectedDependencyLabels.length === 0"
-                  class="dep-placeholder"
+              <div
+                v-if="selectedDependencyLabels.length === 0"
+                class="dep-placeholder"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
                 >
-                  {{ t('task.selectDependencies') }}
-                </span>
+                  <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                  <line
+                    x1="12"
+                    y1="9"
+                    x2="12"
+                    y2="13"
+                  />
+                  <line
+                    x1="12"
+                    y1="17"
+                    x2="12.01"
+                    y2="17"
+                  />
+                </svg>
+                选择依赖的任务（可选）
+              </div>
+              <div
+                v-else
+                class="dep-tags"
+              >
                 <span
                   v-for="(label, idx) in selectedDependencyLabels"
                   :key="idx"
@@ -581,18 +879,27 @@ function close() {
                   {{ label }}
                   <button
                     type="button"
-                    class="dep-tag-remove"
+                    class="tag-remove"
                     @click.stop="removeDependency(dependencyOptions.find(o => o.label === label)!.value)"
                   >
-                    ×
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <path d="M18 6L6 18M6 6l12 12" />
+                    </svg>
                   </button>
                 </span>
               </div>
               <svg
-                class="dep-arrow"
+                class="dep-chevron"
                 :class="{ rotated: isDepDropdownOpen }"
-                width="14"
-                height="14"
+                width="16"
+                height="16"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -603,7 +910,8 @@ function close() {
             </div>
             <div
               v-show="isDepDropdownOpen"
-              class="dep-dropdown-menu"
+              class="dependency-dropdown"
+              :style="{ maxHeight: `${depDropdownMaxHeight}px` }"
             >
               <label
                 v-for="option in dependencyOptions"
@@ -616,57 +924,160 @@ function close() {
                   :checked="isDependencySelected(option.value as string)"
                   @change="handleDependencyToggle(option.value as string)"
                 >
-                <span class="dep-checkbox" />
-                <span class="dep-option-label">{{ option.label }}</span>
+                <span class="checkbox-visual">
+                  <svg
+                    v-if="isDependencySelected(option.value as string)"
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="3"
+                  >
+                    <polyline points="20,6 9,17 4,12" />
+                  </svg>
+                </span>
+                <span class="option-label">{{ option.label }}</span>
               </label>
             </div>
           </div>
           <div
             v-else
-            class="no-tasks-hint"
+            class="empty-dependencies"
           >
-            {{ t('task.noTasksAvailable') }}
+            <svg
+              width="32"
+              height="32"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+            >
+              <rect
+                x="3"
+                y="3"
+                width="18"
+                height="18"
+                rx="2"
+                ry="2"
+              />
+              <line
+                x1="9"
+                y1="9"
+                x2="15"
+                y2="15"
+              />
+              <line
+                x1="15"
+                y1="9"
+                x2="9"
+                y2="15"
+              />
+            </svg>
+            <span>{{ t('task.noTasksAvailable') }}</span>
           </div>
         </div>
       </div>
+    </div>
 
+    <template #footer>
       <div class="modal-footer">
         <button
-          class="btn btn-secondary"
+          class="btn-cancel"
           @click="close"
         >
           取消
         </button>
         <button
-          class="btn btn-primary"
-          :disabled="isSaving"
+          class="btn-save"
+          :disabled="isSaving || !form.title.trim()"
           @click="handleSave"
         >
-          {{ isSaving ? '保存中...' : '保存' }}
+          <svg
+            v-if="isSaving"
+            class="spin"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path d="M21 12a9 9 0 11-6.219-8.56" />
+          </svg>
+          {{ isSaving ? '保存中...' : (isCreateMode ? '创建任务' : '保存修改') }}
         </button>
       </div>
-    </div>
+    </template>
   </EaModal>
 </template>
 
 <style scoped>
+:global(.task-edit-modal-overlay) {
+  padding: 0.25rem;
+}
+
+:global(.ea-modal.task-edit-modal-dialog) {
+  width: min(1040px, calc(100vw - 0.5rem)) !important;
+  max-width: min(1040px, calc(100vw - 0.5rem)) !important;
+  min-width: min(720px, calc(100vw - 0.5rem)) !important;
+  max-height: 88vh;
+}
+
+:global(.ea-modal.task-edit-modal-dialog .ea-modal__header) {
+  padding: 0;
+}
+
+:global(.ea-modal.task-edit-modal-dialog .ea-modal__body) {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+:global(.ea-modal.task-edit-modal-dialog .ea-modal__footer) {
+  padding: 0;
+  background: var(--color-surface, #fff);
+}
+
 .task-edit-modal {
-  width: min(680px, calc(100vw - 2rem));
-  max-width: 100%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--spacing-4, 1rem) var(--spacing-5, 1.25rem);
+  padding: 1.25rem 1.5rem;
+  background: linear-gradient(180deg, var(--color-surface, #fff) 0%, color-mix(in srgb, var(--color-bg-secondary, #f8fafc) 50%, transparent));
   border-bottom: 1px solid var(--color-border, #e2e8f0);
+}
+
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.header-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-lg, 10px);
+  background: linear-gradient(135deg, var(--color-primary, #3b82f6) 0%, color-mix(in srgb, var(--color-primary, #3b82f6) 80%, #8b5cf6));
+  color: white;
 }
 
 .modal-header h3 {
   margin: 0;
-  font-size: var(--font-size-base, 14px);
-  font-weight: var(--font-weight-semibold, 600);
+  font-size: 1.125rem;
+  font-weight: 600;
   color: var(--color-text-primary, #1e293b);
 }
 
@@ -674,535 +1085,641 @@ function close() {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--spacing-1, 0.25rem);
+  width: 32px;
+  height: 32px;
   border: none;
   border-radius: var(--radius-md, 8px);
   background: transparent;
   color: var(--color-text-tertiary, #94a3b8);
   cursor: pointer;
-  transition: all var(--transition-fast, 150ms);
+  transition: all 150ms ease;
 }
 
 .btn-close:hover {
-  background-color: var(--color-surface-hover, #f8fafc);
+  background-color: var(--color-bg-secondary, #f1f5f9);
   color: var(--color-text-primary, #1e293b);
 }
 
 .modal-body {
-  padding: var(--spacing-4, 1rem);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1.25rem 1.5rem;
+  overscroll-behavior: contain;
+}
+
+.task-edit-modal--dropdown-active .modal-body {
+  overflow-y: hidden;
+}
+
+/* Form Sections */
+.form-section {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--color-border, #e2e8f0);
+}
+
+.form-section:last-of-type {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.section-title {
   display: flex;
-  flex-direction: column;
-  gap: var(--spacing-3, 0.75rem);
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-primary, #1e293b);
+}
+
+.section-title svg {
+  color: var(--color-primary, #3b82f6);
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  margin: 0 -1rem;
+  background: var(--color-bg-secondary, #f8fafc);
+  border-radius: var(--radius-md, 8px);
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.section-header:hover {
+  background: var(--color-bg-tertiary, #f1f5f9);
+}
+
+.section-chevron {
+  color: var(--color-text-tertiary, #94a3b8);
+  transition: transform 200ms ease;
+}
+
+.section-chevron.expanded {
+  transform: rotate(180deg);
+}
+
+.section-content {
+  padding-top: 1rem;
+}
+
+/* Form Grid */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
 }
 
 .form-field {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-2, 0.5rem);
+  gap: 0.5rem;
+}
+
+.form-field.full-width {
+  grid-column: 1 / -1;
 }
 
 .form-field label {
-  font-size: var(--font-size-xs, 12px);
-  font-weight: var(--font-weight-medium, 500);
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
   color: var(--color-text-secondary, #64748b);
 }
 
-.form-field .required {
-  color: var(--color-error, #ef4444);
+.form-field label svg {
+  color: var(--color-text-tertiary, #94a3b8);
 }
 
+.required {
+  color: var(--color-error, #ef4444);
+  margin-left: 0.125rem;
+}
+
+/* Input Styles */
 .form-field input,
 .form-field textarea,
 .form-field select {
   width: 100%;
   box-sizing: border-box;
-  padding: var(--spacing-2, 0.5rem);
+  padding: 0.625rem 0.875rem;
   border: 1px solid var(--color-border, #e2e8f0);
   border-radius: var(--radius-md, 8px);
-  font-size: var(--font-size-sm, 13px);
+  font-size: 0.875rem;
   background-color: var(--color-surface, #fff);
   color: var(--color-text-primary, #1e293b);
+  transition: all 150ms ease;
+}
+
+.form-field textarea {
+  resize: vertical;
+  min-height: 96px;
+  line-height: 1.6;
+  font-family: inherit;
+}
+
+.form-field input:hover,
+.form-field textarea:hover {
+  border-color: #cbd5e1;
 }
 
 .form-field input:focus,
 .form-field textarea:focus,
 .form-field select:focus {
   outline: none;
-  border-color: var(--color-primary, #60a5fa);
-}
-
-.priority-select-wrap {
-  position: relative;
-}
-
-.priority-select {
-  appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  padding-right: 2rem;
-  cursor: pointer;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-  transition: border-color var(--transition-fast, 150ms), box-shadow var(--transition-fast, 150ms);
-}
-
-.priority-select:hover {
-  border-color: #cbd5e1;
-}
-
-.priority-select:focus {
+  border-color: var(--color-primary, #3b82f6);
   box-shadow: 0 0 0 3px rgb(59 130 246 / 15%);
 }
 
-.select-arrow {
-  position: absolute;
-  right: 0.625rem;
-  top: 50%;
-  transform: translateY(-50%);
-  color: #64748b;
-  pointer-events: none;
-  transition: transform var(--transition-fast, 150ms), color var(--transition-fast, 150ms);
+.input-title {
+  font-size: 1rem;
+  font-weight: 500;
+  padding: 0.75rem 1rem;
 }
 
-.priority-select-wrap:focus-within .select-arrow {
-  color: #3b82f6;
-  transform: translateY(-50%) rotate(180deg);
-}
-
-.agent-inherit-panel {
+/* Priority Buttons */
+.priority-buttons {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-2, 0.5rem);
-  padding: 0.625rem 0.75rem;
-  border: 1px solid color-mix(in srgb, var(--color-border, #e2e8f0) 82%, transparent);
-  border-radius: var(--radius-md, 8px);
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--color-primary, #3b82f6) 8%, var(--color-surface, #fff)) 0%, var(--color-surface, #fff) 100%);
+  gap: 0.5rem;
 }
 
-.agent-inherit-button {
-  flex-shrink: 0;
-  padding: 0.45rem 0.75rem;
-  border: 1px solid color-mix(in srgb, var(--color-border, #e2e8f0) 85%, transparent);
-  border-radius: var(--radius-full, 9999px);
-  background: var(--color-surface, #fff);
-  color: var(--color-text-secondary, #64748b);
-  font-size: var(--font-size-xs, 12px);
-  font-weight: var(--font-weight-semibold, 600);
-  cursor: pointer;
-  transition:
-    border-color var(--transition-fast, 150ms),
-    background-color var(--transition-fast, 150ms),
-    color var(--transition-fast, 150ms),
-    box-shadow var(--transition-fast, 150ms);
-}
-
-.agent-inherit-button:hover {
-  border-color: color-mix(in srgb, var(--color-primary, #3b82f6) 28%, var(--color-border, #e2e8f0));
-  color: var(--color-primary, #2563eb);
-}
-
-.agent-inherit-button.active {
-  border-color: color-mix(in srgb, var(--color-primary, #3b82f6) 70%, transparent);
-  background: color-mix(in srgb, var(--color-primary, #3b82f6) 14%, var(--color-surface, #fff));
-  color: var(--color-primary, #2563eb);
-  box-shadow: 0 0 0 3px rgb(59 130 246 / 10%);
-}
-
-.agent-inherit-hint {
+.priority-btn {
   flex: 1;
-  min-width: 0;
-  font-size: var(--font-size-xs, 12px);
-  color: var(--color-text-secondary, #64748b);
-  text-align: right;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.agent-dropdown {
-  position: relative;
-}
-
-.agent-trigger {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  min-height: 40px;
-  padding: 0.625rem 0.75rem;
-  border: 1px solid var(--color-border, #e2e8f0);
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.5rem 1rem;
+  border: 1.5px solid var(--color-border, #e2e8f0);
   border-radius: var(--radius-md, 8px);
   background: var(--color-surface, #fff);
-  color: var(--color-text-primary, #1e293b);
+  color: var(--color-text-secondary, #64748b);
+  font-size: 0.8125rem;
+  font-weight: 500;
   cursor: pointer;
-  transition:
-    border-color var(--transition-fast, 150ms),
-    box-shadow var(--transition-fast, 150ms),
-    background-color var(--transition-fast, 150ms);
+  transition: all 150ms ease;
 }
 
-.agent-trigger:hover {
+.priority-btn:hover {
   border-color: #cbd5e1;
 }
 
-.agent-trigger.open {
-  border-color: var(--color-primary, #3b82f6);
-  box-shadow: 0 0 0 3px rgb(59 130 246 / 12%);
+.priority-btn .priority-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
 }
 
-.agent-trigger.muted {
-  background: color-mix(in srgb, var(--color-surface, #fff) 92%, var(--color-bg-secondary, #f8fafc));
+.priority-btn.low {
+  color: #22c55e;
 }
 
-.agent-display {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: left;
-  font-size: var(--font-size-sm, 13px);
-  color: var(--color-text-primary, #1e293b);
+.priority-btn.low.active {
+  border-color: #22c55e;
+  background: #f0fdf4;
 }
 
-.agent-display.placeholder {
-  color: var(--color-text-tertiary, #94a3b8);
+.priority-btn.medium {
+  color: #f59e0b;
 }
 
-.agent-arrow {
-  flex-shrink: 0;
-  margin-left: 0.5rem;
-  color: var(--color-text-tertiary, #94a3b8);
-  transition: transform var(--transition-fast, 150ms), color var(--transition-fast, 150ms);
+.priority-btn.medium.active {
+  border-color: #f59e0b;
+  background: #fffbeb;
 }
 
-.agent-trigger.open .agent-arrow,
-.agent-arrow.rotated {
-  color: var(--color-primary, #3b82f6);
-  transform: rotate(180deg);
+.priority-btn.high {
+  color: #ef4444;
 }
 
-.agent-dropdown-menu {
-  position: absolute;
-  top: calc(100% + 0.375rem);
-  left: 0;
-  right: 0;
-  z-index: 20;
-  overflow: hidden;
-  border: 1px solid var(--color-border, #e2e8f0);
-  border-radius: var(--radius-lg, 12px);
-  background: var(--color-surface, #fff);
-  box-shadow: var(--shadow-lg, 0 18px 40px -16px rgba(15, 23, 42, 0.28));
+.priority-btn.high.active {
+  border-color: #ef4444;
+  background: #fef2f2;
 }
 
-.agent-option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.75rem;
+.form-field .execution-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 2.75rem;
   cursor: pointer;
-  transition: background-color var(--transition-fast, 150ms), color var(--transition-fast, 150ms);
+  background-image:
+    linear-gradient(135deg, transparent 50%, var(--color-text-tertiary, #94a3b8) 50%),
+    linear-gradient(45deg, var(--color-text-tertiary, #94a3b8) 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) calc(50% - 3px),
+    calc(100% - 12px) calc(50% - 3px);
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
 }
 
-.agent-option + .agent-option {
-  border-top: 1px solid color-mix(in srgb, var(--color-border, #e2e8f0) 72%, transparent);
-}
-
-.agent-option:hover {
-  background: color-mix(in srgb, var(--color-primary, #3b82f6) 8%, var(--color-surface, #fff));
-}
-
-.agent-option.selected {
-  background: color-mix(in srgb, var(--color-primary, #3b82f6) 12%, var(--color-surface, #fff));
-}
-
-.agent-option-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--font-size-sm, 13px);
-  color: var(--color-text-primary, #1e293b);
-}
-
-.agent-option-type {
-  flex-shrink: 0;
-  padding: 0.15rem 0.5rem;
-  border-radius: var(--radius-full, 9999px);
-  background: var(--color-bg-secondary, #f1f5f9);
-  color: var(--color-text-secondary, #64748b);
-  font-size: 11px;
-  font-weight: var(--font-weight-medium, 500);
-}
-
-.model-select {
-  cursor: pointer;
-}
-
-.model-select:disabled {
+.form-field .execution-select:disabled {
   cursor: not-allowed;
   color: var(--color-text-tertiary, #94a3b8);
   background: var(--color-bg-secondary, #f8fafc);
+  background-image:
+    linear-gradient(135deg, transparent 50%, var(--color-text-tertiary, #94a3b8) 50%),
+    linear-gradient(45deg, var(--color-text-tertiary, #94a3b8) 50%, transparent 50%);
 }
 
-.modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--spacing-2, 0.5rem);
-  padding: var(--spacing-3, 0.75rem) var(--spacing-4, 1rem);
-  border-top: 1px solid var(--color-border, #e2e8f0);
-}
-
-.btn {
-  padding: var(--spacing-2, 0.5rem) var(--spacing-4, 1rem);
-  border-radius: var(--radius-md, 8px);
-  font-size: var(--font-size-sm, 13px);
-  font-weight: var(--font-weight-medium, 500);
-  cursor: pointer;
-  transition: all var(--transition-fast, 150ms);
-}
-
-.btn-primary {
-  background-color: var(--color-primary, #3b82f6);
-  color: white;
-  border: none;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background-color: var(--color-primary-hover, #2563eb);
-}
-
-.btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-secondary {
-  background-color: var(--color-surface, #fff);
-  color: var(--color-text-primary, #1e293b);
-  border: 1px solid var(--color-border, #e2e8f0);
-}
-
-.btn-secondary:hover {
-  background-color: var(--color-surface-hover, #f8fafc);
-}
-
-.btn-add-step {
-  padding: 0 var(--spacing-2, 0.5rem);
-  border: none;
-  border-radius: var(--radius-sm, 4px);
-  background: transparent;
-  color: var(--color-primary, #3b82f6);
-  font-size: var(--font-size-xs, 12px);
-  cursor: pointer;
-}
-
-.btn-add-step:hover {
-  background-color: var(--color-primary-light, #dbeafe);
-}
-
-.steps-list {
+/* Steps Container */
+.steps-container,
+.criteria-container {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-1, 0.25rem);
+  gap: 0.5rem;
 }
 
-.step-item {
+.step-card,
+.criteria-card {
   display: flex;
-  gap: var(--spacing-1, 0.25rem);
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 0.875rem;
+  background: var(--color-bg-secondary, #f8fafc);
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: var(--radius-md, 8px);
+  transition: all 150ms ease;
 }
 
-.step-item input {
+.step-card:hover,
+.criteria-card:hover {
+  background: var(--color-bg-tertiary, #f1f5f9);
+}
+
+.step-card.test {
+  border-left: 3px solid #22c55e;
+}
+
+.step-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--color-primary, #3b82f6);
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.step-card.test .step-number {
+  background: #22c55e;
+}
+
+.step-number,
+.criteria-icon,
+.step-remove,
+.criteria-remove {
+  margin-top: 0.25rem;
+}
+
+.criteria-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #22c55e;
+  color: white;
+  flex-shrink: 0;
+}
+
+.step-card .step-textarea,
+.criteria-card .criteria-textarea {
   flex: 1;
+  border: none;
+  background: transparent;
+  padding: 0.125rem 0;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  min-height: 104px;
+  max-height: 168px;
+  overflow-y: auto;
+  resize: none;
+  font-family: inherit;
+  color: var(--color-text-primary, #1e293b);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
-.btn-remove-step {
+.step-card .step-textarea:focus,
+.criteria-card .criteria-textarea:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.step-card .step-textarea::-webkit-scrollbar,
+.criteria-card .criteria-textarea::-webkit-scrollbar {
+  width: 8px;
+}
+
+.step-card .step-textarea::-webkit-scrollbar-thumb,
+.criteria-card .criteria-textarea::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-text-tertiary, #94a3b8) 45%, transparent);
+}
+
+.step-remove,
+.criteria-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 24px;
   height: 24px;
   border: none;
   border-radius: var(--radius-sm, 4px);
-  background-color: var(--color-bg-secondary, #f1f5f9);
+  background: transparent;
   color: var(--color-text-tertiary, #94a3b8);
   cursor: pointer;
-  transition: all var(--transition-fast, 150ms);
+  transition: all 150ms ease;
 }
 
-.btn-remove-step:hover {
-  background-color: var(--color-error-light, #fee2e2);
-  color: var(--color-error, #ef4444);
+.step-remove:hover,
+.criteria-remove:hover {
+  background: var(--color-error, #ef4444);
+  color: white;
 }
 
-/* Dependencies dropdown styles */
-.dep-dropdown {
+.add-step-btn,
+.add-criteria-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.5rem;
+  border: 1.5px dashed var(--color-border, #e2e8f0);
+  border-radius: var(--radius-md, 8px);
+  background: transparent;
+  color: var(--color-text-tertiary, #94a3b8);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.add-step-btn:hover,
+.add-criteria-btn:hover {
+  border-color: var(--color-primary, #3b82f6);
+  background: color-mix(in srgb, var(--color-primary, #3b82f6) 5%, transparent);
+  color: var(--color-primary, #3b82f6);
+}
+
+.add-step-btn.test {
+  border-color: #86efac;
+  color: #22c55e;
+}
+
+.add-step-btn.test:hover {
+  border-color: #22c55e;
+  background: #f0fdf4;
+  color: #22c55e;
+}
+
+/* Dependency Selector */
+.dependency-selector {
   position: relative;
+  z-index: 3;
 }
 
-.dep-dropdown-trigger {
+.dependency-trigger {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 38px;
-  padding: var(--spacing-2, 0.5rem);
+  min-height: 44px;
+  padding: 0.625rem 1rem;
   border: 1px solid var(--color-border, #e2e8f0);
   border-radius: var(--radius-md, 8px);
   background: var(--color-surface, #fff);
   cursor: pointer;
-  transition: all var(--transition-fast, 150ms);
+  transition: all 150ms ease;
 }
 
-.dep-dropdown-trigger:hover {
-  border-color: var(--color-primary, #60a5fa);
+.dependency-trigger:hover {
+  border-color: #cbd5e1;
 }
 
-.dep-dropdown.open .dep-dropdown-trigger {
+.dependency-selector.open .dependency-trigger {
   border-color: var(--color-primary, #3b82f6);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+  box-shadow: 0 0 0 3px rgb(59 130 246 / 15%);
 }
 
-.dep-display {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--font-size-sm, 13px);
-  color: var(--color-text-primary, #1e293b);
-}
-
-.dep-display.placeholder {
+.dep-placeholder {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   color: var(--color-text-tertiary, #94a3b8);
+  font-size: 0.875rem;
 }
 
-.dep-arrow {
-  flex-shrink: 0;
-  margin-left: var(--spacing-2, 0.5rem);
-  color: var(--color-text-tertiary, #94a3b8);
-  transition: transform var(--transition-fast, 150ms);
-}
-
-.dep-dropdown.open .dep-arrow {
-  transform: rotate(180deg);
-}
-
-.dep-selected-tags {
+.dep-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--spacing-1, 0.25rem);
-  margin-top: var(--spacing-2, 0.5rem);
+  gap: 0.375rem;
 }
 
 .dep-tag {
   display: inline-flex;
   align-items: center;
-  gap: var(--spacing-1, 0.25rem);
-  padding: 2px var(--spacing-2, 0.5rem);
-  background: var(--color-primary-light, #dbeafe);
+  gap: 0.25rem;
+  padding: 0.25rem 0.625rem;
+  background: color-mix(in srgb, var(--color-primary, #3b82f6) 15%, transparent);
   border-radius: var(--radius-full, 9999px);
-  font-size: var(--font-size-xs, 12px);
+  font-size: 0.75rem;
   color: var(--color-primary, #3b82f6);
 }
 
-.dep-tag-remove {
+.tag-remove {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
+  padding: 0;
   border: none;
-  border-radius: 50%;
   background: transparent;
   color: var(--color-primary, #3b82f6);
   cursor: pointer;
-  transition: all var(--transition-fast, 150ms);
+  opacity: 0.7;
+  transition: opacity 150ms ease;
 }
 
-.dep-tag-remove:hover {
-  background: var(--color-primary, #3b82f6);
-  color: white;
+.tag-remove:hover {
+  opacity: 1;
 }
 
-.dep-dropdown-menu {
+.dep-chevron {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary, #94a3b8);
+  transition: transform 200ms ease;
+}
+
+.dep-chevron.rotated {
+  transform: rotate(180deg);
+}
+
+.dependency-dropdown {
   position: absolute;
-  top: 100%;
+  top: calc(100% + 0.5rem);
   left: 0;
   right: 0;
-  margin-top: 4px;
-  max-height: 200px;
   overflow-y: auto;
   background: var(--color-surface, #fff);
   border: 1px solid var(--color-border, #e2e8f0);
-  border-radius: var(--radius-md, 8px);
-  box-shadow: var(--shadow-lg, 0 10px 15px -3px rgba(0, 0, 0, 0.1));
+  border-radius: var(--radius-lg, 12px);
+  box-shadow:
+    0 4px 6px -1px rgba(0, 0, 0, 0.1),
+    0 10px 20px -5px rgba(0, 0, 0, 0.15);
   z-index: 100;
+  overscroll-behavior: contain;
+}
+
+.dependency-selector--up .dependency-dropdown {
+  top: auto;
+  bottom: calc(100% + 0.5rem);
 }
 
 .dep-option {
   display: flex;
   align-items: center;
-  gap: var(--spacing-2, 0.5rem);
-  padding: var(--spacing-2, 0.5rem) var(--spacing-3, 0.75rem);
+  gap: 0.75rem;
+  padding: 0.625rem 1rem;
   cursor: pointer;
-  transition: background-color var(--transition-fast, 150ms);
+  transition: background-color 150ms ease;
 }
 
 .dep-option:hover {
-  background-color: var(--color-surface-hover, #f8fafc);
+  background: var(--color-bg-secondary, #f8fafc);
 }
 
 .dep-option.selected {
-  background-color: var(--color-primary-light, #dbeafe);
+  background: color-mix(in srgb, var(--color-primary, #3b82f6) 10%, transparent);
 }
 
 .dep-option input {
   display: none;
 }
 
-.dep-checkbox {
-  width: 16px;
-  height: 16px;
+.checkbox-visual {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
   border: 1.5px solid var(--color-border, #e2e8f0);
-  border-radius: 3px;
+  border-radius: 4px;
   background: var(--color-surface, #fff);
-  transition: all var(--transition-fast, 150ms);
-  flex-shrink: 0;
+  color: white;
+  transition: all 150ms ease;
 }
 
-.dep-option.selected .dep-checkbox {
+.dep-option.selected .checkbox-visual {
   border-color: var(--color-primary, #3b82f6);
   background: var(--color-primary, #3b82f6);
 }
 
-.dep-option.selected .dep-checkbox::after {
-  content: '';
-  display: block;
-  width: 4px;
-  height: 8px;
-  margin: 1px 0 0 5px;
-  border: solid white;
-  border-width: 0 2px 2px 0;
-  transform: rotate(45deg);
-}
-
-.dep-option-label {
-  font-size: var(--font-size-sm, 13px);
+.option-label {
+  font-size: 0.875rem;
   color: var(--color-text-primary, #1e293b);
 }
 
-.no-tasks-hint {
-  font-size: var(--font-size-xs, 12px);
+.empty-dependencies {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1.5rem;
   color: var(--color-text-tertiary, #94a3b8);
-  font-style: italic;
+  font-size: 0.8125rem;
 }
 
+/* Modal Footer */
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  background: var(--color-surface, #fff);
+  border-top: 1px solid var(--color-border, #e2e8f0);
+  box-shadow: 0 -10px 24px rgb(15 23 42 / 4%);
+}
+
+.btn-cancel {
+  padding: 0.625rem 1.25rem;
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-surface, #fff);
+  color: var(--color-text-primary, #1e293b);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.btn-cancel:hover {
+  background: color-mix(in srgb, var(--color-surface, #fff) 92%, var(--color-bg-secondary, #f8fafc));
+  border-color: color-mix(in srgb, var(--color-border, #e2e8f0) 65%, var(--color-primary, #3b82f6));
+}
+
+.btn-save {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.5rem;
+  border: 1px solid color-mix(in srgb, var(--color-primary, #3b82f6) 70%, #1d4ed8);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-primary, #3b82f6);
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.btn-save:hover:not(:disabled) {
+  box-shadow: 0 8px 20px rgb(59 130 246 / 24%);
+  transform: translateY(-1px);
+}
+
+.btn-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Responsive */
 @media (max-width: 640px) {
-  .agent-inherit-panel {
-    flex-direction: column;
-    align-items: stretch;
+  :global(.task-edit-modal-overlay) {
+    padding: 0.125rem;
   }
 
-  .agent-inherit-hint {
-    text-align: left;
+  :global(.ea-modal.task-edit-modal-dialog) {
+    width: calc(100vw - 0.25rem) !important;
+    max-width: calc(100vw - 0.25rem) !important;
+    min-width: calc(100vw - 0.25rem) !important;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .priority-buttons {
+    flex-direction: column;
   }
 }
 </style>

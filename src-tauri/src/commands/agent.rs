@@ -132,11 +132,7 @@ fn resolve_agent_mode(
     }
 
     let resolved_mode = mode.cloned().unwrap_or_else(|| agent_type.to_string());
-    (
-        agent_type.to_string(),
-        provider.cloned(),
-        resolved_mode,
-    )
+    (agent_type.to_string(), provider.cloned(), resolved_mode)
 }
 
 /// 获取所有智能体配置
@@ -293,7 +289,9 @@ fn get_agent_by_id(conn: &Connection, id: &str) -> Result<Agent, String> {
         )
         .map_err(|e| e.to_string())?;
 
-    let agent = stmt.query_row([id], map_agent_row).map_err(|e| e.to_string())?;
+    let agent = stmt
+        .query_row([id], map_agent_row)
+        .map_err(|e| e.to_string())?;
 
     Ok(agent)
 }

@@ -257,7 +257,11 @@ pub async fn fetch_plugin_detail(plugin_id: String) -> Result<PluginMarketDetail
             }
         };
 
-        if let Some(detail) = bundle.plugin_details.into_iter().find(|item| item.id == plugin_id) {
+        if let Some(detail) = bundle
+            .plugin_details
+            .into_iter()
+            .find(|item| item.id == plugin_id)
+        {
             return Ok(detail);
         }
 
@@ -266,7 +270,10 @@ pub async fn fetch_plugin_detail(plugin_id: String) -> Result<PluginMarketDetail
         }
     }
 
-    Err(format!("Plugin not found in configured sources: {}", plugin_id))
+    Err(format!(
+        "Plugin not found in configured sources: {}",
+        plugin_id
+    ))
 }
 
 /// Plugin source from database
@@ -825,4 +832,3 @@ pub fn uninstall_plugin(plugin_id: String) -> Result<PluginInstallResult, String
         plugins_json_path: Some(get_plugins_json_path()?.to_string_lossy().to_string()),
     })
 }
-

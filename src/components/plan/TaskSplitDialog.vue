@@ -244,6 +244,7 @@ async function confirmSplit() {
 
     // 同步更新计划状态为"已拆分"
     await planStore.markPlanAsReady(planId)
+    planStore.setCurrentPlan(planId)
 
     await taskSplitStore.clearPlanSplitSessions(planId)
 

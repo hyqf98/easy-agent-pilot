@@ -25,6 +25,7 @@ const emit = defineEmits<{
   (e: 'taskDelete', task: Task): void
   (e: 'executeAll'): void
   (e: 'startExecution'): void
+  (e: 'addTask'): void
 }>()
 
 const taskExecutionStore = useTaskExecutionStore()
@@ -125,6 +126,11 @@ function handleExecuteAll() {
 function handleStartExecution() {
   emit('startExecution')
 }
+
+// 处理添加任务
+function handleAddTask() {
+  emit('addTask')
+}
 </script>
 
 <template>
@@ -139,6 +145,25 @@ function handleStartExecution() {
         <span class="column-count">{{ tasks.length }}</span>
       </div>
       <div class="header-right">
+        <!-- 待办列：添加任务按钮 -->
+        <button
+          v-if="status === 'pending'"
+          class="btn-header btn-add"
+          :title="t('taskBoard.tooltips.addTask')"
+          @click="handleAddTask"
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          <span>{{ t('taskBoard.actions.addTask') }}</span>
+        </button>
         <!-- 待办列：一键执行按钮 -->
         <button
           v-if="status === 'pending' && tasks.length > 0"

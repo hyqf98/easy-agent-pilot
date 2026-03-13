@@ -283,8 +283,7 @@ where
         .query_map(params, map_rust_task_row)
         .map_err(|e| e.to_string())?;
 
-    rows
-        .collect::<Result<Vec<_>, _>>()
+    rows.collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())
         .map(|tasks| tasks.into_iter().map(transform_task).collect())
 }
@@ -368,11 +367,7 @@ fn transform_task(rust_task: RustTask) -> Task {
 pub fn list_tasks(plan_id: String) -> Result<Vec<Task>, String> {
     let conn = open_db_connection().map_err(|e| e.to_string())?;
 
-    collect_tasks(
-        &conn,
-        TASK_SELECT_BY_PLAN_SQL,
-        [&plan_id],
-    )
+    collect_tasks(&conn, TASK_SELECT_BY_PLAN_SQL, [&plan_id])
 }
 
 /// 获取单个任务
@@ -394,7 +389,8 @@ pub fn create_task(input: CreateTaskInput) -> Result<Task, String> {
     let priority = input.priority.unwrap_or_else(|| "medium".to_string());
     let dependencies_json = serialize_json_option(input.dependencies.as_ref(), "[]");
     let max_retries = input.max_retries.unwrap_or(3);
-    let implementation_steps_json = serialize_json_option(input.implementation_steps.as_ref(), "[]");
+    let implementation_steps_json =
+        serialize_json_option(input.implementation_steps.as_ref(), "[]");
     let test_steps_json = serialize_json_option(input.test_steps.as_ref(), "[]");
     let acceptance_criteria_json = serialize_json_option(input.acceptance_criteria.as_ref(), "[]");
 
@@ -505,9 +501,17 @@ pub fn update_task(id: String, input: UpdateTaskInput) -> Result<Task, String> {
     push_update(&mut updates, "retry_count", &input.retry_count);
     push_update(&mut updates, "max_retries", &input.max_retries);
     push_update(&mut updates, "error_message", &input.error_message);
-    push_update(&mut updates, "implementation_steps", &input.implementation_steps);
+    push_update(
+        &mut updates,
+        "implementation_steps",
+        &input.implementation_steps,
+    );
     push_update(&mut updates, "test_steps", &input.test_steps);
-    push_update(&mut updates, "acceptance_criteria", &input.acceptance_criteria);
+    push_update(
+        &mut updates,
+        "acceptance_criteria",
+        &input.acceptance_criteria,
+    );
     push_update(&mut updates, "block_reason", &input.block_reason);
     push_update(&mut updates, "input_request", &input.input_request);
     push_update(&mut updates, "input_response", &input.input_response);
@@ -523,14 +527,10 @@ pub fn update_task(id: String, input: UpdateTaskInput) -> Result<Task, String> {
         .map_err(|e| e.to_string())?;
     bind_update_field(&mut stmt, &mut param_count, &input.status).map_err(|e| e.to_string())?;
     bind_update_field(&mut stmt, &mut param_count, &input.priority).map_err(|e| e.to_string())?;
-    bind_update_field(&mut stmt, &mut param_count, &input.assignee)
-        .map_err(|e| e.to_string())?;
-    bind_update_field(&mut stmt, &mut param_count, &input.agent_id)
-        .map_err(|e| e.to_string())?;
-    bind_update_field(&mut stmt, &mut param_count, &input.model_id)
-        .map_err(|e| e.to_string())?;
-    bind_update_field(&mut stmt, &mut param_count, &input.session_id)
-        .map_err(|e| e.to_string())?;
+    bind_update_field(&mut stmt, &mut param_count, &input.assignee).map_err(|e| e.to_string())?;
+    bind_update_field(&mut stmt, &mut param_count, &input.agent_id).map_err(|e| e.to_string())?;
+    bind_update_field(&mut stmt, &mut param_count, &input.model_id).map_err(|e| e.to_string())?;
+    bind_update_field(&mut stmt, &mut param_count, &input.session_id).map_err(|e| e.to_string())?;
     bind_update_field(&mut stmt, &mut param_count, &input.progress_file)
         .map_err(|e| e.to_string())?;
     bind_update_json(&mut stmt, &mut param_count, &input.dependencies, "[]")
@@ -542,12 +542,22 @@ pub fn update_task(id: String, input: UpdateTaskInput) -> Result<Task, String> {
         .map_err(|e| e.to_string())?;
     bind_update_field(&mut stmt, &mut param_count, &input.error_message)
         .map_err(|e| e.to_string())?;
-    bind_update_json(&mut stmt, &mut param_count, &input.implementation_steps, "[]")
-        .map_err(|e| e.to_string())?;
+    bind_update_json(
+        &mut stmt,
+        &mut param_count,
+        &input.implementation_steps,
+        "[]",
+    )
+    .map_err(|e| e.to_string())?;
     bind_update_json(&mut stmt, &mut param_count, &input.test_steps, "[]")
         .map_err(|e| e.to_string())?;
-    bind_update_json(&mut stmt, &mut param_count, &input.acceptance_criteria, "[]")
-        .map_err(|e| e.to_string())?;
+    bind_update_json(
+        &mut stmt,
+        &mut param_count,
+        &input.acceptance_criteria,
+        "[]",
+    )
+    .map_err(|e| e.to_string())?;
     bind_update_field(&mut stmt, &mut param_count, &input.block_reason)
         .map_err(|e| e.to_string())?;
     bind_update_json(&mut stmt, &mut param_count, &input.input_request, "{}")
@@ -611,11 +621,7 @@ pub fn delete_task(id: String) -> Result<(), String> {
 pub fn list_subtasks(parent_id: String) -> Result<Vec<Task>, String> {
     let conn = open_db_connection().map_err(|e| e.to_string())?;
 
-    collect_tasks(
-        &conn,
-        TASK_SELECT_BY_PARENT_SQL,
-        [&parent_id],
-    )
+    collect_tasks(&conn, TASK_SELECT_BY_PARENT_SQL, [&parent_id])
 }
 
 /// 重试任务 - 重置重试计数并恢复pending状态
@@ -650,11 +656,7 @@ pub fn batch_update_status(plan_id: String, status: String) -> Result<Vec<Task>,
     .map_err(|e| e.to_string())?;
 
     // 获取更新后的任务列表
-    collect_tasks(
-        &conn,
-        TASK_SELECT_BY_PLAN_SQL,
-        [&plan_id],
-    )
+    collect_tasks(&conn, TASK_SELECT_BY_PLAN_SQL, [&plan_id])
 }
 
 /// 停止任务执行
@@ -680,11 +682,7 @@ pub fn stop_task(id: String) -> Result<Task, String> {
 pub fn get_task_by_session_id(session_id: String) -> Result<Option<Task>, String> {
     let conn = open_db_connection().map_err(|e| e.to_string())?;
 
-    fetch_optional_task(
-        &conn,
-        TASK_SELECT_BY_SESSION_SQL,
-        [&session_id],
-    )
+    fetch_optional_task(&conn, TASK_SELECT_BY_SESSION_SQL, [&session_id])
 }
 
 /// 批量创建任务（从拆分结果）

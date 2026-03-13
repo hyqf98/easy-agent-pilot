@@ -1,132 +1,120 @@
 use anyhow::Result;
+use rusqlite::{params, params_from_iter, OptionalExtension, ToSql};
 use serde::{Deserialize, Serialize};
 
 use super::support::{now_rfc3339, open_db_connection_with_foreign_keys};
 
-// ==================== 类型定义 ====================
-
-/// 记忆分类
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MemoryCategory {
+#[serde(rename_all = "camelCase")]
+pub struct MemoryLibrary {
     pub id: String,
-    pub parent_id: Option<String>,
     pub name: String,
-    pub icon: Option<String>,
-    pub color: Option<String>,
     pub description: Option<String>,
-    pub order_index: i32,
+    pub content_md: String,
     pub created_at: String,
     pub updated_at: String,
 }
 
-/// 用户记忆
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UserMemory {
+#[serde(rename_all = "camelCase")]
+pub struct RawMemoryRecord {
     pub id: String,
     pub session_id: Option<String>,
-    pub category_id: Option<String>,
-    pub title: String,
+    pub session_name: Option<String>,
+    pub project_id: Option<String>,
+    pub project_name: Option<String>,
+    pub message_id: Option<String>,
     pub content: String,
-    pub compressed_content: Option<String>,
-    pub is_compressed: bool,
-    pub source_type: String,
-    pub source_message_ids: Option<String>,
-    pub tags: Option<String>,
-    pub metadata: Option<String>,
+    pub source_role: String,
     pub created_at: String,
     pub updated_at: String,
 }
 
-/// 记忆压缩历史
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MemoryCompression {
+#[serde(rename_all = "camelCase")]
+pub struct MemoryMergeRun {
     pub id: String,
-    pub memory_id: String,
-    pub original_content: String,
-    pub compressed_content: String,
-    pub compression_ratio: Option<f64>,
+    pub library_id: String,
+    pub source_record_ids: Vec<String>,
+    pub source_record_count: i32,
+    pub previous_content_md: String,
+    pub merged_content_md: String,
+    pub agent_id: Option<String>,
     pub model_id: Option<String>,
     pub created_at: String,
 }
 
-// ==================== 输入类型 ====================
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateMemoryCategoryInput {
-    pub parent_id: Option<String>,
+#[serde(rename_all = "camelCase")]
+pub struct CreateMemoryLibraryInput {
     pub name: String,
-    pub icon: Option<String>,
-    pub color: Option<String>,
     pub description: Option<String>,
-    pub order_index: Option<i32>,
+    pub content_md: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpdateMemoryCategoryInput {
+#[serde(rename_all = "camelCase")]
+pub struct UpdateMemoryLibraryInput {
     pub name: Option<String>,
-    pub icon: Option<String>,
-    pub color: Option<String>,
     pub description: Option<String>,
-    pub order_index: Option<i32>,
-    pub parent_id: Option<String>,
+    pub content_md: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateUserMemoryInput {
+#[serde(rename_all = "camelCase")]
+pub struct ListRawMemoryRecordsQuery {
     pub session_id: Option<String>,
-    pub category_id: Option<String>,
-    pub title: String,
+    pub project_id: Option<String>,
+    pub search: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateRawMemoryRecordInput {
+    pub session_id: Option<String>,
+    pub project_id: Option<String>,
+    pub message_id: Option<String>,
     pub content: String,
-    pub source_type: Option<String>,
-    pub source_message_ids: Option<String>,
-    pub tags: Option<String>,
-    pub metadata: Option<String>,
+    pub source_role: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpdateUserMemoryInput {
-    pub title: Option<String>,
+#[serde(rename_all = "camelCase")]
+pub struct UpdateRawMemoryRecordInput {
     pub content: Option<String>,
-    pub compressed_content: Option<String>,
-    pub is_compressed: Option<bool>,
-    pub category_id: Option<String>,
-    pub tags: Option<String>,
-    pub metadata: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateMemoryCompressionInput {
-    pub memory_id: String,
-    pub original_content: String,
-    pub compressed_content: String,
-    pub compression_ratio: Option<f64>,
+#[serde(rename_all = "camelCase")]
+pub struct CaptureUserMessageInput {
+    pub session_id: String,
+    pub message_id: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListMemoryMergeRunsQuery {
+    pub library_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeRawMemoriesIntoLibraryInput {
+    pub library_id: String,
+    pub source_record_ids: Vec<String>,
+    pub merged_content_md: String,
+    pub agent_id: Option<String>,
     pub model_id: Option<String>,
 }
 
-// ==================== 查询参数类型 ====================
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ListMemoriesQuery {
-    pub category_id: Option<String>,
-    pub session_id: Option<String>,
-    pub is_compressed: Option<bool>,
-    pub source_type: Option<String>,
-    pub search: Option<String>,
-    pub limit: Option<i32>,
-    pub offset: Option<i32>,
+#[serde(rename_all = "camelCase")]
+pub struct MergeRawMemoriesIntoLibraryResult {
+    pub library: MemoryLibrary,
+    pub merge_run: MemoryMergeRun,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MemoryStats {
-    pub total: i32,
-    pub compressed: i32,
-    pub uncompressed: i32,
-    pub by_category: Vec<(Option<String>, i32)>,
-}
-
-// ==================== 数据库辅助函数 ====================
-
-/// 获取数据库连接
 fn get_db_connection() -> Result<rusqlite::Connection> {
     open_db_connection_with_foreign_keys()
 }
@@ -135,598 +123,579 @@ fn generate_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
-// ==================== 记忆分类命令 ====================
+fn normalize_optional_string(value: Option<String>) -> Option<String> {
+    value.and_then(|entry| {
+        let trimmed = entry.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
 
-/// 列出所有记忆分类
+fn normalize_required_string(value: String, field: &str) -> Result<String, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(format!("{} 不能为空", field));
+    }
+    Ok(trimmed.to_string())
+}
+
+fn parse_string_array(raw: String) -> Vec<String> {
+    serde_json::from_str::<Vec<String>>(&raw).unwrap_or_default()
+}
+
+fn map_memory_library(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryLibrary> {
+    Ok(MemoryLibrary {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        description: row.get(2)?,
+        content_md: row.get(3)?,
+        created_at: row.get(4)?,
+        updated_at: row.get(5)?,
+    })
+}
+
+fn map_raw_memory_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawMemoryRecord> {
+    Ok(RawMemoryRecord {
+        id: row.get(0)?,
+        session_id: row.get(1)?,
+        session_name: row.get(2)?,
+        project_id: row.get(3)?,
+        project_name: row.get(4)?,
+        message_id: row.get(5)?,
+        content: row.get(6)?,
+        source_role: row.get(7)?,
+        created_at: row.get(8)?,
+        updated_at: row.get(9)?,
+    })
+}
+
+fn map_memory_merge_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryMergeRun> {
+    Ok(MemoryMergeRun {
+        id: row.get(0)?,
+        library_id: row.get(1)?,
+        source_record_ids: parse_string_array(row.get::<_, String>(2)?),
+        source_record_count: row.get(3)?,
+        previous_content_md: row.get(4)?,
+        merged_content_md: row.get(5)?,
+        agent_id: row.get(6)?,
+        model_id: row.get(7)?,
+        created_at: row.get(8)?,
+    })
+}
+
+fn get_memory_library_by_id(
+    conn: &rusqlite::Connection,
+    id: &str,
+) -> Result<MemoryLibrary, String> {
+    conn.query_row(
+        r#"
+        SELECT id, name, description, content_md, created_at, updated_at
+        FROM memory_libraries
+        WHERE id = ?1
+        "#,
+        [id],
+        map_memory_library,
+    )
+    .map_err(|error| error.to_string())
+}
+
+fn get_raw_memory_record_by_id(
+    conn: &rusqlite::Connection,
+    id: &str,
+) -> Result<RawMemoryRecord, String> {
+    conn.query_row(
+        r#"
+        SELECT
+            r.id,
+            r.session_id,
+            s.name,
+            r.project_id,
+            p.name,
+            r.message_id,
+            r.content,
+            r.source_role,
+            r.created_at,
+            r.updated_at
+        FROM raw_memory_records r
+        LEFT JOIN sessions s ON s.id = r.session_id
+        LEFT JOIN projects p ON p.id = r.project_id
+        WHERE r.id = ?1
+        "#,
+        [id],
+        map_raw_memory_record,
+    )
+    .map_err(|error| error.to_string())
+}
+
+fn get_memory_merge_run_by_id(
+    conn: &rusqlite::Connection,
+    id: &str,
+) -> Result<MemoryMergeRun, String> {
+    conn.query_row(
+        r#"
+        SELECT
+            id,
+            library_id,
+            source_record_ids,
+            source_record_count,
+            previous_content_md,
+            merged_content_md,
+            agent_id,
+            model_id,
+            created_at
+        FROM memory_merge_runs
+        WHERE id = ?1
+        "#,
+        [id],
+        map_memory_merge_run,
+    )
+    .map_err(|error| error.to_string())
+}
+
+fn resolve_project_id_from_session(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+) -> Result<Option<String>, String> {
+    conn.query_row(
+        "SELECT project_id FROM sessions WHERE id = ?1",
+        [session_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|error| error.to_string())
+}
+
+fn count_existing_raw_records(
+    conn: &rusqlite::Connection,
+    record_ids: &[String],
+) -> Result<usize, String> {
+    if record_ids.is_empty() {
+        return Ok(0);
+    }
+
+    let placeholders = (1..=record_ids.len())
+        .map(|index| format!("?{}", index))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "SELECT COUNT(*) FROM raw_memory_records WHERE id IN ({})",
+        placeholders
+    );
+    let params = record_ids.iter().map(|id| id as &dyn ToSql);
+    conn.query_row(&sql, params_from_iter(params), |row| row.get::<_, i64>(0))
+        .map(|count| count as usize)
+        .map_err(|error| error.to_string())
+}
+
 #[tauri::command]
-pub fn list_memory_categories() -> Result<Vec<MemoryCategory>, String> {
-    let conn = get_db_connection().map_err(|e| e.to_string())?;
-
+pub fn list_memory_libraries() -> Result<Vec<MemoryLibrary>, String> {
+    let conn = get_db_connection().map_err(|error| error.to_string())?;
     let mut stmt = conn
         .prepare(
-            "SELECT id, parent_id, name, icon, color, description, order_index, created_at, updated_at
-             FROM memory_categories
-             ORDER BY order_index ASC, created_at ASC"
+            r#"
+            SELECT id, name, description, content_md, created_at, updated_at
+            FROM memory_libraries
+            ORDER BY updated_at DESC, created_at DESC
+            "#,
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|error| error.to_string())?;
 
-    let categories = stmt
-        .query_map([], |row| {
-            Ok(MemoryCategory {
-                id: row.get(0)?,
-                parent_id: row.get(1)?,
-                name: row.get(2)?,
-                icon: row.get(3)?,
-                color: row.get(4)?,
-                description: row.get(5)?,
-                order_index: row.get(6)?,
-                created_at: row.get(7)?,
-                updated_at: row.get(8)?,
-            })
-        })
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
+    let libraries = stmt
+        .query_map([], map_memory_library)
+        .map_err(|error| error.to_string())?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|error| error.to_string())?;
 
-    Ok(categories)
+    Ok(libraries)
 }
 
-/// 获取单个记忆分类
 #[tauri::command]
-pub fn get_memory_category(id: String) -> Result<MemoryCategory, String> {
-    let conn = get_db_connection().map_err(|e| e.to_string())?;
-
-    let category = conn
-        .query_row(
-            "SELECT id, parent_id, name, icon, color, description, order_index, created_at, updated_at
-             FROM memory_categories WHERE id = ?",
-            [&id],
-            |row| {
-                Ok(MemoryCategory {
-                    id: row.get(0)?,
-                    parent_id: row.get(1)?,
-                    name: row.get(2)?,
-                    icon: row.get(3)?,
-                    color: row.get(4)?,
-                    description: row.get(5)?,
-                    order_index: row.get(6)?,
-                    created_at: row.get(7)?,
-                    updated_at: row.get(8)?,
-                })
-            }
-        )
-        .map_err(|e| e.to_string())?;
-
-    Ok(category)
+pub fn get_memory_library(id: String) -> Result<MemoryLibrary, String> {
+    let conn = get_db_connection().map_err(|error| error.to_string())?;
+    get_memory_library_by_id(&conn, &id)
 }
 
-/// 创建记忆分类
 #[tauri::command]
-pub fn create_memory_category(input: CreateMemoryCategoryInput) -> Result<MemoryCategory, String> {
-    let conn = get_db_connection().map_err(|e| e.to_string())?;
+pub fn create_memory_library(input: CreateMemoryLibraryInput) -> Result<MemoryLibrary, String> {
+    let conn = get_db_connection().map_err(|error| error.to_string())?;
     let now = now_rfc3339();
     let id = generate_id();
+    let name = normalize_required_string(input.name, "记忆库名称")?;
 
     conn.execute(
-        "INSERT INTO memory_categories (id, parent_id, name, icon, color, description, order_index, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        rusqlite::params![
+        r#"
+        INSERT INTO memory_libraries (id, name, description, content_md, created_at, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+        "#,
+        params![
             &id,
-            &input.parent_id,
-            &input.name,
-            &input.icon,
-            &input.color,
-            &input.description,
-            &input.order_index.unwrap_or(0),
+            &name,
+            normalize_optional_string(input.description),
+            input.content_md.unwrap_or_default(),
             &now,
             &now
         ],
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|error| error.to_string())?;
 
-    Ok(MemoryCategory {
-        id,
-        parent_id: input.parent_id,
-        name: input.name,
-        icon: input.icon,
-        color: input.color,
-        description: input.description,
-        order_index: input.order_index.unwrap_or(0),
-        created_at: now.clone(),
-        updated_at: now,
-    })
+    get_memory_library_by_id(&conn, &id)
 }
 
-/// 更新记忆分类
 #[tauri::command]
-pub fn update_memory_category(
+pub fn update_memory_library(
     id: String,
-    input: UpdateMemoryCategoryInput,
-) -> Result<MemoryCategory, String> {
-    let conn = get_db_connection().map_err(|e| e.to_string())?;
+    input: UpdateMemoryLibraryInput,
+) -> Result<MemoryLibrary, String> {
+    let conn = get_db_connection().map_err(|error| error.to_string())?;
+    let existing = get_memory_library_by_id(&conn, &id)?;
     let now = now_rfc3339();
 
-    // 先获取现有记录
-    let existing = conn
-        .query_row(
-            "SELECT id, parent_id, name, icon, color, description, order_index, created_at, updated_at
-             FROM memory_categories WHERE id = ?",
-            [&id],
-            |row| {
-                Ok(MemoryCategory {
-                    id: row.get(0)?,
-                    parent_id: row.get(1)?,
-                    name: row.get(2)?,
-                    icon: row.get(3)?,
-                    color: row.get(4)?,
-                    description: row.get(5)?,
-                    order_index: row.get(6)?,
-                    created_at: row.get(7)?,
-                    updated_at: row.get(8)?,
-                })
-            }
-        )
-        .map_err(|e| e.to_string())?;
-
-    let updated = MemoryCategory {
-        id: existing.id,
-        parent_id: input.parent_id.or(existing.parent_id),
-        name: input.name.unwrap_or(existing.name),
-        icon: input.icon.or(existing.icon),
-        color: input.color.or(existing.color),
-        description: input.description.or(existing.description),
-        order_index: input.order_index.unwrap_or(existing.order_index),
-        created_at: existing.created_at,
-        updated_at: now,
+    let name = match input.name {
+        Some(value) => normalize_required_string(value, "记忆库名称")?,
+        None => existing.name,
     };
+    let description = match input.description {
+        Some(value) => normalize_optional_string(Some(value)),
+        None => existing.description,
+    };
+    let content_md = input.content_md.unwrap_or(existing.content_md);
 
     conn.execute(
-        "UPDATE memory_categories
-         SET parent_id = ?1, name = ?2, icon = ?3, color = ?4, description = ?5, order_index = ?6, updated_at = ?7
-         WHERE id = ?8",
-        rusqlite::params![
-            &updated.parent_id,
-            &updated.name,
-            &updated.icon,
-            &updated.color,
-            &updated.description,
-            &updated.order_index,
-            &updated.updated_at,
-            &updated.id
-        ],
+        r#"
+        UPDATE memory_libraries
+        SET name = ?1,
+            description = ?2,
+            content_md = ?3,
+            updated_at = ?4
+        WHERE id = ?5
+        "#,
+        params![name, description, content_md, &now, &id],
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|error| error.to_string())?;
 
-    Ok(updated)
+    get_memory_library_by_id(&conn, &id)
 }
 
-/// 删除记忆分类
 #[tauri::command]
-pub fn delete_memory_category(id: String) -> Result<(), String> {
-    let conn = get_db_connection().map_err(|e| e.to_string())?;
-
-    conn.execute("DELETE FROM memory_categories WHERE id = ?1", [&id])
-        .map_err(|e| e.to_string())?;
-
+pub fn delete_memory_library(id: String) -> Result<(), String> {
+    let conn = get_db_connection().map_err(|error| error.to_string())?;
+    conn.execute("DELETE FROM memory_libraries WHERE id = ?1", [&id])
+        .map_err(|error| error.to_string())?;
     Ok(())
 }
 
-// ==================== 用户记忆命令 ====================
-
-/// 列出用户记忆（支持筛选）
 #[tauri::command]
-pub fn list_memories(query: ListMemoriesQuery) -> Result<Vec<UserMemory>, String> {
-    let conn = get_db_connection().map_err(|e| e.to_string())?;
-
+pub fn list_raw_memory_records(
+    query: ListRawMemoryRecordsQuery,
+) -> Result<Vec<RawMemoryRecord>, String> {
+    let conn = get_db_connection().map_err(|error| error.to_string())?;
     let mut sql = String::from(
-        "SELECT id, session_id, category_id, title, content, compressed_content, is_compressed, source_type, source_message_ids, tags, metadata, created_at, updated_at
-         FROM user_memories WHERE 1=1"
+        r#"
+        SELECT
+            r.id,
+            r.session_id,
+            s.name,
+            r.project_id,
+            p.name,
+            r.message_id,
+            r.content,
+            r.source_role,
+            r.created_at,
+            r.updated_at
+        FROM raw_memory_records r
+        LEFT JOIN sessions s ON s.id = r.session_id
+        LEFT JOIN projects p ON p.id = r.project_id
+        WHERE 1 = 1
+        "#,
     );
-    let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
-    if let Some(category_id) = &query.category_id {
-        sql.push_str(" AND category_id = ?");
-        params.push(Box::new(category_id.clone()));
+    let mut bindings: Vec<Box<dyn ToSql>> = Vec::new();
+
+    if let Some(project_id) = query.project_id {
+        sql.push_str(&format!(" AND r.project_id = ?{}", bindings.len() + 1));
+        bindings.push(Box::new(project_id));
     }
 
-    if let Some(session_id) = &query.session_id {
-        sql.push_str(" AND session_id = ?");
-        params.push(Box::new(session_id.clone()));
+    if let Some(session_id) = query.session_id {
+        sql.push_str(&format!(" AND r.session_id = ?{}", bindings.len() + 1));
+        bindings.push(Box::new(session_id));
     }
 
-    if let Some(is_compressed) = query.is_compressed {
-        sql.push_str(" AND is_compressed = ?");
-        params.push(Box::new(if is_compressed { 1 } else { 0 }));
+    if let Some(search) = normalize_optional_string(query.search) {
+        sql.push_str(&format!(
+            " AND LOWER(r.content) LIKE LOWER(?{})",
+            bindings.len() + 1
+        ));
+        bindings.push(Box::new(format!("%{}%", search)));
     }
 
-    if let Some(source_type) = &query.source_type {
-        sql.push_str(" AND source_type = ?");
-        params.push(Box::new(source_type.clone()));
-    }
+    sql.push_str(" ORDER BY r.created_at DESC");
 
-    if let Some(search) = &query.search {
-        sql.push_str(" AND (title LIKE ? OR content LIKE ?)");
-        let search_pattern = format!("%{}%", search);
-        params.push(Box::new(search_pattern.clone()));
-        params.push(Box::new(search_pattern));
-    }
+    let params: Vec<&dyn ToSql> = bindings.iter().map(|value| value.as_ref()).collect();
+    let mut stmt = conn.prepare(&sql).map_err(|error| error.to_string())?;
+    let records = stmt
+        .query_map(params_from_iter(params), map_raw_memory_record)
+        .map_err(|error| error.to_string())?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|error| error.to_string())?;
 
-    sql.push_str(" ORDER BY created_at DESC");
-
-    if let Some(limit) = query.limit {
-        sql.push_str(&format!(" LIMIT {}", limit));
-        if let Some(offset) = query.offset {
-            sql.push_str(&format!(" OFFSET {}", offset));
-        }
-    }
-
-    let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-
-    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-    let memories = stmt
-        .query_map(params_refs.as_slice(), |row| {
-            Ok(UserMemory {
-                id: row.get(0)?,
-                session_id: row.get(1)?,
-                category_id: row.get(2)?,
-                title: row.get(3)?,
-                content: row.get(4)?,
-                compressed_content: row.get(5)?,
-                is_compressed: row.get::<_, i32>(6)? != 0,
-                source_type: row.get(7)?,
-                source_message_ids: row.get(8)?,
-                tags: row.get(9)?,
-                metadata: row.get(10)?,
-                created_at: row.get(11)?,
-                updated_at: row.get(12)?,
-            })
-        })
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-
-    Ok(memories)
+    Ok(records)
 }
 
-/// 获取单个用户记忆
 #[tauri::command]
-pub fn get_memory(id: String) -> Result<UserMemory, String> {
-    let conn = get_db_connection().map_err(|e| e.to_string())?;
-
-    let memory = conn
-        .query_row(
-            "SELECT id, session_id, category_id, title, content, compressed_content, is_compressed, source_type, source_message_ids, tags, metadata, created_at, updated_at
-             FROM user_memories WHERE id = ?",
-            [&id],
-            |row| {
-                Ok(UserMemory {
-                    id: row.get(0)?,
-                    session_id: row.get(1)?,
-                    category_id: row.get(2)?,
-                    title: row.get(3)?,
-                    content: row.get(4)?,
-                    compressed_content: row.get(5)?,
-                    is_compressed: row.get::<_, i32>(6)? != 0,
-                    source_type: row.get(7)?,
-                    source_message_ids: row.get(8)?,
-                    tags: row.get(9)?,
-                    metadata: row.get(10)?,
-                    created_at: row.get(11)?,
-                    updated_at: row.get(12)?,
-                })
-            }
-        )
-        .map_err(|e| e.to_string())?;
-
-    Ok(memory)
-}
-
-/// 创建用户记忆
-#[tauri::command]
-pub fn create_memory(input: CreateUserMemoryInput) -> Result<UserMemory, String> {
-    let conn = get_db_connection().map_err(|e| e.to_string())?;
+pub fn create_raw_memory_record(
+    input: CreateRawMemoryRecordInput,
+) -> Result<RawMemoryRecord, String> {
+    let conn = get_db_connection().map_err(|error| error.to_string())?;
     let now = now_rfc3339();
     let id = generate_id();
-    let source_type = input.source_type.unwrap_or_else(|| "auto".to_string());
-    let compressed_content: Option<String> = None;
-    let is_compressed = 0;
+    let content = normalize_required_string(input.content, "原始记忆内容")?;
+    let session_id = normalize_optional_string(input.session_id);
+    let project_id = match (
+        normalize_optional_string(input.project_id),
+        session_id.as_ref(),
+    ) {
+        (Some(project_id), _) => Some(project_id),
+        (None, Some(session_id)) => resolve_project_id_from_session(&conn, session_id)?,
+        (None, None) => None,
+    };
 
     conn.execute(
-        "INSERT INTO user_memories (id, session_id, category_id, title, content, compressed_content, is_compressed, source_type, source_message_ids, tags, metadata, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-        rusqlite::params![
+        r#"
+        INSERT INTO raw_memory_records (
+            id,
+            session_id,
+            project_id,
+            message_id,
+            content,
+            source_role,
+            created_at,
+            updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        "#,
+        params![
+            &id,
+            session_id,
+            project_id,
+            normalize_optional_string(input.message_id),
+            content,
+            normalize_optional_string(input.source_role).unwrap_or_else(|| "user".to_string()),
+            &now,
+            &now
+        ],
+    )
+    .map_err(|error| error.to_string())?;
+
+    get_raw_memory_record_by_id(&conn, &id)
+}
+
+#[tauri::command]
+pub fn update_raw_memory_record(
+    id: String,
+    input: UpdateRawMemoryRecordInput,
+) -> Result<RawMemoryRecord, String> {
+    let conn = get_db_connection().map_err(|error| error.to_string())?;
+    let existing = get_raw_memory_record_by_id(&conn, &id)?;
+    let now = now_rfc3339();
+    let content = match input.content {
+        Some(value) => normalize_required_string(value, "原始记忆内容")?,
+        None => existing.content,
+    };
+
+    conn.execute(
+        r#"
+        UPDATE raw_memory_records
+        SET content = ?1,
+            updated_at = ?2
+        WHERE id = ?3
+        "#,
+        params![content, &now, &id],
+    )
+    .map_err(|error| error.to_string())?;
+
+    get_raw_memory_record_by_id(&conn, &id)
+}
+
+#[tauri::command]
+pub fn delete_raw_memory_record(id: String) -> Result<(), String> {
+    let conn = get_db_connection().map_err(|error| error.to_string())?;
+    conn.execute("DELETE FROM raw_memory_records WHERE id = ?1", [&id])
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn capture_user_message(input: CaptureUserMessageInput) -> Result<RawMemoryRecord, String> {
+    let conn = get_db_connection().map_err(|error| error.to_string())?;
+    let message_id = normalize_required_string(input.message_id, "消息 ID")?;
+
+    let existing = conn
+        .query_row(
+            r#"
+            SELECT
+                r.id,
+                r.session_id,
+                s.name,
+                r.project_id,
+                p.name,
+                r.message_id,
+                r.content,
+                r.source_role,
+                r.created_at,
+                r.updated_at
+            FROM raw_memory_records r
+            LEFT JOIN sessions s ON s.id = r.session_id
+            LEFT JOIN projects p ON p.id = r.project_id
+            WHERE r.message_id = ?1
+            "#,
+            [&message_id],
+            map_raw_memory_record,
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+
+    if let Some(record) = existing {
+        return Ok(record);
+    }
+
+    let now = now_rfc3339();
+    let id = generate_id();
+    let project_id = resolve_project_id_from_session(&conn, &input.session_id)?;
+    let content = normalize_required_string(input.content, "原始记忆内容")?;
+
+    conn.execute(
+        r#"
+        INSERT INTO raw_memory_records (
+            id,
+            session_id,
+            project_id,
+            message_id,
+            content,
+            source_role,
+            created_at,
+            updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, 'user', ?6, ?7)
+        "#,
+        params![
             &id,
             &input.session_id,
-            &input.category_id,
-            &input.title,
-            &input.content,
-            &compressed_content,
-            &is_compressed,
-            &source_type,
-            &input.source_message_ids,
-            &input.tags,
-            &input.metadata,
+            project_id,
+            &message_id,
+            content,
             &now,
             &now
         ],
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|error| error.to_string())?;
 
-    Ok(UserMemory {
-        id,
-        session_id: input.session_id,
-        category_id: input.category_id,
-        title: input.title,
-        content: input.content,
-        compressed_content,
-        is_compressed: false,
-        source_type,
-        source_message_ids: input.source_message_ids,
-        tags: input.tags,
-        metadata: input.metadata,
-        created_at: now.clone(),
-        updated_at: now,
-    })
+    get_raw_memory_record_by_id(&conn, &id)
 }
 
-/// 更新用户记忆
 #[tauri::command]
-pub fn update_memory(id: String, input: UpdateUserMemoryInput) -> Result<UserMemory, String> {
-    let conn = get_db_connection().map_err(|e| e.to_string())?;
-    let now = now_rfc3339();
-
-    // 先获取现有记录
-    let existing = conn
-        .query_row(
-            "SELECT id, session_id, category_id, title, content, compressed_content, is_compressed, source_type, source_message_ids, tags, metadata, created_at, updated_at
-             FROM user_memories WHERE id = ?",
-            [&id],
-            |row| {
-                Ok(UserMemory {
-                    id: row.get(0)?,
-                    session_id: row.get(1)?,
-                    category_id: row.get(2)?,
-                    title: row.get(3)?,
-                    content: row.get(4)?,
-                    compressed_content: row.get(5)?,
-                    is_compressed: row.get::<_, i32>(6)? != 0,
-                    source_type: row.get(7)?,
-                    source_message_ids: row.get(8)?,
-                    tags: row.get(9)?,
-                    metadata: row.get(10)?,
-                    created_at: row.get(11)?,
-                    updated_at: row.get(12)?,
-                })
-            }
-        )
-        .map_err(|e| e.to_string())?;
-
-    let is_compressed_int = if input.is_compressed.unwrap_or(existing.is_compressed) {
-        1
-    } else {
-        0
-    };
-
-    let updated = UserMemory {
-        id: existing.id,
-        session_id: existing.session_id,
-        category_id: input.category_id.or(existing.category_id),
-        title: input.title.unwrap_or(existing.title),
-        content: input.content.unwrap_or(existing.content),
-        compressed_content: input.compressed_content.or(existing.compressed_content),
-        is_compressed: input.is_compressed.unwrap_or(existing.is_compressed),
-        source_type: existing.source_type,
-        source_message_ids: existing.source_message_ids,
-        tags: input.tags.or(existing.tags),
-        metadata: input.metadata.or(existing.metadata),
-        created_at: existing.created_at,
-        updated_at: now,
-    };
-
-    conn.execute(
-        "UPDATE user_memories
-         SET title = ?1, content = ?2, compressed_content = ?3, is_compressed = ?4, category_id = ?5, tags = ?6, metadata = ?7, updated_at = ?8
-         WHERE id = ?9",
-        rusqlite::params![
-            &updated.title,
-            &updated.content,
-            &updated.compressed_content,
-            &is_compressed_int,
-            &updated.category_id,
-            &updated.tags,
-            &updated.metadata,
-            &updated.updated_at,
-            &updated.id
-        ],
-    )
-    .map_err(|e| e.to_string())?;
-
-    Ok(updated)
-}
-
-/// 删除用户记忆
-#[tauri::command]
-pub fn delete_memory(id: String) -> Result<(), String> {
-    let conn = get_db_connection().map_err(|e| e.to_string())?;
-
-    conn.execute("DELETE FROM user_memories WHERE id = ?1", [&id])
-        .map_err(|e| e.to_string())?;
-
-    Ok(())
-}
-
-/// 批量删除用户记忆
-#[tauri::command]
-pub fn batch_delete_memories(ids: Vec<String>) -> Result<(), String> {
-    let conn = get_db_connection().map_err(|e| e.to_string())?;
-
-    for id in ids {
-        conn.execute("DELETE FROM user_memories WHERE id = ?1", [&id])
-            .map_err(|e| e.to_string())?;
-    }
-
-    Ok(())
-}
-
-/// 采集用户消息（自动从会话消息创建记忆)
-#[tauri::command]
-pub fn capture_user_message(
-    session_id: String,
-    message_id: String,
-    title: String,
-    content: String,
-) -> Result<UserMemory, String> {
-    let conn = get_db_connection().map_err(|e| e.to_string())?;
-    let now = now_rfc3339();
-    let id = generate_id();
-    let source_type = "auto";
-    let source_message_ids =
-        serde_json::to_string(&vec![message_id]).unwrap_or_else(|_| "[]".to_string());
-
-    conn.execute(
-        "INSERT INTO user_memories (id, session_id, category_id, title, content, compressed_content, is_compressed, source_type, source_message_ids, tags, metadata, created_at, updated_at)
-         VALUES (?1, ?2, NULL, ?3, ?4, NULL, 0, ?5, ?6, NULL, NULL, ?7, ?8)",
-        rusqlite::params![
-            &id,
-            &session_id,
-            &title,
-            &content,
-            &source_type,
-            &source_message_ids,
-            &now,
-            &now
-        ],
-    )
-    .map_err(|e| e.to_string())?;
-
-    Ok(UserMemory {
-        id,
-        session_id: Some(session_id),
-        category_id: None,
-        title,
-        content,
-        compressed_content: None,
-        is_compressed: false,
-        source_type: source_type.to_string(),
-        source_message_ids: Some(source_message_ids),
-        tags: None,
-        metadata: None,
-        created_at: now.clone(),
-        updated_at: now,
-    })
-}
-
-/// 获取记忆统计信息
-#[tauri::command]
-pub fn get_memory_stats() -> Result<MemoryStats, String> {
-    let conn = get_db_connection().map_err(|e| e.to_string())?;
-
-    let total: i32 = conn
-        .query_row("SELECT COUNT(*) FROM user_memories", [], |row| row.get(0))
-        .map_err(|e| e.to_string())?;
-
-    let compressed: i32 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM user_memories WHERE is_compressed = 1",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(|e| e.to_string())?;
-
-    let mut stmt = conn
-        .prepare("SELECT category_id, COUNT(*) FROM user_memories GROUP BY category_id")
-        .map_err(|e| e.to_string())?;
-
-    let by_category = stmt
-        .query_map([], |row| {
-            let category_id: Option<String> = row.get(0)?;
-            let count: i32 = row.get(1)?;
-            Ok((category_id, count))
-        })
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-
-    Ok(MemoryStats {
-        total,
-        compressed,
-        uncompressed: total - compressed,
-        by_category,
-    })
-}
-
-// ==================== 记忆压缩命令 ====================
-
-/// 创建记忆压缩记录
-#[tauri::command]
-pub fn create_memory_compression(
-    input: CreateMemoryCompressionInput,
-) -> Result<MemoryCompression, String> {
-    let conn = get_db_connection().map_err(|e| e.to_string())?;
-    let now = now_rfc3339();
-    let id = generate_id();
-
-    conn.execute(
-        "INSERT INTO memory_compressions (id, memory_id, original_content, compressed_content, compression_ratio, model_id, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        rusqlite::params![
-            &id,
-            &input.memory_id,
-            &input.original_content,
-            &input.compressed_content,
-            &input.compression_ratio,
-            &input.model_id,
-            &now
-        ],
-    )
-    .map_err(|e| e.to_string())?;
-
-    // 更新记忆的压缩状态
-    conn.execute(
-        "UPDATE user_memories SET compressed_content = ?1, is_compressed = 1, updated_at = ?2 WHERE id = ?3",
-        rusqlite::params![&input.compressed_content, &now, &input.memory_id],
-    )
-    .map_err(|e| e.to_string())?;
-
-    Ok(MemoryCompression {
-        id,
-        memory_id: input.memory_id,
-        original_content: input.original_content,
-        compressed_content: input.compressed_content,
-        compression_ratio: input.compression_ratio,
-        model_id: input.model_id,
-        created_at: now,
-    })
-}
-
-/// 获取记忆的压缩历史
-#[tauri::command]
-pub fn list_memory_compressions(memory_id: String) -> Result<Vec<MemoryCompression>, String> {
-    let conn = get_db_connection().map_err(|e| e.to_string())?;
-
+pub fn list_memory_merge_runs(
+    query: ListMemoryMergeRunsQuery,
+) -> Result<Vec<MemoryMergeRun>, String> {
+    let conn = get_db_connection().map_err(|error| error.to_string())?;
     let mut stmt = conn
         .prepare(
-            "SELECT id, memory_id, original_content, compressed_content, compression_ratio, model_id, created_at
-             FROM memory_compressions WHERE memory_id = ?
-             ORDER BY created_at DESC"
+            r#"
+            SELECT
+                id,
+                library_id,
+                source_record_ids,
+                source_record_count,
+                previous_content_md,
+                merged_content_md,
+                agent_id,
+                model_id,
+                created_at
+            FROM memory_merge_runs
+            WHERE library_id = ?1
+            ORDER BY created_at DESC
+            "#,
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|error| error.to_string())?;
 
-    let compressions = stmt
-        .query_map([&memory_id], |row| {
-            Ok(MemoryCompression {
-                id: row.get(0)?,
-                memory_id: row.get(1)?,
-                original_content: row.get(2)?,
-                compressed_content: row.get(3)?,
-                compression_ratio: row.get(4)?,
-                model_id: row.get(5)?,
-                created_at: row.get(6)?,
-            })
-        })
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
+    let merge_runs = stmt
+        .query_map([&query.library_id], map_memory_merge_run)
+        .map_err(|error| error.to_string())?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|error| error.to_string())?;
 
-    Ok(compressions)
+    Ok(merge_runs)
+}
+
+#[tauri::command]
+pub fn merge_raw_memories_into_library(
+    input: MergeRawMemoriesIntoLibraryInput,
+) -> Result<MergeRawMemoriesIntoLibraryResult, String> {
+    if input.source_record_ids.is_empty() {
+        return Err("请先选择至少一条原始记忆".to_string());
+    }
+
+    let merged_content_md =
+        normalize_required_string(input.merged_content_md, "合并后的 Markdown")?;
+    let mut conn = get_db_connection().map_err(|error| error.to_string())?;
+    let library = get_memory_library_by_id(&conn, &input.library_id)?;
+    let existing_count = count_existing_raw_records(&conn, &input.source_record_ids)?;
+
+    if existing_count != input.source_record_ids.len() {
+        return Err("部分原始记忆不存在，无法完成压缩".to_string());
+    }
+
+    let tx = conn.transaction().map_err(|error| error.to_string())?;
+    let now = now_rfc3339();
+    let merge_run_id = generate_id();
+    let source_record_ids_json =
+        serde_json::to_string(&input.source_record_ids).map_err(|error| error.to_string())?;
+
+    tx.execute(
+        r#"
+        UPDATE memory_libraries
+        SET content_md = ?1,
+            updated_at = ?2
+        WHERE id = ?3
+        "#,
+        params![&merged_content_md, &now, &input.library_id],
+    )
+    .map_err(|error| error.to_string())?;
+
+    tx.execute(
+        r#"
+        INSERT INTO memory_merge_runs (
+            id,
+            library_id,
+            source_record_ids,
+            source_record_count,
+            previous_content_md,
+            merged_content_md,
+            agent_id,
+            model_id,
+            created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+        "#,
+        params![
+            &merge_run_id,
+            &input.library_id,
+            &source_record_ids_json,
+            input.source_record_ids.len() as i32,
+            &library.content_md,
+            &merged_content_md,
+            normalize_optional_string(input.agent_id),
+            normalize_optional_string(input.model_id),
+            &now
+        ],
+    )
+    .map_err(|error| error.to_string())?;
+
+    tx.commit().map_err(|error| error.to_string())?;
+
+    let conn = get_db_connection().map_err(|error| error.to_string())?;
+    Ok(MergeRawMemoriesIntoLibraryResult {
+        library: get_memory_library_by_id(&conn, &input.library_id)?,
+        merge_run: get_memory_merge_run_by_id(&conn, &merge_run_id)?,
+    })
 }

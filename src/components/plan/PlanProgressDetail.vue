@@ -134,7 +134,7 @@ function resolveAgentLabel(task: PlanExecutionTaskProgress): string {
 
   const agent = agentStore.agents.find(item => item.id === selection.agentId)
   const baseLabel = agent?.name || selection.agentId
-  return selection.source === 'plan' ? `${baseLabel} · 继承` : baseLabel
+  return selection.modelId ? `${baseLabel} / ${selection.modelId}` : baseLabel
 }
 
 const taskRows = computed(() =>

@@ -369,7 +369,11 @@ async fn load_skill_detail_from_sources(skill_id: &str) -> Result<SkillMarketDet
             }
         };
 
-        if let Some(detail) = bundle.skill_details.into_iter().find(|item| item.id == skill_id) {
+        if let Some(detail) = bundle
+            .skill_details
+            .into_iter()
+            .find(|item| item.id == skill_id)
+        {
             return Ok(detail);
         }
     }
@@ -414,7 +418,11 @@ pub async fn fetch_skill_market_detail(skill_id: String) -> Result<SkillMarketDe
             }
         };
 
-        if let Some(detail) = bundle.skill_details.into_iter().find(|item| item.id == skill_id) {
+        if let Some(detail) = bundle
+            .skill_details
+            .into_iter()
+            .find(|item| item.id == skill_id)
+        {
             return Ok(detail);
         }
 
@@ -423,7 +431,10 @@ pub async fn fetch_skill_market_detail(skill_id: String) -> Result<SkillMarketDe
         }
     }
 
-    Err(format!("Skill not found in configured sources: {}", skill_id))
+    Err(format!(
+        "Skill not found in configured sources: {}",
+        skill_id
+    ))
 }
 
 fn get_cli_skills_dir(
@@ -435,8 +446,8 @@ fn get_cli_skills_dir(
 
     let base_path = match scope {
         "project" => {
-            let project_root =
-                project_path.ok_or_else(|| "Project path required for project scope".to_string())?;
+            let project_root = project_path
+                .ok_or_else(|| "Project path required for project scope".to_string())?;
             PathBuf::from(project_root)
         }
         _ => home_dir,

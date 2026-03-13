@@ -14,6 +14,7 @@ const emit = defineEmits<{
   close: []
   saveDraft: []
   startSplit: []
+  createManual: []
   'update:form': [patch: Partial<PlanCreateFormState>]
 }>()
 
@@ -22,6 +23,9 @@ function updateField<K extends keyof PlanCreateFormState>(key: K, value: PlanCre
 }
 
 const minDateTime = new Date().toISOString().slice(0, 16)
+
+// 是否为 AI 模式
+const isAiMode = () => props.form.splitMode === 'ai'
 </script>
 
 <template>
@@ -72,89 +76,152 @@ const minDateTime = new Date().toISOString().slice(0, 16)
               @input="updateField('description', ($event.target as HTMLTextAreaElement).value)"
             />
           </div>
-          <div class="form-row">
-            <div class="form-field">
-              <label>拆分智能体 <span class="required">*</span></label>
-              <select
-                :value="props.form.splitAgentId ?? ''"
-                class="project-select"
-                @change="updateField('splitAgentId', (($event.target as HTMLSelectElement).value || null))"
+
+          <!-- 模式选择器 -->
+          <div class="form-field">
+            <label>任务拆分模式</label>
+            <div class="mode-options">
+              <label
+                class="mode-option"
+                :class="{ active: props.form.splitMode === 'ai' }"
               >
-                <option
-                  v-for="option in props.agentOptions"
-                  :key="option.value"
-                  :value="option.value"
+                <input
+                  type="radio"
+                  :checked="props.form.splitMode === 'ai'"
+                  @change="updateField('splitMode', 'ai')"
                 >
-                  {{ option.label }}
-                </option>
-              </select>
-            </div>
-            <div class="form-field">
-              <label>拆分模型 <span class="required">*</span></label>
-              <select
-                :value="props.form.splitModelId"
-                class="project-select"
-                :disabled="props.modelOptions.length === 0"
-                @change="updateField('splitModelId', ($event.target as HTMLSelectElement).value)"
+                <span class="mode-icon">✨</span>
+                <div class="mode-content">
+                  <span class="mode-label">AI 协同</span>
+                  <span class="mode-desc">AI 帮助拆分任务</span>
+                </div>
+              </label>
+              <label
+                class="mode-option"
+                :class="{ active: props.form.splitMode === 'manual' }"
               >
-                <option
-                  v-for="option in props.modelOptions"
-                  :key="option.value"
-                  :value="option.value"
+                <input
+                  type="radio"
+                  :checked="props.form.splitMode === 'manual'"
+                  @change="updateField('splitMode', 'manual')"
                 >
-                  {{ option.label }}
-                </option>
-              </select>
-              <span
-                v-if="props.modelOptions.length === 0"
-                class="field-hint"
-              >当前智能体暂无可用模型，请先在设置中配置模型</span>
+                <span class="mode-icon">✋</span>
+                <div class="mode-content">
+                  <span class="mode-label">手动模式</span>
+                  <span class="mode-desc">自己创建任务</span>
+                </div>
+              </label>
             </div>
           </div>
-          <div class="form-row">
-            <div class="form-field">
-              <label>任务拆分颗粒度</label>
-              <input
-                :value="props.form.granularity"
-                type="number"
-                min="5"
-                max="50"
-                placeholder="建议 5-50"
-                @input="updateField('granularity', Number(($event.target as HTMLInputElement).value))"
+
+          <!-- AI 模式相关字段 -->
+          <template v-if="isAiMode()">
+            <div class="form-row">
+              <div class="form-field">
+                <label>拆分智能体 <span class="required">*</span></label>
+                <select
+                  :value="props.form.splitAgentId ?? ''"
+                  class="project-select"
+                  @change="updateField('splitAgentId', (($event.target as HTMLSelectElement).value || null))"
+                >
+                  <option
+                    v-for="option in props.agentOptions"
+                    :key="option.value"
+                    :value="option.value"
+                  >
+                    {{ option.label }}
+                  </option>
+                </select>
+              </div>
+              <div class="form-field">
+                <label>拆分模型 <span class="required">*</span></label>
+                <select
+                  :value="props.form.splitModelId"
+                  class="project-select"
+                  :disabled="props.modelOptions.length === 0"
+                  @change="updateField('splitModelId', ($event.target as HTMLSelectElement).value)"
+                >
+                  <option
+                    v-for="option in props.modelOptions"
+                    :key="option.value"
+                    :value="option.value"
+                  >
+                    {{ option.label }}
+                  </option>
+                </select>
+                <span
+                  v-if="props.modelOptions.length === 0"
+                  class="field-hint"
+                >当前智能体暂无可用模型，请先在设置中配置模型</span>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-field">
+                <label>任务拆分颗粒度</label>
+                <input
+                  :value="props.form.granularity"
+                  type="number"
+                  min="5"
+                  max="50"
+                  placeholder="建议 5-50"
+                  @input="updateField('granularity', Number(($event.target as HTMLInputElement).value))"
+                >
+                <span class="field-hint">数值越小，任务粒度越细</span>
+              </div>
+              <div class="form-field">
+                <label>最大重试次数</label>
+                <input
+                  :value="props.form.maxRetryCount"
+                  type="number"
+                  min="1"
+                  max="5"
+                  placeholder="建议 1-3"
+                  @input="updateField('maxRetryCount', Number(($event.target as HTMLInputElement).value))"
+                >
+                <span class="field-hint">任务失败后的最大重试次数</span>
+              </div>
+            </div>
+            <div class="hint-box">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
               >
-              <span class="field-hint">数值越小，任务粒度越细</span>
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="10"
+                />
+                <path d="M12 16v-4M12 8h.01" />
+              </svg>
+              <span>"开始拆分"会将计划状态切为规划中，并进入 AI 拆分会话</span>
             </div>
-            <div class="form-field">
-              <label>最大重试次数</label>
-              <input
-                :value="props.form.maxRetryCount"
-                type="number"
-                min="1"
-                max="5"
-                placeholder="建议 1-3"
-                @input="updateField('maxRetryCount', Number(($event.target as HTMLInputElement).value))"
+          </template>
+
+          <!-- 手动模式提示 -->
+          <template v-if="!isAiMode()">
+            <div class="hint-box hint-box-manual">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
               >
-              <span class="field-hint">任务失败后的最大重试次数</span>
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="10"
+                />
+                <path d="M12 16v-4M12 8h.01" />
+              </svg>
+              <span>手动模式：创建计划后，您可以在任务看板中手动添加任务</span>
             </div>
-          </div>
-          <div class="hint-box">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <circle
-                cx="12"
-                cy="12"
-                r="10"
-              />
-              <path d="M12 16v-4M12 8h.01" />
-            </svg>
-            <span>"开始拆分"会将计划状态切为规划中，并进入 AI 拆分会话</span>
-          </div>
+          </template>
 
           <div class="form-field schedule-field">
             <label>执行方式</label>
@@ -192,20 +259,33 @@ const minDateTime = new Date().toISOString().slice(0, 16)
           >
             取消
           </button>
-          <button
-            class="btn btn-secondary"
-            :disabled="!props.canSaveDraft"
-            @click="emit('saveDraft')"
-          >
-            保存（草稿）
-          </button>
-          <button
-            class="btn btn-primary"
-            :disabled="!props.canStartSplit"
-            @click="emit('startSplit')"
-          >
-            开始拆分（调用模型）
-          </button>
+          <!-- 手动模式按钮 -->
+          <template v-if="!isAiMode()">
+            <button
+              class="btn btn-primary"
+              :disabled="!props.canSaveDraft"
+              @click="emit('createManual')"
+            >
+              创建计划
+            </button>
+          </template>
+          <!-- AI 模式按钮 -->
+          <template v-else>
+            <button
+              class="btn btn-secondary"
+              :disabled="!props.canSaveDraft"
+              @click="emit('saveDraft')"
+            >
+              保存（草稿）
+            </button>
+            <button
+              class="btn btn-primary"
+              :disabled="!props.canStartSplit"
+              @click="emit('startSplit')"
+            >
+              开始拆分（调用模型）
+            </button>
+          </template>
         </div>
       </div>
     </div>
@@ -466,5 +546,69 @@ const minDateTime = new Date().toISOString().slice(0, 16)
 .btn-secondary:hover {
   background-color: var(--color-surface-hover, #f8fafc);
   border-color: var(--color-border-dark, #cbd5e1);
+}
+
+/* 模式选择器样式 */
+.mode-options {
+  display: flex;
+  gap: var(--spacing-3, 0.75rem);
+}
+
+.mode-option {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3, 0.75rem);
+  padding: var(--spacing-3, 0.75rem);
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: var(--radius-md, 8px);
+  cursor: pointer;
+  transition: all var(--transition-fast, 150ms);
+  background-color: var(--color-surface, #fff);
+}
+
+.mode-option:hover {
+  border-color: var(--color-primary, #60a5fa);
+  background-color: var(--color-primary-light, #eff6ff);
+}
+
+.mode-option.active {
+  border-color: var(--color-primary, #3b82f6);
+  background-color: var(--color-primary-light, #eff6ff);
+}
+
+.mode-option input[type="radio"] {
+  display: none;
+}
+
+.mode-icon {
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.mode-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mode-label {
+  font-size: var(--font-size-sm, 13px);
+  font-weight: var(--font-weight-medium, 500);
+  color: var(--color-text-primary, #1e293b);
+}
+
+.mode-desc {
+  font-size: var(--font-size-xs, 12px);
+  color: var(--color-text-tertiary, #94a3b8);
+}
+
+.mode-option.active .mode-label {
+  color: var(--color-primary, #3b82f6);
+}
+
+.hint-box-manual {
+  background-color: var(--color-success-light, #f0fdf4);
+  color: var(--color-success, #22c55e);
 }
 </style>

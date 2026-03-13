@@ -428,7 +428,11 @@ pub(crate) fn collect_jsonl_files(dir: &Path, files: &mut Vec<PathBuf>) {
             let path = entry.path();
             if path.is_dir() {
                 collect_jsonl_files(&path, files);
-            } else if path.extension().map(|extension| extension == "jsonl").unwrap_or(false) {
+            } else if path
+                .extension()
+                .map(|extension| extension == "jsonl")
+                .unwrap_or(false)
+            {
                 files.push(path);
             }
         }

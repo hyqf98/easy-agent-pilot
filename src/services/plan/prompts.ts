@@ -114,17 +114,25 @@ function buildPlanSplitFieldSchema() {
           required: ['label', 'value'],
           properties: {
             label: { type: 'string' },
-            value: {}
+            value: { type: 'string', minLength: 1 }
           },
-          additionalProperties: true
+          additionalProperties: false
         }
       },
       validation: {
         type: 'object',
-        additionalProperties: true
-      }
+        properties: {
+          min: { type: 'number' },
+          max: { type: 'number' },
+          pattern: { type: 'string' },
+          message: { type: 'string' }
+        },
+        additionalProperties: false
+      },
+      allowOther: { type: 'boolean' },
+      otherLabel: { type: 'string' }
     },
-    additionalProperties: true
+    additionalProperties: false
   }
 }
 
@@ -143,7 +151,7 @@ function buildPlanSplitFormSchema() {
         items: buildPlanSplitFieldSchema()
       }
     },
-    additionalProperties: true
+    additionalProperties: false
   }
 }
 
@@ -180,6 +188,89 @@ function buildPlanSplitTaskSchema() {
   }
 }
 
+function buildCodexPlanSplitFieldSchema() {
+  return {
+    type: 'object',
+    required: ['name', 'label', 'type', 'required', 'placeholder', 'options', 'allowOther', 'otherLabel'],
+    properties: {
+      name: { type: 'string', minLength: 1 },
+      label: { type: 'string', minLength: 1 },
+      type: {
+        type: 'string',
+        enum: ['text', 'textarea', 'select', 'multiselect', 'number', 'checkbox', 'radio', 'date', 'slider']
+      },
+      required: { type: 'boolean' },
+      placeholder: { type: ['string', 'null'] },
+      options: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['label', 'value'],
+          properties: {
+            label: { type: 'string', minLength: 1 },
+            value: { type: 'string', minLength: 1 }
+          },
+          additionalProperties: false
+        }
+      },
+      allowOther: { type: 'boolean' },
+      otherLabel: { type: ['string', 'null'] }
+    },
+    additionalProperties: false
+  }
+}
+
+function buildCodexPlanSplitFormSchema() {
+  return {
+    type: 'object',
+    required: ['formId', 'title', 'description', 'submitText', 'fields'],
+    properties: {
+      formId: { type: 'string', minLength: 1 },
+      title: { type: 'string', minLength: 1 },
+      description: { type: ['string', 'null'] },
+      submitText: { type: ['string', 'null'] },
+      fields: {
+        type: 'array',
+        minItems: 1,
+        items: buildCodexPlanSplitFieldSchema()
+      }
+    },
+    additionalProperties: false
+  }
+}
+
+function buildCodexPlanSplitTaskSchema() {
+  return {
+    type: 'object',
+    required: ['title', 'description', 'priority', 'implementationSteps', 'testSteps', 'acceptanceCriteria', 'dependsOn'],
+    properties: {
+      title: { type: 'string', minLength: 1 },
+      description: { type: 'string', minLength: 1 },
+      priority: { type: 'string', enum: ['high', 'medium', 'low'] },
+      implementationSteps: {
+        type: 'array',
+        minItems: 1,
+        items: { type: 'string', minLength: 1 }
+      },
+      testSteps: {
+        type: 'array',
+        minItems: 1,
+        items: { type: 'string', minLength: 1 }
+      },
+      acceptanceCriteria: {
+        type: 'array',
+        minItems: 1,
+        items: { type: 'string', minLength: 1 }
+      },
+      dependsOn: {
+        type: 'array',
+        items: { type: 'string' }
+      }
+    },
+    additionalProperties: false
+  }
+}
+
 function buildCodexPlanSplitJsonSchema(minTaskCount: number) {
   const normalizedMinTaskCount = Math.max(1, Math.floor(minTaskCount || 1))
 
@@ -187,21 +278,30 @@ function buildCodexPlanSplitJsonSchema(minTaskCount: number) {
   // 由后端解析器继续校验 form_request / task_split 的语义完整性。
   return {
     type: 'object',
-    required: ['type'],
+    required: ['type', 'question', 'forms', 'formSchema', 'status', 'tasks'],
     properties: {
       type: { type: 'string', enum: ['form_request', 'task_split'] },
-      question: { type: 'string' },
+      question: { type: ['string', 'null'] },
       forms: {
-        type: 'array',
-        minItems: 1,
-        items: buildPlanSplitFormSchema()
+        type: ['array', 'null'],
+        items: buildCodexPlanSplitFormSchema()
       },
-      formSchema: buildPlanSplitFormSchema(),
-      status: { type: 'string', enum: ['DONE'] },
+      formSchema: {
+        anyOf: [
+          buildCodexPlanSplitFormSchema(),
+          { type: 'null' }
+        ]
+      },
+      status: {
+        anyOf: [
+          { type: 'string', enum: ['DONE'] },
+          { type: 'null' }
+        ]
+      },
       tasks: {
-        type: 'array',
+        type: ['array', 'null'],
         minItems: normalizedMinTaskCount,
-        items: buildPlanSplitTaskSchema()
+        items: buildCodexPlanSplitTaskSchema()
       }
     },
     additionalProperties: false

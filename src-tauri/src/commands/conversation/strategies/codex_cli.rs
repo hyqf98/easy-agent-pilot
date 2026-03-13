@@ -45,6 +45,17 @@ macro_rules! log_debug {
     };
 }
 
+fn is_benign_stderr_warning(line: &str) -> bool {
+    let normalized = line.to_lowercase();
+
+    // Codex CLI 偶发会在 stderr 输出一条 rmcp transport warning：
+    // "worker quit with fatal: Transport channel closed, when UnexpectedContentType(...)"
+    // 目前该告警不会阻塞任务拆分结果落地，不应污染 UI 错误态或计划拆分日志。
+    normalized.contains("rmcp::transport::worker")
+        && normalized.contains("unexpectedcontenttype")
+        && normalized.contains("missing-content-type")
+}
+
 /// 构建 MCP 配置 JSON
 fn build_mcp_config_json(servers: &[McpServerConfig]) -> String {
     let mut mcp_servers = serde_json::Map::new();
@@ -228,6 +239,7 @@ impl AgentExecutionStrategy for CodexCliStrategy {
                 || schema_text.is_some());
 
         // 构建命令参数
+        let mut global_args = Vec::<String>::new();
         let mut args = Vec::<String>::new();
         if use_exec_mode {
             args.push("exec".to_string());
@@ -251,9 +263,10 @@ impl AgentExecutionStrategy for CodexCliStrategy {
             }
         }
 
-        // Codex CLI 当前不支持 --allowedTools；仅在请求中包含 WebSearch 时显式开启联网搜索。
+        // `codex exec` 不接受 `--search`，该参数只能挂在顶层 `codex` 命令上。
+        // 因此需要在子命令之前注入，避免被解析成 exec 的未知参数。
         if enable_web_search {
-            args.push("--search".to_string());
+            global_args.push("--search".to_string());
         }
 
         // 添加 MCP 服务器配置
@@ -301,11 +314,12 @@ impl AgentExecutionStrategy for CodexCliStrategy {
         args.push(input_text.clone());
 
         // 构建完整命令（用于日志）
-        let full_command = build_full_codex_command(&cli_path, &input_text, &args);
+        let full_command = build_full_codex_command(&cli_path, &global_args, &args);
         log_info!("Codex CLI command: {}", full_command);
 
         // 执行命令
         let mut cmd = TokioCommand::new(&cli_path);
+        cmd.args(&global_args);
         cmd.args(&args);
 
         // 设置工作目录
@@ -460,6 +474,11 @@ impl AgentExecutionStrategy for CodexCliStrategy {
                     continue;
                 }
 
+                if is_benign_stderr_warning(trimmed) {
+                    log_info!("[stderr][ignored-warning] {}", trimmed);
+                    continue;
+                }
+
                 log_error!("[stderr] {}", trimmed);
 
                 if should_abort(&session_id_clone).await {
@@ -579,11 +598,11 @@ fn build_usage_event(
     }
 }
 
-fn build_full_codex_command(cli_path: &str, input_text: &str, args: &[String]) -> String {
+fn build_full_codex_command(cli_path: &str, global_args: &[String], args: &[String]) -> String {
     let mut cmd_parts = Vec::new();
     cmd_parts.push(shell_escape(cli_path));
+    cmd_parts.extend(global_args.iter().map(|arg| shell_escape(arg)));
     cmd_parts.extend(args.iter().map(|arg| shell_escape(arg)));
-    cmd_parts.push(shell_escape(input_text));
     cmd_parts.join(" ")
 }
 
@@ -838,7 +857,9 @@ fn parse_codex_json_output(session_id: &str, json: &serde_json::Value) -> Option
                 match item_type {
                     "thinking" => {
                         // 处理 thinking 类型
-                        if let Some(thinking_text) = content_item.get("thinking").and_then(|t| t.as_str()) {
+                        if let Some(thinking_text) =
+                            content_item.get("thinking").and_then(|t| t.as_str())
+                        {
                             log_debug!("[parse] 找到 thinking 内容，长度: {}", thinking_text.len());
                             return Some(CliStreamEvent {
                                 event_type: "thinking".to_string(),

@@ -11,6 +11,9 @@ export type PlanExecutionStatus = 'idle' | 'running' | 'paused' | 'completed' | 
 // 计划调度状态
 export type ScheduleStatus = 'none' | 'scheduled' | 'triggered' | 'cancelled'
 
+// 计划拆分模式
+export type PlanSplitMode = 'ai' | 'manual'
+
 // 任务状态
 export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'blocked' | 'failed' | 'cancelled'
 
@@ -36,6 +39,7 @@ export interface Plan {
   projectId: string
   name: string
   description?: string
+  splitMode: PlanSplitMode    // 拆分模式: ai | manual
   splitAgentId?: string
   splitModelId?: string
   status: PlanStatus
@@ -86,6 +90,7 @@ export interface CreatePlanInput {
   projectId: string
   name: string
   description?: string
+  splitMode?: PlanSplitMode    // 拆分模式: ai | manual
   splitAgentId?: string
   splitModelId?: string
   agentTeam?: AgentRole[]
@@ -98,6 +103,7 @@ export interface CreatePlanInput {
 export interface UpdatePlanInput {
   name?: string
   description?: string
+  splitMode?: PlanSplitMode    // 拆分模式: ai | manual
   splitAgentId?: string
   splitModelId?: string
   status?: PlanStatus

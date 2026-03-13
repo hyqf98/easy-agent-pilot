@@ -59,10 +59,12 @@ let planTaskStatsRequestId = 0
 
 const createDialogModelOptions = ref<ModelOption[]>([])
 const splitConfigModelOptions = ref<ModelOption[]>([])
+const editDialogModelOptions = ref<ModelOption[]>([])
 
 const createForm = reactive<PlanCreateFormState>({
   name: '',
   description: '',
+  splitMode: 'ai',
   granularity: 20,
   maxRetryCount: 3,
   splitAgentId: null,
@@ -79,6 +81,11 @@ const splitConfigForm = reactive<PlanSplitConfigFormState>({
 const editForm = reactive<PlanEditFormState>({
   name: '',
   description: '',
+  splitMode: 'ai',
+  granularity: 20,
+  maxRetryCount: 3,
+  splitAgentId: null,
+  splitModelId: '',
   executionMode: 'immediate',
   scheduledDateTime: ''
 })
@@ -286,6 +293,7 @@ function resetCreateForm() {
   updateCreateForm({
     name: '',
     description: '',
+    splitMode: 'ai',
     granularity: 20,
     maxRetryCount: 3,
     splitAgentId: null,
@@ -310,8 +318,9 @@ async function createPlan(startSplit: boolean) {
       projectId: projectStore.currentProjectId,
       name: createForm.name.trim(),
       description: createForm.description.trim() || undefined,
-      splitAgentId: createForm.splitAgentId ?? undefined,
-      splitModelId: createForm.splitAgentId !== null ? createForm.splitModelId : undefined,
+      splitMode: createForm.splitMode,
+      splitAgentId: createForm.splitMode === 'ai' ? (createForm.splitAgentId ?? undefined) : undefined,
+      splitModelId: createForm.splitMode === 'ai' && createForm.splitAgentId !== null ? createForm.splitModelId : undefined,
       granularity: createForm.granularity,
       maxRetryCount: createForm.maxRetryCount,
       scheduledAt
@@ -319,7 +328,7 @@ async function createPlan(startSplit: boolean) {
 
     planStore.setCurrentPlan(plan.id)
 
-    if (startSplit && createForm.splitAgentId !== null) {
+    if (startSplit && createForm.splitAgentId !== null && createForm.splitMode === 'ai') {
       await planStore.updatePlan(plan.id, { status: 'planning' })
       planStore.openSplitDialog({
         planId: plan.id,
@@ -332,6 +341,35 @@ async function createPlan(startSplit: boolean) {
     closeCreateDialog()
   } catch (error) {
     console.error('Failed to create plan:', error)
+  }
+}
+
+// 手动模式创建计划
+async function createManualPlan() {
+  if (!projectStore.currentProjectId || !createForm.name.trim()) return
+
+  let scheduledAt: string | undefined
+  if (createForm.executionMode === 'scheduled' && createForm.scheduledDateTime) {
+    scheduledAt = new Date(createForm.scheduledDateTime).toISOString()
+  }
+
+  try {
+    const plan = await planStore.createPlan({
+      projectId: projectStore.currentProjectId,
+      name: createForm.name.trim(),
+      description: createForm.description.trim() || undefined,
+      splitMode: 'manual',
+      granularity: createForm.granularity,
+      maxRetryCount: createForm.maxRetryCount,
+      scheduledAt
+    })
+
+    // 手动模式：直接进入 planning 状态
+    await planStore.updatePlan(plan.id, { status: 'planning' })
+    planStore.setCurrentPlan(plan.id)
+    closeCreateDialog()
+  } catch (error) {
+    console.error('Failed to create manual plan:', error)
   }
 }
 
@@ -356,9 +394,15 @@ function resetEditForm() {
   updateEditForm({
     name: '',
     description: '',
+    splitMode: 'ai',
+    granularity: 20,
+    maxRetryCount: 3,
+    splitAgentId: null,
+    splitModelId: '',
     executionMode: 'immediate',
     scheduledDateTime: ''
   })
+  editDialogModelOptions.value = []
 }
 
 function openEditDialog(plan: Plan) {
@@ -366,6 +410,11 @@ function openEditDialog(plan: Plan) {
   updateEditForm({
     name: plan.name,
     description: plan.description || '',
+    splitMode: plan.splitMode,
+    granularity: plan.granularity,
+    maxRetryCount: plan.maxRetryCount,
+    splitAgentId: plan.splitAgentId ?? null,
+    splitModelId: plan.splitModelId ?? '',
     executionMode: plan.scheduledAt ? 'scheduled' : 'immediate',
     scheduledDateTime: plan.scheduledAt ? new Date(plan.scheduledAt).toISOString().slice(0, 16) : ''
   })
@@ -385,6 +434,18 @@ async function saveEdit() {
     const updates: UpdatePlanInput = {
       name: editForm.name.trim(),
       description: editForm.description.trim() || undefined
+    }
+
+     if (editingPlan.value.status === 'draft') {
+      updates.splitMode = editForm.splitMode
+      updates.granularity = editForm.granularity
+      updates.maxRetryCount = editForm.maxRetryCount
+      updates.splitAgentId = editForm.splitMode === 'ai'
+        ? (editForm.splitAgentId ?? undefined)
+        : undefined
+      updates.splitModelId = editForm.splitMode === 'ai' && editForm.splitAgentId
+        ? (editForm.splitModelId || undefined)
+        : undefined
     }
 
     const canEditScheduleBeforeExecution = ['draft', 'planning', 'ready'].includes(editingPlan.value.status)
@@ -534,6 +595,23 @@ function canEdit(plan: Plan): boolean {
   return plan.status === 'draft' || plan.status === 'planning'
 }
 
+function getPreferredStatusTab(planList: Plan[], preferredPlanId: string | null): PlanTabKey {
+  const preferredPlan = preferredPlanId
+    ? planList.find(plan => plan.id === preferredPlanId)
+    : null
+
+  if (preferredPlan) {
+    const matchedTab = statusTabs.find(tab => tabStatusMap[tab.key].includes(preferredPlan.status))
+    if (matchedTab) return matchedTab.key
+  }
+
+  const firstNonEmptyTab = statusTabs.find(tab =>
+    planList.some(plan => tabStatusMap[tab.key].includes(plan.status))
+  )
+
+  return firstNonEmptyTab?.key ?? 'draft'
+}
+
 onMounted(() => {
   void agentStore.loadAgents()
 })
@@ -586,11 +664,76 @@ watch(
 )
 
 watch(
+  () => editForm.splitAgentId,
+  async (agentId) => {
+    if (!showEditDialog.value || editForm.splitMode !== 'ai') return
+
+    if (!agentId) {
+      editDialogModelOptions.value = []
+      editForm.splitModelId = ''
+      return
+    }
+
+    editDialogModelOptions.value = await loadEnabledModels(agentId)
+    const preferredModelId = editingPlan.value?.splitAgentId === agentId
+      ? (editingPlan.value.splitModelId ?? '')
+      : editForm.splitModelId
+
+    editForm.splitModelId = editDialogModelOptions.value.some(option => option.value === preferredModelId)
+      ? preferredModelId
+      : pickDefaultModel(editDialogModelOptions.value)
+  },
+  { immediate: true }
+)
+
+watch(
+  () => editForm.splitMode,
+  (splitMode) => {
+    if (splitMode !== 'ai') {
+      editDialogModelOptions.value = []
+      editForm.splitAgentId = null
+      editForm.splitModelId = ''
+    }
+  }
+)
+
+watch(
+  () => showEditDialog.value,
+  async (visible) => {
+    if (!visible || editForm.splitMode !== 'ai' || !editForm.splitAgentId) return
+    editDialogModelOptions.value = await loadEnabledModels(editForm.splitAgentId)
+    editForm.splitModelId = editDialogModelOptions.value.some(option => option.value === editForm.splitModelId)
+      ? editForm.splitModelId
+      : pickDefaultModel(editDialogModelOptions.value)
+  }
+)
+
+watch(
   plans,
   (nextPlans) => {
+    if (nextPlans.length === 0) {
+      activeStatusTab.value = 'draft'
+    } else if (!nextPlans.some(plan => tabStatusMap[activeStatusTab.value].includes(plan.status))) {
+      activeStatusTab.value = getPreferredStatusTab(nextPlans, planStore.currentPlanId)
+    }
     void loadPlanTaskStats(nextPlans)
   },
   { immediate: true }
+)
+
+watch(
+  () => planStore.currentPlanId,
+  (planId) => {
+    if (!planId || plans.value.length === 0) return
+
+    const matchedPlan = plans.value.find(plan => plan.id === planId)
+    if (!matchedPlan) return
+
+    const matchedTab = statusTabs.find(tab => tabStatusMap[tab.key].includes(matchedPlan.status))
+    if (matchedTab && matchedTab.key !== activeStatusTab.value) {
+      activeStatusTab.value = matchedTab.key
+    }
+  }
 )
 </script>
 
@@ -645,12 +788,15 @@ watch(
       @close="closeCreateDialog"
       @save-draft="createPlan(false)"
       @start-split="createPlan(true)"
+      @create-manual="createManualPlan"
     />
 
     <PlanEditDialog
       :visible="showEditDialog"
       :plan="editingPlan"
       :form="editForm"
+      :agent-options="agentOptions"
+      :model-options="editDialogModelOptions"
       @update:form="updateEditForm"
       @close="closeEditDialog"
       @save="saveEdit"

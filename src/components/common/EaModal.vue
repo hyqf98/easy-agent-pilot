@@ -3,6 +3,8 @@ import { watch } from 'vue'
 
 const props = defineProps<{
   visible: boolean
+  contentClass?: string
+  overlayClass?: string
 }>()
 
 const emit = defineEmits<{
@@ -29,9 +31,13 @@ function close() {
       <div
         v-if="visible"
         class="ea-modal-overlay"
+        :class="overlayClass"
         @click.self="close"
       >
-        <div class="ea-modal">
+        <div
+          class="ea-modal"
+          :class="contentClass"
+        >
           <div
             v-if="$slots.header"
             class="ea-modal__header"
