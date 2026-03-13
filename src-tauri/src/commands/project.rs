@@ -1,4 +1,5 @@
 use anyhow::Result;
+use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -41,8 +42,21 @@ pub struct Project {
     pub path: String,
     pub description: Option<String>,
     pub session_count: i32,
+    #[serde(default, rename = "memoryLibraryIds")]
+    pub memory_library_ids: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone)]
+struct ProjectRecord {
+    id: String,
+    name: String,
+    path: String,
+    description: Option<String>,
+    session_count: i32,
+    created_at: String,
+    updated_at: String,
 }
 
 /// 文件树节点类型
@@ -71,6 +85,92 @@ pub struct CreateProjectInput {
     pub name: String,
     pub path: String,
     pub description: Option<String>,
+    #[serde(default, rename = "memoryLibraryIds")]
+    pub memory_library_ids: Vec<String>,
+}
+
+fn normalize_memory_library_ids(library_ids: &[String]) -> Vec<String> {
+    let mut normalized = Vec::new();
+
+    for library_id in library_ids {
+        let trimmed = library_id.trim();
+        if trimmed.is_empty() || normalized.iter().any(|existing| existing == trimmed) {
+            continue;
+        }
+        normalized.push(trimmed.to_string());
+    }
+
+    normalized
+}
+
+fn list_project_memory_library_ids(
+    conn: &rusqlite::Connection,
+    project_id: &str,
+) -> Result<Vec<String>, String> {
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT library_id
+            FROM project_memory_libraries
+            WHERE project_id = ?1
+            ORDER BY created_at ASC, library_id ASC
+            "#,
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([project_id], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(rows)
+}
+
+fn replace_project_memory_libraries(
+    conn: &rusqlite::Connection,
+    project_id: &str,
+    library_ids: &[String],
+    now: &str,
+) -> Result<(), String> {
+    conn.execute(
+        "DELETE FROM project_memory_libraries WHERE project_id = ?1",
+        [project_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    let normalized_ids = normalize_memory_library_ids(library_ids);
+
+    for library_id in normalized_ids {
+        conn.execute(
+            r#"
+            INSERT INTO project_memory_libraries (project_id, library_id, created_at)
+            VALUES (?1, ?2, ?3)
+            "#,
+            params![project_id, library_id, now],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+fn get_project_session_count(conn: &rusqlite::Connection, project_id: &str) -> Result<i32, String> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM sessions WHERE project_id = ?1",
+        [project_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn get_project_created_at(conn: &rusqlite::Connection, project_id: &str) -> Result<String, String> {
+    conn.query_row(
+        "SELECT created_at FROM projects WHERE id = ?1",
+        [project_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| e.to_string())
 }
 
 /// 获取所有项目
@@ -94,9 +194,9 @@ pub fn list_projects() -> Result<Vec<Project>, String> {
         )
         .map_err(|e| e.to_string())?;
 
-    let projects = stmt
+    let project_rows = stmt
         .query_map([], |row| {
-            Ok(Project {
+            Ok(ProjectRecord {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 path: row.get(2)?,
@@ -110,13 +210,29 @@ pub fn list_projects() -> Result<Vec<Project>, String> {
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
 
+    drop(stmt);
+
+    let mut projects = Vec::with_capacity(project_rows.len());
+    for project_row in project_rows {
+        projects.push(Project {
+            id: project_row.id.clone(),
+            name: project_row.name,
+            path: project_row.path,
+            description: project_row.description,
+            session_count: project_row.session_count,
+            memory_library_ids: list_project_memory_library_ids(&conn, &project_row.id)?,
+            created_at: project_row.created_at,
+            updated_at: project_row.updated_at,
+        });
+    }
+
     Ok(projects)
 }
 
 /// 创建新项目
 #[tauri::command]
 pub fn create_project(input: CreateProjectInput) -> Result<Project, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
+    let mut conn = open_db_connection_with_foreign_keys().map_err(|e| e.to_string())?;
 
     // 解析并创建项目目录
     let resolved_path = resolve_path(&input.path)?;
@@ -130,8 +246,11 @@ pub fn create_project(input: CreateProjectInput) -> Result<Project, String> {
 
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_rfc3339();
+    let memory_library_ids = normalize_memory_library_ids(&input.memory_library_ids);
 
-    conn.execute(
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    tx.execute(
         "INSERT INTO projects (id, name, path, description, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         rusqlite::params![
             &id,
@@ -144,12 +263,17 @@ pub fn create_project(input: CreateProjectInput) -> Result<Project, String> {
     )
     .map_err(|e| e.to_string())?;
 
+    replace_project_memory_libraries(&tx, &id, &memory_library_ids, &now)?;
+
+    tx.commit().map_err(|e| e.to_string())?;
+
     Ok(Project {
         id,
         name: input.name,
         path: input.path,
         description: input.description,
         session_count: 0,
+        memory_library_ids,
         created_at: now.clone(),
         updated_at: now,
     })
@@ -158,23 +282,33 @@ pub fn create_project(input: CreateProjectInput) -> Result<Project, String> {
 /// 更新项目
 #[tauri::command]
 pub fn update_project(id: String, input: CreateProjectInput) -> Result<Project, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
+    let mut conn = open_db_connection_with_foreign_keys().map_err(|e| e.to_string())?;
 
     let now = now_rfc3339();
+    let memory_library_ids = normalize_memory_library_ids(&input.memory_library_ids);
 
-    conn.execute(
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    tx.execute(
         "UPDATE projects SET name = ?1, path = ?2, description = ?3, updated_at = ?4 WHERE id = ?5",
         rusqlite::params![&input.name, &input.path, &input.description, &now, &id],
     )
     .map_err(|e| e.to_string())?;
+
+    replace_project_memory_libraries(&tx, &id, &memory_library_ids, &now)?;
+    let created_at = get_project_created_at(&tx, &id)?;
+    let session_count = get_project_session_count(&tx, &id)?;
+
+    tx.commit().map_err(|e| e.to_string())?;
 
     Ok(Project {
         id,
         name: input.name,
         path: input.path,
         description: input.description,
-        session_count: 0,
-        created_at: now.clone(),
+        session_count,
+        memory_library_ids,
+        created_at,
         updated_at: now,
     })
 }

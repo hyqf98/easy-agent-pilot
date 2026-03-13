@@ -916,6 +916,20 @@ pub fn init_database() -> Result<()> {
         println!("Memory merge runs table migration warning: {}", e);
     }
 
+    let project_memory_libraries_table_sql = r#"
+        CREATE TABLE IF NOT EXISTS project_memory_libraries (
+            project_id TEXT NOT NULL,
+            library_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (project_id, library_id),
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+            FOREIGN KEY (library_id) REFERENCES memory_libraries(id) ON DELETE CASCADE
+        )
+    "#;
+    if let Err(e) = conn.execute(project_memory_libraries_table_sql, []) {
+        println!("Project memory libraries table migration warning: {}", e);
+    }
+
     let memory_indexes = [
         "CREATE INDEX IF NOT EXISTS idx_memory_libraries_updated ON memory_libraries(updated_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_raw_memory_records_created ON raw_memory_records(created_at DESC)",
@@ -923,6 +937,8 @@ pub fn init_database() -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_raw_memory_records_session ON raw_memory_records(session_id, created_at DESC)",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_raw_memory_records_message ON raw_memory_records(message_id) WHERE message_id IS NOT NULL",
         "CREATE INDEX IF NOT EXISTS idx_memory_merge_runs_library_created ON memory_merge_runs(library_id, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_project_memory_libraries_project ON project_memory_libraries(project_id, created_at ASC)",
+        "CREATE INDEX IF NOT EXISTS idx_project_memory_libraries_library ON project_memory_libraries(library_id, created_at ASC)",
     ];
     for migration in memory_indexes {
         if let Err(e) = conn.execute(migration, []) {

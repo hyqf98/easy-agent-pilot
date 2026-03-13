@@ -190,7 +190,7 @@ function formatTime(dateStr: string) {
 }
 
 // 项目创建成功处理
-async function handleProjectSubmit(data: { name: string; path: string; description?: string }) {
+async function handleProjectSubmit(data: { name: string; path: string; description?: string; memoryLibraryIds: string[] }) {
   try {
     const newProject = await projectStore.createProject(data)
     uiStore.closeProjectCreateModal()

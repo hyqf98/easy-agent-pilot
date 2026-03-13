@@ -82,7 +82,7 @@ const handleSelectProject = (id: string) => {
   projectStore.setCurrentProject(id)
 }
 
-const handleCreateProject = async (data: { name: string; path: string; description?: string }) => {
+const handleCreateProject = async (data: { name: string; path: string; description?: string; memoryLibraryIds: string[] }) => {
   if (editingProject.value) {
     // 编辑模式
     await projectStore.updateProject(editingProject.value.id, data)

@@ -199,7 +199,7 @@ const handleEditProject = (project: Project) => {
   uiStore.openProjectCreateModal()
 }
 
-const handleCreateProject = async (data: { name: string; path: string; description?: string }) => {
+const handleCreateProject = async (data: { name: string; path: string; description?: string; memoryLibraryIds: string[] }) => {
   if (editingProject.value) {
     await projectStore.updateProject(editingProject.value.id, data)
     editingProject.value = null

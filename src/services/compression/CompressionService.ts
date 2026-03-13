@@ -4,8 +4,12 @@ import { useSessionExecutionStore } from '@/stores/sessionExecution'
 import { useAgentStore } from '@/stores/agent'
 import { useTokenStore, type CompressionStrategy } from '@/stores/token'
 import type { AgentConfig } from '@/stores/agent'
+import type { MemoryLibrary } from '@/types/memory'
 import { useSettingsStore } from '@/stores/settings'
 import { useNotificationStore } from '@/stores/notification'
+import { useProjectStore } from '@/stores/project'
+import { buildConversationMessages } from '@/services/conversation/buildConversationMessages'
+import { buildProjectMemorySystemPrompt } from '@/services/memory'
 
 /**
  * 压缩选项
@@ -218,6 +222,7 @@ export class CompressionService {
     const sessionStore = useSessionStore()
     const messageStore = useMessageStore()
     const sessionExecutionStore = useSessionExecutionStore()
+    const projectStore = useProjectStore()
 
     // 获取智能体配置
     const agent = agentStore.agents.find(a => a.id === agentId)
@@ -231,10 +236,11 @@ export class CompressionService {
     // 获取工作目录
     const session = sessionStore.sessions.find(s => s.id === sessionId)
     let workingDirectory: string | undefined
+    let projectMemoryPrompt: string | null = null
     if (session?.projectId) {
-      const projectStore = await import('@/stores/project').then(m => m.useProjectStore())
       const project = projectStore.projects.find(p => p.id === session.projectId)
       workingDirectory = project?.path
+      projectMemoryPrompt = await this.buildProjectMemoryPrompt(project?.memoryLibraryIds ?? [])
     }
 
     // 保存当前流式消息
@@ -258,8 +264,26 @@ export class CompressionService {
     sessionExecutionStore.setCurrentStreamingMessageId(sessionId, aiMessage.id)
 
     try {
+      const executionMessages = buildConversationMessages(
+        [
+          ...messages,
+          {
+            id: tempUserMessage.id,
+            sessionId,
+            role: 'user',
+            content: prompt,
+            status: 'completed',
+            createdAt: tempUserMessage.createdAt
+          }
+        ],
+        {
+          sessionId,
+          injectedSystemMessages: projectMemoryPrompt ? [projectMemoryPrompt] : []
+        }
+      )
+
       // 使用对话服务生成摘要
-      await this.executeSummaryGeneration(agent, prompt, sessionId, workingDirectory, (content) => {
+      await this.executeSummaryGeneration(agent, sessionId, workingDirectory, executionMessages, (content) => {
         summaryContent += content
         messageStore.updateMessage(aiMessage.id, {
           content: summaryContent
@@ -293,17 +317,12 @@ export class CompressionService {
    */
   private async executeSummaryGeneration(
     agent: AgentConfig,
-    _prompt: string,
     sessionId: string,
     workingDirectory: string | undefined,
+    messages: Message[],
     onContent: (content: string) => void
   ): Promise<void> {
     const { agentExecutor } = await import('@/services/conversation/AgentExecutor')
-    const { useMessageStore } = await import('@/stores/message')
-    const messageStore = useMessageStore()
-
-    // 获取当前消息（包含我们的临时提示）
-    const messages = messageStore.messagesBySession(sessionId)
 
     const context = {
       sessionId,
@@ -332,6 +351,27 @@ export class CompressionService {
         }
       }).catch(reject)
     })
+  }
+
+  private async buildProjectMemoryPrompt(memoryLibraryIds: string[]): Promise<string | null> {
+    if (memoryLibraryIds.length === 0) {
+      return null
+    }
+
+    const memoryStore = await import('@/stores/memory').then(module => module.useMemoryStore())
+    const missingLibraryIds = memoryLibraryIds.filter(
+      (libraryId) => !memoryStore.libraries.some((library) => library.id === libraryId)
+    )
+
+    if (missingLibraryIds.length > 0) {
+      await memoryStore.loadLibraries()
+    }
+
+    const mountedLibraries = memoryLibraryIds
+      .map((libraryId) => memoryStore.libraries.find((library) => library.id === libraryId))
+      .filter((library): library is MemoryLibrary => Boolean(library))
+
+    return buildProjectMemorySystemPrompt(mountedLibraries)
   }
 
   /**

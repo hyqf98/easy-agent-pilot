@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { EaButton, EaIcon } from '@/components/common'
 import { open } from '@tauri-apps/plugin-dialog'
 import type { Project } from '@/stores/project'
+import { useMemoryStore } from '@/stores/memory'
 
 interface PathValidationResult {
   valid: boolean
@@ -15,16 +16,19 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  submit: [data: { name: string; path: string; description?: string }]
+  submit: [data: { name: string; path: string; description?: string; memoryLibraryIds: string[] }]
   cancel: []
 }>()
+
+const memoryStore = useMemoryStore()
 
 const isEditMode = computed(() => !!props.project)
 
 const form = ref({
   name: '',
   path: '',
-  description: ''
+  description: '',
+  memoryLibraryIds: [] as string[]
 })
 
 const errorMessage = ref('')
@@ -52,10 +56,12 @@ const initForm = () => {
     form.value.name = props.project.name
     form.value.path = props.project.path
     form.value.description = props.project.description || ''
+    form.value.memoryLibraryIds = [...props.project.memoryLibraryIds]
   } else {
     form.value.name = ''
     form.value.path = ''
     form.value.description = ''
+    form.value.memoryLibraryIds = []
   }
   errorMessage.value = ''
   pathError.value = ''
@@ -63,6 +69,7 @@ const initForm = () => {
 
 // 组件挂载后自动聚焦到名称输入框
 onMounted(() => {
+  void memoryStore.loadLibraries()
   initForm()
   nextTick(() => {
     nameInputRef.value?.focus()
@@ -169,7 +176,8 @@ const handleSubmit = async () => {
   emit('submit', {
     name: projectName,
     path: projectPath,
-    description: form.value.description.trim() || undefined
+    description: form.value.description.trim() || undefined,
+    memoryLibraryIds: [...form.value.memoryLibraryIds]
   })
 }
 </script>
@@ -251,6 +259,54 @@ const handleSubmit = async () => {
         />
       </div>
 
+      <div class="form-group">
+        <div class="form-label-row">
+          <label class="form-label">挂载记忆库</label>
+          <span class="form-hint">已选 {{ form.memoryLibraryIds.length }} 个</span>
+        </div>
+
+        <div
+          v-if="memoryStore.isLoadingLibraries"
+          class="memory-library-list memory-library-list--loading"
+        >
+          正在加载记忆库...
+        </div>
+
+        <div
+          v-else-if="memoryStore.libraries.length === 0"
+          class="memory-library-list memory-library-list--empty"
+        >
+          暂无可挂载的记忆库，请先在记忆管理中创建。
+        </div>
+
+        <div
+          v-else
+          class="memory-library-list"
+        >
+          <label
+            v-for="library in memoryStore.libraries"
+            :key="library.id"
+            class="memory-library-item"
+          >
+            <input
+              v-model="form.memoryLibraryIds"
+              type="checkbox"
+              :value="library.id"
+              class="memory-library-item__checkbox"
+            >
+            <div class="memory-library-item__content">
+              <span class="memory-library-item__title">{{ library.name }}</span>
+              <span
+                v-if="library.description"
+                class="memory-library-item__description"
+              >
+                {{ library.description }}
+              </span>
+            </div>
+          </label>
+        </div>
+      </div>
+
       <div class="project-form__actions">
         <EaButton
           type="secondary"
@@ -305,6 +361,13 @@ const handleSubmit = async () => {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
   color: var(--color-text-primary);
+}
+
+.form-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-3);
 }
 
 .form-input,
@@ -362,6 +425,61 @@ const handleSubmit = async () => {
 .form-hint {
   font-size: var(--font-size-xs);
   color: var(--color-text-tertiary);
+}
+
+.memory-library-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  max-height: 180px;
+  padding: var(--spacing-2);
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+}
+
+.memory-library-list--loading,
+.memory-library-list--empty {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.memory-library-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-3);
+  padding: var(--spacing-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.memory-library-item:hover {
+  background-color: var(--color-hover);
+}
+
+.memory-library-item__checkbox {
+  margin-top: 2px;
+}
+
+.memory-library-item__content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.memory-library-item__title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.memory-library-item__description {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
 }
 
 .project-form__actions {

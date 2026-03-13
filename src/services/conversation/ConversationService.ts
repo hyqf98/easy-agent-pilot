@@ -5,10 +5,12 @@ import { useProjectStore } from '@/stores/project'
 import { useAgentStore, type AgentConfig } from '@/stores/agent'
 import { useTokenStore } from '@/stores/token'
 import { useMemoryStore } from '@/stores/memory'
+import type { MemoryLibrary } from '@/types/memory'
 import { agentExecutor } from './AgentExecutor'
 import type { ConversationContext, StreamEvent } from './strategies/types'
 import { compressionService } from '@/services/compression/CompressionService'
 import { buildConversationMessages } from './buildConversationMessages'
+import { buildProjectMemorySystemPrompt } from '@/services/memory'
 
 /**
  * 对话服务
@@ -106,30 +108,38 @@ export class ConversationService {
 
       // 获取工作目录：优先使用传入的项目 ID，否则使用会话关联的项目
       let workingDirectory: string | undefined
+      let targetProject = projectId
+        ? projectStore.projects.find(p => p.id === projectId)
+        : undefined
+
       if (projectId) {
-        // 使用传入的项目 ID
-        const project = projectStore.projects.find(p => p.id === projectId)
-        workingDirectory = project?.path
+        workingDirectory = targetProject?.path
       } else {
-        // 使用会话关联的项目
         const session = sessionStore.sessions.find(s => s.id === sessionId)
         if (session?.projectId) {
-          const project = projectStore.projects.find(p => p.id === session.projectId)
-          workingDirectory = project?.path
+          targetProject = projectStore.projects.find(p => p.id === session.projectId)
+          workingDirectory = targetProject?.path
         }
       }
+
+      const projectMemoryPrompt = await this.buildProjectMemoryPrompt(targetProject?.memoryLibraryIds ?? [])
 
       // 构建对话上下文
       const messages = buildConversationMessages(
         messageStore.messagesBySession(sessionId),
-        content,
-        sessionId
+        {
+          fallbackUserContent: content,
+          sessionId,
+          injectedSystemMessages: projectMemoryPrompt ? [projectMemoryPrompt] : []
+        }
       )
       const userMessages = messages.filter(message => message.role === 'user')
+      const systemMessages = messages.filter(message => message.role === 'system')
 
       console.info('[ConversationService] assembled context messages', {
         sessionId,
         messageCount: messages.length,
+        systemMessageCount: systemMessages.length,
         lastUserMessageLength: userMessages.length > 0
           ? userMessages[userMessages.length - 1].content.length
           : 0
@@ -169,6 +179,27 @@ export class ConversationService {
     }
 
     return ''
+  }
+
+  private async buildProjectMemoryPrompt(memoryLibraryIds: string[]): Promise<string | null> {
+    if (memoryLibraryIds.length === 0) {
+      return null
+    }
+
+    const memoryStore = useMemoryStore()
+    const missingLibraryIds = memoryLibraryIds.filter(
+      (libraryId) => !memoryStore.libraries.some((library) => library.id === libraryId)
+    )
+
+    if (missingLibraryIds.length > 0) {
+      await memoryStore.loadLibraries()
+    }
+
+    const mountedLibraries = memoryLibraryIds
+      .map((libraryId) => memoryStore.libraries.find((library) => library.id === libraryId))
+      .filter((library): library is MemoryLibrary => Boolean(library))
+
+    return buildProjectMemorySystemPrompt(mountedLibraries)
   }
 
   /**

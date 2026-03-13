@@ -10,6 +10,7 @@ export interface Project {
   name: string
   path: string
   description?: string
+  memoryLibraryIds: string[]
   sessionCount?: number
   createdAt: string
   updatedAt: string
@@ -57,6 +58,7 @@ interface ProjectFromDb {
   path: string
   description: string | null
   session_count: number
+  memoryLibraryIds?: string[] | null
   created_at: string
   updated_at: string
 }
@@ -65,6 +67,7 @@ interface CreateProjectInput {
   name: string
   path: string
   description?: string
+  memoryLibraryIds: string[]
 }
 
 const LAST_PROJECT_KEY = 'ea-last-project'
@@ -75,6 +78,7 @@ function transformProject(p: ProjectFromDb): Project {
     name: p.name,
     path: p.path,
     description: p.description || undefined,
+    memoryLibraryIds: p.memoryLibraryIds ?? [],
     sessionCount: p.session_count,
     createdAt: p.created_at,
     updatedAt: p.updated_at
@@ -129,7 +133,8 @@ export const useProjectStore = defineStore('project', () => {
     const input: CreateProjectInput = {
       name: project.name,
       path: project.path,
-      description: project.description
+      description: project.description,
+      memoryLibraryIds: project.memoryLibraryIds
     }
 
     try {
@@ -156,7 +161,8 @@ export const useProjectStore = defineStore('project', () => {
     const input: CreateProjectInput = {
       name: updates.name || project.name,
       path: updates.path || project.path,
-      description: updates.description
+      description: updates.description,
+      memoryLibraryIds: updates.memoryLibraryIds ?? project.memoryLibraryIds
     }
 
     try {
