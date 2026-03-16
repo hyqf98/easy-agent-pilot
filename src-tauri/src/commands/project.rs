@@ -1,8 +1,13 @@
 use anyhow::Result;
+use once_cell::sync::Lazy;
+use parking_lot::Mutex;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::{Duration, Instant};
 
 use super::support::{now_rfc3339, open_db_connection, open_db_connection_with_foreign_keys};
 
@@ -78,6 +83,67 @@ pub struct FileTreeNode {
     /// 文件扩展名（仅文件类型有）
     pub extension: Option<String>,
 }
+
+#[derive(Debug, Clone)]
+struct ProjectFileCacheEntry {
+    files: Vec<FlatFileInfo>,
+    cached_at: Instant,
+}
+
+#[derive(Debug, Clone)]
+struct GlobalFileIndexEntry {
+    name: String,
+    path: String,
+    display_path: String,
+    node_type: FileNodeType,
+    extension: Option<String>,
+}
+
+#[derive(Debug, Default)]
+struct GlobalFileSearchCache {
+    entries: Vec<GlobalFileIndexEntry>,
+    pending_dirs: VecDeque<PathBuf>,
+    visited_dirs: HashSet<String>,
+    initialized: bool,
+    completed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FileMentionScope {
+    Project,
+    Global,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchFileMentionsInput {
+    pub query: String,
+    pub scope: FileMentionScope,
+    pub project_path: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileMentionSearchResult {
+    pub name: String,
+    pub path: String,
+    pub insert_path: String,
+    pub display_path: String,
+    pub node_type: FileNodeType,
+    pub extension: Option<String>,
+    pub scope: FileMentionScope,
+}
+
+const PROJECT_FILE_CACHE_TTL: Duration = Duration::from_secs(12);
+const DEFAULT_FILE_MENTION_LIMIT: usize = 80;
+const MAX_FILE_MENTION_LIMIT: usize = 200;
+
+static PROJECT_FILE_CACHE: Lazy<Mutex<HashMap<String, ProjectFileCacheEntry>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+static GLOBAL_FILE_CACHE: Lazy<Mutex<GlobalFileSearchCache>> =
+    Lazy::new(|| Mutex::new(GlobalFileSearchCache::default()));
 
 /// 创建项目输入
 #[derive(Debug, Deserialize)]
@@ -633,6 +699,12 @@ pub struct FlatFileInfo {
     pub extension: Option<String>,
 }
 
+#[derive(Debug)]
+struct RankedFileMentionResult {
+    score: i32,
+    result: FileMentionSearchResult,
+}
+
 /// 递归收集所有文件到扁平列表
 fn collect_files_flat(
     dir_path: &PathBuf,
@@ -717,6 +789,442 @@ fn collect_files_flat(
     Ok(())
 }
 
+fn get_project_file_index(project_path: &PathBuf) -> Result<Vec<FlatFileInfo>, String> {
+    let cache_key = project_path.to_string_lossy().to_string();
+
+    {
+        let cache = PROJECT_FILE_CACHE.lock();
+        if let Some(entry) = cache.get(&cache_key) {
+            if entry.cached_at.elapsed() < PROJECT_FILE_CACHE_TTL {
+                return Ok(entry.files.clone());
+            }
+        }
+    }
+
+    let mut files = Vec::new();
+    collect_files_flat(project_path, project_path, &mut files)?;
+
+    PROJECT_FILE_CACHE.lock().insert(
+        cache_key,
+        ProjectFileCacheEntry {
+            files: files.clone(),
+            cached_at: Instant::now(),
+        },
+    );
+
+    Ok(files)
+}
+
+fn normalize_limit(limit: Option<usize>) -> usize {
+    limit
+        .unwrap_or(DEFAULT_FILE_MENTION_LIMIT)
+        .clamp(1, MAX_FILE_MENTION_LIMIT)
+}
+
+fn shorten_home_path(path: &Path) -> String {
+    if let Some(home_dir) = dirs::home_dir() {
+        if let Ok(relative) = path.strip_prefix(&home_dir) {
+            let relative_str = relative.to_string_lossy();
+            if relative_str.is_empty() {
+                return "~".to_string();
+            }
+            return format!("~/{}", relative_str);
+        }
+    }
+
+    path.to_string_lossy().to_string()
+}
+
+fn path_depth(path: &str) -> usize {
+    path.chars()
+        .filter(|ch| *ch == '/' || *ch == '\\')
+        .count()
+}
+
+fn compute_search_score(name: &str, display_path: &str, query: &str) -> i32 {
+    let normalized_query = query.trim().to_lowercase();
+    if normalized_query.is_empty() {
+        return 100 - path_depth(display_path) as i32;
+    }
+
+    let name_lower = name.to_lowercase();
+    let display_lower = display_path.to_lowercase();
+    let mut score = 0;
+
+    if name_lower == normalized_query {
+        score += 420;
+    } else if name_lower.starts_with(&normalized_query) {
+        score += 280;
+    } else if name_lower.contains(&normalized_query) {
+        score += 190;
+    }
+
+    if display_lower == normalized_query {
+        score += 180;
+    } else if display_lower.starts_with(&normalized_query) {
+        score += 120;
+    } else if display_lower.contains(&normalized_query) {
+        score += 80;
+    }
+
+    score -= path_depth(display_path) as i32 * 3;
+    score -= (display_path.len() / 24) as i32;
+    score
+}
+
+fn build_project_search_result(file: &FlatFileInfo) -> FileMentionSearchResult {
+    FileMentionSearchResult {
+        name: file.name.clone(),
+        path: file.path.clone(),
+        insert_path: file.relative_path.clone(),
+        display_path: file.relative_path.clone(),
+        node_type: file.node_type.clone(),
+        extension: file.extension.clone(),
+        scope: FileMentionScope::Project,
+    }
+}
+
+fn metadata_to_file_node_type(metadata: &fs::Metadata) -> Option<FileNodeType> {
+    if metadata.is_dir() {
+        Some(FileNodeType::Directory)
+    } else if metadata.is_file() {
+        Some(FileNodeType::File)
+    } else {
+        None
+    }
+}
+
+fn is_ignored_global_path(path: &Path) -> bool {
+    let Some(name) = path.file_name().map(|value| value.to_string_lossy().to_string()) else {
+        return false;
+    };
+
+    IGNORED_DIRS.contains(&name.as_str()) || IGNORED_FILES.contains(&name.as_str())
+}
+
+fn rank_project_mentions(
+    files: Vec<FlatFileInfo>,
+    query: &str,
+    limit: usize,
+) -> Vec<FileMentionSearchResult> {
+    let normalized_query = query.trim().to_lowercase();
+    let mut ranked = files
+        .into_iter()
+        .filter(|file| {
+            if normalized_query.is_empty() {
+                return true;
+            }
+
+            let name = file.name.to_lowercase();
+            let relative_path = file.relative_path.to_lowercase();
+            name.contains(&normalized_query) || relative_path.contains(&normalized_query)
+        })
+        .map(|file| {
+            let score = compute_search_score(&file.name, &file.relative_path, &normalized_query);
+            RankedFileMentionResult {
+                score,
+                result: build_project_search_result(&file),
+            }
+        })
+        .collect::<Vec<_>>();
+
+    ranked.sort_by(|left, right| {
+        right
+            .score
+            .cmp(&left.score)
+            .then_with(|| left.result.display_path.len().cmp(&right.result.display_path.len()))
+            .then_with(|| left.result.display_path.cmp(&right.result.display_path))
+    });
+
+    ranked
+        .into_iter()
+        .take(limit)
+        .map(|entry| entry.result)
+        .collect()
+}
+
+fn build_global_search_result(path: &PathBuf, node_type: FileNodeType) -> FileMentionSearchResult {
+    let display_path = shorten_home_path(path);
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_string());
+
+    FileMentionSearchResult {
+        name: path
+            .file_name()
+            .map(|value| value.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.to_string_lossy().to_string()),
+        path: path.to_string_lossy().to_string(),
+        insert_path: path.to_string_lossy().to_string(),
+        display_path,
+        node_type,
+        extension,
+        scope: FileMentionScope::Global,
+    }
+}
+
+fn global_search_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+
+    if let Some(home_dir) = dirs::home_dir() {
+        roots.push(home_dir);
+    }
+
+    for candidate in [
+        "/Applications",
+        "/System/Applications",
+        "/Library",
+        "/opt",
+        "/usr/local",
+        "/Users/Shared",
+    ] {
+        let path = PathBuf::from(candidate);
+        if path.exists() {
+            roots.push(path);
+        }
+    }
+
+    let mut seen = HashSet::new();
+    roots
+        .into_iter()
+        .filter(|path| seen.insert(path.to_string_lossy().to_string()))
+        .collect()
+}
+
+fn global_entry_from_path(path: &Path) -> Option<GlobalFileIndexEntry> {
+    if is_ignored_global_path(path) {
+        return None;
+    }
+
+    let metadata = fs::metadata(path).ok()?;
+    let node_type = metadata_to_file_node_type(&metadata)?;
+    let display_path = shorten_home_path(path);
+    let name = path
+        .file_name()
+        .map(|value| value.to_string_lossy().to_string())
+        .unwrap_or_else(|| display_path.clone());
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_string());
+
+    Some(GlobalFileIndexEntry {
+        name,
+        path: path.to_string_lossy().to_string(),
+        display_path,
+        node_type,
+        extension,
+    })
+}
+
+fn ensure_global_cache_initialized(cache: &mut GlobalFileSearchCache) {
+    if cache.initialized {
+        return;
+    }
+
+    for root in global_search_roots() {
+        let root_key = root.to_string_lossy().to_string();
+        if !cache.visited_dirs.insert(root_key.clone()) {
+            continue;
+        }
+
+        if let Some(entry) = global_entry_from_path(&root) {
+            cache.entries.push(entry);
+        }
+        cache.pending_dirs.push_back(root);
+    }
+
+    cache.initialized = true;
+}
+
+fn scan_global_cache_step(cache: &mut GlobalFileSearchCache, max_dirs: usize) {
+    ensure_global_cache_initialized(cache);
+    if cache.completed {
+        return;
+    }
+
+    let mut scanned_dirs = 0usize;
+
+    while scanned_dirs < max_dirs {
+        let Some(dir_path) = cache.pending_dirs.pop_front() else {
+            cache.completed = true;
+            break;
+        };
+
+        let Ok(entries) = fs::read_dir(&dir_path) else {
+            scanned_dirs += 1;
+            continue;
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if is_ignored_global_path(&path) {
+                continue;
+            }
+
+            let Ok(metadata) = entry.metadata() else {
+                continue;
+            };
+
+            if let Some(index_entry) = global_entry_from_path(&path) {
+                cache.entries.push(index_entry);
+            }
+
+            if metadata.is_dir() {
+                let dir_key = path.to_string_lossy().to_string();
+                if cache.visited_dirs.insert(dir_key) {
+                    cache.pending_dirs.push_back(path);
+                }
+            }
+        }
+
+        scanned_dirs += 1;
+    }
+}
+
+fn search_global_cache_entries(cache: &GlobalFileSearchCache, query: &str, limit: usize) -> Vec<FileMentionSearchResult> {
+    let normalized_query = query.trim().to_lowercase();
+
+    let mut ranked = cache
+        .entries
+        .iter()
+        .filter(|entry| {
+            entry.name.to_lowercase().contains(&normalized_query)
+                || entry.display_path.to_lowercase().contains(&normalized_query)
+        })
+        .map(|entry| RankedFileMentionResult {
+            score: compute_search_score(&entry.name, &entry.display_path, &normalized_query),
+            result: FileMentionSearchResult {
+                name: entry.name.clone(),
+                path: entry.path.clone(),
+                insert_path: entry.path.clone(),
+                display_path: entry.display_path.clone(),
+                node_type: entry.node_type.clone(),
+                extension: entry.extension.clone(),
+                scope: FileMentionScope::Global,
+            },
+        })
+        .collect::<Vec<_>>();
+
+    ranked.sort_by(|left, right| {
+        right
+            .score
+            .cmp(&left.score)
+            .then_with(|| left.result.display_path.len().cmp(&right.result.display_path.len()))
+            .then_with(|| left.result.display_path.cmp(&right.result.display_path))
+    });
+
+    ranked
+        .into_iter()
+        .take(limit)
+        .map(|entry| entry.result)
+        .collect()
+}
+
+fn collect_global_fallback_results(query: &str, limit: usize) -> Vec<FileMentionSearchResult> {
+    let normalized_query = query.trim().to_lowercase();
+    if normalized_query.len() < 2 {
+        return Vec::new();
+    }
+
+    let mut cache = GLOBAL_FILE_CACHE.lock();
+
+    for _ in 0..4 {
+        let current = search_global_cache_entries(&cache, &normalized_query, limit);
+        if current.len() >= limit || cache.completed {
+            return current;
+        }
+
+        scan_global_cache_step(&mut cache, 120);
+    }
+
+    search_global_cache_entries(&cache, &normalized_query, limit)
+}
+
+#[cfg(target_os = "macos")]
+fn search_global_mentions_indexed(query: &str, limit: usize) -> Result<Vec<FileMentionSearchResult>, String> {
+    let normalized_query = query.trim();
+    if normalized_query.len() < 2 {
+        return Ok(Vec::new());
+    }
+
+    let escaped_query = normalized_query.replace('\\', "\\\\").replace('"', "\\\"");
+    let md_query = format!(
+        "(kMDItemFSName == \"*{q}*\"cd || kMDItemPath == \"*{q}*\"cd)",
+        q = escaped_query
+    );
+
+    let shell_query = md_query.replace('\'', "'\\''");
+    let shell_command = format!("/usr/bin/mdfind -limit {} '{}'", limit, shell_query);
+
+    let output = Command::new("/bin/sh")
+        .args(["-lc", &shell_command])
+        .output()
+        .map_err(|error| format!("执行全局文件搜索失败: {}", error))?;
+
+    if !output.status.success() {
+        return Ok(collect_global_fallback_results(query, limit));
+    }
+
+    let mut seen = HashSet::new();
+    let mut ranked = Vec::new();
+
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let path = PathBuf::from(trimmed);
+        if !path.exists() || is_ignored_global_path(&path) {
+            continue;
+        }
+
+        let path_key = path.to_string_lossy().to_string();
+        if !seen.insert(path_key) {
+            continue;
+        }
+
+        let Ok(metadata) = fs::metadata(&path) else {
+            continue;
+        };
+
+        let Some(node_type) = metadata_to_file_node_type(&metadata) else {
+            continue;
+        };
+
+        let result = build_global_search_result(&path, node_type);
+        let score = compute_search_score(&result.name, &result.display_path, normalized_query);
+        ranked.push(RankedFileMentionResult { score, result });
+    }
+
+    ranked.sort_by(|left, right| {
+        right
+            .score
+            .cmp(&left.score)
+            .then_with(|| left.result.display_path.len().cmp(&right.result.display_path.len()))
+            .then_with(|| left.result.display_path.cmp(&right.result.display_path))
+    });
+
+    let results = ranked
+        .into_iter()
+        .take(limit)
+        .map(|entry| entry.result)
+        .collect::<Vec<_>>();
+
+    if results.is_empty() {
+        return Ok(collect_global_fallback_results(query, limit));
+    }
+
+    Ok(results)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn search_global_mentions_indexed(query: &str, limit: usize) -> Result<Vec<FileMentionSearchResult>, String> {
+    Ok(collect_global_fallback_results(query, limit))
+}
+
 /// 列出项目所有文件的扁平列表（用于 @ 文件引用）
 #[tauri::command]
 pub fn list_all_project_files_flat(project_path: String) -> Result<Vec<FlatFileInfo>, String> {
@@ -730,9 +1238,33 @@ pub fn list_all_project_files_flat(project_path: String) -> Result<Vec<FlatFileI
         return Err(format!("项目路径不是目录: {}", project_path));
     }
 
-    let mut result = Vec::new();
-    collect_files_flat(&resolved_path, &resolved_path, &mut result)?;
-    Ok(result)
+    get_project_file_index(&resolved_path)
+}
+
+#[tauri::command]
+pub fn search_file_mentions(input: SearchFileMentionsInput) -> Result<Vec<FileMentionSearchResult>, String> {
+    let limit = normalize_limit(input.limit);
+
+    match input.scope {
+        FileMentionScope::Project => {
+            let project_path = input
+                .project_path
+                .ok_or_else(|| "项目范围搜索缺少 projectPath".to_string())?;
+            let resolved_path = resolve_path(&project_path)?;
+
+            if !resolved_path.exists() {
+                return Err(format!("项目路径不存在: {}", project_path));
+            }
+
+            if !resolved_path.is_dir() {
+                return Err(format!("项目路径不是目录: {}", project_path));
+            }
+
+            let files = get_project_file_index(&resolved_path)?;
+            Ok(rank_project_mentions(files, &input.query, limit))
+        }
+        FileMentionScope::Global => search_global_mentions_indexed(&input.query, limit),
+    }
 }
 
 /// 重命名文件/文件夹

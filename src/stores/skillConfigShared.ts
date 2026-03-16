@@ -40,6 +40,30 @@ export interface CliConfigPaths {
   configDir: string
   configFile: string
   cliType: string
+  skillsDir: string
+}
+
+export interface SkillReferenceDraft {
+  title: string
+  summary?: string
+  content: string
+}
+
+export interface CreateVisualSkillInput {
+  name: string
+  description?: string
+  instructions: string
+  references: SkillReferenceDraft[]
+  includeScriptsDir?: boolean
+  includeAssetsDir?: boolean
+}
+
+export interface CreatedCliSkillResult {
+  skillPath: string
+  skillFilePath: string
+  referencesPath?: string
+  scriptsPath?: string
+  assetsPath?: string
 }
 
 export interface McpTool {
@@ -76,6 +100,31 @@ export interface CliCapabilities {
   supportsSkills: boolean
   supportsPlugins: boolean
   mcpAddCommand: string | null
+}
+
+export type SyncConfigType = 'mcp' | 'skills'
+export type CliSyncConflictPolicy = 'skip'
+
+export interface CliSyncPreviewItem {
+  name: string
+  type: SyncConfigType
+  description?: string
+  path?: string
+  transportType?: 'stdio' | 'sse' | 'http'
+}
+
+export interface CliSyncItemIssue {
+  name: string
+  reason: string
+}
+
+export interface CliSyncResult {
+  successCount: number
+  skippedCount: number
+  failedCount: number
+  createdItems: string[]
+  skippedItems: CliSyncItemIssue[]
+  failedItems: CliSyncItemIssue[]
 }
 
 export interface ScannedMcpServer {
@@ -270,6 +319,27 @@ export function transformCliPlugin(plugin: ScannedPlugin): UnifiedPluginConfig {
     description: plugin.description || undefined,
     pluginPath: plugin.path,
   }
+}
+
+export function buildSyncPreviewItems(
+  scanResult: ClaudeConfigScanResult,
+  type: SyncConfigType
+): CliSyncPreviewItem[] {
+  if (type === 'mcp') {
+    return scanResult.mcp_servers.map(server => ({
+      name: server.name,
+      type,
+      path: server.url || server.command,
+      transportType: server.transport,
+    }))
+  }
+
+  return scanResult.skills.map(skill => ({
+    name: skill.name,
+    type,
+    description: skill.description || undefined,
+    path: skill.path,
+  }))
 }
 
 export function buildMcpConfigInput(config: UnifiedMcpConfig): McpConfigInput {

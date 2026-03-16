@@ -1,11 +1,25 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '@/stores/session'
 import { useProjectStore } from '@/stores/project'
 import { resolveFileIcon } from '@/utils/fileIcon'
 import { EaIcon } from '@/components/common'
+
+type FileMentionScope = 'project' | 'global'
+
+interface FileMentionSearchResult {
+  name: string
+  path: string
+  insertPath: string
+  displayPath: string
+  nodeType: 'file' | 'directory'
+  extension: string | null
+  scope: FileMentionScope
+}
+
+const LAST_SCOPE_KEY = 'ea-file-mention-scope'
 
 const props = defineProps<{
   visible: boolean
@@ -15,7 +29,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  select: [path: string, relativePath: string, mentionStart: number]
+  select: [insertPath: string, mentionStart: number]
   close: []
 }>()
 
@@ -23,47 +37,43 @@ const { t } = useI18n()
 const sessionStore = useSessionStore()
 const projectStore = useProjectStore()
 
-// 扁平化的文件列表（包含相对路径）
-interface FlatFile {
-  name: string
-  path: string
-  relativePath: string
-  nodeType: 'file' | 'directory'
-  extension: string | null
-  depth: number
-}
-
-// 状态
 const isOpen = computed(() => props.visible)
 const isLoading = ref(false)
-const allFiles = ref<FlatFile[]>([])
+const results = ref<FileMentionSearchResult[]>([])
 const selectedIndex = ref(0)
 const dropdownRef = ref<HTMLElement | null>(null)
+const activeScope = ref<FileMentionScope>(
+  (localStorage.getItem(LAST_SCOPE_KEY) as FileMentionScope | null) ?? 'project'
+)
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+let searchToken = 0
 
 const currentProject = computed(() => {
   const sessionId = sessionStore.currentSessionId
   if (!sessionId) return null
-  return projectStore.projects.find(p => p.id === sessionStore.currentSession?.projectId) || null
+  return projectStore.projects.find(project => project.id === sessionStore.currentSession?.projectId) || null
 })
 
-// 过滤后的文件列表 - 使用 props.searchText 进行过滤
-const filteredFiles = computed(() => {
-  const query = props.searchText.toLowerCase().trim()
-  if (!query) return allFiles.value
+const trimmedSearchText = computed(() => props.searchText.trim())
+const requiresGlobalQuery = computed(() => activeScope.value === 'global' && trimmedSearchText.value.length < 2)
 
-  return allFiles.value.filter(file => {
-    // 同时匹配文件名和相对路径
-    const relativePath = file.relativePath || ''
-    return file.name.toLowerCase().includes(query) ||
-      relativePath.toLowerCase().includes(query)
-  })
-})
+const scopeOptions = computed(() => ([
+  {
+    value: 'project' as const,
+    label: t('fileMention.scopeProject'),
+    icon: 'folder-open'
+  },
+  {
+    value: 'global' as const,
+    label: t('fileMention.scopeGlobal'),
+    icon: 'globe'
+  }
+]))
 
-// 计算下拉框位置 - 显示在上方
 const dropdownStyle = computed(() => {
   if (!props.position.x || !props.position.y) return {}
 
-  const dropdownHeight = 280
+  const dropdownHeight = 360
   const spaceBelow = window.innerHeight - props.position.y
   const showAbove = spaceBelow < dropdownHeight
 
@@ -72,146 +82,208 @@ const dropdownStyle = computed(() => {
       left: `${props.position.x}px`,
       bottom: `${window.innerHeight - props.position.y + 24}px`
     }
-  } else {
-    return {
-      left: `${props.position.x}px`,
-      top: `${props.position.y + 4}px`
-    }
+  }
+
+  return {
+    left: `${props.position.x}px`,
+    top: `${props.position.y + 4}px`
   }
 })
 
-// 关闭下拉框
+const emptyStateMessage = computed(() => {
+  if (requiresGlobalQuery.value) {
+    return t('fileMention.globalHint')
+  }
+
+  if (activeScope.value === 'project' && !currentProject.value) {
+    return t('fileMention.projectUnavailable')
+  }
+
+  if (trimmedSearchText.value) {
+    return t('fileMention.noMatches')
+  }
+
+  return activeScope.value === 'project'
+    ? t('fileMention.projectEmpty')
+    : t('fileMention.globalEmpty')
+})
+
 const close = () => {
   emit('close')
 }
 
-// 递归加载所有文件
-const loadAllFiles = async () => {
-  if (!currentProject.value || !isOpen.value) return
+const setScope = (scope: FileMentionScope) => {
+  if (activeScope.value === scope) {
+    return
+  }
 
+  activeScope.value = scope
+  localStorage.setItem(LAST_SCOPE_KEY, scope)
+  selectedIndex.value = 0
+}
+
+const performSearch = async () => {
+  if (!isOpen.value) {
+    return
+  }
+
+  if (activeScope.value === 'project' && !currentProject.value) {
+    results.value = []
+    isLoading.value = false
+    return
+  }
+
+  if (requiresGlobalQuery.value) {
+    results.value = []
+    isLoading.value = false
+    return
+  }
+
+  const currentToken = ++searchToken
   isLoading.value = true
-  allFiles.value = []
 
   try {
-    const projectPath = currentProject.value.path
-    const result = await invoke<FlatFile[]>('list_all_project_files_flat', {
-      projectPath
-    })
-    allFiles.value = result || []
-    selectedIndex.value = 0
-  } catch (error) {
-    console.error('Failed to load all files:', error)
-    allFiles.value = []
-  } finally {
-    isLoading.value = false
-  }
-}
-
-// 选择文件或文件夹
-const selectFile = (file: FlatFile) => {
-  close()
-  const relativePath = file.relativePath || file.name
-  emit('select', file.path, relativePath, props.mentionStart)
-}
-
-// 键盘导航
-const handleKeyDown = (e: KeyboardEvent) => {
-  if (!isOpen.value) return
-
-  switch (e.key) {
-    case 'ArrowUp':
-      e.preventDefault()
-      e.stopPropagation()
-      selectedIndex.value = selectedIndex.value > 0
-        ? selectedIndex.value - 1
-        : filteredFiles.value.length - 1
-      scrollToSelected()
-      break
-    case 'ArrowDown':
-      e.preventDefault()
-      e.stopPropagation()
-      selectedIndex.value = selectedIndex.value < filteredFiles.value.length - 1
-        ? selectedIndex.value + 1
-        : 0
-      scrollToSelected()
-      break
-    case 'Enter':
-      e.preventDefault()
-      e.stopPropagation()
-      const selectedFile = filteredFiles.value[selectedIndex.value]
-      if (selectedFile) {
-        selectFile(selectedFile)
+    const payload = {
+      input: {
+        query: props.searchText,
+        scope: activeScope.value,
+        projectPath: currentProject.value?.path,
+        limit: 80
       }
-      break
-    case 'Escape':
-      e.preventDefault()
-      e.stopPropagation()
-      close()
-      break
+    }
+
+    const nextResults = await invoke<FileMentionSearchResult[]>('search_file_mentions', payload)
+    if (currentToken !== searchToken) {
+      return
+    }
+
+    results.value = nextResults ?? []
+    selectedIndex.value = Math.min(selectedIndex.value, Math.max(results.value.length - 1, 0))
+  } catch (error) {
+    console.error('Failed to search file mentions:', error)
+    if (currentToken === searchToken) {
+      results.value = []
+    }
+  } finally {
+    if (currentToken === searchToken) {
+      isLoading.value = false
+    }
   }
 }
 
-// 滚动到选中项
+const scheduleSearch = () => {
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+  }
+
+  searchTimer = setTimeout(() => {
+    searchTimer = null
+    void performSearch()
+  }, activeScope.value === 'global' ? 160 : 100)
+}
+
+const selectFile = (file: FileMentionSearchResult) => {
+  close()
+  emit('select', file.insertPath, props.mentionStart)
+}
+
 const scrollToSelected = () => {
   nextTick(() => {
-    if (!dropdownRef.value) return
-    const selectedEl = dropdownRef.value.querySelector('.file-mention__item--selected')
-    if (selectedEl) {
-      selectedEl.scrollIntoView({ block: 'nearest' })
-    }
+    const selectedEl = dropdownRef.value?.querySelector('.file-mention__item--selected')
+    selectedEl?.scrollIntoView({ block: 'nearest' })
   })
 }
 
-// 获取文件图标名称
-const getFileIconName = (file: FlatFile): string => {
+const switchScopeByKeyboard = () => {
+  setScope(activeScope.value === 'project' ? 'global' : 'project')
+}
+
+const handleKeyDown = (event: KeyboardEvent) => {
+  if (!isOpen.value) return
+
+  switch (event.key) {
+    case 'ArrowUp':
+      event.preventDefault()
+      event.stopPropagation()
+      if (results.value.length === 0) return
+      selectedIndex.value = selectedIndex.value > 0 ? selectedIndex.value - 1 : results.value.length - 1
+      scrollToSelected()
+      break
+    case 'ArrowDown':
+      event.preventDefault()
+      event.stopPropagation()
+      if (results.value.length === 0) return
+      selectedIndex.value = selectedIndex.value < results.value.length - 1 ? selectedIndex.value + 1 : 0
+      scrollToSelected()
+      break
+    case 'Enter': {
+      const selectedFile = results.value[selectedIndex.value]
+      if (!selectedFile) return
+      event.preventDefault()
+      event.stopPropagation()
+      selectFile(selectedFile)
+      break
+    }
+    case 'Escape':
+      event.preventDefault()
+      event.stopPropagation()
+      close()
+      break
+    case 'Tab':
+      event.preventDefault()
+      event.stopPropagation()
+      switchScopeByKeyboard()
+      break
+  }
+}
+
+const getFileIconName = (file: FileMentionSearchResult): string => {
   if (file.nodeType === 'directory') return 'folder'
   const iconMeta = resolveFileIcon(file.nodeType, file.name, file.extension ?? undefined)
   return typeof iconMeta === 'string' ? iconMeta : (iconMeta?.icon || 'file')
 }
 
-// 获取显示路径（搜索时显示完整相对路径，否则只显示文件名）
-const getDisplayPath = (file: FlatFile): string => {
-  if (props.searchText.trim()) {
-    return file.relativePath
-  }
-  return file.name
-}
-
-// 高亮匹配文本
-const highlightMatch = (text: string): string => {
-  const query = props.searchText.toLowerCase().trim()
+const highlightMatch = (text: string) => {
+  const query = trimmedSearchText.value.toLowerCase()
   if (!query) return text
 
   const index = text.toLowerCase().indexOf(query)
-  if (index === -1) return text
+  if (index < 0) return text
 
-  return text.slice(0, index) +
-    '<mark>' + text.slice(index, index + query.length) + '</mark>' +
-    text.slice(index + query.length)
+  return text.slice(0, index)
+    + '<mark>' + text.slice(index, index + query.length) + '</mark>'
+    + text.slice(index + query.length)
 }
 
-// 监听 visible 变化
-watch(() => props.visible, async (visible) => {
-  if (visible && currentProject.value) {
-    await loadAllFiles()
-  } else {
-    allFiles.value = []
-  }
-}, { immediate: true })
+watch(
+  () => [props.visible, props.searchText, activeScope.value, currentProject.value?.path] as const,
+  ([visible]) => {
+    if (!visible) {
+      results.value = []
+      isLoading.value = false
+      return
+    }
 
-// 当搜索文本变化时重置选中索引
-watch(() => props.searchText, () => {
-  selectedIndex.value = 0
+    selectedIndex.value = 0
+    scheduleSearch()
+  },
+  { immediate: true }
+)
+
+watch(results, () => {
   nextTick(scrollToSelected)
 })
 
-// 监听全局键盘事件
 onMounted(() => {
   document.addEventListener('keydown', handleKeyDown, true)
 })
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleKeyDown, true)
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+    searchTimer = null
+  }
 })
 </script>
 
@@ -223,52 +295,74 @@ onUnmounted(() => {
       class="file-mention-dropdown"
       :style="dropdownStyle"
     >
-      <!-- 搜索提示 -->
-      <div v-if="searchText" class="file-mention__search-hint">
-        <EaIcon name="search" :size="12" />
-        <span>搜索: "{{ searchText }}"</span>
-          <span class="file-mention__count">{{ t('fileMention.resultCount', { count: filteredFiles.length }) }}</span>
+      <div class="file-mention__header">
+        <div class="file-mention__scope-switch">
+          <button
+            v-for="scope in scopeOptions"
+            :key="scope.value"
+            class="file-mention__scope"
+            :class="{ 'file-mention__scope--active': scope.value === activeScope }"
+            @click="setScope(scope.value)"
+          >
+            <EaIcon :name="scope.icon" :size="12" />
+            <span>{{ scope.label }}</span>
+          </button>
+        </div>
+        <div class="file-mention__meta">
+          <EaIcon :name="activeScope === 'global' ? 'sparkles' : 'search'" :size="12" />
+          <span v-if="trimmedSearchText">{{ t('fileMention.searchingFor', { query: trimmedSearchText }) }}</span>
+          <span v-else>{{ t('fileMention.scopeHint', { scope: activeScope === 'project' ? t('fileMention.scopeProject') : t('fileMention.scopeGlobal') }) }}</span>
+          <span v-if="results.length > 0" class="file-mention__count">
+            {{ t('fileMention.resultCount', { count: results.length }) }}
+          </span>
+        </div>
       </div>
 
-      <!-- 搜索结果为空 -->
       <div
-        v-if="!isLoading && filteredFiles.length === 0"
+        v-if="!isLoading && results.length === 0"
         class="file-mention__empty"
       >
-        <EaIcon name="file-x" :size="24" />
-        <span>{{ searchText ? '未找到匹配的文件' : '项目中暂无文件' }}</span>
+        <EaIcon :name="requiresGlobalQuery ? 'search' : 'file-x'" :size="24" />
+        <span>{{ emptyStateMessage }}</span>
       </div>
 
-      <!-- 文件列表 -->
       <div
         v-else
         class="file-mention__list"
       >
-        <!-- 文件项 -->
         <div
-          v-for="(file, index) in filteredFiles"
-          :key="file.path"
+          v-for="(file, index) in results"
+          :key="`${file.scope}-${file.path}`"
           class="file-mention__item"
           :class="{ 'file-mention__item--selected': index === selectedIndex }"
           @click="selectFile(file)"
           @mouseenter="selectedIndex = index"
         >
-          <EaIcon :name="getFileIconName(file)" :size="14" />
-          <span
-            class="file-mention__path"
-            v-html="highlightMatch(getDisplayPath(file))"
-          />
+          <div class="file-mention__item-icon">
+            <EaIcon :name="getFileIconName(file)" :size="14" />
+          </div>
+          <div class="file-mention__item-body">
+            <span class="file-mention__item-name" v-html="highlightMatch(file.name)" />
+            <span
+              class="file-mention__item-path"
+              :class="{ 'file-mention__item-path--muted': file.displayPath === file.name }"
+              v-html="highlightMatch(file.displayPath)"
+            />
+          </div>
+          <span class="file-mention__item-scope">
+            {{ file.scope === 'project' ? t('fileMention.scopeProjectShort') : t('fileMention.scopeGlobalShort') }}
+          </span>
         </div>
 
-        <!-- 加载中 -->
         <div v-if="isLoading" class="file-mention__loading">
-          <EaIcon name="loading" :size="16" class="file-mention__loading-icon" />
+          <EaIcon name="loader-circle" :size="16" spin />
           <span>{{ t('fileMention.loading') }}</span>
         </div>
       </div>
 
-      <!-- 底部提示 -->
       <div class="file-mention__footer">
+        <kbd>Tab</kbd>
+        <span>{{ t('fileMention.switchScope') }}</span>
         <kbd>↑↓</kbd>
         <span>{{ t('fileMention.navigate') }}</span>
         <kbd>Enter</kbd>
@@ -283,135 +377,199 @@ onUnmounted(() => {
 <style scoped>
 .file-mention-dropdown {
   position: fixed;
-  min-width: 300px;
-  max-width: 400px;
-  max-height: 320px;
-  background-color: var(--color-surface-elevated);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
-  z-index: 10000;
-  overflow: hidden;
+  min-width: 360px;
+  max-width: 480px;
+  max-height: 380px;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(248, 250, 252, 0.96));
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(18px);
+  z-index: 10000;
 }
 
-.file-mention__search-hint {
+.file-mention__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  padding: var(--spacing-3);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  background: linear-gradient(180deg, rgba(226, 232, 240, 0.24), rgba(255, 255, 255, 0.3));
+}
+
+.file-mention__scope-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.file-mention__scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast) var(--easing-default);
+}
+
+.file-mention__scope:hover {
+  color: var(--color-text-primary);
+}
+
+.file-mention__scope--active {
+  background: rgba(14, 165, 233, 0.12);
+  color: #0369a1;
+  box-shadow: inset 0 0 0 1px rgba(14, 165, 233, 0.16);
+}
+
+.file-mention__meta {
   display: flex;
   align-items: center;
-  gap: var(--spacing-2);
-  padding: var(--spacing-2) var(--spacing-3);
-  border-bottom: 1px solid var(--color-border);
+  gap: 8px;
+  min-width: 0;
   font-size: var(--font-size-xs);
   color: var(--color-text-tertiary);
-  background-color: var(--color-surface);
+}
+
+.file-mention__meta span:first-of-type {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .file-mention__count {
   margin-left: auto;
-  padding: 2px 6px;
-  background-color: var(--color-primary-light);
-  color: var(--color-primary);
-  border-radius: var(--radius-sm);
-  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(14, 165, 233, 0.12);
+  color: #0369a1;
+  font-weight: 600;
 }
 
 .file-mention__list {
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  max-height: 240px;
   overflow-y: auto;
 }
 
-.file-mention__empty {
+.file-mention__empty,
+.file-mention__loading {
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: var(--spacing-2);
-  padding: var(--spacing-6);
+  padding: var(--spacing-6) var(--spacing-4);
   color: var(--color-text-tertiary);
-  font-size: var(--font-size-sm);
+  text-align: center;
 }
 
 .file-mention__item {
   display: flex;
-  align-items: center;
-  gap: var(--spacing-2);
-  padding: var(--spacing-2) var(--spacing-3);
-  border-radius: 0;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 14px;
   cursor: pointer;
-  transition: all var(--transition-fast) var(--easing-default);
-  border-bottom: 1px solid var(--color-border-light);
+  transition: background-color var(--transition-fast) var(--easing-default);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
 }
 
 .file-mention__item:last-child {
   border-bottom: none;
 }
 
-.file-mention__item:hover {
-  background-color: var(--color-surface-hover);
-}
-
+.file-mention__item:hover,
 .file-mention__item--selected {
-  background-color: var(--color-primary-light);
+  background: rgba(14, 165, 233, 0.08);
 }
 
-.file-mention__path {
+.file-mention__item-icon {
+  width: 18px;
+  display: inline-flex;
+  justify-content: center;
+  padding-top: 2px;
+  color: var(--color-text-secondary);
+}
+
+.file-mention__item-body {
   flex: 1;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-primary);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.file-mention__item-name,
+.file-mention__item-path {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--font-family-mono);
 }
 
-.file-mention__path :deep(mark) {
-  background-color: var(--color-warning-light);
-  color: var(--color-warning-dark);
-  padding: 0 2px;
-  border-radius: 2px;
-}
-
-.file-mention__loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--spacing-2);
-  padding: var(--spacing-4);
-  color: var(--color-text-tertiary);
+.file-mention__item-name {
   font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
 }
 
-.file-mention__loading-icon {
-  animation: spin 1s linear infinite;
+.file-mention__item-path {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
 }
 
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+.file-mention__item-path--muted {
+  opacity: 0.5;
+}
+
+.file-mention__item-scope {
+  flex-shrink: 0;
+  margin-top: 1px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.05);
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.file-mention__item-name :deep(mark),
+.file-mention__item-path :deep(mark) {
+  background: rgba(251, 191, 36, 0.28);
+  color: inherit;
+  padding: 0 2px;
+  border-radius: 4px;
 }
 
 .file-mention__footer {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: var(--spacing-2);
-  padding: var(--spacing-2);
-  border-top: 1px solid var(--color-border);
-  font-size: 10px;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: var(--spacing-2) var(--spacing-3);
+  border-top: 1px solid rgba(148, 163, 184, 0.16);
+  font-size: 11px;
   color: var(--color-text-tertiary);
-  background-color: var(--color-surface);
+  background: rgba(255, 255, 255, 0.72);
 }
 
 .file-mention__footer kbd {
-  padding: 2px 4px;
-  background-color: var(--color-bg-tertiary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  font-size: 9px;
+  padding: 2px 6px;
+  border: 1px solid rgba(148, 163, 184, 0.36);
+  border-radius: 6px;
+  background: rgba(248, 250, 252, 0.92);
+  color: var(--color-text-secondary);
   font-family: inherit;
+  font-size: 10px;
 }
 </style>

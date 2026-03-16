@@ -51,9 +51,11 @@ const toggleExpand = () => {
 
 <style scoped>
 .thinking-display {
-  align-self: flex-start;
-  width: var(--timeline-panel-width, min(100%, 29.5rem));
+  align-self: stretch;
+  width: 100%;
   max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   border-radius: var(--radius-lg);
   background:
     linear-gradient(135deg, rgba(14, 165, 233, 0.12), rgba(34, 197, 94, 0.05)),
@@ -88,6 +90,7 @@ const toggleExpand = () => {
   align-items: center;
   gap: var(--spacing-2);
   min-width: 0;
+  flex: 1;
 }
 
 .thinking-display__header-right {
@@ -103,6 +106,7 @@ const toggleExpand = () => {
   font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--color-text-primary);
+  min-width: 0;
 }
 
 .thinking-display__badge {
@@ -165,6 +169,7 @@ const toggleExpand = () => {
   font-size: var(--font-size-xs);
   line-height: 1.5;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   word-break: break-word;
   color: var(--color-text-secondary);
 }

@@ -12,7 +12,13 @@
     "tauri:clean:debug": "cargo clean --manifest-path src-tauri/Cargo.toml --profile dev",
     "typecheck": "vue-tsc --noEmit",
     "lint": "eslint src --fix",
-    "test:claude-json": "node scripts/test-claude-program-json-output.mjs"
+    "test:claude-json": "node scripts/test-claude-program-json-output.mjs",
+    "build:mac": "pnpm tauri build --target universal-apple-darwin",
+    "build:mac-arm": "pnpm tauri build --target aarch64-apple-darwin",
+    "build:mac-intel": "pnpm tauri build --target x86_64-apple-darwin",
+    "build:windows": "pnpm tauri build --target x86_64-pc-windows-msvc",
+    "build:linux": "pnpm tauri build --target x86_64-unknown-linux-gnu",
+    "build:all": "pnpm build:mac && pnpm build:windows && pnpm build:linux"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

@@ -7,9 +7,13 @@ import AgentSelector from './AgentSelector.vue'
 import McpConfigTab from './tabs/McpConfigTab.vue'
 import SkillsConfigTab from './tabs/SkillsConfigTab.vue'
 import PluginsConfigTab from './tabs/PluginsConfigTab.vue'
+import CliConfigSyncModal from './modals/CliConfigSyncModal.vue'
+import SkillEditModal from './modals/SkillEditModal.vue'
+import SkillCreateView from './skills/SkillCreateView.vue'
 import SkillDetailView from './views/SkillDetailView.vue'
 import PluginDetailView from './views/PluginDetailView.vue'
 import { EaButton, EaIcon } from '@/components/common'
+import type { CliSyncResult, CreateVisualSkillInput, SyncConfigType } from '@/stores/skillConfig'
 
 const { t } = useI18n()
 const agentStore = useAgentStore()
@@ -23,14 +27,30 @@ const showPluginsTab = computed(() => skillConfigStore.supportsPlugins)
 
 // 内容区域引用，用于重置滚动位置
 const contentRef = ref<HTMLElement | null>(null)
+const showSyncModal = ref(false)
+const syncType = ref<SyncConfigType>('mcp')
+const showSkillModal = ref(false)
+const showSkillBuilder = ref(false)
+const isCreatingSkill = ref(false)
+const editingSkill = ref<UnifiedSkillConfig | null>(null)
 
 // 监听标签页切换，重置滚动位置
 watch(activeTab, () => {
+  if (activeTab.value !== 'skills') {
+    showSkillBuilder.value = false
+  }
+
   nextTick(() => {
     if (contentRef.value) {
       contentRef.value.scrollTop = 0
     }
   })
+})
+
+watch(showSkillModal, (value) => {
+  if (!value) {
+    editingSkill.value = null
+  }
 })
 
 // 删除确认状态
@@ -44,6 +64,9 @@ onMounted(async () => {
 
 // 选择智能体
 async function handleSelectAgent(agent: any) {
+  showSkillBuilder.value = false
+  showSkillModal.value = false
+  editingSkill.value = null
   await skillConfigStore.selectAgent(agent)
 }
 
@@ -88,16 +111,23 @@ async function confirmDelete() {
 }
 
 // Skills 操作
-function handleAddSkill() {
-  // TODO: 实现 Skills 添加
+async function handleAddSkill() {
+  const agent = skillConfigStore.selectedAgent
+  if (!agent) {
+    return
+  }
+
+  await skillConfigStore.resolveCliConfigPaths(agent)
+  showSkillBuilder.value = true
 }
 
 function handleViewSkillDetail(config: UnifiedSkillConfig) {
   skillConfigStore.viewSkillDetail(config)
 }
 
-function handleEditSkill(_config: UnifiedSkillConfig) {
-  // TODO: 实现 Skills 编辑
+function handleEditSkill(config: UnifiedSkillConfig) {
+  editingSkill.value = config
+  showSkillModal.value = true
 }
 
 function handleDeleteSkill(config: UnifiedSkillConfig) {
@@ -112,6 +142,35 @@ function handleBackFromSkill() {
 async function handleDeleteSkillFromDetail(skill: UnifiedSkillConfig) {
   deletingConfig.value = { type: 'skills', config: skill }
   showDeleteConfirm.value = true
+}
+
+async function handleSaveSkill(config: Partial<UnifiedSkillConfig>, originalId?: string) {
+  if (originalId) {
+    await skillConfigStore.updateSkillsConfig(originalId, config)
+  } else {
+    const payload: Omit<UnifiedSkillConfig, 'id' | 'source' | 'isReadOnly'> = {
+      ...config,
+      enabled: true,
+    } as Omit<UnifiedSkillConfig, 'id' | 'source' | 'isReadOnly'>
+    await skillConfigStore.createSkillsConfig(payload)
+  }
+
+  showSkillModal.value = false
+  editingSkill.value = null
+}
+
+function handleBackFromSkillBuilder() {
+  showSkillBuilder.value = false
+}
+
+async function handleCreateVisualSkill(input: CreateVisualSkillInput) {
+  isCreatingSkill.value = true
+  try {
+    await skillConfigStore.createVisualSkill(input)
+    showSkillBuilder.value = false
+  } finally {
+    isCreatingSkill.value = false
+  }
 }
 
 // Plugins 操作
@@ -150,6 +209,42 @@ async function handleRefresh() {
 async function handleOpenFile() {
   await skillConfigStore.openConfigFile()
 }
+
+const canSyncCliConfigs = computed(() => {
+  const agent = skillConfigStore.selectedAgent
+  if (!agent || agent.type !== 'cli') {
+    return false
+  }
+
+  if (agent.provider !== 'claude' && agent.provider !== 'codex') {
+    return false
+  }
+
+  return agentStore.agents.some(
+    item =>
+      item.id !== agent.id
+      && item.type === 'cli'
+      && !!item.cliPath
+      && item.provider
+      && item.provider !== agent.provider
+      && (item.provider === 'claude' || item.provider === 'codex')
+  )
+})
+
+function openSyncModal(type: SyncConfigType) {
+  syncType.value = type
+  showSyncModal.value = true
+}
+
+function handleSyncCompleted(payload: { targetAgentId: string; result: CliSyncResult }) {
+  if (payload.result.successCount === 0) {
+    return
+  }
+
+  if (skillConfigStore.selectedAgent?.id === payload.targetAgentId) {
+    void skillConfigStore.refreshCliConfigs()
+  }
+}
 </script>
 
 <template>
@@ -166,6 +261,15 @@ async function handleOpenFile() {
       :skill="skillConfigStore.selectedSkill"
       @back="handleBackFromSkill"
       @delete="handleDeleteSkillFromDetail"
+    />
+
+    <SkillCreateView
+      v-else-if="showSkillBuilder && activeTab === 'skills'"
+      :agent="skillConfigStore.selectedAgent"
+      :cli-config-paths="skillConfigStore.cliConfigPaths"
+      :is-saving="isCreatingSkill"
+      @back="handleBackFromSkillBuilder"
+      @save="handleCreateVisualSkill"
     />
 
     <!-- Plugin 详情视图 -->
@@ -217,7 +321,9 @@ async function handleOpenFile() {
           :configs="skillConfigStore.mcpConfigs"
           :is-read-only="skillConfigStore.isReadOnly"
           :is-loading="skillConfigStore.isLoading"
+          :can-sync="canSyncCliConfigs"
           @refresh="handleRefresh"
+          @sync="openSyncModal('mcp')"
           @open-file="handleOpenFile"
           @save="handleSaveMcp"
           @delete="handleDeleteMcp"
@@ -227,7 +333,9 @@ async function handleOpenFile() {
           :configs="skillConfigStore.skillsConfigs"
           :is-read-only="skillConfigStore.isReadOnly"
           :is-loading="skillConfigStore.isLoading"
+          :can-sync="canSyncCliConfigs"
           @add="handleAddSkill"
+          @sync="openSyncModal('skills')"
           @detail="handleViewSkillDetail"
           @edit="handleEditSkill"
           @delete="handleDeleteSkill"
@@ -244,6 +352,21 @@ async function handleOpenFile() {
         />
       </div>
     </template>
+
+    <CliConfigSyncModal
+      :visible="showSyncModal"
+      :sync-type="syncType"
+      :agents="agentStore.agents"
+      :selected-agent="skillConfigStore.selectedAgent"
+      @close="showSyncModal = false"
+      @completed="handleSyncCompleted"
+    />
+
+    <SkillEditModal
+      v-model:visible="showSkillModal"
+      :config="editingSkill"
+      @save="handleSaveSkill"
+    />
 
     <!-- 删除确认弹窗 -->
     <div

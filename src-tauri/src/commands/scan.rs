@@ -107,12 +107,16 @@ pub struct ClaudeConfigScanResult {
 }
 
 /// 根据 CLI 路径获取配置目录和信息
-fn get_cli_config_dir(cli_path: Option<&str>) -> Result<(PathBuf, PathBuf, String), String> {
-    let home_dir = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
+fn resolve_cli_name(cli_path: Option<&str>, cli_type_hint: Option<&str>) -> String {
+    if let Some(hint) = cli_type_hint {
+        let normalized = hint.trim().to_lowercase();
+        if matches!(normalized.as_str(), "claude" | "claude-code" | "codex" | "qwen" | "qwen-code")
+        {
+            return normalized;
+        }
+    }
 
-    // 如果没有提供 cliPath，默认使用 Claude
-    let cli_name = if let Some(path) = cli_path {
-        // 从路径中提取 CLI 名称
+    if let Some(path) = cli_path {
         std::path::Path::new(path)
             .file_name()
             .and_then(|n| n.to_str())
@@ -120,7 +124,16 @@ fn get_cli_config_dir(cli_path: Option<&str>) -> Result<(PathBuf, PathBuf, Strin
             .to_lowercase()
     } else {
         "claude".to_string()
-    };
+    }
+}
+
+fn get_cli_config_dir(
+    cli_path: Option<&str>,
+    cli_type_hint: Option<&str>,
+) -> Result<(PathBuf, PathBuf, String), String> {
+    let home_dir = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
+
+    let cli_name = resolve_cli_name(cli_path, cli_type_hint);
 
     match cli_name.as_str() {
         "claude" | "claude-code" => {
@@ -568,9 +581,13 @@ fn scan_plugins_directory(claude_dir: &PathBuf) -> Result<Vec<ScannedPlugin>> {
 
 /// 扫描 CLI 配置 (Tauri 命令)
 #[tauri::command]
-pub fn scan_cli_config(cli_path: Option<String>) -> Result<ClaudeConfigScanResult, String> {
+pub fn scan_cli_config(
+    cli_path: Option<String>,
+    cli_type: Option<String>,
+) -> Result<ClaudeConfigScanResult, String> {
     // 获取 CLI 配置目录和配置文件路径
-    let (config_dir, config_file, cli_name) = match get_cli_config_dir(cli_path.as_deref()) {
+    let (config_dir, config_file, cli_name) =
+        match get_cli_config_dir(cli_path.as_deref(), cli_type.as_deref()) {
         Ok(result) => result,
         Err(e) => {
             return Ok(ClaudeConfigScanResult {
@@ -940,7 +957,8 @@ fn list_agent_cli_session_projects_impl(
 ) -> Result<AgentCliSessionProjectsResult, String> {
     let cli_path = get_agent_cli_path(&agent_id)?;
     let (config_dir, _, cli_name) =
-        get_cli_config_dir(Some(cli_path.as_str())).map_err(|e| format!("无法确定配置目录: {}", e))?;
+        get_cli_config_dir(Some(cli_path.as_str()), None)
+            .map_err(|e| format!("无法确定配置目录: {}", e))?;
 
     Ok(AgentCliSessionProjectsResult {
         agent_id,
@@ -1196,7 +1214,7 @@ fn scan_cli_sessions_internal(
     prefer_fast_scan: bool,
 ) -> Result<ScanCliSessionsResult, String> {
     // 获取 CLI 配置目录
-    let (config_dir, _, cli_name) = match get_cli_config_dir(input.cli_path.as_deref()) {
+    let (config_dir, _, cli_name) = match get_cli_config_dir(input.cli_path.as_deref(), None) {
         Ok(result) => result,
         Err(e) => {
             return Ok(ScanCliSessionsResult {

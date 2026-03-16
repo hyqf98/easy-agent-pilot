@@ -5,6 +5,7 @@ import { useNotificationStore } from './notification'
 import { getErrorMessage } from '@/utils/api'
 import type { AgentConfig } from './agent'
 import {
+  buildSyncPreviewItems,
   buildMcpConfigInput,
   transformCliMcpConfig,
   transformCliPlugin,
@@ -17,6 +18,10 @@ import type {
   CliCapabilities,
   CliConfig,
   CliConfigPaths,
+  CreateVisualSkillInput,
+  CreatedCliSkillResult,
+  CliSyncPreviewItem,
+  CliSyncResult,
   ClaudeConfigScanResult,
   ConfigSource,
   McpToolCallResult,
@@ -24,6 +29,7 @@ import type {
   RawAgentMcpConfig,
   RawAgentPluginsConfig,
   RawAgentSkillsConfig,
+  SyncConfigType,
   UnifiedMcpConfig,
   UnifiedPluginConfig,
   UnifiedSkillConfig,
@@ -32,13 +38,19 @@ import type {
 export type {
   CliCapabilities,
   CliConfigPaths,
+  CliSyncPreviewItem,
+  CliSyncResult,
+  CliSyncConflictPolicy,
   ConfigSource,
+  CreateVisualSkillInput,
+  CreatedCliSkillResult,
   McpConfigInput,
   McpConfigScope,
   McpTool,
   McpToolCallResult,
   McpToolsListResult,
   McpTransportType,
+  SyncConfigType,
   UnifiedConfigItem,
   UnifiedMcpConfig,
   UnifiedPluginConfig,
@@ -160,18 +172,20 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
     try {
       // 加载 CLI 能力信息
       if (agent.cliPath) {
-        await loadCliCapabilities(agent.cliPath)
+        await loadCliCapabilities(agent.cliPath, agent.provider)
       }
 
       // 获取配置路径
       const paths = await invoke<CliConfigPaths>('get_cli_config_paths', {
         cliPath: agent.cliPath,
+        cliType: agent.provider,
       })
       cliConfigPaths.value = paths
 
       // 读取配置文件
       const config = await invoke<CliConfig>('read_cli_config', {
         cliPath: agent.cliPath,
+        cliType: agent.provider,
       })
 
       // 转换 MCP 配置
@@ -183,6 +197,7 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
       // 扫描 Skills 和 Plugins
       const scanResult = await invoke<ClaudeConfigScanResult>('scan_cli_config', {
         cliPath: agent.cliPath,
+        cliType: agent.provider,
       })
 
       // 转换 Skills
@@ -220,9 +235,12 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
   /**
    * 加载 CLI 能力信息
    */
-  async function loadCliCapabilities(cliPath: string) {
+  async function loadCliCapabilities(cliPath: string, cliType?: string) {
     try {
-      cliCapabilities.value = await invoke<CliCapabilities>('get_cli_capabilities', { cliPath })
+      cliCapabilities.value = await invoke<CliCapabilities>('get_cli_capabilities', {
+        cliPath,
+        cliType,
+      })
     } catch (e) {
       console.error('Failed to load CLI capabilities:', e)
       cliCapabilities.value = null
@@ -244,6 +262,156 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
     cliCapabilities.value = null
   }
 
+  async function resolveCliConfigPaths(agent?: AgentConfig | null): Promise<CliConfigPaths> {
+    const targetAgent = agent || selectedAgent.value
+    if (!targetAgent) {
+      throw new Error('No agent selected')
+    }
+
+    const notificationStore = useNotificationStore()
+
+    const cliPath = targetAgent.cliPath || targetAgent.provider
+    const cliType = targetAgent.provider
+
+    if (!cliPath || !cliType) {
+      throw new Error('Selected agent does not provide a CLI profile')
+    }
+
+    try {
+      const paths = await invoke<CliConfigPaths>('get_cli_config_paths', {
+        cliPath,
+        cliType,
+      })
+
+      cliConfigPaths.value = paths
+      return paths
+    } catch (error) {
+      console.error('Failed to resolve CLI config paths:', error)
+      notificationStore.networkError(
+        '解析 Skills 路径失败',
+        getErrorMessage(error),
+        async () => { await resolveCliConfigPaths(targetAgent) }
+      )
+      throw error
+    }
+  }
+
+  async function createVisualSkill(input: CreateVisualSkillInput): Promise<CreatedCliSkillResult> {
+    const notificationStore = useNotificationStore()
+
+    if (!selectedAgent.value) {
+      throw new Error('No agent selected')
+    }
+
+    try {
+      const cliPath = selectedAgent.value.cliPath || selectedAgent.value.provider
+      const cliType = selectedAgent.value.provider
+
+      if (!cliPath || !cliType) {
+        throw new Error('当前智能体缺少 CLI 类型，无法创建 Skills')
+      }
+
+      const result = await invoke<CreatedCliSkillResult>('create_cli_skill_scaffold', {
+        input: {
+          cliPath,
+          cliType,
+          ...input,
+        },
+      })
+
+      if (selectedAgent.value.type === 'cli') {
+        await refreshCliConfigs()
+      } else {
+        await createSkillsConfig({
+          name: input.name,
+          description: input.description,
+          skillPath: result.skillPath,
+          scriptsPath: result.scriptsPath,
+          referencesPath: result.referencesPath,
+          assetsPath: result.assetsPath,
+          enabled: true,
+        })
+      }
+
+      return result
+    } catch (error) {
+      console.error('Failed to create visual skill:', error)
+      notificationStore.databaseError(
+        '创建 Skill 失败',
+        getErrorMessage(error),
+        async () => { await createVisualSkill(input) }
+      )
+      throw error
+    }
+  }
+
+  async function scanCliItemsForSync(cliPath: string, type: SyncConfigType, cliType?: string) {
+    const notificationStore = useNotificationStore()
+
+    try {
+      if (type === 'mcp') {
+        const config = await invoke<CliConfig>('read_cli_config', {
+          cliPath,
+          cliType,
+        })
+        const mcpServers = config.mcp_servers || config.mcpServers || {}
+        return Object.entries(mcpServers).map<CliSyncPreviewItem>(([name, server]) => ({
+          name,
+          type,
+          path: server.url || server.command,
+          transportType: server.url ? (server.url.includes('/sse') ? 'sse' : 'http') : 'stdio',
+        }))
+      }
+
+      const scanResult = await invoke<ClaudeConfigScanResult>('scan_cli_config', {
+        cliPath,
+        cliType,
+      })
+      return buildSyncPreviewItems(scanResult, type)
+    } catch (error) {
+      console.error('Failed to scan CLI items for sync:', error)
+      notificationStore.networkError(
+        '扫描同步项失败',
+        getErrorMessage(error),
+        async () => { await scanCliItemsForSync(cliPath, type, cliType) }
+      )
+      throw error
+    }
+  }
+
+  async function syncCliItems(input: {
+    sourceCliPath: string
+    targetCliPath: string
+    sourceCliType?: string
+    targetCliType?: string
+    configType: SyncConfigType
+    itemNames: string[]
+  }): Promise<CliSyncResult> {
+    const notificationStore = useNotificationStore()
+
+    try {
+      return await invoke<CliSyncResult>('sync_cli_items', {
+        input: {
+          sourceCliPath: input.sourceCliPath,
+          targetCliPath: input.targetCliPath,
+          sourceCliType: input.sourceCliType,
+          targetCliType: input.targetCliType,
+          configType: input.configType,
+          itemNames: input.itemNames,
+          conflictPolicy: 'skip',
+        },
+      })
+    } catch (error) {
+      console.error('Failed to sync CLI items:', error)
+      notificationStore.networkError(
+        '同步 CLI 配置失败',
+        getErrorMessage(error),
+        async () => { await syncCliItems(input) }
+      )
+      throw error
+    }
+  }
+
   // ============================================================================
   // Actions - MCP 配置操作
   // ============================================================================
@@ -261,6 +429,7 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
       try {
         await invoke('update_cli_mcp_config', {
           cliPath: selectedAgent.value?.cliPath,
+          cliType: selectedAgent.value?.provider,
           name: config.name,
           config: {
             command: config.command,
@@ -327,6 +496,7 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
       try {
         await invoke('update_cli_mcp_config', {
           cliPath: selectedAgent.value?.cliPath,
+          cliType: selectedAgent.value?.provider,
           name: updates.name || config.name,
           config: {
             command: updates.command ?? config.command,
@@ -397,6 +567,7 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
       try {
         await invoke('delete_cli_mcp_config', {
           cliPath: selectedAgent.value?.cliPath,
+          cliType: selectedAgent.value?.provider,
           name: config.name,
         })
         await refreshCliConfigs()
@@ -838,6 +1009,9 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
     clearConfigs,
     refreshCliConfigs,
     loadCliCapabilities,
+    resolveCliConfigPaths,
+    scanCliItemsForSync,
+    syncCliItems,
 
     // Actions - MCP
     createMcpConfig,
@@ -846,6 +1020,7 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
 
     // Actions - Skills
     createSkillsConfig,
+    createVisualSkill,
     updateSkillsConfig,
     deleteSkillsConfig,
 

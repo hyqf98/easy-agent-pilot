@@ -6,8 +6,8 @@ import type { ToolCall } from '@/stores/message'
 const props = defineProps<{ toolCall: ToolCall }>()
 const { t } = useI18n()
 
-// 折叠状态 - 默认展开工具调用，收起结果
-const isExpanded = ref(true)
+// 折叠状态 - 默认收起工具调用和结果
+const isExpanded = ref(false)
 const isResultExpanded = ref(false)
 
 // 切换展开状态
@@ -173,9 +173,11 @@ const resultPreview = computed(() => {
 
 <style scoped>
 .tool-call {
-  align-self: flex-start;
-  width: var(--timeline-panel-width, min(100%, 29.5rem));
+  align-self: stretch;
+  width: 100%;
   max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   border-radius: var(--radius-lg);
   background: linear-gradient(135deg, rgba(251, 146, 60, 0.1), rgba(251, 146, 60, 0.05));
   border: 1px solid rgba(251, 146, 60, 0.3);
@@ -233,6 +235,7 @@ const resultPreview = computed(() => {
   align-items: center;
   gap: var(--spacing-2);
   min-width: 0;
+  flex: 1;
 }
 
 .tool-call__icon {
@@ -244,6 +247,8 @@ const resultPreview = computed(() => {
   font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--color-text-primary);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .tool-call__status {
@@ -357,6 +362,7 @@ const resultPreview = computed(() => {
   font-size: var(--font-size-xs);
   line-height: 1.5;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   word-break: break-word;
   overflow-x: auto;
   color: var(--color-text-primary);

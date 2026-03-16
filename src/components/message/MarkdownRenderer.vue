@@ -15,6 +15,7 @@ const codeBlockCounter = ref(0)
 // 创建 MarkdownIt 实例，配置语法高亮
 const md = new MarkdownIt({
   html: false,
+  breaks: true,
   linkify: true,
   typographer: true,
   highlight: (str: string, lang: string): string => {

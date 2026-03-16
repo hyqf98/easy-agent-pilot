@@ -74,10 +74,13 @@ const {
   openImagePicker,
   parsedInputText,
   pendingImages,
+  queuedMessages,
   presetModelOptions,
   renderLayerRef,
   removeImage,
+  removeQueuedMessage,
   restorePendingImages,
+  retryQueuedMessage,
   selectedModelId,
   selectAgent,
   selectModel,
@@ -89,7 +92,8 @@ const {
   toggleAgentDropdown,
   toggleModelDropdown,
   tokenUsage,
-  messageCount
+  messageCount,
+  buildQueuedMessagePreview
 } = useMessageComposer()
 
 // 处理消息重试
@@ -472,7 +476,15 @@ onUnmounted(() => {
           <div class="message-area__bottom">
             <!-- Todo 待办 + Token 进度条（同一行） -->
             <div class="bottom-status-bar">
-              <div class="bottom-status-bar__left" />
+              <div class="bottom-status-bar__left">
+                <div
+                  v-if="queuedMessages.length > 0"
+                  class="bottom-status-bar__queue-pill"
+                >
+                  <EaIcon name="clock-3" :size="12" />
+                  <span>{{ t('message.queueCount', { count: queuedMessages.length }) }}</span>
+                </div>
+              </div>
               <div class="bottom-status-bar__center">
                 <TokenProgressBar
                   :show-compress-button="true"
@@ -573,6 +585,73 @@ onUnmounted(() => {
                 </div>
               </div>
 
+              <div
+                v-if="queuedMessages.length > 0"
+                class="message-input__queue"
+              >
+                <div class="message-input__queue-header">
+                  <div class="message-input__queue-title">
+                    <EaIcon name="clock-3" :size="13" />
+                    <span>{{ t('message.pendingQueueTitle') }}</span>
+                  </div>
+                  <span class="message-input__queue-count">{{ queuedMessages.length }}</span>
+                </div>
+
+                <div class="message-input__queue-list">
+                  <div
+                    v-for="(draft, index) in queuedMessages"
+                    :key="draft.id"
+                    class="message-input__queue-item"
+                    :class="{
+                      'message-input__queue-item--failed': draft.status === 'failed'
+                    }"
+                  >
+                    <div class="message-input__queue-order">
+                      {{ index + 1 }}
+                    </div>
+                    <div class="message-input__queue-body">
+                      <div class="message-input__queue-row">
+                        <span class="message-input__queue-status">
+                          {{ draft.status === 'failed' ? t('message.pendingFailed') : t('message.pendingLabel') }}
+                        </span>
+                        <span
+                          v-if="draft.attachments.length > 0"
+                          class="message-input__queue-images"
+                        >
+                          {{ t('message.queueImages', { count: draft.attachments.length }) }}
+                        </span>
+                      </div>
+                      <div class="message-input__queue-preview">
+                        {{ buildQueuedMessagePreview(draft) || t('message.pendingEmpty') }}
+                      </div>
+                      <div
+                        v-if="draft.status === 'failed' && draft.errorMessage"
+                        class="message-input__queue-error"
+                      >
+                        {{ draft.errorMessage }}
+                      </div>
+                    </div>
+                    <div class="message-input__queue-actions">
+                      <button
+                        v-if="draft.status === 'failed'"
+                        class="message-input__queue-action"
+                        :title="t('common.retry')"
+                        @click="retryQueuedMessage(draft.id)"
+                      >
+                        <EaIcon name="refresh-cw" :size="12" />
+                      </button>
+                      <button
+                        class="message-input__queue-action"
+                        :title="t('common.delete')"
+                        @click="removeQueuedMessage(draft.id)"
+                      >
+                        <EaIcon name="x" :size="12" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div class="message-input__editor">
                 <!-- 渲染层 - 显示带样式的文件标签 -->
                 <div
@@ -606,7 +685,7 @@ onUnmounted(() => {
                   v-model="inputText"
                   class="message-input__textarea"
                   rows="4"
-                  :disabled="!sessionStore.currentSessionId || isSending"
+                  :disabled="!sessionStore.currentSessionId"
                   @input="handleInput"
                   @keydown="handleKeyDown"
                   @paste="handlePaste"
@@ -620,7 +699,7 @@ onUnmounted(() => {
                 <div class="message-input__toolbar-section">
                   <button
                     class="input-chip__btn"
-                    :disabled="isSending || isUploadingImages"
+                    :disabled="isUploadingImages"
                     @click="openImagePicker"
                   >
                     <EaIcon
@@ -922,6 +1001,18 @@ onUnmounted(() => {
   justify-content: flex-start;
 }
 
+.bottom-status-bar__queue-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(14, 165, 233, 0.1);
+  color: #0369a1;
+  font-size: 11px;
+  font-weight: 600;
+}
+
 .bottom-status-bar__center {
   flex: 1;
   display: flex;
@@ -1015,6 +1106,152 @@ onUnmounted(() => {
   flex-wrap: wrap;
   gap: var(--spacing-2);
   padding-bottom: var(--spacing-2);
+}
+
+.message-input__queue {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0 2px;
+}
+
+.message-input__queue-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.message-input__queue-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  font-weight: 600;
+}
+
+.message-input__queue-count {
+  min-width: 22px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.1);
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.message-input__queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 184px;
+  overflow-y: auto;
+}
+
+.message-input__queue-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(59, 130, 246, 0.12);
+  background:
+    linear-gradient(135deg, rgba(248, 250, 252, 0.96), rgba(239, 246, 255, 0.92));
+}
+
+.message-input__queue-item--failed {
+  border-color: rgba(239, 68, 68, 0.18);
+  background:
+    linear-gradient(135deg, rgba(254, 242, 242, 0.98), rgba(255, 255, 255, 0.94));
+}
+
+.message-input__queue-order {
+  flex-shrink: 0;
+  min-width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.08);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.message-input__queue-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.message-input__queue-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.message-input__queue-status,
+.message-input__queue-images {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.message-input__queue-status {
+  color: #0369a1;
+}
+
+.message-input__queue-item--failed .message-input__queue-status {
+  color: #b91c1c;
+}
+
+.message-input__queue-images {
+  color: var(--color-text-tertiary);
+}
+
+.message-input__queue-preview,
+.message-input__queue-error {
+  word-break: break-word;
+}
+
+.message-input__queue-preview {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+}
+
+.message-input__queue-error {
+  font-size: 11px;
+  color: #b91c1c;
+}
+
+.message-input__queue-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.message-input__queue-action {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.06);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast) var(--easing-default);
+}
+
+.message-input__queue-action:hover {
+  background: rgba(15, 23, 42, 0.12);
+  color: var(--color-text-primary);
 }
 
 .message-input__attachment {

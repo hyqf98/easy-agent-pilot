@@ -38,6 +38,7 @@ const { t } = useI18n()
         <EaButton
           size="small"
           variant="ghost"
+          class="btn-view"
           @click="emit('detail', config)"
         >
           <EaIcon name="lucide:info" />
@@ -47,6 +48,7 @@ const { t } = useI18n()
           v-if="!isReadOnly"
           size="small"
           variant="ghost"
+          class="btn-edit"
           @click="emit('edit', config)"
         >
           <EaIcon name="lucide:pencil" />
@@ -56,7 +58,7 @@ const { t } = useI18n()
           v-if="!isReadOnly"
           size="small"
           variant="ghost"
-          danger
+          class="btn-delete"
           @click="emit('delete', config)"
         >
           <EaIcon name="lucide:trash-2" />
@@ -152,5 +154,38 @@ const { t } = useI18n()
   width: 12px;
   height: 12px;
   flex-shrink: 0;
+}
+
+.btn-view {
+  background: rgba(16, 185, 129, 0.1) !important;
+  color: #059669 !important;
+  border: 1px solid rgba(16, 185, 129, 0.18) !important;
+}
+
+.btn-view:hover {
+  background: rgba(16, 185, 129, 0.18) !important;
+  border-color: rgba(16, 185, 129, 0.34) !important;
+}
+
+.btn-edit {
+  background: rgba(59, 130, 246, 0.1) !important;
+  color: #2563eb !important;
+  border: 1px solid rgba(59, 130, 246, 0.2) !important;
+}
+
+.btn-edit:hover {
+  background: rgba(59, 130, 246, 0.18) !important;
+  border-color: rgba(59, 130, 246, 0.36) !important;
+}
+
+.btn-delete {
+  background: rgba(239, 68, 68, 0.1) !important;
+  color: #dc2626 !important;
+  border: 1px solid rgba(239, 68, 68, 0.2) !important;
+}
+
+.btn-delete:hover {
+  background: rgba(239, 68, 68, 0.18) !important;
+  border-color: rgba(239, 68, 68, 0.36) !important;
 }
 </style>

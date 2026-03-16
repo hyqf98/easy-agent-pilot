@@ -27,35 +27,33 @@ function close() {
 
 <template>
   <Teleport to="body">
-    <Transition name="modal">
+    <div
+      v-if="visible"
+      class="ea-modal-overlay"
+      :class="overlayClass"
+      @click.self="close"
+    >
       <div
-        v-if="visible"
-        class="ea-modal-overlay"
-        :class="overlayClass"
-        @click.self="close"
+        class="ea-modal"
+        :class="contentClass"
       >
         <div
-          class="ea-modal"
-          :class="contentClass"
+          v-if="$slots.header"
+          class="ea-modal__header"
         >
-          <div
-            v-if="$slots.header"
-            class="ea-modal__header"
-          >
-            <slot name="header" />
-          </div>
-          <div class="ea-modal__body">
-            <slot />
-          </div>
-          <div
-            v-if="$slots.footer"
-            class="ea-modal__footer"
-          >
-            <slot name="footer" />
-          </div>
+          <slot name="header" />
+        </div>
+        <div class="ea-modal__body">
+          <slot />
+        </div>
+        <div
+          v-if="$slots.footer"
+          class="ea-modal__footer"
+        >
+          <slot name="footer" />
         </div>
       </div>
-    </Transition>
+    </div>
   </Teleport>
 </template>
 
@@ -100,26 +98,5 @@ function close() {
   display: flex;
   justify-content: flex-end;
   gap: var(--spacing-2);
-}
-
-/* 过渡动画 */
-.modal-enter-active,
-.modal-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.modal-enter-active .ea-modal,
-.modal-leave-active .ea-modal {
-  transition: transform 0.2s ease;
-}
-
-.modal-enter-from,
-.modal-leave-to {
-  opacity: 0;
-}
-
-.modal-enter-from .ea-modal,
-.modal-leave-to .ea-modal {
-  transform: scale(0.95);
 }
 </style>

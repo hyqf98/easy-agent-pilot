@@ -52,7 +52,7 @@ fn create_config_backup(config_path: &Path) -> Result<Option<String>, String> {
 
 fn resolve_cli_identifier_from_config_path(config_path: &str) -> Result<String, String> {
     for cli in ["claude", "codex"] {
-        let paths = get_cli_config_paths_internal(cli)?;
+    let paths = get_cli_config_paths_internal(cli, None)?;
         if paths.config_file == config_path {
             return Ok(cli.to_string());
         }
@@ -161,11 +161,11 @@ pub async fn install_mcp_to_cli(input: McpInstallInput) -> Result<McpInstallResu
         return Err("当前版本的市场安装仅支持全局 MCP 配置".to_string());
     }
 
-    let paths = get_cli_config_paths_internal(&input.cli_path)?;
+    let paths = get_cli_config_paths_internal(&input.cli_path, None)?;
     let config_path = PathBuf::from(&paths.config_file);
     let backup_path = create_config_backup(&config_path)?;
 
-    let mut config = read_cli_config(input.cli_path.clone())?;
+    let mut config = read_cli_config(input.cli_path.clone(), None)?;
     if config.mcpServers.is_none() {
         config.mcpServers = Some(HashMap::new());
     }
@@ -177,7 +177,7 @@ pub async fn install_mcp_to_cli(input: McpInstallInput) -> Result<McpInstallResu
         );
     }
 
-    if let Err(error) = write_cli_config(input.cli_path.clone(), config) {
+    if let Err(error) = write_cli_config(input.cli_path.clone(), None, config) {
         let (rollback_success, rollback_message) = perform_rollback(&config_path, &backup_path);
         return Ok(McpInstallResult {
             success: false,
@@ -280,7 +280,7 @@ fn get_all_cli_configs() -> Vec<CliConfigInfo> {
     ["claude", "codex"]
         .iter()
         .filter_map(|cli| {
-            let paths = get_cli_config_paths_internal(cli).ok()?;
+            let paths = get_cli_config_paths_internal(cli, None).ok()?;
             let config_path = PathBuf::from(&paths.config_file);
             config_path.exists().then_some(CliConfigInfo {
                 cli_name: (*cli).to_string(),
@@ -298,7 +298,7 @@ pub fn list_installed_mcps() -> Result<Vec<InstalledMcp>, String> {
     let mut installed_mcps = Vec::new();
 
     for config_info in get_all_cli_configs() {
-        let cli_config = match read_cli_config(config_info.cli_path.clone()) {
+        let cli_config = match read_cli_config(config_info.cli_path.clone(), None) {
             Ok(config) => config,
             Err(error) => {
                 eprintln!(
@@ -371,7 +371,7 @@ pub fn toggle_installed_mcp(
     disabled: bool,
 ) -> Result<(), String> {
     let cli_path = resolve_cli_identifier_from_config_path(&config_path)?;
-    let mut config = read_cli_config(cli_path.clone())?;
+    let mut config = read_cli_config(cli_path.clone(), None)?;
 
     if let Some(ref mut servers) = config.mcpServers {
         if let Some(server_config) = servers.get_mut(&mcp_name) {
@@ -379,21 +379,21 @@ pub fn toggle_installed_mcp(
         }
     }
 
-    write_cli_config(cli_path, config)
+    write_cli_config(cli_path, None, config)
 }
 
 /// Uninstall MCP from CLI config file.
 #[tauri::command]
 pub fn uninstall_mcp(config_path: String, mcp_name: String) -> Result<McpInstallResult, String> {
     let cli_path = resolve_cli_identifier_from_config_path(&config_path)?;
-    let mut config = read_cli_config(cli_path.clone())?;
+    let mut config = read_cli_config(cli_path.clone(), None)?;
     let backup_path = create_config_backup(Path::new(&config_path))?;
 
     if let Some(ref mut servers) = config.mcpServers {
         servers.remove(&mcp_name);
     }
 
-    write_cli_config(cli_path, config)?;
+    write_cli_config(cli_path, None, config)?;
     delete_installed_mcp_test_result(&config_path, &mcp_name);
 
     Ok(McpInstallResult {
@@ -450,7 +450,7 @@ pub fn update_installed_mcp(
     env: HashMap<String, String>,
 ) -> Result<McpInstallResult, String> {
     let cli_path = resolve_cli_identifier_from_config_path(&config_path)?;
-    let mut config = read_cli_config(cli_path.clone())?;
+    let mut config = read_cli_config(cli_path.clone(), None)?;
     let backup_path = create_config_backup(Path::new(&config_path))?;
 
     if config.mcpServers.is_none() {
@@ -464,7 +464,7 @@ pub fn update_installed_mcp(
         servers.insert(new_name.clone(), build_installed_mcp_config(command, args, env));
     }
 
-    write_cli_config(cli_path, config)?;
+    write_cli_config(cli_path, None, config)?;
 
     Ok(McpInstallResult {
         success: true,

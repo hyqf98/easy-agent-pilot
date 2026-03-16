@@ -29,6 +29,40 @@ pub struct ReferenceFileContent {
     pub file_type: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateSkillReferenceInput {
+    pub title: String,
+    pub summary: Option<String>,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateCliSkillInput {
+    pub cli_path: String,
+    pub cli_type: Option<String>,
+    pub name: String,
+    pub description: Option<String>,
+    pub instructions: String,
+    #[serde(default)]
+    pub references: Vec<CreateSkillReferenceInput>,
+    #[serde(default)]
+    pub include_scripts_dir: bool,
+    #[serde(default)]
+    pub include_assets_dir: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateCliSkillResult {
+    pub skill_path: String,
+    pub skill_file_path: String,
+    pub references_path: Option<String>,
+    pub scripts_path: Option<String>,
+    pub assets_path: Option<String>,
+}
+
 /// Plugin 内部项
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InternalItem {
@@ -72,6 +106,219 @@ fn get_file_type(path: &PathBuf) -> String {
         Some("sh") | Some("bash") => "shell".to_string(),
         _ => "text".to_string(),
     }
+}
+
+fn slugify_name(value: &str, fallback: &str) -> String {
+    let mut slug = String::new();
+    let mut last_dash = false;
+
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch.to_ascii_lowercase());
+            last_dash = false;
+        } else if !last_dash {
+            slug.push('-');
+            last_dash = true;
+        }
+    }
+
+    let slug = slug.trim_matches('-').to_string();
+    if slug.is_empty() {
+        fallback.to_string()
+    } else {
+        slug
+    }
+}
+
+fn unique_markdown_path(base_dir: &PathBuf, desired_stem: &str) -> PathBuf {
+    let safe_stem = slugify_name(desired_stem, "reference");
+    let mut candidate = base_dir.join(format!("{}.md", safe_stem));
+    let mut index = 2;
+
+    while candidate.exists() {
+        candidate = base_dir.join(format!("{}-{}.md", safe_stem, index));
+        index += 1;
+    }
+
+    candidate
+}
+
+fn render_directory_tree(
+    skill_dir_name: &str,
+    reference_files: &[String],
+    include_scripts_dir: bool,
+    include_assets_dir: bool,
+) -> String {
+    let mut lines = vec![
+        format!("{}/", skill_dir_name),
+        "├── SKILL.md".to_string(),
+    ];
+
+    if !reference_files.is_empty() {
+        lines.push("├── references/".to_string());
+        for (index, file_name) in reference_files.iter().enumerate() {
+            let prefix = if index + 1 == reference_files.len()
+                && !include_scripts_dir
+                && !include_assets_dir
+            {
+                "│   └──"
+            } else {
+                "│   ├──"
+            };
+            lines.push(format!("{} {}", prefix, file_name));
+        }
+    }
+
+    if include_scripts_dir {
+        let is_last = !include_assets_dir;
+        lines.push(format!("{} scripts/", if is_last { "└──" } else { "├──" }));
+    }
+
+    if include_assets_dir {
+        lines.push("└── assets/".to_string());
+    }
+
+    lines.join("\n")
+}
+
+fn render_skill_markdown(
+    name: &str,
+    description: Option<&str>,
+    instructions: &str,
+    references: &[(String, String, Option<String>)],
+    include_scripts_dir: bool,
+    include_assets_dir: bool,
+    skill_dir_name: &str,
+) -> String {
+    let clean_name = name.trim();
+    let clean_description = description.unwrap_or("").trim();
+    let clean_instructions = instructions.trim();
+    let reference_files = references
+        .iter()
+        .map(|(_, file_name, _)| file_name.clone())
+        .collect::<Vec<_>>();
+    let tree = render_directory_tree(
+        skill_dir_name,
+        &reference_files,
+        include_scripts_dir,
+        include_assets_dir,
+    );
+
+    let mut sections = vec![format!("---\nname: {}\ndescription: {}\n---", clean_name, clean_description)];
+    sections.push(format!("# {}", clean_name));
+
+    if !clean_description.is_empty() {
+        sections.push(format!("## 技能概述\n\n{}", clean_description));
+    }
+
+    sections.push(format!("## 工作说明\n\n{}", clean_instructions));
+
+    if !references.is_empty() {
+        let reference_lines = references
+            .iter()
+            .map(|(title, file_name, summary)| match summary.as_deref() {
+                Some(text) if !text.trim().is_empty() => {
+                    format!("- [{}](references/{}) - {}", title, file_name, text.trim())
+                }
+                _ => format!("- [{}](references/{})", title, file_name),
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        sections.push(format!("## 参考文档\n\n如需更详细上下文，优先打开这些文档：\n{}", reference_lines));
+    }
+
+    sections.push(format!("## 文件结构\n\n```text\n{}\n```", tree));
+    sections.join("\n\n")
+}
+
+/// 创建 Skills 标准结构
+#[tauri::command]
+pub fn create_cli_skill_scaffold(input: CreateCliSkillInput) -> Result<CreateCliSkillResult, String> {
+    let paths = crate::commands::cli_config::get_cli_config_paths_internal(
+        &input.cli_path,
+        input.cli_type.as_deref(),
+    )?;
+
+    let skills_dir = PathBuf::from(paths.skills_dir);
+    fs::create_dir_all(&skills_dir)
+        .map_err(|e| format!("Failed to create skills directory: {}", e))?;
+
+    let skill_dir_name = slugify_name(&input.name, "custom-skill");
+    let skill_dir = skills_dir.join(&skill_dir_name);
+
+    if skill_dir.exists() {
+        return Err(format!("Skill already exists: {}", skill_dir.to_string_lossy()));
+    }
+
+    fs::create_dir_all(&skill_dir)
+        .map_err(|e| format!("Failed to create skill directory: {}", e))?;
+
+    let mut created_references: Vec<(String, String, Option<String>)> = Vec::new();
+    let references_path = if input.references.is_empty() {
+        None
+    } else {
+        let references_dir = skill_dir.join("references");
+        fs::create_dir_all(&references_dir)
+            .map_err(|e| format!("Failed to create references directory: {}", e))?;
+
+        for reference in &input.references {
+            let file_path = unique_markdown_path(&references_dir, &reference.title);
+            let file_name = file_path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("reference.md")
+                .to_string();
+            let summary = reference.summary.clone().filter(|text| !text.trim().is_empty());
+            let content = format!("# {}\n\n{}", reference.title.trim(), reference.content.trim());
+
+            fs::write(&file_path, content)
+                .map_err(|e| format!("Failed to write reference file: {}", e))?;
+
+            created_references.push((reference.title.trim().to_string(), file_name, summary));
+        }
+
+        Some(references_dir.to_string_lossy().to_string())
+    };
+
+    let scripts_path = if input.include_scripts_dir {
+        let scripts_dir = skill_dir.join("scripts");
+        fs::create_dir_all(&scripts_dir)
+            .map_err(|e| format!("Failed to create scripts directory: {}", e))?;
+        Some(scripts_dir.to_string_lossy().to_string())
+    } else {
+        None
+    };
+
+    let assets_path = if input.include_assets_dir {
+        let assets_dir = skill_dir.join("assets");
+        fs::create_dir_all(&assets_dir)
+            .map_err(|e| format!("Failed to create assets directory: {}", e))?;
+        Some(assets_dir.to_string_lossy().to_string())
+    } else {
+        None
+    };
+
+    let skill_markdown = render_skill_markdown(
+        &input.name,
+        input.description.as_deref(),
+        &input.instructions,
+        &created_references,
+        input.include_scripts_dir,
+        input.include_assets_dir,
+        &skill_dir_name,
+    );
+
+    let skill_file_path = skill_dir.join("SKILL.md");
+    fs::write(&skill_file_path, skill_markdown)
+        .map_err(|e| format!("Failed to write SKILL.md: {}", e))?;
+
+    Ok(CreateCliSkillResult {
+        skill_path: skill_dir.to_string_lossy().to_string(),
+        skill_file_path: skill_file_path.to_string_lossy().to_string(),
+        references_path,
+        scripts_path,
+        assets_path,
+    })
 }
 
 /// 读取 Skill 文件内容 (SKILL.md 或 skill.md)

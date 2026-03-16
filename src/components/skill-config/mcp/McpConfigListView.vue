@@ -8,11 +8,13 @@ defineProps<{
   configs: UnifiedMcpConfig[]
   isReadOnly: boolean
   isLoading: boolean
+  canSync?: boolean
 }>()
 
 const emit = defineEmits<{
   add: []
   refresh: []
+  sync: []
   'open-file': []
   test: [config: UnifiedMcpConfig]
   edit: [config: UnifiedMcpConfig]
@@ -30,6 +32,15 @@ const { t } = useI18n()
       </h3>
       <div class="mcp-config-list__actions">
         <EaButton
+          v-if="canSync"
+          size="small"
+          type="secondary"
+          @click="emit('sync')"
+        >
+          <EaIcon name="lucide:arrow-right-left" />
+          {{ t('settings.integration.sync.button') }}
+        </EaButton>
+        <EaButton
           size="small"
           @click="emit('add')"
         >
@@ -39,7 +50,7 @@ const { t } = useI18n()
         <template v-if="isReadOnly">
           <EaButton
             size="small"
-            variant="ghost"
+            type="secondary"
             @click="emit('refresh')"
           >
             <EaIcon name="lucide:refresh-cw" />
@@ -47,7 +58,7 @@ const { t } = useI18n()
           </EaButton>
           <EaButton
             size="small"
-            variant="ghost"
+            type="secondary"
             @click="emit('open-file')"
           >
             <EaIcon name="lucide:external-link" />

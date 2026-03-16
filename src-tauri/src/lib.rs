@@ -135,6 +135,7 @@ pub fn run() {
             commands::project::list_project_files,
             commands::project::load_directory_children,
             commands::project::list_all_project_files_flat,
+            commands::project::search_file_mentions,
             commands::project::rename_file,
             commands::project::delete_file,
             commands::project::batch_delete_files,
@@ -212,6 +213,7 @@ pub fn run() {
             commands::cli_config::write_cli_config,
             commands::cli_config::update_cli_mcp_config,
             commands::cli_config::delete_cli_mcp_config,
+            commands::cli_config::sync_cli_items,
             commands::cli_config::open_config_file,
             commands::cli_config::get_cli_capabilities,
             // Provider Profile commands (CC-Switch)
@@ -229,6 +231,7 @@ pub fn run() {
             commands::skill_plugin::read_skill_file,
             commands::skill_plugin::list_skill_references,
             commands::skill_plugin::read_reference_file,
+            commands::skill_plugin::create_cli_skill_scaffold,
             commands::skill_plugin::get_plugin_details,
             commands::skill_plugin::delete_skill_directory,
             commands::skill_plugin::delete_plugin_directory,

@@ -3,6 +3,7 @@ import { useSessionStore } from '@/stores/session'
 import { useSessionExecutionStore } from '@/stores/sessionExecution'
 import { useProjectStore } from '@/stores/project'
 import { useAgentStore, type AgentConfig } from '@/stores/agent'
+import { useNotificationStore } from '@/stores/notification'
 import { useTokenStore } from '@/stores/token'
 import { useMemoryStore } from '@/stores/memory'
 import type { MemoryLibrary } from '@/types/memory'
@@ -20,6 +21,7 @@ import { FileTraceCollector } from './fileTraceCollector'
  */
 export class ConversationService {
   private static instance: ConversationService | null = null
+  private readonly queueDrainLocks = new Set<string>()
 
   private constructor() {}
 
@@ -163,8 +165,59 @@ export class ConversationService {
       await this.executeConversation(context, aiMessage, sessionId)
 
     } catch (error) {
-      sessionExecutionStore.endSending(sessionId)
+      this.finalizeSend(sessionId)
       throw error
+    }
+  }
+
+  private finalizeSend(sessionId: string) {
+    const sessionExecutionStore = useSessionExecutionStore()
+    sessionExecutionStore.endSending(sessionId)
+    void this.processQueuedMessages(sessionId)
+  }
+
+  async drainQueue(sessionId: string): Promise<void> {
+    await this.processQueuedMessages(sessionId)
+  }
+
+  private async processQueuedMessages(sessionId: string): Promise<void> {
+    if (this.queueDrainLocks.has(sessionId)) {
+      return
+    }
+
+    const sessionExecutionStore = useSessionExecutionStore()
+    if (sessionExecutionStore.getIsSending(sessionId)) {
+      return
+    }
+
+    const nextDraft = sessionExecutionStore.popNextQueuedMessage(sessionId)
+    if (!nextDraft) {
+      return
+    }
+
+    this.queueDrainLocks.add(sessionId)
+
+    try {
+      const sessionStore = useSessionStore()
+      const projectId = sessionStore.sessions.find(session => session.id === sessionId)?.projectId
+      await this.sendMessage(
+        sessionId,
+        nextDraft.content,
+        nextDraft.agentId,
+        projectId,
+        nextDraft.attachments
+      )
+    } catch (error) {
+      const notificationStore = useNotificationStore()
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      sessionExecutionStore.restoreQueuedMessage(sessionId, {
+        ...nextDraft,
+        status: 'failed',
+        errorMessage
+      })
+      notificationStore.smartError('发送待发送消息', error instanceof Error ? error : new Error(errorMessage))
+    } finally {
+      this.queueDrainLocks.delete(sessionId)
     }
   }
 
@@ -318,12 +371,12 @@ export class ConversationService {
                 status: 'completed'
               })
               // 更新会话最后消息
-              sessionStore.updateLastMessage(
+            sessionStore.updateLastMessage(
                 sessionId,
                 accumulatedContent.slice(0, 50)
               )
             }
-            sessionExecutionStore.endSending(sessionId)
+            this.finalizeSend(sessionId)
 
             // 自动压缩检查
             compressionService.checkAndAutoCompress(sessionId, context.agent.id)
@@ -344,7 +397,7 @@ export class ConversationService {
             accumulatedContent.slice(0, 50)
           )
         }
-        sessionExecutionStore.endSending(sessionId)
+        this.finalizeSend(sessionId)
       }
     } catch (error) {
       hasError = true
@@ -353,7 +406,7 @@ export class ConversationService {
         status: 'error',
         errorMessage
       })
-      sessionExecutionStore.endSending(sessionId)
+      this.finalizeSend(sessionId)
     }
   }
 
@@ -493,7 +546,7 @@ export class ConversationService {
       }
 
       // 3. 更新会话执行状态
-      sessionExecutionStore.endSending(sessionId)
+      this.finalizeSend(sessionId)
     } else {
       // 向后兼容：中断所有正在执行的会话
       const runningIds = sessionExecutionStore.runningSessionIds

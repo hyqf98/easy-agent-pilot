@@ -9,10 +9,12 @@ const props = defineProps<{
   configs: UnifiedMcpConfig[]
   isReadOnly: boolean
   isLoading: boolean
+  canSync?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'refresh'): void
+  (e: 'sync'): void
   (e: 'open-file'): void
   (e: 'save', config: Partial<UnifiedMcpConfig>, originalId?: string): void
   (e: 'delete', config: UnifiedMcpConfig): void
@@ -55,8 +57,10 @@ function handleSave(config: Partial<UnifiedMcpConfig>, originalId?: string) {
       :configs="props.configs"
       :is-read-only="isReadOnly"
       :is-loading="isLoading"
+      :can-sync="canSync"
       @add="handleAdd"
       @refresh="emit('refresh')"
+      @sync="emit('sync')"
       @open-file="emit('open-file')"
       @test="testingConfig = $event"
       @edit="editingConfig = $event"

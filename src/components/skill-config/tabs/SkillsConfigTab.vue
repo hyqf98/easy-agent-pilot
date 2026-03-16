@@ -8,10 +8,12 @@ defineProps<{
   configs: UnifiedSkillConfig[]
   isReadOnly: boolean
   isLoading: boolean
+  canSync?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'add'): void
+  (e: 'sync'): void
   (e: 'detail', config: UnifiedSkillConfig): void
   (e: 'edit', config: UnifiedSkillConfig): void
   (e: 'delete', config: UnifiedSkillConfig): void
@@ -27,10 +29,19 @@ const { t } = useI18n()
         {{ t('settings.sdkConfig.skills.title') }}
       </h3>
       <div
-        v-if="!isReadOnly"
         class="skills-config-tab__actions"
       >
         <EaButton
+          v-if="canSync"
+          size="small"
+          type="secondary"
+          @click="emit('sync')"
+        >
+          <EaIcon name="lucide:arrow-right-left" />
+          {{ t('settings.integration.sync.button') }}
+        </EaButton>
+        <EaButton
+          v-if="!isReadOnly"
           size="small"
           @click="emit('add')"
         >

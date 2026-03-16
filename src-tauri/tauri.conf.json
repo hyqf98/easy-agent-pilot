@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "easy-agent-pilot",
+  "productName": "EasyAgentPilot",
   "version": "0.1.0",
   "identifier": "io.github.hyqf.agent",
   "build": {

@@ -61,9 +61,8 @@ const processedUserMessage = computed(() => {
   const content = props.message.content
   const parts: MessagePart[] = []
 
-  // 匹配 @文件路径 的正则表达式
-  // @后面跟非空格字符，直到遇到空格或行尾
-  const regex = /@([^\s]+)/g
+  // 支持 @path 和 @"path with spaces" 两种文件引用格式
+  const regex = /@"([^"\n]+)"|@([^\s@"]+)/g
   let lastIndex = 0
   let match
 
@@ -79,7 +78,7 @@ const processedUserMessage = computed(() => {
     // 添加文件引用
     parts.push({
       type: 'file-mention',
-      content: match[1] // 不包含 @ 符号
+      content: match[1] ?? match[2] // 不包含 @ 符号
     })
 
     lastIndex = match.index + match[0].length
@@ -510,6 +509,7 @@ const getTraceChangeIcon = (changeType: 'create' | 'modify' | 'delete') => {
 /* 思考过程显示 */
 .message-bubble__thinking {
   width: 100%;
+  min-width: 0;
   animation: fadeSlideDown 0.3s ease-out;
 }
 
@@ -520,8 +520,10 @@ const getTraceChangeIcon = (changeType: 'create' | 'modify' | 'delete') => {
   font-size: var(--font-size-sm);
   line-height: 1.6;
   width: 100%;
+  min-width: 0;
   box-sizing: border-box;
   animation: fadeIn 0.2s ease-out;
+  overflow-wrap: anywhere;
 }
 
 /* AI 消息样式 */
@@ -546,7 +548,8 @@ const getTraceChangeIcon = (changeType: 'create' | 'modify' | 'delete') => {
 }
 
 .message-bubble__text {
-  white-space: pre-wrap;
+  white-space: break-spaces;
+  overflow-wrap: anywhere;
   word-break: break-word;
 }
 
@@ -633,6 +636,7 @@ const getTraceChangeIcon = (changeType: 'create' | 'modify' | 'delete') => {
 /* 工具调用显示 - 底部区域，橙色渐变边框 */
 .message-bubble__tool-calls {
   width: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: var(--spacing-2);

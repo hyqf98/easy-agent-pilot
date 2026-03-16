@@ -6,7 +6,11 @@ import { useAgentStore } from '@/stores/agent'
 import { useMessageStore, type MessageAttachment } from '@/stores/message'
 import { useNotificationStore } from '@/stores/notification'
 import { useProjectStore } from '@/stores/project'
-import { useSessionExecutionStore, type PendingImageAttachment } from '@/stores/sessionExecution'
+import {
+  useSessionExecutionStore,
+  type PendingImageAttachment,
+  type QueuedMessageDraft
+} from '@/stores/sessionExecution'
 import { useSessionStore } from '@/stores/session'
 import { useSettingsStore } from '@/stores/settings'
 import { useTokenStore, type CompressionStrategy, type TokenLevel } from '@/stores/token'
@@ -123,6 +127,10 @@ export function useMessageComposer() {
     currentSessionId.value ? sessionExecutionStore.getPendingImages(currentSessionId.value) : []
   )
 
+  const queuedMessages = computed(() =>
+    currentSessionId.value ? sessionExecutionStore.getQueuedMessages(currentSessionId.value) : []
+  )
+
   const isUploadingImages = computed(() =>
     currentSessionId.value ? sessionExecutionStore.getIsUploadingImages(currentSessionId.value) : false
   )
@@ -132,7 +140,7 @@ export function useMessageComposer() {
     if (!text) return []
 
     const segments: TextSegment[] = []
-    const filePattern = /@([a-zA-Z0-9_\-\u4e00-\u9fa5./\\]+)(?=\s|$)/g
+    const filePattern = /@"([^"\n]+)"|@([^\s@"]+)/g
     let lastIndex = 0
     let match
 
@@ -147,7 +155,7 @@ export function useMessageComposer() {
         }
       }
 
-      const fullPath = match[1]
+      const fullPath = match[1] ?? match[2]
       const fileName = fullPath.split(/[/\\]/).pop() || fullPath
 
       segments.push({
@@ -355,6 +363,18 @@ export function useMessageComposer() {
     mentionSearchText.value = ''
   }
 
+  const formatMentionInsertText = (path: string) => {
+    if (!path) {
+      return '@'
+    }
+
+    if (/\s/.test(path)) {
+      return `@"${path.replace(/"/g, '\\"')}"`
+    }
+
+    return `@${path}`
+  }
+
   const openFileMention = (x: number, y: number, query: string, start: number) => {
     if (!sessionStore.currentSessionId || !currentProject.value) {
       return
@@ -366,14 +386,14 @@ export function useMessageComposer() {
     mentionSearchText.value = query
   }
 
-  const handleFileSelect = (_path: string, relativePath: string, mentionStartPos: number) => {
+  const handleFileSelect = (insertPath: string, mentionStartPos: number) => {
     closeFileMention()
 
     const textarea = textareaRef.value
     const cursorPos = textarea ? textarea.selectionStart : inputText.value.length
     const beforeAt = inputText.value.slice(0, mentionStartPos)
     const afterSearch = inputText.value.slice(cursorPos)
-    const insertText = `@${relativePath} `
+    const insertText = `${formatMentionInsertText(insertPath)} `
 
     inputText.value = beforeAt + insertText + afterSearch
 
@@ -543,6 +563,42 @@ export function useMessageComposer() {
       sessionId,
       attachments.map(toPendingImage)
     )
+  }
+
+  const buildQueuedMessagePreview = (draft: Pick<QueuedMessageDraft, 'content' | 'attachments'>) => {
+    const trimmed = draft.content.trim()
+    if (trimmed) {
+      return trimmed
+    }
+
+    if (draft.attachments.length === 1) {
+      return `[图片] ${draft.attachments[0].name}`
+    }
+
+    if (draft.attachments.length > 1) {
+      return `[${draft.attachments.length} 张图片]`
+    }
+
+    return ''
+  }
+
+  const removeQueuedMessage = (draftId: string) => {
+    if (!currentSessionId.value) {
+      return
+    }
+
+    sessionExecutionStore.removeQueuedMessage(currentSessionId.value, draftId)
+  }
+
+  const retryQueuedMessage = async (draftId: string) => {
+    if (!currentSessionId.value) {
+      return
+    }
+
+    sessionExecutionStore.retryQueuedMessage(currentSessionId.value, draftId)
+    if (!isSending.value) {
+      await conversationService.drainQueue(currentSessionId.value)
+    }
   }
 
   const sendWithCurrentAgent = async (
@@ -717,7 +773,7 @@ export function useMessageComposer() {
 
   const handleSend = async () => {
     const sessionId = sessionStore.currentSessionId
-    if (!sessionId || isSending.value || isUploadingImages.value) return
+    if (!sessionId || isUploadingImages.value) return
 
     const rawInput = inputText.value
     const userInput = rawInput.trim()
@@ -728,6 +784,29 @@ export function useMessageComposer() {
     })
 
     if (!userInput && attachments.length === 0) return
+
+    if (isSending.value) {
+      if (!currentAgent.value) {
+        notificationStore.smartError('发送消息', new Error('请先选择一个智能体'))
+        return
+      }
+
+      const availability = conversationService.isAgentAvailable(currentAgent.value)
+      if (!availability.available) {
+        notificationStore.smartError('发送消息', new Error(availability.reason || '智能体不可用'))
+        return
+      }
+
+      sessionExecutionStore.queueMessage(sessionId, {
+        content: userInput,
+        attachments,
+        agentId: currentAgent.value.id
+      })
+      inputText.value = ''
+      sessionExecutionStore.clearPendingImages(sessionId)
+      closeFileMention()
+      return
+    }
 
     if (attachments.length === 0 && userInput.startsWith('/error ')) {
       inputText.value = ''
@@ -823,10 +902,13 @@ export function useMessageComposer() {
     openImagePicker,
     parsedInputText,
     pendingImages,
+    queuedMessages,
     presetModelOptions,
     renderLayerRef,
     removeImage,
+    removeQueuedMessage,
     restorePendingImages,
+    retryQueuedMessage,
     selectedModelId,
     selectAgent,
     selectModel,
@@ -838,6 +920,7 @@ export function useMessageComposer() {
     toggleAgentDropdown,
     toggleModelDropdown,
     tokenUsage,
-    messageCount
+    messageCount,
+    buildQueuedMessagePreview
   }
 }

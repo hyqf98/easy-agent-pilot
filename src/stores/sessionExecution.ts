@@ -6,6 +6,16 @@ export interface PendingImageAttachment extends MessageAttachment {
   previewUrl: string
 }
 
+export interface QueuedMessageDraft {
+  id: string
+  content: string
+  attachments: MessageAttachment[]
+  agentId: string
+  createdAt: string
+  status: 'queued' | 'failed'
+  errorMessage?: string
+}
+
 /**
  * 单个会话的执行状态
  */
@@ -24,6 +34,8 @@ export interface SessionExecutionState {
   streamTimerId: ReturnType<typeof setInterval> | null
   /** 当前流式消息 ID */
   currentStreamingMessageId: string | null
+  /** 待发送消息队列 */
+  queuedMessages: QueuedMessageDraft[]
 }
 
 /**
@@ -75,6 +87,12 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
     }
   })
 
+  const getQueuedMessages = computed(() => {
+    return (sessionId: string) => {
+      return getExecutionState(sessionId).queuedMessages
+    }
+  })
+
   const getIsUploadingImages = computed(() => {
     return (sessionId: string) => {
       return getExecutionState(sessionId).isUploadingImages
@@ -101,7 +119,8 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
       isSending: false,
       isStreaming: false,
       streamTimerId: null,
-      currentStreamingMessageId: null
+      currentStreamingMessageId: null,
+      queuedMessages: []
     }
   }
 
@@ -131,6 +150,78 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
   function clearPendingImages(sessionId: string) {
     const state = getExecutionState(sessionId)
     state.pendingImages = []
+  }
+
+  function queueMessage(
+    sessionId: string,
+    draft: Omit<QueuedMessageDraft, 'id' | 'createdAt' | 'status'>
+  ) {
+    const state = getExecutionState(sessionId)
+    state.queuedMessages = [
+      ...state.queuedMessages,
+      {
+        ...draft,
+        id: `queued-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        createdAt: new Date().toISOString(),
+        status: 'queued'
+      }
+    ]
+  }
+
+  function removeQueuedMessage(sessionId: string, draftId: string) {
+    const state = getExecutionState(sessionId)
+    state.queuedMessages = state.queuedMessages.filter(draft => draft.id !== draftId)
+  }
+
+  function restoreQueuedMessage(sessionId: string, draft: QueuedMessageDraft) {
+    const state = getExecutionState(sessionId)
+    state.queuedMessages = [draft, ...state.queuedMessages]
+  }
+
+  function popNextQueuedMessage(sessionId: string): QueuedMessageDraft | null {
+    const state = getExecutionState(sessionId)
+    const index = state.queuedMessages.findIndex(draft => draft.status === 'queued')
+    if (index < 0) {
+      return null
+    }
+
+    const [draft] = state.queuedMessages.splice(index, 1)
+    return draft ?? null
+  }
+
+  function markQueuedMessageStatus(
+    sessionId: string,
+    draftId: string,
+    status: QueuedMessageDraft['status'],
+    errorMessage?: string
+  ) {
+    const state = getExecutionState(sessionId)
+    state.queuedMessages = state.queuedMessages.map(draft => {
+      if (draft.id !== draftId) {
+        return draft
+      }
+
+      return {
+        ...draft,
+        status,
+        errorMessage
+      }
+    })
+  }
+
+  function retryQueuedMessage(sessionId: string, draftId: string) {
+    const state = getExecutionState(sessionId)
+    state.queuedMessages = state.queuedMessages.map(draft => {
+      if (draft.id !== draftId) {
+        return draft
+      }
+
+      return {
+        ...draft,
+        status: 'queued',
+        errorMessage: undefined
+      }
+    })
   }
 
   function setIsUploadingImages(sessionId: string, uploading: boolean) {
@@ -270,6 +361,7 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
     // Getters
     getInputText,
     getPendingImages,
+    getQueuedMessages,
     getIsUploadingImages,
     getIsSending,
     getIsStreaming,
@@ -283,6 +375,12 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
     appendPendingImages,
     removePendingImage,
     clearPendingImages,
+    queueMessage,
+    removeQueuedMessage,
+    restoreQueuedMessage,
+    popNextQueuedMessage,
+    markQueuedMessageStatus,
+    retryQueuedMessage,
     setIsUploadingImages,
     setIsSending,
     setIsStreaming,

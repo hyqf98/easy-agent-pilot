@@ -140,15 +140,24 @@ watch(() => props.config, syncForm, { immediate: true })
             />
             {{ t('settings.sdkConfig.mcp.transportType') }}
           </label>
-          <select v-model="form.transportType">
-            <option
-              v-for="option in transportOptions"
-              :key="option.value"
-              :value="option.value"
+          <div class="select-field">
+            <select
+              v-model="form.transportType"
+              class="select-field__control"
             >
-              {{ option.label }}
-            </option>
-          </select>
+              <option
+                v-for="option in transportOptions"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </option>
+            </select>
+            <EaIcon
+              name="lucide:chevrons-up-down"
+              class="select-field__icon"
+            />
+          </div>
         </div>
 
         <div class="form-group">
@@ -159,17 +168,26 @@ watch(() => props.config, syncForm, { immediate: true })
             />
             {{ t('settings.sdkConfig.mcp.scope') }}
           </label>
-          <select v-model="form.scope">
-            <option value="user">
-              {{ t('settings.agent.scan.scopeTypes.user') }}
-            </option>
-            <option value="local">
-              {{ t('settings.agent.scan.scopeTypes.local') }}
-            </option>
-            <option value="project">
-              {{ t('settings.agent.scan.scopeTypes.project') }}
-            </option>
-          </select>
+          <div class="select-field">
+            <select
+              v-model="form.scope"
+              class="select-field__control"
+            >
+              <option value="user">
+                {{ t('settings.agent.scan.scopeTypes.user') }}
+              </option>
+              <option value="local">
+                {{ t('settings.agent.scan.scopeTypes.local') }}
+              </option>
+              <option value="project">
+                {{ t('settings.agent.scan.scopeTypes.project') }}
+              </option>
+            </select>
+            <EaIcon
+              name="lucide:chevrons-up-down"
+              class="select-field__icon"
+            />
+          </div>
         </div>
       </div>
 
@@ -393,6 +411,30 @@ watch(() => props.config, syncForm, { immediate: true })
   outline: none;
   border-color: var(--color-primary);
   box-shadow: 0 0 0 3px var(--color-primary-bg);
+}
+
+.select-field {
+  position: relative;
+}
+
+.select-field__control {
+  min-height: 40px;
+  padding-right: calc(var(--spacing-8) + var(--spacing-2));
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  cursor: pointer;
+}
+
+.select-field__icon {
+  position: absolute;
+  top: 50%;
+  right: var(--spacing-3);
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-tertiary);
+  transform: translateY(-50%);
+  pointer-events: none;
 }
 
 .kv-list {

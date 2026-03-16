@@ -1,8 +1,9 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use serde_json::{Map as JsonMap, Value as JsonValue};
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri_plugin_opener::OpenerExt;
 
 /// CLI 能力信息
@@ -29,6 +30,8 @@ pub struct CliConfigPaths {
     pub config_file: String,
     /// CLI 类型名称 (claude, codex, qwen)
     pub cli_type: String,
+    /// Skills 安装目录路径
+    pub skills_dir: String,
 }
 
 /// MCP 服务器配置
@@ -50,8 +53,8 @@ pub struct ClaudeCliConfig {
     /// MCP 服务器配置（支持 mcpServers 和 mcp_servers 两种格式）
     #[serde(skip_serializing_if = "Option::is_none", alias = "mcp_servers")]
     pub mcpServers: Option<HashMap<String, McpServerConfig>>,
-    #[serde(flatten)]
-    pub other: Option<serde_json::Value>,
+    #[serde(flatten, default)]
+    pub other: BTreeMap<String, JsonValue>,
 }
 
 /// MCP 配置更新输入
@@ -66,16 +69,445 @@ pub struct McpConfigUpdateInput {
     pub disabled: bool,
 }
 
-/// 根据 CLI 路径获取配置目录和信息
-pub(crate) fn get_cli_config_paths_internal(cli_path: &str) -> Result<CliConfigPaths, String> {
-    let home_dir = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
+fn resolve_cli_name(cli_path: &str, cli_type_hint: Option<&str>) -> String {
+    if let Some(hint) = cli_type_hint {
+        let normalized = hint.trim().to_lowercase();
+        if matches!(normalized.as_str(), "claude" | "claude-code" | "codex" | "qwen" | "qwen-code")
+        {
+            return normalized;
+        }
+    }
 
-    // 从路径中提取 CLI 名称
-    let cli_name = std::path::Path::new(cli_path)
+    std::path::Path::new(cli_path)
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("claude")
-        .to_lowercase();
+        .to_lowercase()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CliSyncConfigType {
+    Mcp,
+    Skills,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CliSyncConflictPolicy {
+    Skip,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CliSyncInput {
+    pub source_cli_path: String,
+    pub target_cli_path: String,
+    pub source_cli_type: Option<String>,
+    pub target_cli_type: Option<String>,
+    pub config_type: CliSyncConfigType,
+    pub item_names: Vec<String>,
+    pub conflict_policy: CliSyncConflictPolicy,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CliSyncItemIssue {
+    pub name: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CliSyncResult {
+    pub success_count: usize,
+    pub skipped_count: usize,
+    pub failed_count: usize,
+    pub created_items: Vec<String>,
+    pub skipped_items: Vec<CliSyncItemIssue>,
+    pub failed_items: Vec<CliSyncItemIssue>,
+}
+
+fn parse_mcp_servers_from_toml(toml_value: &toml::Value) -> Option<HashMap<String, McpServerConfig>> {
+    let mcp = toml_value
+        .get("mcp_servers")
+        .or_else(|| toml_value.get("mcpServers"))?;
+
+    let mcp_obj = mcp.as_table()?;
+    let mut servers = HashMap::new();
+
+    for (name, config) in mcp_obj {
+        if let Some(config_obj) = config.as_table() {
+            let server_config = McpServerConfig {
+                command: config_obj
+                    .get("command")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                args: config_obj.get("args").and_then(|v| v.as_array()).map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect()
+                }),
+                env: config_obj.get("env").and_then(|v| v.as_table()).map(|obj| {
+                    obj.iter()
+                        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                        .collect()
+                }),
+                url: config_obj
+                    .get("url")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                headers: config_obj.get("headers").and_then(|v| v.as_table()).map(|obj| {
+                    obj.iter()
+                        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                        .collect()
+                }),
+                disabled: config_obj
+                    .get("disabled")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
+            };
+            servers.insert(name.clone(), server_config);
+        }
+    }
+
+    Some(servers)
+}
+
+fn json_to_toml_value(value: JsonValue) -> Result<toml::Value, String> {
+    match value {
+        JsonValue::Null => Err("Null values are not supported in TOML config".to_string()),
+        JsonValue::Bool(value) => Ok(toml::Value::Boolean(value)),
+        JsonValue::Number(value) => {
+            if let Some(integer) = value.as_i64() {
+                Ok(toml::Value::Integer(integer))
+            } else if let Some(float) = value.as_f64() {
+                Ok(toml::Value::Float(float))
+            } else {
+                Err("Unsupported numeric value in TOML config".to_string())
+            }
+        }
+        JsonValue::String(value) => Ok(toml::Value::String(value)),
+        JsonValue::Array(values) => {
+            let mut array = Vec::with_capacity(values.len());
+            for value in values {
+                array.push(json_to_toml_value(value)?);
+            }
+            Ok(toml::Value::Array(array))
+        }
+        JsonValue::Object(values) => {
+            let mut table = toml::map::Map::new();
+            for (key, value) in values {
+                if value.is_null() {
+                    continue;
+                }
+                table.insert(key, json_to_toml_value(value)?);
+            }
+            Ok(toml::Value::Table(table))
+        }
+    }
+}
+
+fn json_map_to_toml_table(values: &BTreeMap<String, JsonValue>) -> Result<toml::map::Map<String, toml::Value>, String> {
+    let mut table = toml::map::Map::new();
+
+    for (key, value) in values {
+        if value.is_null() {
+            continue;
+        }
+
+        table.insert(key.clone(), json_to_toml_value(value.clone())?);
+    }
+
+    Ok(table)
+}
+
+fn build_toml_mcp_servers(servers: HashMap<String, McpServerConfig>) -> toml::map::Map<String, toml::Value> {
+    let mut mcp_table = toml::map::Map::new();
+
+    for (name, server_config) in servers {
+        let mut server_table = toml::map::Map::new();
+        if let Some(cmd) = server_config.command {
+            server_table.insert("command".to_string(), toml::Value::String(cmd));
+        }
+        if let Some(args) = server_config.args {
+            server_table.insert(
+                "args".to_string(),
+                toml::Value::Array(args.into_iter().map(toml::Value::String).collect()),
+            );
+        }
+        if let Some(env) = server_config.env {
+            let env_table: toml::map::Map<String, toml::Value> = env
+                .into_iter()
+                .map(|(k, v)| (k, toml::Value::String(v)))
+                .collect();
+            server_table.insert("env".to_string(), toml::Value::Table(env_table));
+        }
+        if let Some(url) = server_config.url {
+            server_table.insert("url".to_string(), toml::Value::String(url));
+        }
+        if let Some(headers) = server_config.headers {
+            let headers_table: toml::map::Map<String, toml::Value> = headers
+                .into_iter()
+                .map(|(k, v)| (k, toml::Value::String(v)))
+                .collect();
+            server_table.insert("headers".to_string(), toml::Value::Table(headers_table));
+        }
+        if server_config.disabled {
+            server_table.insert("disabled".to_string(), toml::Value::Boolean(true));
+        }
+        mcp_table.insert(name, toml::Value::Table(server_table));
+    }
+
+    mcp_table
+}
+
+fn is_supported_sync_cli(cli_type: &str) -> bool {
+    matches!(cli_type, "claude" | "codex")
+}
+
+fn validate_sync_cli_paths(
+    source_cli_path: &str,
+    target_cli_path: &str,
+    source_cli_type: Option<&str>,
+    target_cli_type: Option<&str>,
+) -> Result<(CliConfigPaths, CliConfigPaths), String> {
+    let source_paths = get_cli_config_paths_internal(source_cli_path, source_cli_type)?;
+    let target_paths = get_cli_config_paths_internal(target_cli_path, target_cli_type)?;
+
+    if !is_supported_sync_cli(&source_paths.cli_type) || !is_supported_sync_cli(&target_paths.cli_type) {
+        return Err("Only Claude CLI and Codex CLI are supported for sync".to_string());
+    }
+
+    if source_paths.cli_type == target_paths.cli_type {
+        return Err("Sync only supports Claude CLI <-> Codex CLI".to_string());
+    }
+
+    if source_paths.config_file == target_paths.config_file {
+        return Err("Source CLI and target CLI must be different".to_string());
+    }
+
+    Ok((source_paths, target_paths))
+}
+
+fn ensure_path_within(base: &Path, path: &Path, label: &str) -> Result<(), String> {
+    if path.starts_with(base) {
+        Ok(())
+    } else {
+        Err(format!("{} path is outside of the expected CLI directory", label))
+    }
+}
+
+fn copy_directory_recursive(source: &Path, target: &Path) -> Result<(), String> {
+    fs::create_dir_all(target)
+        .map_err(|e| format!("Failed to create target directory {}: {}", target.display(), e))?;
+
+    for entry in fs::read_dir(source)
+        .map_err(|e| format!("Failed to read source directory {}: {}", source.display(), e))?
+    {
+        let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+        let source_path = entry.path();
+        let target_path = target.join(entry.file_name());
+
+        if source_path.is_dir() {
+            copy_directory_recursive(&source_path, &target_path)?;
+        } else {
+            if let Some(parent) = target_path.parent() {
+                fs::create_dir_all(parent).map_err(|e| {
+                    format!("Failed to create target directory {}: {}", parent.display(), e)
+                })?;
+            }
+            fs::copy(&source_path, &target_path).map_err(|e| {
+                format!(
+                    "Failed to copy file from {} to {}: {}",
+                    source_path.display(),
+                    target_path.display(),
+                    e
+                )
+            })?;
+        }
+    }
+
+    Ok(())
+}
+
+fn sync_mcp_items(
+    source_cli_path: &str,
+    target_cli_path: &str,
+    source_cli_type: Option<&str>,
+    target_cli_type: Option<&str>,
+    item_names: &[String],
+    _conflict_policy: &CliSyncConflictPolicy,
+) -> Result<CliSyncResult, String> {
+    let source_config = read_cli_config_internal(source_cli_path, source_cli_type)?;
+    let mut target_config = read_cli_config_internal(target_cli_path, target_cli_type)?;
+    let source_servers = source_config.mcpServers.unwrap_or_default();
+    let target_servers = target_config.mcpServers.get_or_insert_with(HashMap::new);
+    let mut result = CliSyncResult::default();
+
+    for item_name in item_names {
+        let Some(source_server) = source_servers.get(item_name) else {
+            result.failed_count += 1;
+            result.failed_items.push(CliSyncItemIssue {
+                name: item_name.clone(),
+                reason: "Source MCP config was not found".to_string(),
+            });
+            continue;
+        };
+
+        if target_servers.contains_key(item_name) {
+            result.skipped_count += 1;
+            result.skipped_items.push(CliSyncItemIssue {
+                name: item_name.clone(),
+                reason: "Target CLI already contains an MCP config with the same name".to_string(),
+            });
+            continue;
+        }
+
+        target_servers.insert(item_name.clone(), source_server.clone());
+        result.success_count += 1;
+        result.created_items.push(item_name.clone());
+    }
+
+    if result.success_count > 0 {
+        write_cli_config_internal(target_cli_path, target_cli_type, target_config)?;
+    }
+
+    Ok(result)
+}
+
+fn sync_skill_items(
+    source_cli_path: &str,
+    target_cli_path: &str,
+    source_cli_type: Option<&str>,
+    target_cli_type: Option<&str>,
+    item_names: &[String],
+    _conflict_policy: &CliSyncConflictPolicy,
+) -> Result<CliSyncResult, String> {
+    let (source_paths, target_paths) = validate_sync_cli_paths(
+        source_cli_path,
+        target_cli_path,
+        source_cli_type,
+        target_cli_type,
+    )?;
+    let source_scan = crate::commands::scan::scan_cli_config(
+        Some(source_cli_path.to_string()),
+        source_cli_type.map(str::to_string),
+    )?;
+    let target_scan = crate::commands::scan::scan_cli_config(
+        Some(target_cli_path.to_string()),
+        target_cli_type.map(str::to_string),
+    )?;
+    let source_skills_dir = PathBuf::from(&source_paths.config_dir).join("skills");
+    let target_skills_dir = PathBuf::from(&target_paths.config_dir).join("skills");
+    let mut result = CliSyncResult::default();
+
+    fs::create_dir_all(&target_skills_dir).map_err(|e| {
+        format!(
+            "Failed to create target skills directory {}: {}",
+            target_skills_dir.display(),
+            e
+        )
+    })?;
+
+    let source_by_name: HashMap<_, _> = source_scan
+        .skills
+        .into_iter()
+        .map(|skill| (skill.name.clone(), skill))
+        .collect();
+    let mut target_names: HashMap<String, String> = target_scan
+        .skills
+        .into_iter()
+        .map(|skill| (skill.name.clone(), skill.path))
+        .collect();
+
+    for item_name in item_names {
+        let Some(source_skill) = source_by_name.get(item_name) else {
+            result.failed_count += 1;
+            result.failed_items.push(CliSyncItemIssue {
+                name: item_name.clone(),
+                reason: "Source Skill was not found".to_string(),
+            });
+            continue;
+        };
+
+        if target_names.contains_key(item_name) {
+            result.skipped_count += 1;
+            result.skipped_items.push(CliSyncItemIssue {
+                name: item_name.clone(),
+                reason: "Target CLI already contains a Skill with the same name".to_string(),
+            });
+            continue;
+        }
+
+        let source_path = PathBuf::from(&source_skill.path);
+        ensure_path_within(&source_skills_dir, &source_path, "Source skill")?;
+
+        let Some(file_name) = source_path.file_name() else {
+            result.failed_count += 1;
+            result.failed_items.push(CliSyncItemIssue {
+                name: item_name.clone(),
+                reason: "Source Skill path is invalid".to_string(),
+            });
+            continue;
+        };
+
+        let target_path = target_skills_dir.join(file_name);
+        ensure_path_within(&target_skills_dir, &target_path, "Target skill")?;
+
+        if target_path.exists() {
+            result.skipped_count += 1;
+            result.skipped_items.push(CliSyncItemIssue {
+                name: item_name.clone(),
+                reason: "Target CLI already contains a Skill at the same path".to_string(),
+            });
+            continue;
+        }
+
+        let copy_result = if source_path.is_dir() {
+            copy_directory_recursive(&source_path, &target_path)
+        } else if source_path.is_file() {
+            fs::copy(&source_path, &target_path)
+                .map(|_| ())
+                .map_err(|e| {
+                    format!(
+                        "Failed to copy Skill from {} to {}: {}",
+                        source_path.display(),
+                        target_path.display(),
+                        e
+                    )
+                })
+        } else {
+            Err("Source Skill path does not exist".to_string())
+        };
+
+        match copy_result {
+            Ok(()) => {
+                result.success_count += 1;
+                result.created_items.push(item_name.clone());
+                target_names.insert(item_name.clone(), target_path.to_string_lossy().to_string());
+            }
+            Err(reason) => {
+                result.failed_count += 1;
+                result.failed_items.push(CliSyncItemIssue {
+                    name: item_name.clone(),
+                    reason,
+                });
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+/// 根据 CLI 路径获取配置目录和信息
+pub(crate) fn get_cli_config_paths_internal(
+    cli_path: &str,
+    cli_type_hint: Option<&str>,
+) -> Result<CliConfigPaths, String> {
+    let home_dir = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
+
+    let cli_name = resolve_cli_name(cli_path, cli_type_hint);
 
     match cli_name.as_str() {
         "claude" | "claude-code" => {
@@ -85,6 +517,7 @@ pub(crate) fn get_cli_config_paths_internal(cli_path: &str) -> Result<CliConfigP
                 config_dir: config_dir.to_string_lossy().to_string(),
                 config_file: config_file.to_string_lossy().to_string(),
                 cli_type: "claude".to_string(),
+                skills_dir: config_dir.join("skills").to_string_lossy().to_string(),
             })
         }
         "codex" => {
@@ -94,6 +527,7 @@ pub(crate) fn get_cli_config_paths_internal(cli_path: &str) -> Result<CliConfigP
                 config_dir: config_dir.to_string_lossy().to_string(),
                 config_file: config_file.to_string_lossy().to_string(),
                 cli_type: "codex".to_string(),
+                skills_dir: config_dir.join("skills").to_string_lossy().to_string(),
             })
         }
         "qwen" | "qwen-code" => {
@@ -103,6 +537,7 @@ pub(crate) fn get_cli_config_paths_internal(cli_path: &str) -> Result<CliConfigP
                 config_dir: config_dir.to_string_lossy().to_string(),
                 config_file: config_file.to_string_lossy().to_string(),
                 cli_type: "qwen".to_string(),
+                skills_dir: config_dir.join("skills").to_string_lossy().to_string(),
             })
         }
         _ => {
@@ -113,6 +548,7 @@ pub(crate) fn get_cli_config_paths_internal(cli_path: &str) -> Result<CliConfigP
                 config_dir: config_dir.to_string_lossy().to_string(),
                 config_file: config_file.to_string_lossy().to_string(),
                 cli_type: "claude".to_string(),
+                skills_dir: config_dir.join("skills").to_string_lossy().to_string(),
             })
         }
     }
@@ -120,14 +556,15 @@ pub(crate) fn get_cli_config_paths_internal(cli_path: &str) -> Result<CliConfigP
 
 /// 获取 CLI 配置路径信息 (Tauri 命令)
 #[tauri::command]
-pub fn get_cli_config_paths(cli_path: String) -> Result<CliConfigPaths, String> {
-    get_cli_config_paths_internal(&cli_path)
+pub fn get_cli_config_paths(cli_path: String, cli_type: Option<String>) -> Result<CliConfigPaths, String> {
+    get_cli_config_paths_internal(&cli_path, cli_type.as_deref())
 }
 
-/// 读取 CLI 配置文件 (Tauri 命令)
-#[tauri::command]
-pub fn read_cli_config(cli_path: String) -> Result<ClaudeCliConfig, String> {
-    let paths = get_cli_config_paths_internal(&cli_path)?;
+fn read_cli_config_internal(
+    cli_path: &str,
+    cli_type_hint: Option<&str>,
+) -> Result<ClaudeCliConfig, String> {
+    let paths = get_cli_config_paths_internal(cli_path, cli_type_hint)?;
     let config_file = PathBuf::from(&paths.config_file);
 
     if !config_file.exists() {
@@ -144,66 +581,18 @@ pub fn read_cli_config(cli_path: String) -> Result<ClaudeCliConfig, String> {
         // 解析 TOML 并转换为 JSON 格式
         let toml_value: toml::Value =
             toml::from_str(&content).map_err(|e| format!("Failed to parse TOML: {}", e))?;
-
-        // 转换 MCP 配置
-        let mcp_servers = if let Some(mcp) = toml_value
-            .get("mcp_servers")
-            .or_else(|| toml_value.get("mcpServers"))
+        let mut other = match serde_json::to_value(&toml_value)
+            .map_err(|e| format!("Failed to convert TOML to JSON: {}", e))?
         {
-            let mut servers = HashMap::new();
-            if let Some(mcp_obj) = mcp.as_table() {
-                for (name, config) in mcp_obj {
-                    if let Some(config_obj) = config.as_table() {
-                        let server_config = McpServerConfig {
-                            command: config_obj
-                                .get("command")
-                                .and_then(|v| v.as_str())
-                                .map(|s| s.to_string()),
-                            args: config_obj
-                                .get("args")
-                                .and_then(|v| v.as_array())
-                                .map(|arr| {
-                                    arr.iter()
-                                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                                        .collect()
-                                }),
-                            env: config_obj.get("env").and_then(|v| v.as_table()).map(|obj| {
-                                obj.iter()
-                                    .filter_map(|(k, v)| {
-                                        v.as_str().map(|s| (k.clone(), s.to_string()))
-                                    })
-                                    .collect()
-                            }),
-                            url: config_obj
-                                .get("url")
-                                .and_then(|v| v.as_str())
-                                .map(|s| s.to_string()),
-                            headers: config_obj.get("headers").and_then(|v| v.as_table()).map(
-                                |obj| {
-                                    obj.iter()
-                                        .filter_map(|(k, v)| {
-                                            v.as_str().map(|s| (k.clone(), s.to_string()))
-                                        })
-                                        .collect()
-                                },
-                            ),
-                            disabled: config_obj
-                                .get("disabled")
-                                .and_then(|v| v.as_bool())
-                                .unwrap_or(false),
-                        };
-                        servers.insert(name.clone(), server_config);
-                    }
-                }
-            }
-            Some(servers)
-        } else {
-            None
+            JsonValue::Object(map) => map,
+            _ => JsonMap::new(),
         };
+        other.remove("mcpServers");
+        other.remove("mcp_servers");
 
         Ok(ClaudeCliConfig {
-            mcpServers: mcp_servers,
-            other: None,
+            mcpServers: parse_mcp_servers_from_toml(&toml_value),
+            other: other.into_iter().collect(),
         })
     } else {
         // Claude 和 Qwen 使用 JSON 格式
@@ -217,10 +606,18 @@ pub fn read_cli_config(cli_path: String) -> Result<ClaudeCliConfig, String> {
     }
 }
 
-/// 写入 CLI 配置文件 (Tauri 命令)
+/// 读取 CLI 配置文件 (Tauri 命令)
 #[tauri::command]
-pub fn write_cli_config(cli_path: String, config: ClaudeCliConfig) -> Result<(), String> {
-    let paths = get_cli_config_paths_internal(&cli_path)?;
+pub fn read_cli_config(cli_path: String, cli_type: Option<String>) -> Result<ClaudeCliConfig, String> {
+    read_cli_config_internal(&cli_path, cli_type.as_deref())
+}
+
+fn write_cli_config_internal(
+    cli_path: &str,
+    cli_type_hint: Option<&str>,
+    config: ClaudeCliConfig,
+) -> Result<(), String> {
+    let paths = get_cli_config_paths_internal(cli_path, cli_type_hint)?;
     let config_file = PathBuf::from(&paths.config_file);
 
     // 确保父目录存在
@@ -231,49 +628,21 @@ pub fn write_cli_config(cli_path: String, config: ClaudeCliConfig) -> Result<(),
 
     if paths.cli_type == "codex" {
         // Codex 使用 TOML 格式
-        let mut toml_table = toml::map::Map::new();
+        let mut toml_table = json_map_to_toml_table(&config.other)?;
 
         // 转换 MCP 配置
         let mcp_servers = config.mcpServers.unwrap_or_default();
         if !mcp_servers.is_empty() {
-            let mut mcp_table = toml::map::Map::new();
-            for (name, server_config) in mcp_servers {
-                let mut server_table = toml::map::Map::new();
-                if let Some(cmd) = server_config.command {
-                    server_table.insert("command".to_string(), toml::Value::String(cmd));
-                }
-                if let Some(args) = server_config.args {
-                    server_table.insert(
-                        "args".to_string(),
-                        toml::Value::Array(args.into_iter().map(toml::Value::String).collect()),
-                    );
-                }
-                if let Some(env) = server_config.env {
-                    let env_table: toml::map::Map<String, toml::Value> = env
-                        .into_iter()
-                        .map(|(k, v)| (k, toml::Value::String(v)))
-                        .collect();
-                    server_table.insert("env".to_string(), toml::Value::Table(env_table));
-                }
-                if let Some(url) = server_config.url {
-                    server_table.insert("url".to_string(), toml::Value::String(url));
-                }
-                if let Some(headers) = server_config.headers {
-                    let headers_table: toml::map::Map<String, toml::Value> = headers
-                        .into_iter()
-                        .map(|(k, v)| (k, toml::Value::String(v)))
-                        .collect();
-                    server_table.insert("headers".to_string(), toml::Value::Table(headers_table));
-                }
-                if server_config.disabled {
-                    server_table.insert("disabled".to_string(), toml::Value::Boolean(true));
-                }
-                mcp_table.insert(name, toml::Value::Table(server_table));
-            }
-            toml_table.insert("mcpServers".to_string(), toml::Value::Table(mcp_table));
+            toml_table.insert(
+                "mcp_servers".to_string(),
+                toml::Value::Table(build_toml_mcp_servers(mcp_servers)),
+            );
+        } else {
+            toml_table.remove("mcpServers");
+            toml_table.remove("mcp_servers");
         }
 
-        let content = toml::to_string_pretty(&toml_table)
+        let content = toml::to_string_pretty(&toml::Value::Table(toml_table))
             .map_err(|e| format!("Failed to serialize TOML: {}", e))?;
 
         fs::write(&config_file, content)
@@ -290,14 +659,25 @@ pub fn write_cli_config(cli_path: String, config: ClaudeCliConfig) -> Result<(),
     Ok(())
 }
 
+/// 写入 CLI 配置文件 (Tauri 命令)
+#[tauri::command]
+pub fn write_cli_config(
+    cli_path: String,
+    cli_type: Option<String>,
+    config: ClaudeCliConfig,
+) -> Result<(), String> {
+    write_cli_config_internal(&cli_path, cli_type.as_deref(), config)
+}
+
 /// 更新 CLI 配置中的 MCP 服务器 (Tauri 命令)
 #[tauri::command]
 pub fn update_cli_mcp_config(
     cli_path: String,
+    cli_type: Option<String>,
     name: String,
     config: McpConfigUpdateInput,
 ) -> Result<(), String> {
-    let mut cli_config = read_cli_config(cli_path.clone())?;
+    let mut cli_config = read_cli_config_internal(&cli_path, cli_type.as_deref())?;
 
     let server_config = McpServerConfig {
         command: config.command,
@@ -317,20 +697,20 @@ pub fn update_cli_mcp_config(
         servers.insert(name, server_config);
     }
 
-    write_cli_config(cli_path, cli_config)
+    write_cli_config_internal(&cli_path, cli_type.as_deref(), cli_config)
 }
 
 /// 删除 CLI 配置中的 MCP 服务器 (Tauri 命令)
 #[tauri::command]
-pub fn delete_cli_mcp_config(cli_path: String, name: String) -> Result<(), String> {
-    let mut cli_config = read_cli_config(cli_path.clone())?;
+pub fn delete_cli_mcp_config(cli_path: String, cli_type: Option<String>, name: String) -> Result<(), String> {
+    let mut cli_config = read_cli_config_internal(&cli_path, cli_type.as_deref())?;
 
     // 从配置中删除
     if let Some(ref mut servers) = cli_config.mcpServers {
         servers.remove(&name);
     }
 
-    write_cli_config(cli_path, cli_config)
+    write_cli_config_internal(&cli_path, cli_type.as_deref(), cli_config)
 }
 
 /// 打开配置文件 (Tauri 命令) - 使用系统默认编辑器打开
@@ -366,13 +746,8 @@ pub async fn open_config_file(app: tauri::AppHandle, config_path: String) -> Res
 
 /// 获取 CLI 能力信息 (Tauri 命令)
 #[tauri::command]
-pub fn get_cli_capabilities(cli_path: String) -> Result<CliCapabilities, String> {
-    // 从路径中提取 CLI 名称
-    let cli_name = std::path::Path::new(&cli_path)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("claude")
-        .to_lowercase();
+pub fn get_cli_capabilities(cli_path: String, cli_type: Option<String>) -> Result<CliCapabilities, String> {
+    let cli_name = resolve_cli_name(&cli_path, cli_type.as_deref());
 
     let capabilities = match cli_name.as_str() {
         "claude" | "claude-code" => CliCapabilities {
@@ -405,4 +780,221 @@ pub fn get_cli_capabilities(cli_path: String) -> Result<CliCapabilities, String>
     };
 
     Ok(capabilities)
+}
+
+#[tauri::command]
+pub fn sync_cli_items(input: CliSyncInput) -> Result<CliSyncResult, String> {
+    let _ = validate_sync_cli_paths(
+        &input.source_cli_path,
+        &input.target_cli_path,
+        input.source_cli_type.as_deref(),
+        input.target_cli_type.as_deref(),
+    )?;
+
+    if input.item_names.is_empty() {
+        return Ok(CliSyncResult::default());
+    }
+
+    match input.config_type {
+        CliSyncConfigType::Mcp => sync_mcp_items(
+            &input.source_cli_path,
+            &input.target_cli_path,
+            input.source_cli_type.as_deref(),
+            input.target_cli_type.as_deref(),
+            &input.item_names,
+            &input.conflict_policy,
+        ),
+        CliSyncConfigType::Skills => sync_skill_items(
+            &input.source_cli_path,
+            &input.target_cli_path,
+            input.source_cli_type.as_deref(),
+            input.target_cli_type.as_deref(),
+            &input.item_names,
+            &input.conflict_policy,
+        ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use once_cell::sync::Lazy;
+    use std::sync::Mutex;
+    use uuid::Uuid;
+
+    static HOME_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+
+    struct TestHome {
+        root: PathBuf,
+        previous_home: Option<String>,
+    }
+
+    impl TestHome {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(format!("easy-agent-cli-sync-{}", Uuid::new_v4()));
+            fs::create_dir_all(&root).expect("create test home");
+
+            let previous_home = std::env::var("HOME").ok();
+            std::env::set_var("HOME", &root);
+
+            Self {
+                root,
+                previous_home,
+            }
+        }
+
+        fn path(&self, relative: &str) -> PathBuf {
+            self.root.join(relative)
+        }
+    }
+
+    impl Drop for TestHome {
+        fn drop(&mut self) {
+            if let Some(previous_home) = &self.previous_home {
+                std::env::set_var("HOME", previous_home);
+            } else {
+                std::env::remove_var("HOME");
+            }
+
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[test]
+    fn write_cli_config_uses_codex_mcp_servers_key_and_preserves_other_fields() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let test_home = TestHome::new();
+        let codex_path = "/usr/local/bin/codex".to_string();
+        let config_path = test_home.path(".codex/config.toml");
+
+        let mut config = ClaudeCliConfig {
+            mcpServers: Some(HashMap::from([(
+                "docs".to_string(),
+                McpServerConfig {
+                    url: Some("https://developers.openai.com/mcp".to_string()),
+                    ..Default::default()
+                },
+            )])),
+            other: BTreeMap::from([
+                ("model".to_string(), JsonValue::String("gpt-5".to_string())),
+                ("approval_policy".to_string(), JsonValue::String("never".to_string())),
+            ]),
+        };
+
+        write_cli_config_internal(&codex_path, Some("codex"), config.clone()).expect("write codex config");
+
+        let content = fs::read_to_string(config_path).expect("read codex config");
+        assert!(content.contains("[mcp_servers.docs]"));
+        assert!(content.contains("url = \"https://developers.openai.com/mcp\""));
+        assert!(content.contains("model = \"gpt-5\""));
+        assert!(!content.contains("[mcpServers.docs]"));
+
+        let reloaded = read_cli_config_internal(&codex_path, Some("codex")).expect("read codex config");
+        assert_eq!(
+            reloaded
+                .mcpServers
+                .as_ref()
+                .and_then(|servers| servers.get("docs"))
+                .and_then(|server| server.url.as_ref())
+                .map(String::as_str),
+            Some("https://developers.openai.com/mcp")
+        );
+        assert_eq!(
+            reloaded.other.get("model").and_then(|value| value.as_str()),
+            Some("gpt-5")
+        );
+
+        config.mcpServers = None;
+    }
+
+    #[test]
+    fn sync_mcp_items_copies_claude_json_into_codex_toml() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let test_home = TestHome::new();
+        let claude_config_path = test_home.path(".claude.json");
+        let codex_config_path = test_home.path(".codex/config.toml");
+
+        fs::create_dir_all(test_home.path(".codex")).expect("create codex dir");
+        fs::write(
+            &claude_config_path,
+            r#"{
+  "mcpServers": {
+    "docs": {
+      "url": "https://developers.openai.com/mcp"
+    }
+  }
+}"#,
+        )
+        .expect("write claude config");
+        fs::write(
+            &codex_config_path,
+            r#"model = "gpt-5"
+"#,
+        )
+        .expect("write codex config");
+
+        let result = sync_cli_items(CliSyncInput {
+            source_cli_path: "/usr/local/bin/claude".to_string(),
+            target_cli_path: "/usr/local/bin/codex".to_string(),
+            source_cli_type: Some("claude".to_string()),
+            target_cli_type: Some("codex".to_string()),
+            config_type: CliSyncConfigType::Mcp,
+            item_names: vec!["docs".to_string()],
+            conflict_policy: CliSyncConflictPolicy::Skip,
+        })
+        .expect("sync mcp items");
+
+        assert_eq!(result.success_count, 1);
+        assert_eq!(result.skipped_count, 0);
+        assert_eq!(result.failed_count, 0);
+
+        let content = fs::read_to_string(codex_config_path).expect("read synced codex config");
+        assert!(content.contains("model = \"gpt-5\""));
+        assert!(content.contains("[mcp_servers.docs]"));
+        assert!(content.contains("url = \"https://developers.openai.com/mcp\""));
+    }
+
+    #[test]
+    fn sync_skill_items_copies_skill_directory_between_clis() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let test_home = TestHome::new();
+        let source_skill_dir = test_home.path(".claude/skills/backend-audit");
+        let target_skill_dir = test_home.path(".codex/skills/backend-audit");
+
+        fs::create_dir_all(source_skill_dir.join("references")).expect("create source skill refs");
+        fs::write(
+            source_skill_dir.join("SKILL.md"),
+            r#"---
+name: backend-audit
+description: Audit backend services
+---
+
+Use this skill for backend reviews.
+"#,
+        )
+        .expect("write skill file");
+        fs::write(
+            source_skill_dir.join("references/checklist.md"),
+            "# checklist",
+        )
+        .expect("write reference file");
+
+        let result = sync_cli_items(CliSyncInput {
+            source_cli_path: "/usr/local/bin/claude".to_string(),
+            target_cli_path: "/usr/local/bin/codex".to_string(),
+            source_cli_type: Some("claude".to_string()),
+            target_cli_type: Some("codex".to_string()),
+            config_type: CliSyncConfigType::Skills,
+            item_names: vec!["backend-audit".to_string()],
+            conflict_policy: CliSyncConflictPolicy::Skip,
+        })
+        .expect("sync skill items");
+
+        assert_eq!(result.success_count, 1);
+        assert!(target_skill_dir.join("SKILL.md").exists());
+        assert!(target_skill_dir.join("references/checklist.md").exists());
+        let copied_content =
+            fs::read_to_string(target_skill_dir.join("SKILL.md")).expect("read copied skill file");
+        assert!(copied_content.contains("backend-audit"));
+    }
 }
