@@ -167,8 +167,8 @@ fn normalize_timestamp(value: Option<String>, field: &str) -> Result<Option<Stri
         return Ok(None);
     };
 
-    let parsed = DateTime::parse_from_rfc3339(&raw)
-        .map_err(|_| format!("{} 时间格式无效", field))?;
+    let parsed =
+        DateTime::parse_from_rfc3339(&raw).map_err(|_| format!("{} 时间格式无效", field))?;
     Ok(Some(parsed.with_timezone(&Utc).to_rfc3339()))
 }
 
@@ -597,7 +597,9 @@ pub fn batch_delete_raw_memory_records(
     }
 
     let delete_order = match normalize_optional_string(input.delete_order) {
-        Some(order) if order.eq_ignore_ascii_case("latest") || order.eq_ignore_ascii_case("newest") => {
+        Some(order)
+            if order.eq_ignore_ascii_case("latest") || order.eq_ignore_ascii_case("newest") =>
+        {
             "DESC"
         }
         Some(order) if order.eq_ignore_ascii_case("oldest") => "ASC",
@@ -643,7 +645,9 @@ pub fn batch_delete_raw_memory_records(
         });
     }
 
-    let tx = conn.unchecked_transaction().map_err(|error| error.to_string())?;
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
     let placeholders = (1..=deleted_ids.len())
         .map(|index| format!("?{}", index))
         .collect::<Vec<_>>()

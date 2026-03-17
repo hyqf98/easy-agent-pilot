@@ -10,6 +10,7 @@ import { useProjectStore } from './stores/project'
 import { useWindowManagerStore } from './stores/windowManager'
 import { useAppStateStore } from './stores/appState'
 import { useConfirmDialog, useWindowEvents } from './composables'
+import { useMiniPanelShortcut } from './composables/useMiniPanelShortcut'
 import { SettingsModal } from './components/settings'
 import { EaToast, EaLoadingOverlay, EaConfirmDialog } from './components/common'
 
@@ -26,6 +27,7 @@ const confirmDialogState = confirmDialog.state
 
 // 初始化窗口事件监听
 useWindowEvents()
+useMiniPanelShortcut()
 
 const handleKeydown = (event: KeyboardEvent) => {
   // Cmd/Ctrl + N: 新建项目
@@ -53,44 +55,49 @@ onMounted(async () => {
   // 初始化窗口上下文
   await windowManagerStore.initWindowContext()
 
-  // 初始化窗口状态（恢复窗口位置和大小）
-  await windowStateStore.initWindowState()
-
   // 初始化主题
   await themeStore.loadTheme()
 
   // 加载应用设置
   await settingsStore.loadSettings()
 
+  if (!windowManagerStore.isMiniPanelWindow) {
+    // 初始化窗口状态（恢复窗口位置和大小）
+    await windowStateStore.initWindowState()
+  }
+
   // 加载应用状态（如果是主窗口）
   if (windowManagerStore.isMainWindow) {
     await appStateStore.loadState()
   }
 
-  // 加载项目列表
-  await projectStore.loadProjects()
+  if (!windowManagerStore.isMiniPanelWindow) {
+    // 加载项目列表
+    await projectStore.loadProjects()
 
-  // 如果是项目窗口，直接打开指定项目
-  if (windowManagerStore.projectId) {
-    projectStore.setCurrentProject(windowManagerStore.projectId)
-  }
-  // 如果是主窗口且有上次的项目，恢复状态
-  else if (windowManagerStore.isMainWindow && appStateStore.lastProjectId) {
-    const projectExists = projectStore.projects.some(
-      p => p.id === appStateStore.lastProjectId
-    )
-    if (projectExists) {
-      projectStore.setCurrentProject(appStateStore.lastProjectId)
+    // 如果是项目窗口，直接打开指定项目
+    if (windowManagerStore.projectId) {
+      projectStore.setCurrentProject(windowManagerStore.projectId)
+    }
+    // 如果是主窗口且有上次的项目，恢复状态
+    else if (windowManagerStore.isMainWindow && appStateStore.lastProjectId) {
+      const projectExists = projectStore.projects.some(
+        p => p.id === appStateStore.lastProjectId
+      )
+      if (projectExists) {
+        projectStore.setCurrentProject(appStateStore.lastProjectId)
 
-      // 恢复上次的会话
-      for (const sessionId of appStateStore.lastSessionIds) {
-        await sessionStore.openSession(sessionId)
+        // 恢复上次的会话
+        for (const sessionId of appStateStore.lastSessionIds) {
+          await sessionStore.openSession(sessionId)
+        }
       }
     }
   }
 
-  // 添加全局快捷键监听
-  window.addEventListener('keydown', handleKeydown)
+  if (!windowManagerStore.isMiniPanelWindow) {
+    window.addEventListener('keydown', handleKeydown)
+  }
 })
 
 onUnmounted(() => {

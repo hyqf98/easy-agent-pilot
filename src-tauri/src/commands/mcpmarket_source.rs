@@ -157,7 +157,10 @@ fn build_source_options() -> Vec<MarketplaceSourceOption> {
         MarketplaceSourceOption {
             id: DEFAULT_MARKETPLACE_SOURCE_ID.to_string(),
             label: MCPMARKET_SOURCE_LABEL.to_string(),
-            supported_resources: vec![MarketplaceResourceType::Mcp, MarketplaceResourceType::Skills],
+            supported_resources: vec![
+                MarketplaceResourceType::Mcp,
+                MarketplaceResourceType::Skills,
+            ],
         },
         MarketplaceSourceOption {
             id: MODELSCOPE_SOURCE_ID.to_string(),
@@ -205,8 +208,8 @@ where
     T: for<'de> Deserialize<'de>,
 {
     let script_path = resolve_helper_script_path()?;
-    let payload_json =
-        serde_json::to_string(&payload).map_err(|e| format!("Failed to serialize helper payload: {}", e))?;
+    let payload_json = serde_json::to_string(&payload)
+        .map_err(|e| format!("Failed to serialize helper payload: {}", e))?;
 
     let output = Command::new("node")
         .arg(script_path)
@@ -241,7 +244,11 @@ impl MarketplaceSourceStrategy for McpMarketSourceStrategy {
         query: &MarketplaceSourceQuery,
     ) -> Result<MarketListResponse<McpSourceListItem>, String> {
         let page = query.page.unwrap_or(1).max(1);
-        let search = query.search.as_deref().map(str::trim).filter(|value| !value.is_empty());
+        let search = query
+            .search
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
         let category_slug = query
             .category_slug
             .as_deref()
@@ -279,7 +286,11 @@ impl MarketplaceSourceStrategy for McpMarketSourceStrategy {
         query: &MarketplaceSourceQuery,
     ) -> Result<MarketListResponse<SkillSourceListItem>, String> {
         let page = query.page.unwrap_or(1).max(1);
-        let search = query.search.as_deref().map(str::trim).filter(|value| !value.is_empty());
+        let search = query
+            .search
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
         let category_slug = query
             .category_slug
             .as_deref()
@@ -330,7 +341,11 @@ impl MarketplaceSourceStrategy for ModelScopeSourceStrategy {
         query: &MarketplaceSourceQuery,
     ) -> Result<MarketListResponse<McpSourceListItem>, String> {
         let page = query.page.unwrap_or(1).max(1);
-        let search = query.search.as_deref().map(str::trim).filter(|value| !value.is_empty());
+        let search = query
+            .search
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
         let category_slug = query
             .category_slug
             .as_deref()

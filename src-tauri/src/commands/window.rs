@@ -17,6 +17,7 @@ fn get_db_connection() -> Result<Connection> {
 pub struct WindowContext {
     pub label: String,
     pub project_id: Option<String>,
+    pub window_type: String,
 }
 /// 在新窗口中打开项目
 #[tauri::command]
@@ -58,7 +59,19 @@ pub fn get_window_context(window: tauri::Window) -> WindowContext {
         None
     };
 
-    WindowContext { label, project_id }
+    let window_type = if label == crate::commands::mini_panel::MINI_PANEL_WINDOW_LABEL {
+        "mini-panel".to_string()
+    } else if label.starts_with("project-") {
+        "project".to_string()
+    } else {
+        "main".to_string()
+    };
+
+    WindowContext {
+        label,
+        project_id,
+        window_type,
+    }
 }
 /// 锁定会话到窗口
 #[tauri::command]

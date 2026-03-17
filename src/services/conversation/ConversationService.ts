@@ -44,7 +44,10 @@ export class ConversationService {
     content: string,
     agentId: string,
     projectId?: string,
-    attachments: MessageAttachment[] = []
+    attachments: MessageAttachment[] = [],
+    options?: {
+      workingDirectory?: string
+    }
   ): Promise<void> {
     const messageStore = useMessageStore()
     const sessionStore = useSessionStore()
@@ -118,7 +121,9 @@ export class ConversationService {
         ? projectStore.projects.find(p => p.id === projectId)
         : undefined
 
-      if (projectId) {
+      if (options?.workingDirectory) {
+        workingDirectory = options.workingDirectory
+      } else if (projectId) {
         workingDirectory = targetProject?.path
       } else {
         const session = sessionStore.sessions.find(s => s.id === sessionId)

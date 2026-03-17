@@ -149,10 +149,7 @@ fn render_directory_tree(
     include_scripts_dir: bool,
     include_assets_dir: bool,
 ) -> String {
-    let mut lines = vec![
-        format!("{}/", skill_dir_name),
-        "├── SKILL.md".to_string(),
-    ];
+    let mut lines = vec![format!("{}/", skill_dir_name), "├── SKILL.md".to_string()];
 
     if !reference_files.is_empty() {
         lines.push("├── references/".to_string());
@@ -204,7 +201,10 @@ fn render_skill_markdown(
         include_assets_dir,
     );
 
-    let mut sections = vec![format!("---\nname: {}\ndescription: {}\n---", clean_name, clean_description)];
+    let mut sections = vec![format!(
+        "---\nname: {}\ndescription: {}\n---",
+        clean_name, clean_description
+    )];
     sections.push(format!("# {}", clean_name));
 
     if !clean_description.is_empty() {
@@ -224,7 +224,10 @@ fn render_skill_markdown(
             })
             .collect::<Vec<_>>()
             .join("\n");
-        sections.push(format!("## 参考文档\n\n如需更详细上下文，优先打开这些文档：\n{}", reference_lines));
+        sections.push(format!(
+            "## 参考文档\n\n如需更详细上下文，优先打开这些文档：\n{}",
+            reference_lines
+        ));
     }
 
     sections.push(format!("## 文件结构\n\n```text\n{}\n```", tree));
@@ -233,7 +236,9 @@ fn render_skill_markdown(
 
 /// 创建 Skills 标准结构
 #[tauri::command]
-pub fn create_cli_skill_scaffold(input: CreateCliSkillInput) -> Result<CreateCliSkillResult, String> {
+pub fn create_cli_skill_scaffold(
+    input: CreateCliSkillInput,
+) -> Result<CreateCliSkillResult, String> {
     let paths = crate::commands::cli_config::get_cli_config_paths_internal(
         &input.cli_path,
         input.cli_type.as_deref(),
@@ -247,7 +252,10 @@ pub fn create_cli_skill_scaffold(input: CreateCliSkillInput) -> Result<CreateCli
     let skill_dir = skills_dir.join(&skill_dir_name);
 
     if skill_dir.exists() {
-        return Err(format!("Skill already exists: {}", skill_dir.to_string_lossy()));
+        return Err(format!(
+            "Skill already exists: {}",
+            skill_dir.to_string_lossy()
+        ));
     }
 
     fs::create_dir_all(&skill_dir)
@@ -268,8 +276,15 @@ pub fn create_cli_skill_scaffold(input: CreateCliSkillInput) -> Result<CreateCli
                 .and_then(|value| value.to_str())
                 .unwrap_or("reference.md")
                 .to_string();
-            let summary = reference.summary.clone().filter(|text| !text.trim().is_empty());
-            let content = format!("# {}\n\n{}", reference.title.trim(), reference.content.trim());
+            let summary = reference
+                .summary
+                .clone()
+                .filter(|text| !text.trim().is_empty());
+            let content = format!(
+                "# {}\n\n{}",
+                reference.title.trim(),
+                reference.content.trim()
+            );
 
             fs::write(&file_path, content)
                 .map_err(|e| format!("Failed to write reference file: {}", e))?;

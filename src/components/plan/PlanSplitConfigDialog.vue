@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Plan } from '@/types/plan'
 import type { AgentOption, ModelOption, PlanSplitConfigFormState } from './planListShared'
+import { useOverlayDismiss } from '@/composables/useOverlayDismiss'
 
 const props = defineProps<{
   visible: boolean
@@ -20,6 +21,8 @@ const emit = defineEmits<{
 function updateField<K extends keyof PlanSplitConfigFormState>(key: K, value: PlanSplitConfigFormState[K]) {
   emit('update:form', { [key]: value })
 }
+
+const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(() => emit('close'))
 </script>
 
 <template>
@@ -27,7 +30,8 @@ function updateField<K extends keyof PlanSplitConfigFormState>(key: K, value: Pl
     <div
       v-if="visible"
       class="dialog-overlay"
-      @click.self="emit('close')"
+      @pointerdown.capture="handleOverlayPointerDown"
+      @click.self="handleOverlayClick"
     >
       <div class="dialog">
         <div class="dialog-header">

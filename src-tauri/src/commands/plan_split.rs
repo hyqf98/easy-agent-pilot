@@ -736,7 +736,8 @@ fn extract_structured_output_payload(event: &SplitStreamRecord) -> Option<String
         .clone()
         .filter(|value| !value.trim().is_empty())
         .or_else(|| {
-            event.content
+            event
+                .content
                 .clone()
                 .filter(|value| !value.trim().is_empty())
         })

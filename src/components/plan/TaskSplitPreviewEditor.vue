@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AITaskItem, TaskPriority } from '@/types/plan'
+import { useSafeOutsideClick } from '@/composables/useSafeOutsideClick'
 
 const props = defineProps<{
   task: AITaskItem
@@ -83,12 +84,6 @@ function removeDependency(dependencyTitle: string) {
   draft.value.dependsOn = (draft.value.dependsOn || []).filter(title => title !== dependencyTitle)
 }
 
-function handleClickOutside(event: MouseEvent) {
-  if (depDropdownRef.value && !depDropdownRef.value.contains(event.target as Node)) {
-    isDepDropdownOpen.value = false
-  }
-}
-
 function save() {
   emit('save', {
     ...draft.value,
@@ -101,13 +96,12 @@ function save() {
 
 watch(() => [props.task, props.index], resetDraft, { immediate: true })
 
-onMounted(() => {
-  document.addEventListener('click', handleClickOutside)
-})
-
-onUnmounted(() => {
-  document.removeEventListener('click', handleClickOutside)
-})
+useSafeOutsideClick(
+  () => [depDropdownRef.value],
+  () => {
+    isDepDropdownOpen.value = false
+  }
+)
 </script>
 
 <template>

@@ -6,6 +6,7 @@ import ModelManageModal from '@/components/agent/ModelManageModal.vue'
 import AgentSettingsDeleteDialog from '@/components/settings/agent-settings/AgentSettingsDeleteDialog.vue'
 import DetectedCliToolsBanner from '@/components/settings/agent-settings/DetectedCliToolsBanner.vue'
 import AgentSettingsTable from '@/components/settings/agent-settings/AgentSettingsTable.vue'
+import CliSettings from './CliSettings.vue'
 import { useAgentSettingsPage } from '@/components/settings/agent-settings/useAgentSettingsPage'
 
 const { t } = useI18n()
@@ -246,6 +247,8 @@ const {
       @delete="handleDelete"
       @page-change="goToPage"
     />
+
+    <CliSettings embedded />
 
     <!-- 配置表单弹框 -->
     <Teleport to="body">

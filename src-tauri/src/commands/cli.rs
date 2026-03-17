@@ -3,8 +3,9 @@ use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::process::Command;
 use uuid::Uuid;
+
+use crate::commands::cli_support::{find_cli_executables, get_cli_version};
 
 /// CLI 工具信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,88 +93,33 @@ fn get_scan_paths() -> Vec<PathBuf> {
     paths
 }
 
-/// 获取 Windows 下的可执行文件扩展名
-#[cfg(target_os = "windows")]
-fn get_executable_extensions() -> Vec<&'static str> {
-    vec![".exe", ".cmd", ".bat"]
-}
-
-#[cfg(not(target_os = "windows"))]
-fn get_executable_extensions() -> Vec<&'static str> {
-    vec![""]
-}
-
-/// 在指定路径中查找 CLI 可执行文件
-fn find_cli_in_path(dir: &PathBuf, cli_name: &str) -> Option<PathBuf> {
-    if !dir.exists() || !dir.is_dir() {
-        return None;
-    }
-
-    let extensions = get_executable_extensions();
-
-    for ext in extensions {
-        let file_name = if ext.is_empty() {
-            cli_name.to_string()
-        } else {
-            format!("{}{}", cli_name, ext)
-        };
-
-        let full_path = dir.join(&file_name);
-        if full_path.exists() && is_executable(&full_path) {
-            return Some(full_path);
-        }
-    }
-
-    None
-}
-
-/// 检查文件是否可执行
-#[cfg(unix)]
-fn is_executable(path: &PathBuf) -> bool {
-    use std::fs;
-    use std::os::unix::fs::PermissionsExt;
-    fs::metadata(path)
-        .map(|m| m.permissions().mode() & 0o111 != 0)
-        .unwrap_or(false)
-}
-
-#[cfg(windows)]
-fn is_executable(path: &PathBuf) -> bool {
-    path.exists()
-}
-
-/// 获取 CLI 版本号
-fn get_cli_version(cli_path: &PathBuf) -> Option<String> {
-    let output = Command::new(cli_path).arg("--version").output().ok()?;
-
-    if output.status.success() {
-        let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        Some(version)
-    } else {
-        None
-    }
-}
-
 /// 检测单个 CLI 工具
 fn detect_cli(cli_name: &str) -> CliTool {
     let scan_paths = get_scan_paths();
+    let mut first_invalid_match: Option<PathBuf> = None;
 
-    for dir in scan_paths {
-        if let Some(cli_path) = find_cli_in_path(&dir, cli_name) {
-            let version = get_cli_version(&cli_path);
-            let status = if version.is_some() {
-                CliStatus::Available
-            } else {
-                CliStatus::Error
-            };
-
+    for cli_path in find_cli_executables(cli_name, &scan_paths) {
+        if let Some(version) = get_cli_version(&cli_path) {
             return CliTool {
                 name: cli_name.to_string(),
                 path: cli_path.to_string_lossy().to_string(),
-                version,
-                status,
+                version: Some(version),
+                status: CliStatus::Available,
             };
         }
+
+        if first_invalid_match.is_none() {
+            first_invalid_match = Some(cli_path);
+        }
+    }
+
+    if let Some(cli_path) = first_invalid_match {
+        return CliTool {
+            name: cli_name.to_string(),
+            path: cli_path.to_string_lossy().to_string(),
+            version: None,
+            status: CliStatus::Error,
+        };
     }
 
     CliTool {

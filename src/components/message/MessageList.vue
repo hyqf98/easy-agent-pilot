@@ -17,6 +17,10 @@ const { t } = useI18n()
 const messageStore = useMessageStore()
 const sessionStore = useSessionStore()
 
+const props = defineProps<{
+  sessionId?: string
+}>()
+
 const emit = defineEmits<{
   retry: [message: Message]
   formSubmit: [formId: string, values: Record<string, unknown>]
@@ -48,8 +52,9 @@ const savedScrollHeight = ref(0)
 const showScrollToBottom = ref(false)
 
 const currentMessages = computed(() => {
-  if (!sessionStore.currentSessionId) return []
-  return messageStore.messagesBySession(sessionStore.currentSessionId)
+  const targetSessionId = props.sessionId || sessionStore.currentSessionId
+  if (!targetSessionId) return []
+  return messageStore.messagesBySession(targetSessionId)
 })
 
 const shouldVirtualize = computed(() => currentMessages.value.length > VIRTUALIZE_THRESHOLD)
@@ -70,8 +75,9 @@ const currentMessageSignature = computed(() => currentMessages.value
 
 // 获取当前会话的分页状态
 const currentPagination = computed(() => {
-  if (!sessionStore.currentSessionId) return null
-  return messageStore.getPagination(sessionStore.currentSessionId)
+  const targetSessionId = props.sessionId || sessionStore.currentSessionId
+  if (!targetSessionId) return null
+  return messageStore.getPagination(targetSessionId)
 })
 
 // 是否有更多历史消息
@@ -171,9 +177,10 @@ const handleScroll = () => {
     isUserAtBottom.value = checkIsAtBottom()
     showScrollToBottom.value = !isUserAtBottom.value
 
-    if (checkIsAtTop() && hasMoreMessages.value && !isLoadingMore.value && sessionStore.currentSessionId) {
+    const targetSessionId = props.sessionId || sessionStore.currentSessionId
+    if (checkIsAtTop() && hasMoreMessages.value && !isLoadingMore.value && targetSessionId) {
       savedScrollHeight.value = listRef.value?.scrollHeight ?? 0
-      void messageStore.loadMoreMessages(sessionStore.currentSessionId)
+      void messageStore.loadMoreMessages(targetSessionId)
     }
   })
 }
@@ -230,7 +237,7 @@ const bindMessageElement = (messageId: string, element: Element | null) => {
   resizeObservers.set(messageId, observer)
 }
 
-watch(() => sessionStore.currentSessionId, async (sessionId) => {
+watch(() => props.sessionId || sessionStore.currentSessionId, async (sessionId) => {
   if (sessionId) {
     isUserAtBottom.value = true
     previousMessageCount.value = 0
@@ -346,7 +353,7 @@ const handleOpenEditTrace = (messageId: string, traceId: string) => {
           v-for="message in currentMessages"
           :key="message.id"
           :message="message"
-          :session-id="sessionStore.currentSessionId || undefined"
+          :session-id="props.sessionId || sessionStore.currentSessionId || undefined"
           @retry="handleRetry"
           @form-submit="handleFormSubmit"
           @open-edit-trace="handleOpenEditTrace"
@@ -372,7 +379,7 @@ const handleOpenEditTrace = (messageId: string, traceId: string) => {
       >
         <MessageBubble
           :message="item.message"
-          :session-id="sessionStore.currentSessionId || undefined"
+          :session-id="props.sessionId || sessionStore.currentSessionId || undefined"
           @retry="handleRetry"
           @form-submit="handleFormSubmit"
           @open-edit-trace="handleOpenEditTrace"
@@ -454,10 +461,14 @@ const handleOpenEditTrace = (messageId: string, traceId: string) => {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  width: 100%;
+  min-width: 0;
 }
 
 .message-list__virtual-item {
   contain: layout style paint;
+  width: 100%;
+  min-width: 0;
 }
 
 .message-list__virtual-spacer {

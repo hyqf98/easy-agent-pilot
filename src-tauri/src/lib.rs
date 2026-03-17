@@ -15,7 +15,8 @@ pub fn run() {
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_dialog::init());
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build());
 
     // MCP Bridge 插件仅在调试模式下启用
     #[cfg(debug_assertions)]
@@ -161,6 +162,14 @@ pub fn run() {
             commands::message::clear_session_messages,
             commands::message::upload_session_images,
             commands::message::delete_uploaded_image,
+            commands::mini_panel::ensure_mini_panel_state,
+            commands::mini_panel::set_mini_panel_working_directory,
+            commands::mini_panel::get_mini_panel_default_shortcut,
+            commands::mini_panel::register_mini_panel_windows_shortcut,
+            commands::mini_panel::unregister_mini_panel_windows_shortcut,
+            commands::mini_panel::show_mini_panel,
+            commands::mini_panel::hide_mini_panel,
+            commands::mini_panel::toggle_mini_panel,
             commands::agent::list_agents,
             commands::agent::create_agent,
             commands::agent::update_agent,

@@ -6,6 +6,7 @@ import type { Message } from '@/stores/message'
 import { useMessageStore } from '@/stores/message'
 import { conversationService } from '@/services/conversation'
 import { EaIcon } from '@/components/common'
+import { FILE_MENTION_PATTERN, getMentionDisplayText } from '@/utils/fileMention'
 import StructuredContentRenderer from './StructuredContentRenderer.vue'
 import ToolCallDisplay from './ToolCallDisplay.vue'
 import ThinkingDisplay from './ThinkingDisplay.vue'
@@ -62,11 +63,12 @@ const processedUserMessage = computed(() => {
   const parts: MessagePart[] = []
 
   // 支持 @path 和 @"path with spaces" 两种文件引用格式
-  const regex = /@"([^"\n]+)"|@([^\s@"]+)/g
   let lastIndex = 0
-  let match
+  let match: RegExpExecArray | null
 
-  while ((match = regex.exec(content)) !== null) {
+  FILE_MENTION_PATTERN.lastIndex = 0
+
+  while ((match = FILE_MENTION_PATTERN.exec(content)) !== null) {
     // 添加 @ 之前的文本
     if (match.index > lastIndex) {
       parts.push({
@@ -78,7 +80,7 @@ const processedUserMessage = computed(() => {
     // 添加文件引用
     parts.push({
       type: 'file-mention',
-      content: match[1] ?? match[2] // 不包含 @ 符号
+      content: getMentionDisplayText(match[0], match[1] ?? match[2])
     })
 
     lastIndex = match.index + match[0].length
@@ -441,30 +443,38 @@ const getTraceChangeIcon = (changeType: 'create' | 'modify' | 'delete') => {
         {{ message.errorMessage }}
       </div>
     </div>
+    <div
+      v-if="isUser"
+      class="message-bubble__avatar message-bubble__avatar--user"
+    >
+      <span class="avatar-icon">🙂</span>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .message-bubble {
-  --assistant-body-width: 680px;
-  --assistant-body-max-width: min(calc(100vw - 240px), 680px);
-  --user-body-width: 560px;
-  --user-body-max-width: min(calc(100vw - 140px), 560px);
+  --message-min-width: 18rem;
+  --message-max-width: 30rem;
+  --message-max-height: 30rem;
+  --message-compact-max-width: 24rem;
+  --message-compact-max-height: 20rem;
+  --message-trace-max-width: 30rem;
   display: flex;
   flex-direction: row;
-  width: auto;
+  width: 100%;
   max-width: 100%;
   gap: var(--spacing-3);
 }
 
 .message-bubble--user {
-  margin-left: auto;
-  flex-direction: row-reverse;
+  justify-content: flex-end;
+  align-items: flex-start;
 }
 
 .message-bubble--assistant {
+  justify-content: flex-start;
   align-items: flex-start;
-  margin-right: auto;
 }
 
 /* AI 头像样式 */
@@ -480,6 +490,10 @@ const getTraceChangeIcon = (changeType: 'create' | 'modify' | 'delete') => {
   box-shadow: var(--shadow-sm);
 }
 
+.message-bubble__avatar--user {
+  background: linear-gradient(135deg, #60a5fa, #2563eb);
+}
+
 .avatar-icon {
   font-size: 16px;
 }
@@ -490,27 +504,31 @@ const getTraceChangeIcon = (changeType: 'create' | 'modify' | 'delete') => {
   flex-direction: column;
   gap: var(--spacing-2);
   min-width: 0;
-  width: 100%;
+  width: fit-content;
+  max-width: min(100%, var(--message-max-width));
   box-sizing: border-box;
 }
 
 .message-bubble--assistant .message-bubble__body {
-  width: var(--assistant-body-width);
-  max-width: var(--assistant-body-max-width);
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  align-items: flex-start;
 }
 
 .message-bubble--user .message-bubble__body {
-  width: var(--user-body-width);
-  max-width: var(--user-body-max-width);
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  align-items: flex-end;
 }
 
 /* 思考过程显示 */
 .message-bubble__thinking {
-  width: 100%;
-  min-width: 0;
+  width: var(--message-compact-max-width);
+  min-width: min(var(--message-min-width), var(--message-compact-max-width));
+  max-width: 100%;
+  max-height: var(--message-compact-max-height);
+  min-height: fit-content;
   animation: fadeSlideDown 0.3s ease-out;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
 }
 
 /* 消息内容 - 中间区域 */
@@ -519,15 +537,19 @@ const getTraceChangeIcon = (changeType: 'create' | 'modify' | 'delete') => {
   border-radius: var(--radius-lg);
   font-size: var(--font-size-sm);
   line-height: 1.6;
-  width: 100%;
-  min-width: 0;
+  width: fit-content;
+  min-width: min(var(--message-min-width), var(--message-compact-max-width));
+  max-width: min(100%, var(--message-max-width));
+  max-height: var(--message-max-height);
   box-sizing: border-box;
   animation: fadeIn 0.2s ease-out;
   overflow-wrap: anywhere;
+  overflow: auto;
 }
 
 /* AI 消息样式 */
 .message-bubble--assistant .message-bubble__content {
+  min-width: var(--message-compact-max-width);
   background-color: var(--color-bg-tertiary);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg) var(--radius-lg) var(--radius-lg) var(--radius-sm);
@@ -635,15 +657,20 @@ const getTraceChangeIcon = (changeType: 'create' | 'modify' | 'delete') => {
 
 /* 工具调用显示 - 底部区域，橙色渐变边框 */
 .message-bubble__tool-calls {
-  width: 100%;
-  min-width: 0;
+  width: var(--message-compact-max-width);
+  min-width: min(var(--message-min-width), var(--message-compact-max-width));
+  max-width: 100%;
+  max-height: var(--message-compact-max-height);
   display: flex;
   flex-direction: column;
   gap: var(--spacing-2);
+  overflow: hidden;
 }
 
 .message-bubble__trace-rail {
-  width: 100%;
+  width: fit-content;
+  min-width: var(--message-min-width);
+  max-width: min(100%, var(--message-trace-max-width));
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -914,8 +941,10 @@ const getTraceChangeIcon = (changeType: 'create' | 'modify' | 'delete') => {
   gap: var(--spacing-2);
   font-size: var(--font-size-xs);
   color: var(--color-text-tertiary);
+  width: 100%;
   padding: 0 var(--spacing-1);
   margin-top: var(--spacing-1);
+  box-sizing: border-box;
 }
 
 .message-bubble--user .message-bubble__meta {
@@ -1091,10 +1120,12 @@ const getTraceChangeIcon = (changeType: 'create' | 'modify' | 'delete') => {
 
 @media (max-width: 768px) {
   .message-bubble {
-    --assistant-body-width: min(100vw - 88px, 620px);
-    --assistant-body-max-width: min(100vw - 88px, 620px);
-    --user-body-width: min(86vw, 520px);
-    --user-body-max-width: min(86vw, 520px);
+    --message-min-width: min(100%, 14rem);
+    --message-max-width: min(calc(100vw - 104px), 22.5rem);
+    --message-max-height: 24rem;
+    --message-compact-max-width: min(calc(100vw - 104px), 20rem);
+    --message-compact-max-height: 16rem;
+    --message-trace-max-width: min(calc(100vw - 104px), 22rem);
     gap: var(--spacing-2);
   }
 

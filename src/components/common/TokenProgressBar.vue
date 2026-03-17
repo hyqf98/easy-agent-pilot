@@ -1,23 +1,11 @@
 <script setup lang="ts">
 /**
  * TokenProgressBar - Token 使用进度条组件
- * 显示当前会话 token 使用情况，支持压缩功能
+ * 显示当前会话 token 使用情况，点击可打开压缩弹框
  */
 import { computed, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
 import { useTokenStore, type TokenLevel, formatTokenCount } from '@/stores/token'
 import { useSessionStore } from '@/stores/session'
-import EaButton from './EaButton.vue'
-import EaIcon from './EaIcon.vue'
-
-export interface TokenProgressBarProps {
-  /** 是否显示压缩按钮 */
-  showCompressButton?: boolean
-}
-
-const props = withDefaults(defineProps<TokenProgressBarProps>(), {
-  showCompressButton: true
-})
 
 const emit = defineEmits<{
   (e: 'compress'): void
@@ -25,10 +13,11 @@ const emit = defineEmits<{
 
 const tokenStore = useTokenStore()
 const sessionStore = useSessionStore()
-const { t } = useI18n()
 
 // 是否显示 tooltip
 const showTooltip = ref(false)
+// tooltip 位置
+const tooltipPosition = ref({ top: 0, left: 0 })
 
 // 获取当前会话的 token 使用情况
 const tokenUsage = computed(() => {
@@ -46,11 +35,6 @@ const realtimeUsage = computed(() => {
   return tokenStore.realtimeTokens.get(sessionStore.currentSessionId) ?? null
 })
 
-// 是否显示压缩按钮 - 始终显示，允许用户随时手动压缩
-const shouldShowCompressButton = computed(() => {
-  return props.showCompressButton
-})
-
 // 进度条样式
 const progressStyle = computed(() => ({
   width: `${Math.min(100, tokenUsage.value.percentage)}%`
@@ -59,9 +43,31 @@ const progressStyle = computed(() => ({
 // 进度条级别类
 const levelClass = computed(() => `token-progress--${tokenUsage.value.level}`)
 
-// 处理压缩按钮点击
-function handleCompress() {
+// tooltip 样式
+const tooltipStyle = computed(() => ({
+  top: `${tooltipPosition.value.top}px`,
+  left: `${tooltipPosition.value.left}px`,
+  transform: 'translateX(-50%)'
+}))
+
+// 点击整个进度条触发压缩
+function handleClick() {
   emit('compress')
+}
+
+// 鼠标进入时计算 tooltip 位置
+function handleMouseEnter(event: MouseEvent) {
+  const target = event.currentTarget as HTMLElement
+  const rect = target.getBoundingClientRect()
+  tooltipPosition.value = {
+    top: rect.bottom + 8,
+    left: rect.left + rect.width / 2
+  }
+  showTooltip.value = true
+}
+
+function handleMouseLeave() {
+  showTooltip.value = false
 }
 </script>
 
@@ -69,24 +75,16 @@ function handleCompress() {
   <div
     class="token-progress"
     :class="levelClass"
-    @mouseenter="showTooltip = true"
-    @mouseleave="showTooltip = false"
+    @click="handleClick"
+    @mouseenter="handleMouseEnter"
+    @mouseleave="handleMouseLeave"
   >
-    <!-- 图标 -->
-    <EaIcon
-      name="activity"
-      :size="14"
-      class="token-progress__icon"
-    />
-
     <!-- 进度条 -->
     <div class="token-progress__bar">
       <div
         class="token-progress__fill"
         :style="progressStyle"
-      >
-        <div class="token-progress__shimmer" />
-      </div>
+      />
     </div>
 
     <!-- 百分比显示 -->
@@ -94,42 +92,33 @@ function handleCompress() {
       {{ Math.round(tokenUsage.percentage) }}%
     </span>
 
-    <!-- 压缩按钮 -->
-    <EaButton
-      v-if="shouldShowCompressButton"
-      type="ghost"
-      size="small"
-      class="token-progress__compress"
-      :title="t('token.compressTooltip')"
-      @click="handleCompress"
-    >
-      <EaIcon name="minimize-2" />
-    </EaButton>
-
-    <!-- Tooltip -->
-    <Transition name="fade">
-      <div
-        v-if="showTooltip"
-        class="token-progress__tooltip"
-      >
-        <div class="token-progress__tooltip-title">
-          {{
-            t('token.usageTooltip', {
-              used: formatTokenCount(tokenUsage.used),
-              limit: formatTokenCount(tokenUsage.limit)
-            })
-          }}
-        </div>
+    <!-- Tooltip - 使用 Teleport 渲染到 body -->
+    <Teleport to="body">
+      <Transition name="fade">
         <div
-          v-if="realtimeUsage"
-          class="token-progress__tooltip-breakdown"
+          v-if="showTooltip"
+          class="token-progress__tooltip"
+          :style="tooltipStyle"
         >
-          <span>输入 {{ formatTokenCount(realtimeUsage.inputTokens) }}</span>
-          <span>输出 {{ formatTokenCount(realtimeUsage.outputTokens) }}</span>
-          <span v-if="realtimeUsage.model">{{ realtimeUsage.model }}</span>
+          <div class="token-progress__tooltip-row">
+            <span class="token-progress__tooltip-label">Token 用量</span>
+            <span class="token-progress__tooltip-value">
+              {{ formatTokenCount(tokenUsage.used) }} / {{ formatTokenCount(tokenUsage.limit) }}
+            </span>
+          </div>
+          <div
+            v-if="realtimeUsage"
+            class="token-progress__tooltip-breakdown"
+          >
+            <span>输入 {{ formatTokenCount(realtimeUsage.inputTokens) }}</span>
+            <span>输出 {{ formatTokenCount(realtimeUsage.outputTokens) }}</span>
+          </div>
+          <div class="token-progress__tooltip-hint">
+            点击压缩上下文
+          </div>
         </div>
-      </div>
-    </Transition>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -137,136 +126,84 @@ function handleCompress() {
 .token-progress {
   display: flex;
   align-items: center;
-  gap: var(--spacing-2);
+  gap: 10px;
   position: relative;
-  padding: var(--spacing-1) var(--spacing-3);
-  border-radius: var(--radius-lg);
-  background-color: var(--color-surface-hover);
-  border: 1px solid var(--color-border);
-  cursor: default;
-  min-width: 200px;
+  padding: 6px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  user-select: none;
   transition: all var(--transition-fast);
 }
 
 .token-progress:hover {
-  border-color: var(--color-primary-light);
-  box-shadow: 0 0 8px rgba(var(--color-primary-rgb, 59, 130, 246), 0.15);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
 }
 
-.token-progress__icon {
-  color: var(--color-text-tertiary);
-  flex-shrink: 0;
+.token-progress:active {
+  transform: translateY(0);
+  opacity: 0.9;
 }
 
-/* 不同级别的图标颜色 */
-.token-progress--safe .token-progress__icon {
-  color: var(--color-primary);
+[data-theme='dark'] .token-progress {
+  background: rgba(30, 41, 59, 0.85);
+  border-color: rgba(255, 255, 255, 0.08);
 }
 
-.token-progress--warning .token-progress__icon {
-  color: var(--color-warning);
-}
-
-.token-progress--danger .token-progress__icon {
-  color: var(--color-orange-500, #f97316);
-}
-
-.token-progress--critical .token-progress__icon {
-  color: var(--color-error);
-  animation: pulse-icon 1s ease-in-out infinite;
-}
-
-@keyframes pulse-icon {
-  0%, 100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.6;
-    transform: scale(0.9);
-  }
+[data-theme='dark'] .token-progress:hover {
+  background: rgba(30, 41, 59, 0.92);
 }
 
 .token-progress__bar {
   flex: 1;
-  height: 8px;
+  height: 6px;
   background-color: var(--color-bg-tertiary);
-  border-radius: var(--radius-full);
+  border-radius: 3px;
   overflow: hidden;
   min-width: 120px;
-  position: relative;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 .token-progress__fill {
   height: 100%;
-  border-radius: var(--radius-full);
-  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  overflow: hidden;
+  border-radius: 3px;
+  transition: width 0.4s ease;
 }
 
-/* 流光动画 */
-.token-progress__shimmer {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.3) 50%,
-    transparent 100%
-  );
-  animation: shimmer 2s infinite;
-}
-
-@keyframes shimmer {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(100%);
-  }
-}
-
-/* 级别颜色 - 渐变效果 */
+/* 级别颜色 */
 .token-progress--safe .token-progress__fill {
-  background: linear-gradient(90deg, var(--color-primary), var(--color-primary-light, #60a5fa));
-  box-shadow: 0 0 8px var(--color-primary);
+  background: var(--color-primary);
 }
 
 .token-progress--warning .token-progress__fill {
-  background: linear-gradient(90deg, var(--color-warning), #fbbf24);
-  box-shadow: 0 0 8px var(--color-warning);
+  background: var(--color-warning);
 }
 
 .token-progress--danger .token-progress__fill {
-  background: linear-gradient(90deg, var(--color-orange-500, #f97316), #fb923c);
-  box-shadow: 0 0 10px var(--color-orange-500, #f97316);
+  background: var(--color-orange-500, #f97316);
 }
 
 .token-progress--critical .token-progress__fill {
-  background: linear-gradient(90deg, var(--color-error), #f87171);
-  box-shadow: 0 0 12px var(--color-error);
+  background: var(--color-error);
   animation: pulse-fill 0.8s ease-in-out infinite;
 }
 
 @keyframes pulse-fill {
   0%, 100% {
     opacity: 1;
-    filter: brightness(1);
   }
   50% {
-    opacity: 0.85;
-    filter: brightness(1.2);
+    opacity: 0.7;
   }
 }
 
 .token-progress__text {
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
+  font-size: 12px;
+  font-weight: 600;
   color: var(--color-text-secondary);
   min-width: 36px;
   text-align: right;
@@ -288,48 +225,56 @@ function handleCompress() {
 
 .token-progress--critical .token-progress__text {
   color: var(--color-error);
-  animation: pulse-text 0.8s ease-in-out infinite;
-}
-
-@keyframes pulse-text {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.7;
-  }
-}
-
-.token-progress__compress {
-  padding: 2px !important;
-  min-height: auto !important;
 }
 
 .token-progress__tooltip {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
-  padding: var(--spacing-1) var(--spacing-2);
-  background-color: var(--color-surface-active);
+  position: fixed;
+  padding: 6px 10px;
+  background-color: var(--color-surface-elevated);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
+  font-size: 11px;
+  color: var(--color-text-primary);
   white-space: nowrap;
-  z-index: var(--z-tooltip);
-  box-shadow: var(--shadow-md);
+  z-index: 9999;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
 }
 
-.token-progress__tooltip-title {
+.token-progress__tooltip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.token-progress__tooltip-label {
+  color: var(--color-text-secondary);
+  font-size: 10px;
+}
+
+.token-progress__tooltip-value {
   font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  font-size: 11px;
 }
 
 .token-progress__tooltip-breakdown {
   display: flex;
-  flex-wrap: wrap;
   gap: 8px;
+  margin-top: 3px;
+  padding-top: 3px;
+  border-top: 1px solid var(--color-border-light);
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+}
+
+.token-progress__tooltip-hint {
   margin-top: 4px;
+  padding-top: 3px;
+  border-top: 1px solid var(--color-border-light);
+  color: var(--color-primary);
+  font-size: 9px;
+  text-align: center;
 }
 
 /* Fade transition */

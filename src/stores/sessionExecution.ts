@@ -6,9 +6,17 @@ export interface PendingImageAttachment extends MessageAttachment {
   previewUrl: string
 }
 
+export interface ComposerFileMention {
+  id: string
+  displayText: string
+  fullPath: string
+  titleText: string
+}
+
 export interface QueuedMessageDraft {
   id: string
   content: string
+  displayContent?: string
   attachments: MessageAttachment[]
   agentId: string
   createdAt: string
@@ -22,6 +30,8 @@ export interface QueuedMessageDraft {
 export interface SessionExecutionState {
   /** 输入框内容 */
   inputText: string
+  /** 输入框中的文件引用映射 */
+  fileMentions: ComposerFileMention[]
   /** 待发送图片 */
   pendingImages: PendingImageAttachment[]
   /** 是否正在上传图片 */
@@ -114,6 +124,7 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
   function createDefaultState(): SessionExecutionState {
     return {
       inputText: '',
+      fileMentions: [],
       pendingImages: [],
       isUploadingImages: false,
       isSending: false,
@@ -130,6 +141,15 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
   function setInputText(sessionId: string, text: string) {
     const state = getExecutionState(sessionId)
     state.inputText = text
+  }
+
+  function getFileMentions(sessionId: string) {
+    return getExecutionState(sessionId).fileMentions
+  }
+
+  function setFileMentions(sessionId: string, mentions: ComposerFileMention[]) {
+    const state = getExecutionState(sessionId)
+    state.fileMentions = mentions
   }
 
   function setPendingImages(sessionId: string, images: PendingImageAttachment[]) {
@@ -360,6 +380,7 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
 
     // Getters
     getInputText,
+    getFileMentions,
     getPendingImages,
     getQueuedMessages,
     getIsUploadingImages,
@@ -371,6 +392,7 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
     // Actions
     getExecutionState,
     setInputText,
+    setFileMentions,
     setPendingImages,
     appendPendingImages,
     removePendingImage,

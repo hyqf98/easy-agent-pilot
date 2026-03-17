@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { watch } from 'vue'
+import { useOverlayDismiss } from '@/composables/useOverlayDismiss'
 
 const props = defineProps<{
   visible: boolean
@@ -23,6 +24,8 @@ watch(() => props.visible, (newVal) => {
 function close() {
   emit('update:visible', false)
 }
+
+const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(close)
 </script>
 
 <template>
@@ -31,7 +34,8 @@ function close() {
       v-if="visible"
       class="ea-modal-overlay"
       :class="overlayClass"
-      @click.self="close"
+      @pointerdown.capture="handleOverlayPointerDown"
+      @click.self="handleOverlayClick"
     >
       <div
         class="ea-modal"

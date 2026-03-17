@@ -1,20 +1,31 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch, type ComponentPublicInstance } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { convertFileSrc } from '@tauri-apps/api/core'
 import { EaIcon } from '@/components/common'
-import { MessageList } from '@/components/message'
-import CompressionConfirmDialog from '@/components/common/CompressionConfirmDialog.vue'
 import TokenProgressBar from '@/components/common/TokenProgressBar.vue'
-import type { Message } from '@/stores/message'
+import CompressionConfirmDialog from '@/components/common/CompressionConfirmDialog.vue'
+import { MessageList } from '@/components/message'
+import type { Message, MessageAttachment } from '@/stores/message'
 import { useSessionStore } from '@/stores/session'
 import { useMessageStore } from '@/stores/message'
 import { useAiEditTraceStore } from '@/stores/aiEditTrace'
 import { useLayoutStore } from '@/stores/layout'
 import { useSessionExecutionStore } from '@/stores/sessionExecution'
-import { useMessageComposer } from '@/composables'
-import FileMentionDropdown from './FileMentionDropdown.vue'
+import { useTokenStore, type CompressionStrategy } from '@/stores/token'
+import { useNotificationStore } from '@/stores/notification'
+import { useAgentStore } from '@/stores/agent'
+import { compressionService } from '@/services/compression'
+import { resolveSessionAgentId } from '@/utils/sessionAgent'
+import { useOverlayDismiss } from '@/composables/useOverlayDismiss'
 import AiEditTracePane from './AiEditTracePane.vue'
 import PanelResizer from './PanelResizer.vue'
+import ConversationComposer from './ConversationComposer.vue'
+
+type ComposerExposed = ComponentPublicInstance & {
+  focusInput: () => void
+  handleMessageFormSubmit: (formId: string, values: Record<string, unknown>) => Promise<void>
+}
 
 const { t } = useI18n()
 const sessionStore = useSessionStore()
@@ -22,14 +33,27 @@ const messageStore = useMessageStore()
 const aiEditTraceStore = useAiEditTraceStore()
 const layoutStore = useLayoutStore()
 const sessionExecutionStore = useSessionExecutionStore()
+const tokenStore = useTokenStore()
+const notificationStore = useNotificationStore()
+
+// 压缩相关状态
+const showCompressionDialog = ref(false)
+const isCompressing = ref(false)
+
 const isMobileViewport = ref(false)
 const lastObservedTraceId = ref<string | null>(null)
 const workspaceRef = ref<HTMLElement | null>(null)
+const composerRef = ref<ComposerExposed | null>(null)
 const traceHistoryLoadToken = ref(0)
 
 const TRACE_PANE_MIN_WIDTH = 460
 const TRACE_PANE_MAX_WIDTH = 1080
 const CONVERSATION_MIN_WIDTH = 360
+
+const toPendingImages = (attachments: MessageAttachment[]) => attachments.map(attachment => ({
+  ...attachment,
+  previewUrl: convertFileSrc(attachment.path)
+}))
 
 const updateViewportMode = () => {
   isMobileViewport.value = window.innerWidth < 960
@@ -41,72 +65,16 @@ const updateViewportMode = () => {
 
   aiEditTraceStore.setPaneWidth(sessionId, clampTracePaneWidth(currentTraceState.value.paneWidth))
 }
-const {
-  agentDropdownRef,
-  agentOptions,
-  closeFileMention,
-  currentAgent,
-  currentAgentId,
-  currentAgentName,
-  fileMentionPosition,
-  fileInputRef,
-  getModelLabel,
-  handleCancelCompress,
-  handleConfirmCompress,
-  handleFileSelect,
-  handleImageFileChange,
-  handleInput,
-  handleKeyDown,
-  handleMessageFormSubmit,
-  handleOpenCompress,
-  handlePaste,
-  handleSend,
-  inputPlaceholder,
-  inputText,
-  isAgentDropdownOpen,
-  isCompressing,
-  isModelDropdownOpen,
-  isSending,
-  isUploadingImages,
-  mentionSearchText,
-  mentionStart,
-  modelDropdownRef,
-  openImagePicker,
-  parsedInputText,
-  pendingImages,
-  queuedMessages,
-  presetModelOptions,
-  renderLayerRef,
-  removeImage,
-  removeQueuedMessage,
-  restorePendingImages,
-  retryQueuedMessage,
-  selectedModelId,
-  selectAgent,
-  selectModel,
-  shouldShowCompressButton,
-  showCompressionDialog,
-  showFileMention,
-  syncScroll,
-  textareaRef,
-  toggleAgentDropdown,
-  toggleModelDropdown,
-  tokenUsage,
-  messageCount,
-  buildQueuedMessagePreview
-} = useMessageComposer()
-
 // 处理消息重试
 const handleRetry = async (message: Message) => {
   const sessionId = sessionStore.currentSessionId
-  if (!sessionId || isSending.value) return
+  const isSending = sessionId ? sessionExecutionStore.getIsSending(sessionId) : false
+  if (!sessionId || isSending) return
 
   // 如果是用户消息的重试，将内容填回输入框
   if (message.role === 'user') {
-    inputText.value = message.content
-    restorePendingImages(message.attachments ?? [])
-    await nextTick()
-    textareaRef.value?.focus()
+    sessionExecutionStore.setInputText(sessionId, message.content)
+    sessionExecutionStore.setPendingImages(sessionId, toPendingImages(message.attachments ?? []))
     return
   }
 
@@ -119,15 +87,8 @@ const handleRetry = async (message: Message) => {
     // 找到这条 AI 消息之前的用户消息
     for (let i = messageIndex - 1; i >= 0; i--) {
       if (messages[i].role === 'user') {
-        // 删除 AI 消息
-        await messageStore.deleteMessage(message.id)
-        // 将用户消息内容填入输入框并重新发送
-        inputText.value = messages[i].content
-        restorePendingImages(messages[i].attachments ?? [])
-        // 删除用户消息
-        await messageStore.deleteMessage(messages[i].id)
-        // 重新发送
-        await handleSend()
+        sessionExecutionStore.setInputText(sessionId, messages[i].content)
+        sessionExecutionStore.setPendingImages(sessionId, toPendingImages(messages[i].attachments ?? []))
         return
       }
     }
@@ -192,6 +153,22 @@ const ensureTraceHistoryLoaded = async (sessionId: string) => {
 
 const hasTraceContent = computed(() => currentEditTraces.value.length > 0)
 
+// Token 使用情况
+const currentTokenUsage = computed(() => {
+  const sessionId = sessionStore.currentSessionId
+  if (!sessionId) {
+    return { used: 0, limit: 128000, percentage: 0, level: 'safe' as const }
+  }
+  return tokenStore.getTokenUsage(sessionId)
+})
+
+// 当前会话消息数量
+const currentMessageCount = computed(() => {
+  const sessionId = sessionStore.currentSessionId
+  if (!sessionId) return 0
+  return messageStore.messagesBySession(sessionId).length
+})
+
 const showDesktopTraceHandle = computed(() =>
   Boolean(
     sessionStore.currentSessionId &&
@@ -240,6 +217,11 @@ const handleHideTracePane = () => {
   aiEditTraceStore.hidePane(sessionStore.currentSessionId)
 }
 
+const {
+  handleOverlayPointerDown: handleTraceOverlayPointerDown,
+  handleOverlayClick: handleTraceOverlayClick
+} = useOverlayDismiss(handleHideTracePane)
+
 const handleShowTracePane = () => {
   if (!sessionStore.currentSessionId) {
     return
@@ -284,6 +266,57 @@ const handleComposerFocus = () => {
   }
 
   aiEditTraceStore.closeMobileDrawer(sessionStore.currentSessionId)
+}
+
+// 压缩处理
+const handleOpenCompress = () => {
+  showCompressionDialog.value = true
+}
+
+const handleConfirmCompress = async (strategy: CompressionStrategy) => {
+  const sessionId = sessionStore.currentSessionId
+  if (!sessionId) return
+
+  // 获取当前会话的 agentId
+  const session = sessionStore.currentSession
+  const agentStore = useAgentStore()
+  const agentId = resolveSessionAgentId(session, agentStore.agents)
+
+  if (!agentId) {
+    notificationStore.smartError('压缩会话', new Error('无法获取智能体信息'))
+    showCompressionDialog.value = false
+    return
+  }
+
+  showCompressionDialog.value = false
+  isCompressing.value = true
+
+  try {
+    const result = await compressionService.compressSession(
+      sessionId,
+      agentId,
+      { strategy }
+    )
+
+    if (result.success) {
+      notificationStore.success(t('compression.success'))
+    } else {
+      notificationStore.error(t('compression.failed'), result.error)
+    }
+  } catch (error) {
+    notificationStore.smartError('压缩失败', error instanceof Error ? error : new Error(String(error)))
+  } finally {
+    isCompressing.value = false
+    showCompressionDialog.value = false
+  }
+}
+
+const handleCancelCompress = () => {
+  showCompressionDialog.value = false
+}
+
+const handleMessageFormSubmit = async (formId: string, values: Record<string, unknown>) => {
+  await composerRef.value?.handleMessageFormSubmit(formId, values)
 }
 
 watch(() => sessionStore.currentSessionId, (sessionId) => {
@@ -465,6 +498,14 @@ onUnmounted(() => {
           class="message-area__conversation"
           :class="{ 'message-area__conversation--trace-active': showDesktopTracePane }"
         >
+          <!-- Token 进度条 - 固定在会话面板顶部 -->
+          <div class="message-area__token-bar">
+            <TokenProgressBar
+              :show-compress-button="true"
+              @compress="handleOpenCompress"
+            />
+          </div>
+
           <MessageList
             class="message-area__list"
             @retry="handleRetry"
@@ -472,325 +513,13 @@ onUnmounted(() => {
             @open-edit-trace="handleOpenEditTrace"
           />
 
-          <!-- 底部输入区域 -->
-          <div class="message-area__bottom">
-            <!-- Todo 待办 + Token 进度条（同一行） -->
-            <div class="bottom-status-bar">
-              <div class="bottom-status-bar__left">
-                <div
-                  v-if="queuedMessages.length > 0"
-                  class="bottom-status-bar__queue-pill"
-                >
-                  <EaIcon
-                    name="clock-3"
-                    :size="12"
-                  />
-                  <span>{{ t('message.queueCount', { count: queuedMessages.length }) }}</span>
-                </div>
-              </div>
-              <div class="bottom-status-bar__center">
-                <TokenProgressBar
-                  :show-compress-button="true"
-                  @compress="handleOpenCompress"
-                />
-              </div>
-              <div class="bottom-status-bar__right" />
-            </div>
-
-            <!-- 输入框容器 -->
-            <div class="message-input">
-              <!-- 顶部工具栏：智能体选择器 + MCP工具选择器 -->
-              <div class="message-input__toolbar message-input__toolbar--top">
-                <!-- 智能体选择器 -->
-                <div
-                  ref="agentDropdownRef"
-                  class="input-chip"
-                  :class="{ 'input-chip--open': isAgentDropdownOpen }"
-                >
-                  <button
-                    class="input-chip__btn"
-                    @click="toggleAgentDropdown"
-                  >
-                    <EaIcon
-                      :name="currentAgent?.type === 'cli' ? 'terminal' : 'code'"
-                      :size="12"
-                    />
-                    <span>{{ currentAgentName }}</span>
-                    <EaIcon
-                      :name="isAgentDropdownOpen ? 'chevron-up' : 'chevron-down'"
-                      :size="10"
-                    />
-                  </button>
-                  <Transition name="dropdown">
-                    <div
-                      v-if="isAgentDropdownOpen"
-                      class="input-chip__menu"
-                    >
-                      <div
-                        v-for="option in agentOptions"
-                        :key="option.value"
-                        class="input-chip__option"
-                        :class="{ 'input-chip__option--selected': option.value === currentAgentId }"
-                        @click="selectAgent(option.value)"
-                      >
-                        <EaIcon
-                          :name="option.type === 'cli' ? 'terminal' : 'code'"
-                          :size="12"
-                        />
-                        <span>{{ option.label }}</span>
-                        <span class="input-chip__tag">{{ option.type === 'cli' ? 'CLI' : 'SDK' }}</span>
-                      </div>
-                      <div
-                        v-if="agentOptions.length === 0"
-                        class="input-chip__empty"
-                      >
-                        {{ t('settings.agentConfig.noAgents') }}
-                      </div>
-                    </div>
-                  </Transition>
-                </div>
-              </div>
-
-              <!-- 输入框容器 -->
-              <input
-                ref="fileInputRef"
-                type="file"
-                class="message-input__file-input"
-                accept="image/*"
-                multiple
-                @change="handleImageFileChange"
-              >
-
-              <div
-                v-if="pendingImages.length > 0"
-                class="message-input__attachments"
-              >
-                <div
-                  v-for="image in pendingImages"
-                  :key="image.id"
-                  class="message-input__attachment"
-                >
-                  <img
-                    :src="image.previewUrl"
-                    :alt="image.name"
-                    class="message-input__attachment-image"
-                  >
-                  <button
-                    class="message-input__attachment-remove"
-                    :title="t('message.removeImage')"
-                    @click="removeImage(image.id)"
-                  >
-                    <EaIcon
-                      name="x"
-                      :size="12"
-                    />
-                  </button>
-                </div>
-              </div>
-
-              <div
-                v-if="queuedMessages.length > 0"
-                class="message-input__queue"
-              >
-                <div class="message-input__queue-header">
-                  <div class="message-input__queue-title">
-                    <EaIcon
-                      name="clock-3"
-                      :size="13"
-                    />
-                    <span>{{ t('message.pendingQueueTitle') }}</span>
-                  </div>
-                  <span class="message-input__queue-count">{{ queuedMessages.length }}</span>
-                </div>
-
-                <div class="message-input__queue-list">
-                  <div
-                    v-for="(draft, index) in queuedMessages"
-                    :key="draft.id"
-                    class="message-input__queue-item"
-                    :class="{
-                      'message-input__queue-item--failed': draft.status === 'failed'
-                    }"
-                  >
-                    <div class="message-input__queue-order">
-                      {{ index + 1 }}
-                    </div>
-                    <div class="message-input__queue-body">
-                      <div class="message-input__queue-row">
-                        <span class="message-input__queue-status">
-                          {{ draft.status === 'failed' ? t('message.pendingFailed') : t('message.pendingLabel') }}
-                        </span>
-                        <span
-                          v-if="draft.attachments.length > 0"
-                          class="message-input__queue-images"
-                        >
-                          {{ t('message.queueImages', { count: draft.attachments.length }) }}
-                        </span>
-                      </div>
-                      <div class="message-input__queue-preview">
-                        {{ buildQueuedMessagePreview(draft) || t('message.pendingEmpty') }}
-                      </div>
-                      <div
-                        v-if="draft.status === 'failed' && draft.errorMessage"
-                        class="message-input__queue-error"
-                      >
-                        {{ draft.errorMessage }}
-                      </div>
-                    </div>
-                    <div class="message-input__queue-actions">
-                      <button
-                        v-if="draft.status === 'failed'"
-                        class="message-input__queue-action"
-                        :title="t('common.retry')"
-                        @click="retryQueuedMessage(draft.id)"
-                      >
-                        <EaIcon
-                          name="refresh-cw"
-                          :size="12"
-                        />
-                      </button>
-                      <button
-                        class="message-input__queue-action"
-                        :title="t('common.delete')"
-                        @click="removeQueuedMessage(draft.id)"
-                      >
-                        <EaIcon
-                          name="x"
-                          :size="12"
-                        />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="message-input__editor">
-                <!-- 渲染层 - 显示带样式的文件标签 -->
-                <div
-                  ref="renderLayerRef"
-                  class="message-input__render"
-                >
-                  <template v-if="parsedInputText.length > 0">
-                    <template
-                      v-for="(segment, index) in parsedInputText"
-                      :key="index"
-                    >
-                      <span
-                        v-if="segment.type === 'text'"
-                        class="message-input__text"
-                      >{{ segment.content }}</span>
-                      <span
-                        v-else
-                        class="message-input__file-tag"
-                        :title="segment.fullPath"
-                      >@{{ segment.fullPath }}</span>
-                    </template>
-                  </template>
-                  <span
-                    v-else-if="!inputText"
-                    class="message-input__placeholder"
-                  >{{ inputPlaceholder }}</span>
-                </div>
-                <!-- 输入层 - 透明的 textarea -->
-                <textarea
-                  ref="textareaRef"
-                  v-model="inputText"
-                  class="message-input__textarea"
-                  rows="4"
-                  :disabled="!sessionStore.currentSessionId"
-                  @input="handleInput"
-                  @keydown="handleKeyDown"
-                  @paste="handlePaste"
-                  @scroll="syncScroll"
-                  @focus="handleComposerFocus"
-                />
-              </div>
-
-              <!-- 底部工具栏：模型选择器 -->
-              <div class="message-input__toolbar message-input__toolbar--bottom">
-                <div class="message-input__toolbar-section">
-                  <button
-                    class="input-chip__btn"
-                    :disabled="isUploadingImages"
-                    @click="openImagePicker"
-                  >
-                    <EaIcon
-                      name="image-plus"
-                      :size="12"
-                    />
-                    <span>{{ t('message.selectImages') }}</span>
-                  </button>
-                  <span
-                    v-if="isUploadingImages"
-                    class="message-input__uploading"
-                  >
-                    {{ t('message.uploadingImages') }}
-                  </span>
-                </div>
-
-                <div class="message-input__toolbar-section message-input__toolbar-section--right">
-                  <!-- 压缩按钮 -->
-                  <button
-                    v-if="shouldShowCompressButton"
-                    class="input-chip__btn input-chip__btn--compress"
-                    :disabled="isCompressing || isSending"
-                    @click="handleOpenCompress"
-                  >
-                    <EaIcon
-                      name="archive"
-                      :size="12"
-                      :class="{ 'input-chip__icon--loading': isCompressing }"
-                    />
-                    <span>{{ isCompressing ? t('compression.processing') : t('token.compress') }}</span>
-                  </button>
-
-                  <div
-                    v-if="currentAgent"
-                    ref="modelDropdownRef"
-                    class="input-chip"
-                    :class="{ 'input-chip--open': isModelDropdownOpen }"
-                  >
-                    <button
-                      class="input-chip__btn"
-                      @click="toggleModelDropdown"
-                    >
-                      <EaIcon
-                        name="cpu"
-                        :size="12"
-                      />
-                      <span>{{ getModelLabel(selectedModelId) }}</span>
-                      <EaIcon
-                        :name="isModelDropdownOpen ? 'chevron-up' : 'chevron-down'"
-                        :size="10"
-                      />
-                    </button>
-                    <Transition name="dropdown">
-                      <div
-                        v-if="isModelDropdownOpen"
-                        class="input-chip__menu input-chip__menu--right"
-                      >
-                        <div
-                          v-for="model in presetModelOptions"
-                          :key="model.value"
-                          class="input-chip__option"
-                          :class="{ 'input-chip__option--selected': model.value === selectedModelId }"
-                          @click="selectModel(model.value)"
-                        >
-                          {{ model.label }}
-                        </div>
-                        <div
-                          v-if="presetModelOptions.length === 0"
-                          class="input-chip__empty"
-                        >
-                          {{ t('settings.agent.selectModel') }}
-                        </div>
-                      </div>
-                    </Transition>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <ConversationComposer
+            ref="composerRef"
+            :session-id="sessionStore.currentSessionId"
+            panel-type="main"
+            @focus="handleComposerFocus"
+            @open-compress="handleOpenCompress"
+          />
         </div>
       </div>
 
@@ -798,7 +527,8 @@ onUnmounted(() => {
         <div
           v-if="showMobileTraceDrawer"
           class="message-area__trace-drawer-backdrop"
-          @click.self="handleHideTracePane"
+          @pointerdown.capture="handleTraceOverlayPointerDown"
+          @click.self="handleTraceOverlayClick"
         >
           <div class="message-area__trace-drawer">
             <AiEditTracePane
@@ -850,21 +580,11 @@ onUnmounted(() => {
     <!-- 压缩确认对话框 -->
     <CompressionConfirmDialog
       v-model:visible="showCompressionDialog"
-      :token-usage="tokenUsage"
-      :message-count="messageCount"
+      :token-usage="currentTokenUsage"
+      :message-count="currentMessageCount"
       :loading="isCompressing"
       @confirm="handleConfirmCompress"
       @cancel="handleCancelCompress"
-    />
-
-    <!-- 文件引用选择器 -->
-    <FileMentionDropdown
-      :visible="showFileMention"
-      :position="fileMentionPosition"
-      :search-text="mentionSearchText"
-      :mention-start="mentionStart"
-      @select="handleFileSelect"
-      @close="closeFileMention"
     />
   </div>
 </template>
@@ -926,6 +646,15 @@ onUnmounted(() => {
   min-width: 0;
   min-height: 0;
   position: relative;
+}
+
+/* Token 进度条 - 悬浮在会话面板顶部 */
+.message-area__token-bar {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
 }
 
 .message-area__conversation--trace-active {

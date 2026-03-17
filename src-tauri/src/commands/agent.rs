@@ -344,7 +344,7 @@ pub async fn test_agent_connection(id: String) -> Result<TestResult, String> {
 
 /// 测试 CLI 连接
 async fn test_cli_connection(agent: &Agent) -> (bool, String) {
-    use std::process::Command;
+    use crate::commands::cli_support::get_cli_version;
 
     let cli_path = match &agent.cli_path {
         Some(path) => path,
@@ -357,20 +357,9 @@ async fn test_cli_connection(agent: &Agent) -> (bool, String) {
         return (false, format!("CLI 路径不存在: {}", cli_path));
     }
 
-    // 尝试执行 --version 命令
-    let output = Command::new(cli_path).arg("--version").output();
-
-    match output {
-        Ok(output) => {
-            if output.status.success() {
-                let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                (true, format!("连接成功: {}", version))
-            } else {
-                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                (false, format!("CLI 执行失败: {}", stderr))
-            }
-        }
-        Err(e) => (false, format!("无法执行 CLI: {}", e)),
+    match get_cli_version(path) {
+        Some(version) => (true, format!("连接成功: {}", version)),
+        None => (false, "CLI 执行失败: 无法获取版本信息".to_string()),
     }
 }
 

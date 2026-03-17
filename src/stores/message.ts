@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useNotificationStore } from './notification'
+import { useSessionStore } from './session'
 import { getErrorMessage } from '@/utils/api'
 import type { CompressionStrategy } from './token'
 import type { FileEditTrace } from '@/types/fileTrace'
@@ -507,6 +508,14 @@ export const useMessageStore = defineStore('message', () => {
     try {
       await invoke('clear_session_messages', { sessionId })
       messages.value = messages.value.filter(m => m.sessionId !== sessionId)
+      pagination.value.delete(sessionId)
+
+      const sessionStore = useSessionStore()
+      const session = sessionStore.sessions.find(item => item.id === sessionId)
+      if (session) {
+        session.lastMessage = undefined
+        session.messageCount = 0
+      }
     } catch (error) {
       console.error('Failed to clear session messages:', error)
       notificationStore.databaseError(

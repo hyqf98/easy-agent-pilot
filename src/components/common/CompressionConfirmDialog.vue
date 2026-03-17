@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EaIcon } from '@/components/common'
+import { useOverlayDismiss } from '@/composables/useOverlayDismiss'
 import { formatTokenCount } from '@/stores/token'
 import type { TokenUsage } from '@/stores/token'
 import type { CompressionStrategy } from '@/stores/token'
@@ -51,6 +52,8 @@ const handleClose = () => {
   }
 }
 
+const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(handleClose)
+
 // 确认压缩
 const handleConfirm = () => {
   emit('confirm', selectedStrategy.value)
@@ -63,7 +66,8 @@ const handleConfirm = () => {
       <div
         v-if="visible"
         class="modal-overlay"
-        @click.self="handleClose"
+        @pointerdown.capture="handleOverlayPointerDown"
+        @click.self="handleOverlayClick"
       >
         <div class="modal-container">
           <!-- 标题 -->

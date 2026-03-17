@@ -6,6 +6,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri_plugin_opener::OpenerExt;
 
+use crate::commands::cli_support::resolve_cli_name;
+
 /// CLI 能力信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -69,22 +71,6 @@ pub struct McpConfigUpdateInput {
     pub disabled: bool,
 }
 
-fn resolve_cli_name(cli_path: &str, cli_type_hint: Option<&str>) -> String {
-    if let Some(hint) = cli_type_hint {
-        let normalized = hint.trim().to_lowercase();
-        if matches!(normalized.as_str(), "claude" | "claude-code" | "codex" | "qwen" | "qwen-code")
-        {
-            return normalized;
-        }
-    }
-
-    std::path::Path::new(cli_path)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("claude")
-        .to_lowercase()
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CliSyncConfigType {
@@ -128,7 +114,9 @@ pub struct CliSyncResult {
     pub failed_items: Vec<CliSyncItemIssue>,
 }
 
-fn parse_mcp_servers_from_toml(toml_value: &toml::Value) -> Option<HashMap<String, McpServerConfig>> {
+fn parse_mcp_servers_from_toml(
+    toml_value: &toml::Value,
+) -> Option<HashMap<String, McpServerConfig>> {
     let mcp = toml_value
         .get("mcp_servers")
         .or_else(|| toml_value.get("mcpServers"))?;
@@ -143,11 +131,14 @@ fn parse_mcp_servers_from_toml(toml_value: &toml::Value) -> Option<HashMap<Strin
                     .get("command")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string()),
-                args: config_obj.get("args").and_then(|v| v.as_array()).map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                        .collect()
-                }),
+                args: config_obj
+                    .get("args")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect()
+                    }),
                 env: config_obj.get("env").and_then(|v| v.as_table()).map(|obj| {
                     obj.iter()
                         .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
@@ -157,11 +148,14 @@ fn parse_mcp_servers_from_toml(toml_value: &toml::Value) -> Option<HashMap<Strin
                     .get("url")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string()),
-                headers: config_obj.get("headers").and_then(|v| v.as_table()).map(|obj| {
-                    obj.iter()
-                        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-                        .collect()
-                }),
+                headers: config_obj
+                    .get("headers")
+                    .and_then(|v| v.as_table())
+                    .map(|obj| {
+                        obj.iter()
+                            .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                            .collect()
+                    }),
                 disabled: config_obj
                     .get("disabled")
                     .and_then(|v| v.as_bool())
@@ -208,7 +202,9 @@ fn json_to_toml_value(value: JsonValue) -> Result<toml::Value, String> {
     }
 }
 
-fn json_map_to_toml_table(values: &BTreeMap<String, JsonValue>) -> Result<toml::map::Map<String, toml::Value>, String> {
+fn json_map_to_toml_table(
+    values: &BTreeMap<String, JsonValue>,
+) -> Result<toml::map::Map<String, toml::Value>, String> {
     let mut table = toml::map::Map::new();
 
     for (key, value) in values {
@@ -222,7 +218,9 @@ fn json_map_to_toml_table(values: &BTreeMap<String, JsonValue>) -> Result<toml::
     Ok(table)
 }
 
-fn build_toml_mcp_servers(servers: HashMap<String, McpServerConfig>) -> toml::map::Map<String, toml::Value> {
+fn build_toml_mcp_servers(
+    servers: HashMap<String, McpServerConfig>,
+) -> toml::map::Map<String, toml::Value> {
     let mut mcp_table = toml::map::Map::new();
 
     for (name, server_config) in servers {
@@ -275,7 +273,9 @@ fn validate_sync_cli_paths(
     let source_paths = get_cli_config_paths_internal(source_cli_path, source_cli_type)?;
     let target_paths = get_cli_config_paths_internal(target_cli_path, target_cli_type)?;
 
-    if !is_supported_sync_cli(&source_paths.cli_type) || !is_supported_sync_cli(&target_paths.cli_type) {
+    if !is_supported_sync_cli(&source_paths.cli_type)
+        || !is_supported_sync_cli(&target_paths.cli_type)
+    {
         return Err("Only Claude CLI and Codex CLI are supported for sync".to_string());
     }
 
@@ -294,17 +294,29 @@ fn ensure_path_within(base: &Path, path: &Path, label: &str) -> Result<(), Strin
     if path.starts_with(base) {
         Ok(())
     } else {
-        Err(format!("{} path is outside of the expected CLI directory", label))
+        Err(format!(
+            "{} path is outside of the expected CLI directory",
+            label
+        ))
     }
 }
 
 fn copy_directory_recursive(source: &Path, target: &Path) -> Result<(), String> {
-    fs::create_dir_all(target)
-        .map_err(|e| format!("Failed to create target directory {}: {}", target.display(), e))?;
+    fs::create_dir_all(target).map_err(|e| {
+        format!(
+            "Failed to create target directory {}: {}",
+            target.display(),
+            e
+        )
+    })?;
 
-    for entry in fs::read_dir(source)
-        .map_err(|e| format!("Failed to read source directory {}: {}", source.display(), e))?
-    {
+    for entry in fs::read_dir(source).map_err(|e| {
+        format!(
+            "Failed to read source directory {}: {}",
+            source.display(),
+            e
+        )
+    })? {
         let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
         let source_path = entry.path();
         let target_path = target.join(entry.file_name());
@@ -314,7 +326,11 @@ fn copy_directory_recursive(source: &Path, target: &Path) -> Result<(), String> 
         } else {
             if let Some(parent) = target_path.parent() {
                 fs::create_dir_all(parent).map_err(|e| {
-                    format!("Failed to create target directory {}: {}", parent.display(), e)
+                    format!(
+                        "Failed to create target directory {}: {}",
+                        parent.display(),
+                        e
+                    )
                 })?;
             }
             fs::copy(&source_path, &target_path).map_err(|e| {
@@ -507,7 +523,7 @@ pub(crate) fn get_cli_config_paths_internal(
 ) -> Result<CliConfigPaths, String> {
     let home_dir = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
 
-    let cli_name = resolve_cli_name(cli_path, cli_type_hint);
+    let cli_name = resolve_cli_name(Some(cli_path), cli_type_hint, "claude");
 
     match cli_name.as_str() {
         "claude" | "claude-code" => {
@@ -556,7 +572,10 @@ pub(crate) fn get_cli_config_paths_internal(
 
 /// 获取 CLI 配置路径信息 (Tauri 命令)
 #[tauri::command]
-pub fn get_cli_config_paths(cli_path: String, cli_type: Option<String>) -> Result<CliConfigPaths, String> {
+pub fn get_cli_config_paths(
+    cli_path: String,
+    cli_type: Option<String>,
+) -> Result<CliConfigPaths, String> {
     get_cli_config_paths_internal(&cli_path, cli_type.as_deref())
 }
 
@@ -608,7 +627,10 @@ fn read_cli_config_internal(
 
 /// 读取 CLI 配置文件 (Tauri 命令)
 #[tauri::command]
-pub fn read_cli_config(cli_path: String, cli_type: Option<String>) -> Result<ClaudeCliConfig, String> {
+pub fn read_cli_config(
+    cli_path: String,
+    cli_type: Option<String>,
+) -> Result<ClaudeCliConfig, String> {
     read_cli_config_internal(&cli_path, cli_type.as_deref())
 }
 
@@ -702,7 +724,11 @@ pub fn update_cli_mcp_config(
 
 /// 删除 CLI 配置中的 MCP 服务器 (Tauri 命令)
 #[tauri::command]
-pub fn delete_cli_mcp_config(cli_path: String, cli_type: Option<String>, name: String) -> Result<(), String> {
+pub fn delete_cli_mcp_config(
+    cli_path: String,
+    cli_type: Option<String>,
+    name: String,
+) -> Result<(), String> {
     let mut cli_config = read_cli_config_internal(&cli_path, cli_type.as_deref())?;
 
     // 从配置中删除
@@ -746,8 +772,11 @@ pub async fn open_config_file(app: tauri::AppHandle, config_path: String) -> Res
 
 /// 获取 CLI 能力信息 (Tauri 命令)
 #[tauri::command]
-pub fn get_cli_capabilities(cli_path: String, cli_type: Option<String>) -> Result<CliCapabilities, String> {
-    let cli_name = resolve_cli_name(&cli_path, cli_type.as_deref());
+pub fn get_cli_capabilities(
+    cli_path: String,
+    cli_type: Option<String>,
+) -> Result<CliCapabilities, String> {
+    let cli_name = resolve_cli_name(Some(&cli_path), cli_type.as_deref(), "claude");
 
     let capabilities = match cli_name.as_str() {
         "claude" | "claude-code" => CliCapabilities {
@@ -877,11 +906,15 @@ mod tests {
             )])),
             other: BTreeMap::from([
                 ("model".to_string(), JsonValue::String("gpt-5".to_string())),
-                ("approval_policy".to_string(), JsonValue::String("never".to_string())),
+                (
+                    "approval_policy".to_string(),
+                    JsonValue::String("never".to_string()),
+                ),
             ]),
         };
 
-        write_cli_config_internal(&codex_path, Some("codex"), config.clone()).expect("write codex config");
+        write_cli_config_internal(&codex_path, Some("codex"), config.clone())
+            .expect("write codex config");
 
         let content = fs::read_to_string(config_path).expect("read codex config");
         assert!(content.contains("[mcp_servers.docs]"));
@@ -889,7 +922,8 @@ mod tests {
         assert!(content.contains("model = \"gpt-5\""));
         assert!(!content.contains("[mcpServers.docs]"));
 
-        let reloaded = read_cli_config_internal(&codex_path, Some("codex")).expect("read codex config");
+        let reloaded =
+            read_cli_config_internal(&codex_path, Some("codex")).expect("read codex config");
         assert_eq!(
             reloaded
                 .mcpServers

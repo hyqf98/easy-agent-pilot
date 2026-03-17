@@ -6,7 +6,6 @@ use anyhow::Result;
 use async_trait::async_trait;
 use tauri::AppHandle;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt};
-use tokio::process::Command as TokioCommand;
 use uuid::Uuid;
 
 use super::cli_common::{
@@ -14,6 +13,7 @@ use super::cli_common::{
     extract_result_content_from_json_blob, extract_structured_output_from_json_blob,
     parse_json_blob_with_fallback, preview_text, shell_escape,
 };
+use crate::commands::cli_support::build_tokio_cli_command;
 use crate::commands::conversation::abort::{
     clear_abort_flag, register_session_pid, set_abort_flag, should_abort, unregister_session_pid,
 };
@@ -318,9 +318,9 @@ impl AgentExecutionStrategy for CodexCliStrategy {
         log_info!("Codex CLI command: {}", full_command);
 
         // 执行命令
-        let mut cmd = TokioCommand::new(&cli_path);
-        cmd.args(&global_args);
-        cmd.args(&args);
+        let mut command_args = global_args.clone();
+        command_args.extend(args.clone());
+        let mut cmd = build_tokio_cli_command(&cli_path, &command_args);
 
         // 设置工作目录
         if let Some(working_dir) = &working_directory {

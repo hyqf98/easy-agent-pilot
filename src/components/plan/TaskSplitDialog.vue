@@ -7,6 +7,7 @@ import { useProjectStore } from '@/stores/project'
 import TaskSplitPreview from './TaskSplitPreview.vue'
 import TaskResplitModal from './TaskResplitModal.vue'
 import ExecutionTimeline from '@/components/message/ExecutionTimeline.vue'
+import { useOverlayDismiss } from '@/composables/useOverlayDismiss'
 import type { AITaskItem, DynamicFormSchema, TaskResplitConfig } from '@/types/plan'
 import type { TimelineEntry } from '@/types/timeline'
 import { buildToolCallFromLogs, extractDynamicFormSchema, extractDynamicFormSchemas } from '@/utils/toolCallLog'
@@ -504,6 +505,8 @@ watch(messageRenderState, async () => {
   await nextTick()
   scrollMessagesToBottom()
 }, { flush: 'post' })
+
+const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(closeDialog)
 </script>
 
 <template>
@@ -511,7 +514,8 @@ watch(messageRenderState, async () => {
     <div
       v-if="planStore.splitDialogVisible"
       class="split-dialog-overlay"
-      @click.self="closeDialog"
+      @pointerdown.capture="handleOverlayPointerDown"
+      @click.self="handleOverlayClick"
     >
       <div class="split-dialog">
         <div class="dialog-header">

@@ -5,13 +5,13 @@ use anyhow::Result;
 use async_trait::async_trait;
 use tauri::AppHandle;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt};
-use tokio::process::Command as TokioCommand;
 
 use super::cli_common::{
     build_content_event, build_error_event, emit_cli_event, extract_error_from_json_blob,
     extract_result_content_from_json_blob, extract_structured_output_from_json_blob,
     parse_json_blob_with_fallback, preview_text, shell_escape,
 };
+use crate::commands::cli_support::build_tokio_cli_command;
 use crate::commands::conversation::abort::{
     clear_abort_flag, register_session_pid, set_abort_flag, should_abort, unregister_session_pid,
 };
@@ -191,8 +191,9 @@ impl AgentExecutionStrategy for ClaudeCliStrategy {
         let full_command = build_full_claude_command(&cli_path, &input_text, &args);
         log_info!("Claude CLI command: {}", full_command);
         // 执行命令
-        let mut cmd = TokioCommand::new(&cli_path);
-        cmd.arg("-p").arg(&input_text).args(&args);
+        let mut command_args = vec!["-p".to_string(), input_text.clone()];
+        command_args.extend(args.clone());
+        let mut cmd = build_tokio_cli_command(&cli_path, &command_args);
 
         // 设置工作目录，确保文件读写操作在指定目录下进行
         if let Some(ref work_dir) = resolved_working_dir {

@@ -173,10 +173,9 @@ const resultPreview = computed(() => {
 
 <style scoped>
 .tool-call {
-  align-self: stretch;
   width: 100%;
+  min-width: 100%;
   max-width: 100%;
-  min-width: 0;
   box-sizing: border-box;
   border-radius: var(--radius-lg);
   background: linear-gradient(135deg, rgba(251, 146, 60, 0.1), rgba(251, 146, 60, 0.05));
@@ -292,8 +291,13 @@ const resultPreview = computed(() => {
 }
 
 .tool-call__content {
+  width: 100%;
+  box-sizing: border-box;
   border-top: 1px solid rgba(251, 146, 60, 0.15);
   padding: var(--spacing-2) var(--spacing-3);
+  max-height: calc(var(--message-compact-max-height, 20rem) - 44px);
+  overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .tool-call--running .tool-call__content {
@@ -356,6 +360,9 @@ const resultPreview = computed(() => {
 .tool-call__code {
   margin: var(--spacing-1) 0 0 0;
   padding: var(--spacing-2);
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   background: rgba(0, 0, 0, 0.05);
   border-radius: var(--radius-md);
   font-family: var(--font-family-mono);
@@ -378,8 +385,9 @@ const resultPreview = computed(() => {
 }
 
 .tool-call__result-content {
-  max-height: 400px;
-  overflow-y: auto;
+  max-height: min(14rem, calc(var(--message-compact-max-height, 20rem) - 8rem));
+  overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .tool-call__result-preview {

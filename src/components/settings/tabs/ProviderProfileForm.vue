@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ProviderProfile, CliType, CreateProviderProfileInput, UpdateProviderProfileInput } from '@/stores/providerProfile'
 import { EaButton, EaIcon } from '@/components/common'
+import { useOverlayDismiss } from '@/composables/useOverlayDismiss'
 
 const props = defineProps<{
   visible: boolean
@@ -95,6 +96,8 @@ function handleClose() {
   resetForm()
 }
 
+const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(handleClose)
+
 // 提交表单
 async function handleSubmit() {
   if (!form.value.name.trim()) {
@@ -146,7 +149,8 @@ async function handleSubmit() {
   <div
     v-if="visible"
     class="modal-overlay"
-    @click.self="handleClose"
+    @pointerdown.capture="handleOverlayPointerDown"
+    @click.self="handleOverlayClick"
   >
     <div class="modal-content">
       <div class="modal-header">

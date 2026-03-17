@@ -4,9 +4,12 @@ import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '@/stores/settings'
 import { EaSelect } from '@/components/common'
 import SettingsSectionCard from '@/components/settings/common/SettingsSectionCard.vue'
+import MiniPanelShortcutRecorder from '@/components/settings/general/MiniPanelShortcutRecorder.vue'
+import { IS_WINDOWS } from '@/utils/shortcut'
 
 const { t } = useI18n()
 const settingsStore = useSettingsStore()
+const isWindows = IS_WINDOWS
 
 // 语言选项
 const languageOptions = computed(() => [
@@ -129,6 +132,61 @@ const compressionThresholdOptions = computed(() => [
           >
           <span class="settings-toggle__slider" />
         </label>
+      </div>
+    </SettingsSectionCard>
+
+    <SettingsSectionCard :title="t('settings.general.miniPanelTitle')">
+      <div class="settings-item">
+        <div class="settings-item__info">
+          <span class="settings-item__label">{{ t('settings.general.miniPanelEnabled') }}</span>
+          <span class="settings-item__desc">{{ t('settings.general.miniPanelEnabledDesc') }}</span>
+        </div>
+        <label class="settings-toggle">
+          <input
+            v-model="settingsStore.settings.miniPanelEnabled"
+            type="checkbox"
+          >
+          <span class="settings-toggle__slider" />
+        </label>
+      </div>
+
+      <div class="settings-item">
+        <div class="settings-item__info">
+          <span class="settings-item__label">{{ t('settings.general.miniPanelShortcut') }}</span>
+          <span class="settings-item__desc">{{ t('settings.general.miniPanelShortcutDesc') }}</span>
+        </div>
+        <MiniPanelShortcutRecorder
+          v-model="settingsStore.settings.miniPanelShortcut"
+          :windows-override-enabled="settingsStore.settings.miniPanelShortcutOverride"
+          :disabled="!settingsStore.settings.miniPanelEnabled"
+          @update:windows-override-enabled="settingsStore.settings.miniPanelShortcutOverride = $event"
+        />
+      </div>
+
+      <div
+        v-if="isWindows"
+        class="settings-item"
+      >
+        <div class="settings-item__info">
+          <span class="settings-item__label">{{ t('settings.general.miniPanelShortcutOverride') }}</span>
+          <span class="settings-item__desc">{{ t('settings.general.miniPanelShortcutOverrideDesc') }}</span>
+        </div>
+        <label class="settings-toggle">
+          <input
+            v-model="settingsStore.settings.miniPanelShortcutOverride"
+            type="checkbox"
+            :disabled="!settingsStore.settings.miniPanelEnabled"
+          >
+          <span class="settings-toggle__slider" />
+        </label>
+      </div>
+
+      <div
+        v-if="isWindows && settingsStore.settings.miniPanelShortcutOverride"
+        class="settings-warning"
+      >
+        <span class="settings-warning__icon">⚠️</span>
+        <span class="settings-warning__text">{{ t('settings.general.miniPanelShortcutOverrideWarning') }}</span>
       </div>
     </SettingsSectionCard>
 

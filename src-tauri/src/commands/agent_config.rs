@@ -5,6 +5,7 @@ use super::support::{
 use anyhow::Result;
 use rusqlite::{Connection, Row};
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 // ============================================================================
 // MCP 配置相关结构和命令
@@ -112,31 +113,34 @@ const MODELS_SELECT_BY_ID_SQL: &str = r#"
 
 const CODEX_BUILTIN_MODELS: &[BuiltinModelDef] = &[
     ("", "使用默认模型", 0, true, None),
-    ("gpt-5", "GPT-5", 1, false, Some(128000)),
-    ("gpt-5.1", "GPT-5.1", 2, false, Some(128000)),
+    ("gpt-5.4", "GPT-5.4", 1, false, Some(128000)),
+    ("gpt-5.3-codex", "GPT-5.3 Codex", 2, false, Some(128000)),
     ("gpt-5.2", "GPT-5.2", 3, false, Some(128000)),
+    ("gpt-5.1", "GPT-5.1", 4, false, Some(128000)),
+    ("gpt-5", "GPT-5", 5, false, Some(128000)),
 ];
 
 const CLAUDE_BUILTIN_MODELS: &[BuiltinModelDef] = &[
     ("", "使用默认模型", 0, true, None),
+    ("claude-opus-4-6", "Claude Opus 4.6", 1, false, Some(200000)),
     (
-        "claude-opus-4-6-20250514",
-        "Claude Opus 4.6",
-        1,
-        false,
-        Some(200000),
-    ),
-    (
-        "claude-sonnet-4-6-20250514",
+        "claude-sonnet-4-6",
         "Claude Sonnet 4.6",
         2,
         false,
         Some(200000),
     ),
     (
-        "claude-haiku-4-5-20250514",
-        "Claude Haiku 4.5",
+        "claude-sonnet-4-5",
+        "Claude Sonnet 4.5",
         3,
+        false,
+        Some(200000),
+    ),
+    (
+        "claude-haiku-4-5",
+        "Claude Haiku 4.5",
+        4,
         false,
         Some(200000),
     ),
@@ -159,6 +163,10 @@ fn is_legacy_codex_builtin_model(model_id: &str) -> bool {
 }
 
 fn is_codex_agent(conn: &Connection, agent_id: &str) -> Result<bool, String> {
+    Ok(get_agent_provider(conn, agent_id)?.as_deref() == Some("codex"))
+}
+
+fn get_agent_provider(conn: &Connection, agent_id: &str) -> Result<Option<String>, String> {
     let provider = conn
         .query_row(
             "SELECT provider FROM agents WHERE id = ?1",
@@ -167,7 +175,7 @@ fn is_codex_agent(conn: &Connection, agent_id: &str) -> Result<bool, String> {
         )
         .map_err(|e| e.to_string())?;
 
-    Ok(provider.as_deref() == Some("codex"))
+    Ok(provider)
 }
 
 fn list_configs<T, F>(
@@ -321,6 +329,124 @@ fn insert_builtin_models(
     }
 
     Ok(configs)
+}
+
+fn sync_builtin_models(
+    tx: &rusqlite::Transaction<'_>,
+    agent_id: &str,
+    now: &str,
+    models: &[BuiltinModelDef],
+) -> Result<(), String> {
+    let expected_model_ids = models
+        .iter()
+        .map(|(model_id, ..)| (*model_id).to_string())
+        .collect::<HashSet<_>>();
+
+    let existing_builtin_models = {
+        let mut stmt = tx
+            .prepare(
+                "SELECT id, model_id
+                 FROM agent_models
+                 WHERE agent_id = ?1 AND is_builtin = 1
+                 ORDER BY sort_order ASC, created_at ASC",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let rows = stmt
+            .query_map([agent_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|e| e.to_string())?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?
+    };
+
+    let mut seen_model_ids = HashSet::new();
+    for (id, model_id) in existing_builtin_models {
+        if !expected_model_ids.contains(&model_id) || !seen_model_ids.insert(model_id) {
+            tx.execute("DELETE FROM agent_models WHERE id = ?1", [&id])
+                .map_err(|e| e.to_string())?;
+        }
+    }
+
+    let existing_builtin_map = {
+        let mut stmt = tx
+            .prepare(
+                "SELECT id, model_id
+                 FROM agent_models
+                 WHERE agent_id = ?1 AND is_builtin = 1",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let rows = stmt
+            .query_map([agent_id], |row| {
+                Ok((row.get::<_, String>(1)?, row.get::<_, String>(0)?))
+            })
+            .map_err(|e| e.to_string())?;
+
+        rows.collect::<Result<HashMap<_, _>, _>>()
+            .map_err(|e| e.to_string())?
+    };
+
+    for (model_id, display_name, sort_order, is_default, context_window) in models {
+        if let Some(existing_id) = existing_builtin_map.get(*model_id) {
+            tx.execute(
+                "UPDATE agent_models
+                 SET display_name = ?1,
+                     is_default = ?2,
+                     sort_order = ?3,
+                     enabled = 1,
+                     context_window = ?4,
+                     updated_at = ?5
+                 WHERE id = ?6",
+                rusqlite::params![
+                    display_name,
+                    if *is_default { 1 } else { 0 },
+                    sort_order,
+                    context_window,
+                    now,
+                    existing_id
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+            continue;
+        }
+
+        insert_builtin_models(
+            tx,
+            agent_id,
+            now,
+            &[(
+                *model_id,
+                *display_name,
+                *sort_order,
+                *is_default,
+                *context_window,
+            )],
+        )?;
+    }
+
+    Ok(())
+}
+
+fn list_models_for_agent(
+    conn: &Connection,
+    agent_id: &str,
+) -> Result<Vec<AgentModelConfig>, String> {
+    let mut models = list_configs(
+        conn,
+        MODELS_SELECT_BY_AGENT_SQL,
+        agent_id,
+        map_agent_model_config_row,
+    )?;
+
+    if is_codex_agent(conn, agent_id)? {
+        models
+            .retain(|model| !(model.is_builtin && is_legacy_codex_builtin_model(&model.model_id)));
+    }
+
+    Ok(models)
 }
 
 /// 获取智能体的所有 MCP 配置
@@ -817,20 +943,15 @@ pub struct CreateBuiltinModelsInput {
 /// 获取智能体的所有模型配置
 #[tauri::command]
 pub fn list_agent_models(agent_id: String) -> Result<Vec<AgentModelConfig>, String> {
-    let conn = open_conn()?;
-    let mut models = list_configs(
-        &conn,
-        MODELS_SELECT_BY_AGENT_SQL,
-        &agent_id,
-        map_agent_model_config_row,
-    )?;
-
-    if is_codex_agent(&conn, &agent_id)? {
-        models
-            .retain(|model| !(model.is_builtin && is_legacy_codex_builtin_model(&model.model_id)));
+    let mut conn = open_conn()?;
+    if let Some(provider) = get_agent_provider(&conn, &agent_id)? {
+        let now = now_rfc3339();
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        sync_builtin_models(&tx, &agent_id, &now, builtin_models_for_provider(&provider))?;
+        tx.commit().map_err(|e| e.to_string())?;
     }
 
-    Ok(models)
+    list_models_for_agent(&conn, &agent_id)
 }
 
 /// 创建模型配置
@@ -893,9 +1014,8 @@ pub fn create_builtin_models(
 
     let now = now_rfc3339();
 
-    // 使用事务批量插入
     let tx = conn.transaction().map_err(|e| e.to_string())?;
-    let configs = insert_builtin_models(
+    sync_builtin_models(
         &tx,
         &input.agent_id,
         &now,
@@ -904,7 +1024,7 @@ pub fn create_builtin_models(
 
     tx.commit().map_err(|e| e.to_string())?;
 
-    Ok(configs)
+    list_models_for_agent(&conn, &input.agent_id)
 }
 
 /// 更新模型配置

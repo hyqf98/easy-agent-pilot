@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, watch, onBeforeUnmount, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import type { FormField } from '@/types/plan'
+import { useSafeOutsideClick } from '@/composables/useSafeOutsideClick'
 
 const props = defineProps<{
   field: FormField
@@ -94,19 +95,10 @@ function selectOption(value: string | number) {
   emit('update:modelValue', isNaN(numValue) || value === '' ? value : numValue)
 }
 
-function handleDocumentClick(event: MouseEvent) {
-  if (!rootRef.value) return
-  if (rootRef.value.contains(event.target as Node)) return
-  closeMenu()
-}
-
-onMounted(() => {
-  document.addEventListener('click', handleDocumentClick)
-})
-
-onBeforeUnmount(() => {
-  document.removeEventListener('click', handleDocumentClick)
-})
+useSafeOutsideClick(
+  () => [rootRef.value],
+  closeMenu
+)
 </script>
 
 <template>

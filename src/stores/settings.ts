@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { setLocale } from '@/i18n'
+import { DEFAULT_MINI_PANEL_SHORTCUT, migrateMiniPanelShortcut } from '@/utils/shortcut'
 
 // CLI 相关类型定义
 export type CliStatus = 'available' | 'not_found' | 'error'
@@ -16,16 +17,6 @@ export interface CliTool {
 export interface DetectionResult {
   tools: CliTool[]
   total_found: number
-}
-
-// CLI 路径配置（手动添加的）
-export interface CliPathEntry {
-  id: string
-  name: string
-  path: string
-  version: string | null
-  created_at: string
-  updated_at: string
 }
 
 // Market source type
@@ -216,6 +207,9 @@ export interface AppSettings {
   autoSaveInterval: number
   confirmBeforeDelete: boolean
   sendOnEnter: boolean  // Enter 键发送消息（false 则为 Ctrl/Cmd+Enter 发送）
+  miniPanelEnabled: boolean
+  miniPanelShortcut: string
+  miniPanelShortcutOverride: boolean
 
   // 编辑器设置
   editorFontSize: number
@@ -239,6 +233,9 @@ const defaultSettings: AppSettings = {
   autoSaveInterval: 30,
   confirmBeforeDelete: true,
   sendOnEnter: true,
+  miniPanelEnabled: false,
+  miniPanelShortcut: DEFAULT_MINI_PANEL_SHORTCUT,
+  miniPanelShortcutOverride: false,
   editorFontSize: 14,
   editorTabSize: 2,
   editorWordWrap: true,
@@ -254,6 +251,7 @@ export const useSettingsStore = defineStore('settings', () => {
   // State
   const settings = ref<AppSettings>({ ...defaultSettings })
   const isLoading = ref(false)
+  const hasLoaded = ref(false)
 
   // 监听语言设置变化，同步到 i18n
   watch(
@@ -312,15 +310,6 @@ export const useSettingsStore = defineStore('settings', () => {
     { deep: true }
   )
 
-  // CLI 状态
-  const cliTools = ref<CliTool[]>([])
-  const isDetectingCli = ref(false)
-  const detectionComplete = ref(false)
-
-  // 手动配置的 CLI 路径
-  const customCliPaths = ref<CliPathEntry[]>([])
-  const isLoadingCliPaths = ref(false)
-
   // Market sources configuration
   const marketSources = ref<MarketSource[]>([])
   const isLoadingMarketSources = ref(false)
@@ -349,13 +338,11 @@ export const useSettingsStore = defineStore('settings', () => {
 
   // Getters
   const isDebugMode = computed(() => settings.value.enableDebugMode)
-  const foundCliCount = computed(() =>
-    cliTools.value.filter(t => t.status === 'available').length
-  )
 
   // Actions
   async function loadSettings() {
     isLoading.value = true
+    hasLoaded.value = false
     try {
       const savedSettings = await invoke<Record<string, string>>('get_all_app_settings')
       if (savedSettings && Object.keys(savedSettings).length > 0) {
@@ -375,6 +362,12 @@ export const useSettingsStore = defineStore('settings', () => {
             parsedSettings.confirmBeforeDelete = value === 'true'
           } else if (key === 'sendOnEnter') {
             parsedSettings.sendOnEnter = value === 'true'
+          } else if (key === 'miniPanelEnabled') {
+            parsedSettings.miniPanelEnabled = value === 'true'
+          } else if (key === 'miniPanelShortcut') {
+            parsedSettings.miniPanelShortcut = migrateMiniPanelShortcut(value || defaultSettings.miniPanelShortcut)
+          } else if (key === 'miniPanelShortcutOverride') {
+            parsedSettings.miniPanelShortcutOverride = value === 'true'
           } else if (key === 'editorFontSize') {
             parsedSettings.editorFontSize = parseInt(value, 10) || defaultSettings.editorFontSize
           } else if (key === 'editorTabSize') {
@@ -405,6 +398,7 @@ export const useSettingsStore = defineStore('settings', () => {
       // 加载失败时使用默认设置
     } finally {
       isLoading.value = false
+      hasLoaded.value = true
     }
   }
 
@@ -436,89 +430,6 @@ export const useSettingsStore = defineStore('settings', () => {
       await invoke('save_app_settings', { settings: settingsToSave })
     } catch (error) {
       console.error('Failed to reset settings:', error)
-    }
-  }
-
-  // CLI 检测相关 Actions
-  async function detectCliTools() {
-    isDetectingCli.value = true
-    detectionComplete.value = false
-    try {
-      const result = await invoke<DetectionResult>('detect_cli_tools')
-      cliTools.value = result.tools
-      detectionComplete.value = true
-
-      // CLI 检测完成后自动加载已安装的 Plugins
-      // 使用 Promise.allSettled 确保即使某个加载失败，其他仍能继续
-      await Promise.allSettled([
-        loadInstalledPlugins(),
-      ])
-
-      return result
-    } catch (error) {
-      console.error('Failed to detect CLI tools:', error)
-      throw error
-    } finally {
-      isDetectingCli.value = false
-    }
-  }
-
-  async function verifyCliPath(path: string) {
-    try {
-      const tool = await invoke<CliTool>('verify_cli_path', { path })
-      return tool
-    } catch (error) {
-      console.error('Failed to verify CLI path:', error)
-      throw error
-    }
-  }
-
-  // CLI 路径配置 CRUD Actions
-  async function loadCustomCliPaths() {
-    isLoadingCliPaths.value = true
-    try {
-      const paths = await invoke<CliPathEntry[]>('list_cli_paths')
-      customCliPaths.value = paths
-    } catch (error) {
-      console.error('Failed to load CLI paths:', error)
-      throw error
-    } finally {
-      isLoadingCliPaths.value = false
-    }
-  }
-
-  async function addCustomCliPath(name: string, path: string) {
-    try {
-      const entry = await invoke<CliPathEntry>('add_cli_path', { name, path })
-      customCliPaths.value.unshift(entry)
-      return entry
-    } catch (error) {
-      console.error('Failed to add CLI path:', error)
-      throw error
-    }
-  }
-
-  async function updateCustomCliPath(id: string, name: string, path: string) {
-    try {
-      const entry = await invoke<CliPathEntry>('update_cli_path', { id, name, path })
-      const index = customCliPaths.value.findIndex(p => p.id === id)
-      if (index !== -1) {
-        customCliPaths.value[index] = { ...customCliPaths.value[index], ...entry }
-      }
-      return entry
-    } catch (error) {
-      console.error('Failed to update CLI path:', error)
-      throw error
-    }
-  }
-
-  async function deleteCustomCliPath(id: string) {
-    try {
-      await invoke('delete_cli_path', { id })
-      customCliPaths.value = customCliPaths.value.filter(p => p.id !== id)
-    } catch (error) {
-      console.error('Failed to delete CLI path:', error)
-      throw error
     }
   }
 
@@ -851,11 +762,7 @@ export const useSettingsStore = defineStore('settings', () => {
     // State
     settings,
     isLoading,
-    cliTools,
-    isDetectingCli,
-    detectionComplete,
-    customCliPaths,
-    isLoadingCliPaths,
+    hasLoaded,
     marketSources,
     isLoadingMarketSources,
     // Plugins Market state
@@ -878,17 +785,10 @@ export const useSettingsStore = defineStore('settings', () => {
     pendingSessionsError,
     // Getters
     isDebugMode,
-    foundCliCount,
     // Actions
     loadSettings,
     updateSettings,
     resetSettings,
-    detectCliTools,
-    verifyCliPath,
-    loadCustomCliPaths,
-    addCustomCliPath,
-    updateCustomCliPath,
-    deleteCustomCliPath,
     // Plugins Market actions
     fetchPluginsMarket,
     clearPluginsMarket,

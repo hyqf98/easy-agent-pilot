@@ -27,6 +27,14 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/mini-panel',
+    name: 'mini-panel',
+    component: () => import('@/views/MiniPanelView.vue'),
+    meta: {
+      titleKey: 'routes.home'
+    }
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'not-found',
     redirect: '/'

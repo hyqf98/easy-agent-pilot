@@ -174,7 +174,10 @@ fn detect_language_from_path(path: &str) -> DetectedLanguage {
 }
 
 #[tauri::command]
-pub fn read_project_file(project_path: String, file_path: String) -> Result<ProjectFileContent, String> {
+pub fn read_project_file(
+    project_path: String,
+    file_path: String,
+) -> Result<ProjectFileContent, String> {
     let path = validate_project_file(&project_path, &file_path)?;
     let metadata = fs::metadata(&path).map_err(|e| format!("读取文件元信息失败: {}", e))?;
 

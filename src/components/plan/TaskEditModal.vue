@@ -8,6 +8,7 @@ import { usePlanStore } from '@/stores/plan'
 import { useNotificationStore } from '@/stores/notification'
 import { getErrorMessage } from '@/utils/api'
 import { checkCircularDependency, getAvailableDependencies } from '@/composables'
+import { useSafeOutsideClick } from '@/composables/useSafeOutsideClick'
 import type { Task, TaskPriority } from '@/types/plan'
 import EaModal from '@/components/common/EaModal.vue'
 
@@ -271,23 +272,21 @@ function removeDependency(taskId: string) {
   }
 }
 
-// 点击外部关闭下拉框
-function handleClickOutside(event: MouseEvent) {
-  if (depDropdownRef.value && !depDropdownRef.value.contains(event.target as Node)) {
+useSafeOutsideClick(
+  () => [depDropdownRef.value],
+  () => {
     isDepDropdownOpen.value = false
   }
-}
+)
 
 onMounted(() => {
   if (agentStore.agents.length === 0) {
     void agentStore.loadAgents()
   }
-  document.addEventListener('click', handleClickOutside)
   window.addEventListener('resize', updateDependencyDropdownLayout)
 })
 
 onUnmounted(() => {
-  document.removeEventListener('click', handleClickOutside)
   window.removeEventListener('resize', updateDependencyDropdownLayout)
 })
 

@@ -13,6 +13,7 @@ import SkillCreateView from './skills/SkillCreateView.vue'
 import SkillDetailView from './views/SkillDetailView.vue'
 import PluginDetailView from './views/PluginDetailView.vue'
 import { EaButton, EaIcon } from '@/components/common'
+import { useOverlayDismiss } from '@/composables/useOverlayDismiss'
 import type { CliSyncResult, CreateVisualSkillInput, SyncConfigType } from '@/stores/skillConfig'
 
 const { t } = useI18n()
@@ -33,6 +34,12 @@ const showSkillModal = ref(false)
 const showSkillBuilder = ref(false)
 const isCreatingSkill = ref(false)
 const editingSkill = ref<UnifiedSkillConfig | null>(null)
+const {
+  handleOverlayPointerDown: handleDeleteOverlayPointerDown,
+  handleOverlayClick: handleDeleteOverlayClick
+} = useOverlayDismiss(() => {
+  showDeleteConfirm.value = false
+})
 
 // 监听标签页切换，重置滚动位置
 watch(activeTab, () => {
@@ -182,7 +189,7 @@ function handleViewPluginDetail(config: UnifiedPluginConfig) {
   skillConfigStore.viewPluginDetail(config)
 }
 
-function handleEditPlugin(_config: UnifiedPluginConfig) {
+function handleEditPlugin() {
   // TODO: 实现 Plugins 编辑
 }
 
@@ -372,7 +379,8 @@ function handleSyncCompleted(payload: { targetAgentId: string; result: CliSyncRe
     <div
       v-if="showDeleteConfirm"
       class="delete-confirm-overlay"
-      @click.self="showDeleteConfirm = false"
+      @pointerdown.capture="handleDeleteOverlayPointerDown"
+      @click.self="handleDeleteOverlayClick"
     >
       <div class="delete-confirm">
         <div class="delete-confirm__header">

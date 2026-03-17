@@ -26,6 +26,8 @@ const props = defineProps<{
   position: { x: number; y: number; width: number; height: number }
   searchText: string
   mentionStart: number
+  projectPath?: string | null
+  defaultScope?: FileMentionScope
 }>()
 
 const emit = defineEmits<{
@@ -39,16 +41,24 @@ const projectStore = useProjectStore()
 
 const isOpen = computed(() => props.visible)
 const isLoading = ref(false)
+const hasResolvedSearch = ref(false)
 const results = ref<FileMentionSearchResult[]>([])
 const selectedIndex = ref(0)
 const dropdownRef = ref<HTMLElement | null>(null)
 const activeScope = ref<FileMentionScope>(
-  (localStorage.getItem(LAST_SCOPE_KEY) as FileMentionScope | null) ?? 'project'
+  (localStorage.getItem(LAST_SCOPE_KEY) as FileMentionScope | null) ?? props.defaultScope ?? 'project'
 )
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 let searchToken = 0
 
 const currentProject = computed(() => {
+  if (props.projectPath) {
+    return {
+      id: '__external__',
+      path: props.projectPath
+    }
+  }
+
   const sessionId = sessionStore.currentSessionId
   if (!sessionId) return null
   return projectStore.projects.find(project => project.id === sessionStore.currentSession?.projectId) || null
@@ -92,7 +102,9 @@ const dropdownStyle = computed(() => {
 
 const emptyStateMessage = computed(() => {
   if (requiresGlobalQuery.value) {
-    return t('fileMention.globalHint')
+    return trimmedSearchText.value
+      ? t('fileMention.globalMinChars')
+      : t('fileMention.globalHint')
   }
 
   if (activeScope.value === 'project' && !currentProject.value) {
@@ -120,6 +132,12 @@ const setScope = (scope: FileMentionScope) => {
   activeScope.value = scope
   localStorage.setItem(LAST_SCOPE_KEY, scope)
   selectedIndex.value = 0
+
+  if ((scope === 'project' && currentProject.value) || (scope === 'global' && trimmedSearchText.value.length >= 2)) {
+    results.value = []
+    isLoading.value = true
+    hasResolvedSearch.value = false
+  }
 }
 
 const performSearch = async () => {
@@ -130,12 +148,14 @@ const performSearch = async () => {
   if (activeScope.value === 'project' && !currentProject.value) {
     results.value = []
     isLoading.value = false
+    hasResolvedSearch.value = false
     return
   }
 
   if (requiresGlobalQuery.value) {
     results.value = []
     isLoading.value = false
+    hasResolvedSearch.value = false
     return
   }
 
@@ -158,11 +178,13 @@ const performSearch = async () => {
     }
 
     results.value = nextResults ?? []
+    hasResolvedSearch.value = true
     selectedIndex.value = Math.min(selectedIndex.value, Math.max(results.value.length - 1, 0))
   } catch (error) {
     console.error('Failed to search file mentions:', error)
     if (currentToken === searchToken) {
       results.value = []
+      hasResolvedSearch.value = true
     }
   } finally {
     if (currentToken === searchToken) {
@@ -175,6 +197,23 @@ const scheduleSearch = () => {
   if (searchTimer) {
     clearTimeout(searchTimer)
   }
+
+  if (activeScope.value === 'project' && !currentProject.value) {
+    isLoading.value = false
+    hasResolvedSearch.value = false
+    results.value = []
+    return
+  }
+
+  if (requiresGlobalQuery.value) {
+    isLoading.value = false
+    hasResolvedSearch.value = false
+    results.value = []
+    return
+  }
+
+  isLoading.value = true
+  hasResolvedSearch.value = false
 
   searchTimer = setTimeout(() => {
     searchTimer = null
@@ -261,6 +300,7 @@ watch(
     if (!visible) {
       results.value = []
       isLoading.value = false
+      hasResolvedSearch.value = false
       return
     }
 
@@ -328,7 +368,7 @@ onUnmounted(() => {
       </div>
 
       <div
-        v-if="!isLoading && results.length === 0"
+        v-if="!isLoading && results.length === 0 && (hasResolvedSearch || requiresGlobalQuery || (activeScope === 'project' && !currentProject) || !trimmedSearchText)"
         class="file-mention__empty"
       >
         <EaIcon

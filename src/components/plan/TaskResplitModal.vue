@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { useAgentStore, useAgentConfigStore } from '@/stores'
 import type { AgentModelConfig } from '@/stores/agentConfig'
 import type { AITaskItem, TaskResplitConfig } from '@/types/plan'
+import { useOverlayDismiss } from '@/composables/useOverlayDismiss'
 
 const props = defineProps<{
   visible: boolean
@@ -50,6 +51,8 @@ function close() {
   emit('update:visible', false)
 }
 
+const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(close)
+
 // 确认配置
 function handleConfirm() {
   emit('confirm', {
@@ -92,7 +95,8 @@ watch(selectedAgentId, async (newAgentId) => {
     <div
       v-if="visible"
       class="resplit-modal-overlay"
-      @click.self="close"
+      @pointerdown.capture="handleOverlayPointerDown"
+      @click.self="handleOverlayClick"
     >
       <div class="resplit-modal">
         <div class="modal-header">

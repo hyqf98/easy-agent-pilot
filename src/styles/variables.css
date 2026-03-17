@@ -129,6 +129,15 @@
   --line-height-normal: 1.5;
   --line-height-relaxed: 1.75;
 
+  /* 响应式字体大小 - 使用 clamp() */
+  --font-size-xs-responsive: clamp(10px, 0.75rem + 0.1vw, 12px);
+  --font-size-sm-responsive: clamp(11px, 0.8125rem + 0.15vw, 13px);
+  --font-size-base-responsive: clamp(12px, 0.875rem + 0.2vw, 14px);
+
+  /* 侧边栏专用响应式尺寸 */
+  --sidebar-font-primary: clamp(11px, 0.7rem + 0.2vw, var(--font-size-sm));
+  --sidebar-font-meta: clamp(10px, 0.625rem + 0.15vw, var(--font-size-xs));
+
   /* ========== 过渡动画 ========== */
   --transition-fast: 150ms;
   --transition-normal: 200ms;

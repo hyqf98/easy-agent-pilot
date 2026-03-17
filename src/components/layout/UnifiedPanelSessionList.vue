@@ -31,6 +31,34 @@ const {
   formatRelativeTime,
   formatSessionCreatedAt
 } = useSessionView()
+
+function closeCompactMenu(event: Event) {
+  const details = (event.currentTarget as HTMLElement | null)?.closest('details')
+  if (details instanceof HTMLDetailsElement) {
+    details.open = false
+  }
+}
+
+function handleCompactAction(
+  action: 'togglePin' | 'startEdit' | 'delete',
+  session: Session,
+  event: Event
+) {
+  event.stopPropagation()
+  closeCompactMenu(event)
+
+  if (action === 'togglePin') {
+    emit('togglePin', session.id)
+    return
+  }
+
+  if (action === 'startEdit') {
+    emit('startEdit', session, event)
+    return
+  }
+
+  emit('delete', session)
+}
 </script>
 
 <template>
@@ -174,6 +202,54 @@ const {
           />
         </button>
       </div>
+
+      <details
+        v-if="editingSessionId !== session.id"
+        class="session-item__menu"
+        @click.stop
+      >
+        <summary
+          class="session-item__menu-trigger"
+          @click.stop
+        >
+          <EaIcon
+            name="ellipsis-vertical"
+            :size="12"
+          />
+        </summary>
+        <div class="session-item__menu-popover">
+          <button
+            class="session-item__menu-action"
+            @click="handleCompactAction('togglePin', session, $event)"
+          >
+            <EaIcon
+              :name="session.pinned ? 'pin-off' : 'pin'"
+              :size="12"
+            />
+            <span>{{ session.pinned ? t('session.unpin') : t('session.pin') }}</span>
+          </button>
+          <button
+            class="session-item__menu-action"
+            @click="handleCompactAction('startEdit', session, $event)"
+          >
+            <EaIcon
+              name="edit-2"
+              :size="12"
+            />
+            <span>{{ t('common.edit') }}</span>
+          </button>
+          <button
+            class="session-item__menu-action session-item__menu-action--danger"
+            @click="handleCompactAction('delete', session, $event)"
+          >
+            <EaIcon
+              name="x"
+              :size="12"
+            />
+            <span>{{ t('common.delete') }}</span>
+          </button>
+        </div>
+      </details>
     </div>
 
     <div
@@ -200,6 +276,7 @@ const {
 
 .session-item {
   display: flex;
+  container-type: inline-size;
   align-items: flex-start;
   padding: var(--spacing-3);
   cursor: pointer;
@@ -249,6 +326,7 @@ const {
   gap: var(--spacing-2);
   flex: 1;
   min-width: 0;
+  flex-wrap: nowrap;
 }
 
 .session-item__status {
@@ -276,7 +354,7 @@ const {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--font-size-sm);
+  font-size: var(--sidebar-font-primary);
   font-weight: var(--font-weight-medium);
   color: var(--color-text-primary);
 }
@@ -288,9 +366,10 @@ const {
 
 .session-item__time {
   flex-shrink: 0;
-  font-size: var(--font-size-xs);
+  font-size: var(--sidebar-font-meta);
   color: var(--color-text-tertiary);
-  margin-left: var(--spacing-2);
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 .session-item__meta {
@@ -298,7 +377,9 @@ const {
   align-items: center;
   gap: var(--spacing-3);
   padding-left: calc(14px + var(--spacing-2));
-  flex-wrap: wrap;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow: hidden;
 }
 
 .session-item__meta-item {
@@ -307,9 +388,14 @@ const {
   gap: var(--spacing-1);
   font-size: var(--font-size-xs);
   color: var(--color-text-tertiary);
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .session-item__meta-item:first-child {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--color-primary);
 }
 
@@ -374,6 +460,79 @@ const {
   transition: opacity var(--transition-fast) var(--easing-default);
 }
 
+.session-item__menu {
+  position: relative;
+  display: none;
+  margin-left: var(--spacing-1);
+  flex-shrink: 0;
+}
+
+.session-item__menu[open] {
+  z-index: 3;
+}
+
+.session-item__menu-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-tertiary);
+  list-style: none;
+  cursor: pointer;
+  transition: background-color var(--transition-fast) var(--easing-default), color var(--transition-fast) var(--easing-default);
+}
+
+.session-item__menu-trigger::-webkit-details-marker {
+  display: none;
+}
+
+.session-item__menu-trigger:hover {
+  background-color: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.session-item__menu-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  display: flex;
+  min-width: 112px;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-surface) 96%, white);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
+}
+
+.session-item__menu-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.session-item__menu-action:hover {
+  background-color: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.session-item__menu-action--danger:hover {
+  background-color: var(--color-error-light);
+  color: var(--color-error);
+}
+
 .session-item:hover .session-item__actions {
   visibility: visible;
   opacity: 1;
@@ -406,6 +565,76 @@ const {
   padding: var(--spacing-4);
   text-align: center;
   color: var(--color-text-tertiary);
-  font-size: var(--font-size-xs);
+  font-size: var(--sidebar-font-meta);
+}
+
+@container (max-width: 320px) {
+  .session-item {
+    padding: var(--spacing-2) var(--spacing-3);
+  }
+
+  .session-item__meta {
+    gap: var(--spacing-2);
+  }
+
+  .session-item__meta-item--created {
+    display: none;
+  }
+
+  .session-item__actions {
+    display: none;
+  }
+
+  .session-item__menu {
+    display: flex;
+  }
+}
+
+@container (max-width: 280px) {
+  .session-item__time {
+    display: none;
+  }
+
+  .session-item__meta {
+    gap: var(--spacing-1);
+  }
+
+  .session-item__meta-item:first-child,
+  .session-item__meta-item--created {
+    display: none;
+  }
+
+  .session-item__meta-item:not(:first-child) {
+    flex-shrink: 0;
+  }
+
+  .session-item__preview {
+    padding-left: calc(14px + var(--spacing-2));
+  }
+
+  .session-item__actions {
+    margin-left: var(--spacing-1);
+  }
+}
+
+/* 极窄屏优化 - 隐藏更多低优先级元信息 */
+@container (max-width: 240px) {
+  .session-item__status {
+    display: none;
+  }
+
+  .session-item__main,
+  .session-item__content {
+    gap: var(--spacing-1);
+  }
+
+  .session-item__preview {
+    padding-left: 0;
+  }
+
+  .session-item__meta-item:nth-child(2),
+  .session-item__meta-item--created {
+    display: none;
+  }
 }
 </style>

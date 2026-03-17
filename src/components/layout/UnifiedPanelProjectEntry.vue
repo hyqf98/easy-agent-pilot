@@ -55,6 +55,25 @@ const { t } = useI18n()
 function handleStartEditSession(session: Session, event: Event) {
   emit('startEditSession', session, event)
 }
+
+function closeCompactMenu(event: Event) {
+  const details = (event.currentTarget as HTMLElement | null)?.closest('details')
+  if (details instanceof HTMLDetailsElement) {
+    details.open = false
+  }
+}
+
+function handleProjectCompactAction(action: 'edit' | 'delete', project: Project, event: Event) {
+  event.stopPropagation()
+  closeCompactMenu(event)
+
+  if (action === 'edit') {
+    emit('editProject', project)
+    return
+  }
+
+  emit('deleteProject', project)
+}
 </script>
 
 <template>
@@ -133,6 +152,43 @@ function handleStartEditSession(session: Session, event: Event) {
         />
       </button>
     </div>
+
+    <details
+      class="project-item__menu"
+      @click.stop
+    >
+      <summary
+        class="project-item__menu-trigger"
+        @click.stop
+      >
+        <EaIcon
+          name="ellipsis-vertical"
+          :size="12"
+        />
+      </summary>
+      <div class="project-item__menu-popover">
+        <button
+          class="project-item__menu-action"
+          @click="handleProjectCompactAction('edit', project, $event)"
+        >
+          <EaIcon
+            name="edit-2"
+            :size="12"
+          />
+          <span>{{ t('common.edit') }}</span>
+        </button>
+        <button
+          class="project-item__menu-action project-item__menu-action--danger"
+          @click="handleProjectCompactAction('delete', project, $event)"
+        >
+          <EaIcon
+            name="x"
+            :size="12"
+          />
+          <span>{{ t('common.delete') }}</span>
+        </button>
+      </div>
+    </details>
   </div>
 
   <div
@@ -243,6 +299,7 @@ function handleStartEditSession(session: Session, event: Event) {
 <style scoped>
 .project-item {
   display: flex;
+  container-type: inline-size;
   align-items: center;
   gap: var(--spacing-2);
   padding: var(--spacing-3);
@@ -329,12 +386,15 @@ function handleStartEditSession(session: Session, event: Event) {
   display: flex;
   align-items: center;
   gap: var(--spacing-2);
+  min-width: 0;
 }
 
 .project-item__name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   color: var(--color-text-primary);
-  font-size: var(--font-size-sm);
+  font-size: var(--sidebar-font-primary);
   font-weight: var(--font-weight-medium);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -343,15 +403,22 @@ function handleStartEditSession(session: Session, event: Event) {
 .project-item__meta {
   display: flex;
   align-items: center;
-  gap: var(--spacing-3);
+  gap: var(--spacing-2);
   color: var(--color-text-tertiary);
-  font-size: var(--font-size-xs);
+  font-size: var(--sidebar-font-meta);
+  white-space: nowrap;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow: hidden;
 }
 
 .project-item__time {
   display: flex;
   align-items: center;
   gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .project-item__session-count {
@@ -361,6 +428,7 @@ function handleStartEditSession(session: Session, event: Event) {
   padding: 1px 6px;
   border-radius: var(--radius-full);
   background-color: var(--color-bg-tertiary);
+  flex-shrink: 0;
 }
 
 .project-item__session-count--has {
@@ -400,6 +468,78 @@ function handleStartEditSession(session: Session, event: Event) {
 }
 
 .project-item__action-btn--danger:hover {
+  background-color: var(--color-error-light);
+  color: var(--color-error);
+}
+
+.project-item__menu {
+  position: relative;
+  display: none;
+  flex-shrink: 0;
+}
+
+.project-item__menu[open] {
+  z-index: 3;
+}
+
+.project-item__menu-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-tertiary);
+  list-style: none;
+  cursor: pointer;
+  transition: background-color var(--transition-fast) var(--easing-default), color var(--transition-fast) var(--easing-default);
+}
+
+.project-item__menu-trigger::-webkit-details-marker {
+  display: none;
+}
+
+.project-item__menu-trigger:hover {
+  background-color: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.project-item__menu-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  display: flex;
+  min-width: 104px;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-surface) 96%, white);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
+}
+
+.project-item__menu-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.project-item__menu-action:hover {
+  background-color: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.project-item__menu-action--danger:hover {
   background-color: var(--color-error-light);
   color: var(--color-error);
 }
@@ -607,6 +747,64 @@ function handleStartEditSession(session: Session, event: Event) {
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 窄屏优化 - 隐藏时间标签 */
+@container (max-width: 320px) {
+  .project-item {
+    padding: var(--spacing-2) var(--spacing-3);
+  }
+
+  .project-item__time {
+    display: none;
+  }
+
+  .project-item__actions {
+    display: none;
+  }
+
+  .project-item__menu {
+    display: flex;
+  }
+
+  .project-item__meta {
+    gap: var(--spacing-1);
+  }
+}
+
+@container (max-width: 280px) {
+  .project-item__actions {
+    gap: 0;
+  }
+
+  .project-item__action-btn {
+    width: 22px;
+    height: 22px;
+  }
+
+  .project-item__session-count {
+    padding: 1px 5px;
+  }
+}
+
+@container (max-width: 240px) {
+  .project-item__arrow {
+    width: 16px;
+    height: 16px;
+  }
+
+  .project-item__icon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .project-item__name {
+    font-size: 12px;
+  }
+
+  .project-item__meta {
+    display: none;
+  }
 }
 
 @keyframes spin {

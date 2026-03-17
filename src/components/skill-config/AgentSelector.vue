@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAgentStore, type AgentConfig } from '@/stores/agent'
 import { EaIcon } from '@/components/common'
+import { useSafeOutsideClick } from '@/composables/useSafeOutsideClick'
 
 const props = defineProps<{
   modelValue: AgentConfig | null
@@ -37,13 +38,6 @@ watch(() => agentStore.agents, (agents) => {
   }
 }, { immediate: true })
 
-// 点击外部关闭下拉菜单
-function handleClickOutside(event: MouseEvent) {
-  if (dropdownRef.value && !dropdownRef.value.contains(event.target as Node)) {
-    isOpen.value = false
-  }
-}
-
 // 切换下拉菜单
 function toggleDropdown() {
   isOpen.value = !isOpen.value
@@ -54,13 +48,12 @@ function selectAgent(agent: AgentConfig) {
   isOpen.value = false
 }
 
-onMounted(() => {
-  document.addEventListener('click', handleClickOutside)
-})
-
-onUnmounted(() => {
-  document.removeEventListener('click', handleClickOutside)
-})
+useSafeOutsideClick(
+  () => [dropdownRef.value],
+  () => {
+    isOpen.value = false
+  }
+)
 
 function getAgentIcon(type: string) {
   return type === 'cli' ? 'lucide:terminal' : 'lucide:bot'

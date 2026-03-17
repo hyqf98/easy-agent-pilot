@@ -6,17 +6,20 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 export interface WindowContext {
   label: string
   project_id: string | null
+  window_type: 'main' | 'project' | 'mini-panel'
 }
 
 export const useWindowManagerStore = defineStore('windowManager', () => {
   // 状态
   const windowLabel = ref<string>('main')
   const projectId = ref<string | null>(null)
+  const windowType = ref<'main' | 'project' | 'mini-panel'>('main')
   const isInitialized = ref(false)
 
   // 计算属性
   const isMainWindow = computed(() => windowLabel.value === 'main')
   const isProjectWindow = computed(() => windowLabel.value.startsWith('project-'))
+  const isMiniPanelWindow = computed(() => windowType.value === 'mini-panel')
 
   // 初始化窗口上下文
   async function initWindowContext() {
@@ -27,6 +30,7 @@ export const useWindowManagerStore = defineStore('windowManager', () => {
 
       windowLabel.value = context.label
       projectId.value = context.project_id
+      windowType.value = context.window_type
 
       // 监听窗口关闭事件，释放会话锁定
       const window = getCurrentWindow()
@@ -70,10 +74,12 @@ export const useWindowManagerStore = defineStore('windowManager', () => {
     // 状态
     windowLabel,
     projectId,
+    windowType,
     isInitialized,
     // 计算属性
     isMainWindow,
     isProjectWindow,
+    isMiniPanelWindow,
     // 方法
     initWindowContext,
     openProjectInNewWindow,

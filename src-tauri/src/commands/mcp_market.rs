@@ -52,7 +52,7 @@ fn create_config_backup(config_path: &Path) -> Result<Option<String>, String> {
 
 fn resolve_cli_identifier_from_config_path(config_path: &str) -> Result<String, String> {
     for cli in ["claude", "codex"] {
-    let paths = get_cli_config_paths_internal(cli, None)?;
+        let paths = get_cli_config_paths_internal(cli, None)?;
         if paths.config_file == config_path {
             return Ok(cli.to_string());
         }
@@ -173,7 +173,11 @@ pub async fn install_mcp_to_cli(input: McpInstallInput) -> Result<McpInstallResu
     if let Some(ref mut servers) = config.mcpServers {
         servers.insert(
             sanitize_mcp_key(&input.mcp_name),
-            build_installed_mcp_config(input.command.clone(), input.args.clone(), input.env.clone()),
+            build_installed_mcp_config(
+                input.command.clone(),
+                input.args.clone(),
+                input.env.clone(),
+            ),
         );
     }
 
@@ -461,7 +465,10 @@ pub fn update_installed_mcp(
         if old_name != new_name {
             servers.remove(&old_name);
         }
-        servers.insert(new_name.clone(), build_installed_mcp_config(command, args, env));
+        servers.insert(
+            new_name.clone(),
+            build_installed_mcp_config(command, args, env),
+        );
     }
 
     write_cli_config(cli_path, None, config)?;
@@ -555,8 +562,7 @@ fn send_jsonrpc_request(
     let response_str = String::from_utf8(response_body)
         .map_err(|e| format!("Invalid UTF-8 in response: {}", e))?;
 
-    serde_json::from_str(&response_str)
-        .map_err(|e| format!("Failed to parse response JSON: {}", e))
+    serde_json::from_str(&response_str).map_err(|e| format!("Failed to parse response JSON: {}", e))
 }
 
 /// 测试已安装 MCP 服务器连接 (Tauri 命令)

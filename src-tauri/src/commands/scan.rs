@@ -6,6 +6,7 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::Command;
 
+use crate::commands::cli_support::resolve_cli_name;
 use crate::commands::scan_session_shared::{
     clean_display_text, collect_jsonl_files, delete_cli_session_path,
     extract_jsonl_message_content, extract_jsonl_message_type, extract_jsonl_project_path,
@@ -106,34 +107,13 @@ pub struct ClaudeConfigScanResult {
     pub error_message: Option<String>,
 }
 
-/// 根据 CLI 路径获取配置目录和信息
-fn resolve_cli_name(cli_path: Option<&str>, cli_type_hint: Option<&str>) -> String {
-    if let Some(hint) = cli_type_hint {
-        let normalized = hint.trim().to_lowercase();
-        if matches!(normalized.as_str(), "claude" | "claude-code" | "codex" | "qwen" | "qwen-code")
-        {
-            return normalized;
-        }
-    }
-
-    if let Some(path) = cli_path {
-        std::path::Path::new(path)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("claude")
-            .to_lowercase()
-    } else {
-        "claude".to_string()
-    }
-}
-
 fn get_cli_config_dir(
     cli_path: Option<&str>,
     cli_type_hint: Option<&str>,
 ) -> Result<(PathBuf, PathBuf, String), String> {
     let home_dir = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
 
-    let cli_name = resolve_cli_name(cli_path, cli_type_hint);
+    let cli_name = resolve_cli_name(cli_path, cli_type_hint, "claude");
 
     match cli_name.as_str() {
         "claude" | "claude-code" => {
@@ -588,18 +568,18 @@ pub fn scan_cli_config(
     // 获取 CLI 配置目录和配置文件路径
     let (config_dir, config_file, cli_name) =
         match get_cli_config_dir(cli_path.as_deref(), cli_type.as_deref()) {
-        Ok(result) => result,
-        Err(e) => {
-            return Ok(ClaudeConfigScanResult {
-                claude_dir: String::new(),
-                mcp_servers: Vec::new(),
-                skills: Vec::new(),
-                plugins: Vec::new(),
-                scan_success: false,
-                error_message: Some(format!("无法确定配置目录: {}", e)),
-            });
-        }
-    };
+            Ok(result) => result,
+            Err(e) => {
+                return Ok(ClaudeConfigScanResult {
+                    claude_dir: String::new(),
+                    mcp_servers: Vec::new(),
+                    skills: Vec::new(),
+                    plugins: Vec::new(),
+                    scan_success: false,
+                    error_message: Some(format!("无法确定配置目录: {}", e)),
+                });
+            }
+        };
 
     let config_dir_str = config_dir.to_string_lossy().to_string();
 
@@ -761,7 +741,10 @@ fn extract_session_project_path(session_path: &PathBuf) -> Option<String> {
 }
 
 /// 从会话jsonl文件中提取会话信息
-fn extract_session_info(session_path: &PathBuf, force_fast_scan: bool) -> Option<ScannedCliSession> {
+fn extract_session_info(
+    session_path: &PathBuf,
+    force_fast_scan: bool,
+) -> Option<ScannedCliSession> {
     let file_name = session_path.file_stem()?.to_string_lossy().to_string();
     let metadata = fs::metadata(session_path).ok()?;
     let modified = metadata
@@ -945,20 +928,17 @@ pub struct AgentCliSessionProjectsResult {
 pub async fn list_agent_cli_session_projects(
     agent_id: String,
 ) -> Result<AgentCliSessionProjectsResult, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        list_agent_cli_session_projects_impl(agent_id)
-    })
-    .await
-    .map_err(|e| format!("加载会话项目列表失败: {}", e))?
+    tauri::async_runtime::spawn_blocking(move || list_agent_cli_session_projects_impl(agent_id))
+        .await
+        .map_err(|e| format!("加载会话项目列表失败: {}", e))?
 }
 
 fn list_agent_cli_session_projects_impl(
     agent_id: String,
 ) -> Result<AgentCliSessionProjectsResult, String> {
     let cli_path = get_agent_cli_path(&agent_id)?;
-    let (config_dir, _, cli_name) =
-        get_cli_config_dir(Some(cli_path.as_str()), None)
-            .map_err(|e| format!("无法确定配置目录: {}", e))?;
+    let (config_dir, _, cli_name) = get_cli_config_dir(Some(cli_path.as_str()), None)
+        .map_err(|e| format!("无法确定配置目录: {}", e))?;
 
     Ok(AgentCliSessionProjectsResult {
         agent_id,
@@ -1282,9 +1262,10 @@ fn scan_cli_sessions_internal(
                                             .map(|e| e == "jsonl")
                                             .unwrap_or(false)
                                         {
-                                            if let Some(session) =
-                                                extract_session_info(&session_path, prefer_fast_scan)
-                                            {
+                                            if let Some(session) = extract_session_info(
+                                                &session_path,
+                                                prefer_fast_scan,
+                                            ) {
                                                 sessions.push(session);
                                             }
                                         }

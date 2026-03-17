@@ -1,4 +1,4 @@
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { useAgentConfigStore } from '@/stores/agentConfig'
@@ -16,12 +16,16 @@ import { useSettingsStore } from '@/stores/settings'
 import { useTokenStore, type CompressionStrategy, type TokenLevel } from '@/stores/token'
 import { compressionService } from '@/services/compression'
 import { conversationService } from '@/services/conversation'
+import { useSafeOutsideClick } from '@/composables/useSafeOutsideClick'
+import { FILE_MENTION_PATTERN, getMentionDisplayText, getMentionTitle } from '@/utils/fileMention'
 import { resolveSessionAgent, resolveSessionAgentId } from '@/utils/sessionAgent'
 
 interface TextSegment {
   type: 'text' | 'file'
   content: string
+  displayContent?: string
   fullPath?: string
+  titleContent?: string
 }
 
 interface UploadImageInput {
@@ -32,6 +36,25 @@ interface UploadImageInput {
 
 interface UploadSessionImagesResponse {
   attachments: MessageAttachment[]
+}
+
+function sanitizeComposerText(value: string): string {
+  let sanitized = ''
+
+  for (const char of value) {
+    const code = char.charCodeAt(0)
+    const isControlChar = (code >= 0x00 && code <= 0x08)
+      || code === 0x0B
+      || code === 0x0C
+      || (code >= 0x0E && code <= 0x1F)
+      || code === 0x7F
+
+    if (!isControlChar) {
+      sanitized += char
+    }
+  }
+
+  return sanitized
 }
 
 export function useMessageComposer() {
@@ -140,11 +163,12 @@ export function useMessageComposer() {
     if (!text) return []
 
     const segments: TextSegment[] = []
-    const filePattern = /@"([^"\n]+)"|@([^\s@"]+)/g
     let lastIndex = 0
-    let match
+    let match: RegExpExecArray | null
 
-    while ((match = filePattern.exec(text)) !== null) {
+    FILE_MENTION_PATTERN.lastIndex = 0
+
+    while ((match = FILE_MENTION_PATTERN.exec(text)) !== null) {
       if (match.index > lastIndex) {
         const content = text.slice(lastIndex, match.index)
         if (content) {
@@ -156,12 +180,13 @@ export function useMessageComposer() {
       }
 
       const fullPath = match[1] ?? match[2]
-      const fileName = fullPath.split(/[/\\]/).pop() || fullPath
 
       segments.push({
         type: 'file',
-        content: fileName,
-        fullPath
+        content: match[0],
+        displayContent: getMentionDisplayText(match[0], fullPath),
+        fullPath,
+        titleContent: getMentionTitle(fullPath)
       })
 
       lastIndex = match.index + match[0].length
@@ -227,14 +252,12 @@ export function useMessageComposer() {
     }
   }, { immediate: true })
 
-  const handleClickOutside = (event: MouseEvent) => {
-    if (agentDropdownRef.value && !agentDropdownRef.value.contains(event.target as Node)) {
-      isAgentDropdownOpen.value = false
+  watch(inputText, (value) => {
+    const sanitizedValue = sanitizeComposerText(value)
+    if (sanitizedValue !== value) {
+      inputText.value = sanitizedValue
     }
-    if (modelDropdownRef.value && !modelDropdownRef.value.contains(event.target as Node)) {
-      isModelDropdownOpen.value = false
-    }
-  }
+  })
 
   onMounted(async () => {
     try {
@@ -245,12 +268,15 @@ export function useMessageComposer() {
     } catch (error) {
       console.error('Failed to load agents:', error)
     }
-    document.addEventListener('click', handleClickOutside)
   })
 
-  onUnmounted(() => {
-    document.removeEventListener('click', handleClickOutside)
-  })
+  useSafeOutsideClick(
+    () => [agentDropdownRef.value, modelDropdownRef.value],
+    () => {
+      isAgentDropdownOpen.value = false
+      isModelDropdownOpen.value = false
+    }
+  )
 
   const syncScroll = () => {
     if (textareaRef.value && renderLayerRef.value) {
@@ -395,7 +421,7 @@ export function useMessageComposer() {
     const afterSearch = inputText.value.slice(cursorPos)
     const insertText = `${formatMentionInsertText(insertPath)} `
 
-    inputText.value = beforeAt + insertText + afterSearch
+    inputText.value = sanitizeComposerText(beforeAt + insertText + afterSearch)
 
     nextTick(() => {
       if (textarea) {
@@ -436,8 +462,16 @@ export function useMessageComposer() {
 
   const handleInput = (event: Event) => {
     const target = event.target as HTMLTextAreaElement
-    const value = target.value
-    const cursorPosition = target.selectionStart || 0
+    let value = target.value
+    let cursorPosition = target.selectionStart || 0
+    const sanitizedValue = sanitizeComposerText(value)
+
+    if (sanitizedValue !== value) {
+      cursorPosition = sanitizeComposerText(value.slice(0, cursorPosition)).length
+      value = sanitizedValue
+      target.value = sanitizedValue
+      target.setSelectionRange(cursorPosition, cursorPosition)
+    }
 
     if (showFileMention.value && mentionStart.value >= 0) {
       if (value[mentionStart.value] !== '@') {

@@ -751,7 +751,9 @@ const startProjectWatcher = async (project: Project) => {
 .unified-panel {
   display: flex;
   flex-direction: column;
+  container-type: inline-size;
   height: 100%;
+  min-width: 0;
   background-color: var(--color-surface);
   border-right: 1px solid var(--color-border);
   overflow: hidden;
@@ -765,23 +767,35 @@ const startProjectWatcher = async (project: Project) => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--spacing-2);
   padding: var(--spacing-3);
   border-bottom: 1px solid var(--color-border);
   min-height: 44px;
+  min-width: 0;
 }
 
 .unified-panel__header-title {
   display: flex;
   align-items: center;
+  flex: 1;
+  min-width: 0;
   gap: var(--spacing-2);
   color: var(--color-text-primary);
   font-weight: var(--font-weight-medium);
   font-size: var(--font-size-sm);
 }
 
+.unified-panel__header-title span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .unified-panel__header-actions {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
   gap: var(--spacing-1);
 }
 
@@ -808,6 +822,7 @@ const startProjectWatcher = async (project: Project) => {
   display: flex;
   flex-direction: column;
   flex: 1;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
   padding: var(--spacing-2);
@@ -817,6 +832,7 @@ const startProjectWatcher = async (project: Project) => {
   display: flex;
   flex-direction: column;
   flex: 1;
+  min-width: 0;
   min-height: 0;
   overflow-y: auto;
   gap: var(--spacing-1);
@@ -956,6 +972,31 @@ const startProjectWatcher = async (project: Project) => {
   opacity: 0;
 }
 
+@container (max-width: 300px) {
+  .unified-panel__header {
+    padding: var(--spacing-2);
+  }
+
+  .unified-panel__content {
+    padding: var(--spacing-1);
+  }
+}
+
+@container (max-width: 240px) {
+  .unified-panel__header-title span {
+    display: none;
+  }
+
+  .unified-panel__header-actions {
+    gap: 2px;
+  }
+
+  .header-action-btn {
+    width: 22px;
+    height: 22px;
+  }
+}
+
 /* 旋转动画 */
 @keyframes spin {
   from {
@@ -963,6 +1004,14 @@ const startProjectWatcher = async (project: Project) => {
   }
   to {
     transform: rotate(360deg);
+  }
+}
+
+/* 小屏笔记本优化 (13-14寸) */
+@media (max-width: 1280px) {
+  .unified-panel {
+    --sidebar-font-primary: 11px;
+    --sidebar-font-meta: 10px;
   }
 }
 

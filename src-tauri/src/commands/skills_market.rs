@@ -9,8 +9,8 @@ use tauri::AppHandle;
 use zip::ZipArchive;
 
 use crate::commands::mcpmarket_source::{
-    get_marketplace_source_strategy, MarketListResponse, MarketplaceSourceQuery, SkillArchivePayload,
-    SkillSourceDetail, SkillSourceListItem,
+    get_marketplace_source_strategy, MarketListResponse, MarketplaceSourceQuery,
+    SkillArchivePayload, SkillSourceDetail, SkillSourceListItem,
 };
 
 pub type SkillMarketItem = SkillSourceListItem;
@@ -179,11 +179,16 @@ fn detect_common_prefix(entries: &[String]) -> Option<String> {
 }
 
 fn unzip_skill_archive(zip_bytes: &[u8], target_dir: &Path) -> Result<(), String> {
-    let mut archive =
-        ZipArchive::new(Cursor::new(zip_bytes)).map_err(|e| format!("Failed to open zip: {}", e))?;
+    let mut archive = ZipArchive::new(Cursor::new(zip_bytes))
+        .map_err(|e| format!("Failed to open zip: {}", e))?;
 
     let entry_names = (0..archive.len())
-        .filter_map(|index| archive.by_index(index).ok().map(|file| file.name().to_string()))
+        .filter_map(|index| {
+            archive
+                .by_index(index)
+                .ok()
+                .map(|file| file.name().to_string())
+        })
         .collect::<Vec<_>>();
     let common_prefix = detect_common_prefix(&entry_names);
 
@@ -227,20 +232,23 @@ fn unzip_skill_archive(zip_bytes: &[u8], target_dir: &Path) -> Result<(), String
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)
             .map_err(|e| format!("Failed to read extracted file: {}", e))?;
-        fs::write(&out_path, buffer).map_err(|e| format!("Failed to write extracted file: {}", e))?;
+        fs::write(&out_path, buffer)
+            .map_err(|e| format!("Failed to write extracted file: {}", e))?;
     }
 
     Ok(())
 }
 
-fn parse_skill_metadata(skill_dir: &Path) -> Result<(Option<String>, Option<String>, Vec<String>), String> {
+fn parse_skill_metadata(
+    skill_dir: &Path,
+) -> Result<(Option<String>, Option<String>, Vec<String>), String> {
     let skill_md_path = skill_dir.join("SKILL.md");
     if !skill_md_path.exists() {
         return Ok((None, None, Vec::new()));
     }
 
-    let content =
-        fs::read_to_string(&skill_md_path).map_err(|e| format!("Failed to read SKILL.md: {}", e))?;
+    let content = fs::read_to_string(&skill_md_path)
+        .map_err(|e| format!("Failed to read SKILL.md: {}", e))?;
     let map = extract_frontmatter_map(&content);
     let name = map.get("name").cloned();
     let description = map.get("description").cloned();
@@ -263,7 +271,10 @@ fn extract_frontmatter_map(content: &str) -> HashMap<String, String> {
         }
 
         if let Some((key, value)) = trimmed.split_once(':') {
-            map.insert(key.trim().to_string(), value.trim().trim_matches('"').to_string());
+            map.insert(
+                key.trim().to_string(),
+                value.trim().trim_matches('"').to_string(),
+            );
         }
     }
 
@@ -324,7 +335,8 @@ fn list_skill_dirs(base_dir: &Path, cli_type: &str) -> Result<Vec<InstalledSkill
     }
 
     let mut installed = Vec::new();
-    let entries = fs::read_dir(base_dir).map_err(|e| format!("Failed to read skills dir: {}", e))?;
+    let entries =
+        fs::read_dir(base_dir).map_err(|e| format!("Failed to read skills dir: {}", e))?;
 
     for entry in entries.flatten() {
         let path = entry.path();
@@ -393,7 +405,8 @@ pub async fn install_skill_to_cli(
         return Err("当前版本的市场技能安装仅支持全局目录".to_string());
     }
 
-    let archive = download_skill_payload(&app, &input.skill_id, input.source_market.as_deref()).await?;
+    let archive =
+        download_skill_payload(&app, &input.skill_id, input.source_market.as_deref()).await?;
     let zip_bytes = decode_archive(&archive)?;
     let skills_dir = get_cli_skills_dir(&input.cli_type)?;
     fs::create_dir_all(&skills_dir).map_err(|e| format!("Failed to create skills dir: {}", e))?;
@@ -567,7 +580,10 @@ fn infer_cli_type_from_skill_path(skill_path: &Path) -> Result<String, String> {
 
 /// Update a skill to the latest archive from MCP Market.
 #[tauri::command]
-pub async fn update_skill(app: AppHandle, input: SkillUpdateInput) -> Result<SkillInstallResult, String> {
+pub async fn update_skill(
+    app: AppHandle,
+    input: SkillUpdateInput,
+) -> Result<SkillInstallResult, String> {
     let skill_dir = PathBuf::from(&input.skill_path);
     if !skill_dir.exists() {
         return Err(format!("Skill directory not found: {}", input.skill_path));

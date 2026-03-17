@@ -1,7 +1,7 @@
 use anyhow::Result;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
@@ -239,10 +239,21 @@ fn get_project_created_at(conn: &rusqlite::Connection, project_id: &str) -> Resu
     .map_err(|e| e.to_string())
 }
 
+fn hidden_mini_panel_project_id(conn: &rusqlite::Connection) -> Result<Option<String>, String> {
+    conn.query_row(
+        "SELECT value FROM app_settings WHERE key = ?1",
+        [super::mini_panel::MINI_PANEL_PROJECT_ID_KEY],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()
+    .map_err(|e| e.to_string())
+}
+
 /// 获取所有项目
 #[tauri::command]
 pub fn list_projects() -> Result<Vec<Project>, String> {
     let conn = open_db_connection().map_err(|e| e.to_string())?;
+    let hidden_project_id = hidden_mini_panel_project_id(&conn)?;
 
     let mut stmt = conn
         .prepare(
@@ -280,6 +291,10 @@ pub fn list_projects() -> Result<Vec<Project>, String> {
 
     let mut projects = Vec::with_capacity(project_rows.len());
     for project_row in project_rows {
+        if hidden_project_id.as_deref() == Some(project_row.id.as_str()) {
+            continue;
+        }
+
         projects.push(Project {
             id: project_row.id.clone(),
             name: project_row.name,
@@ -836,9 +851,7 @@ fn shorten_home_path(path: &Path) -> String {
 }
 
 fn path_depth(path: &str) -> usize {
-    path.chars()
-        .filter(|ch| *ch == '/' || *ch == '\\')
-        .count()
+    path.chars().filter(|ch| *ch == '/' || *ch == '\\').count()
 }
 
 fn compute_search_score(name: &str, display_path: &str, query: &str) -> i32 {
@@ -895,7 +908,10 @@ fn metadata_to_file_node_type(metadata: &fs::Metadata) -> Option<FileNodeType> {
 }
 
 fn is_ignored_global_path(path: &Path) -> bool {
-    let Some(name) = path.file_name().map(|value| value.to_string_lossy().to_string()) else {
+    let Some(name) = path
+        .file_name()
+        .map(|value| value.to_string_lossy().to_string())
+    else {
         return false;
     };
 
@@ -932,7 +948,12 @@ fn rank_project_mentions(
         right
             .score
             .cmp(&left.score)
-            .then_with(|| left.result.display_path.len().cmp(&right.result.display_path.len()))
+            .then_with(|| {
+                left.result
+                    .display_path
+                    .len()
+                    .cmp(&right.result.display_path.len())
+            })
             .then_with(|| left.result.display_path.cmp(&right.result.display_path))
     });
 
@@ -951,13 +972,15 @@ fn build_global_search_result(path: &PathBuf, node_type: FileNodeType) -> FileMe
         .and_then(|value| value.to_str())
         .map(|value| value.to_string());
 
+    let insert_path = path.to_string_lossy().to_string();
+
     FileMentionSearchResult {
         name: path
             .file_name()
             .map(|value| value.to_string_lossy().to_string())
             .unwrap_or_else(|| path.to_string_lossy().to_string()),
         path: path.to_string_lossy().to_string(),
-        insert_path: path.to_string_lossy().to_string(),
+        insert_path,
         display_path,
         node_type,
         extension,
@@ -1084,7 +1107,11 @@ fn scan_global_cache_step(cache: &mut GlobalFileSearchCache, max_dirs: usize) {
     }
 }
 
-fn search_global_cache_entries(cache: &GlobalFileSearchCache, query: &str, limit: usize) -> Vec<FileMentionSearchResult> {
+fn search_global_cache_entries(
+    cache: &GlobalFileSearchCache,
+    query: &str,
+    limit: usize,
+) -> Vec<FileMentionSearchResult> {
     let normalized_query = query.trim().to_lowercase();
 
     let mut ranked = cache
@@ -1092,7 +1119,10 @@ fn search_global_cache_entries(cache: &GlobalFileSearchCache, query: &str, limit
         .iter()
         .filter(|entry| {
             entry.name.to_lowercase().contains(&normalized_query)
-                || entry.display_path.to_lowercase().contains(&normalized_query)
+                || entry
+                    .display_path
+                    .to_lowercase()
+                    .contains(&normalized_query)
         })
         .map(|entry| RankedFileMentionResult {
             score: compute_search_score(&entry.name, &entry.display_path, &normalized_query),
@@ -1112,7 +1142,12 @@ fn search_global_cache_entries(cache: &GlobalFileSearchCache, query: &str, limit
         right
             .score
             .cmp(&left.score)
-            .then_with(|| left.result.display_path.len().cmp(&right.result.display_path.len()))
+            .then_with(|| {
+                left.result
+                    .display_path
+                    .len()
+                    .cmp(&right.result.display_path.len())
+            })
             .then_with(|| left.result.display_path.cmp(&right.result.display_path))
     });
 
@@ -1144,7 +1179,10 @@ fn collect_global_fallback_results(query: &str, limit: usize) -> Vec<FileMention
 }
 
 #[cfg(target_os = "macos")]
-fn search_global_mentions_indexed(query: &str, limit: usize) -> Result<Vec<FileMentionSearchResult>, String> {
+fn search_global_mentions_indexed(
+    query: &str,
+    limit: usize,
+) -> Result<Vec<FileMentionSearchResult>, String> {
     let normalized_query = query.trim();
     if normalized_query.len() < 2 {
         return Ok(Vec::new());
@@ -1204,7 +1242,12 @@ fn search_global_mentions_indexed(query: &str, limit: usize) -> Result<Vec<FileM
         right
             .score
             .cmp(&left.score)
-            .then_with(|| left.result.display_path.len().cmp(&right.result.display_path.len()))
+            .then_with(|| {
+                left.result
+                    .display_path
+                    .len()
+                    .cmp(&right.result.display_path.len())
+            })
             .then_with(|| left.result.display_path.cmp(&right.result.display_path))
     });
 
@@ -1222,7 +1265,10 @@ fn search_global_mentions_indexed(query: &str, limit: usize) -> Result<Vec<FileM
 }
 
 #[cfg(not(target_os = "macos"))]
-fn search_global_mentions_indexed(query: &str, limit: usize) -> Result<Vec<FileMentionSearchResult>, String> {
+fn search_global_mentions_indexed(
+    query: &str,
+    limit: usize,
+) -> Result<Vec<FileMentionSearchResult>, String> {
     Ok(collect_global_fallback_results(query, limit))
 }
 
@@ -1243,7 +1289,9 @@ pub fn list_all_project_files_flat(project_path: String) -> Result<Vec<FlatFileI
 }
 
 #[tauri::command]
-pub fn search_file_mentions(input: SearchFileMentionsInput) -> Result<Vec<FileMentionSearchResult>, String> {
+pub fn search_file_mentions(
+    input: SearchFileMentionsInput,
+) -> Result<Vec<FileMentionSearchResult>, String> {
     let limit = normalize_limit(input.limit);
 
     match input.scope {

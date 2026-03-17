@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { EaButton, EaIcon } from '@/components/common'
 import { useI18n } from 'vue-i18n'
+import { useOverlayDismiss } from '@/composables/useOverlayDismiss'
 
 interface Props {
   visible: boolean
@@ -25,6 +26,10 @@ const dialogVisible = computed({
   get: () => props.visible,
   set: (value: boolean) => emit('update:visible', value)
 })
+
+const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(() => {
+  dialogVisible.value = false
+})
 </script>
 
 <template>
@@ -32,7 +37,8 @@ const dialogVisible = computed({
     <div
       v-if="dialogVisible"
       class="modal-overlay"
-      @click.self="dialogVisible = false"
+      @pointerdown.capture="handleOverlayPointerDown"
+      @click.self="handleOverlayClick"
     >
       <div class="modal-content modal-content--danger">
         <div class="modal-header">

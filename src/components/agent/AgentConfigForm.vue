@@ -145,6 +145,45 @@ const providerOptions = computed(() => {
 const showSdkFields = computed(() => form.value.type === 'sdk')
 const showCliFields = computed(() => form.value.type === 'cli')
 
+type RuntimePlatform = 'windows' | 'macos' | 'linux'
+
+function detectPlatform(): RuntimePlatform {
+  const platform = (navigator as Navigator & {
+    userAgentData?: { platform?: string }
+  }).userAgentData?.platform || navigator.platform || navigator.userAgent
+  const normalized = platform.toLowerCase()
+
+  if (normalized.includes('win')) {
+    return 'windows'
+  }
+
+  if (normalized.includes('mac')) {
+    return 'macos'
+  }
+
+  return 'linux'
+}
+
+const runtimePlatform = detectPlatform()
+
+const cliPathPlaceholder = computed(() => {
+  const executableName = form.value.provider === 'codex' ? 'codex' : 'claude'
+
+  if (runtimePlatform === 'windows') {
+    return `%USERPROFILE%\\\\AppData\\\\Roaming\\\\npm\\\\${executableName}.cmd`
+  }
+
+  if (runtimePlatform === 'macos') {
+    return executableName === 'codex'
+      ? '/opt/homebrew/bin/codex'
+      : '/opt/homebrew/bin/claude'
+  }
+
+  return executableName === 'codex'
+    ? '/home/your-user/.local/bin/codex'
+    : '/home/your-user/.local/bin/claude'
+})
+
 // 验证 URL 格式（即时验证）
 const validateBaseUrlFormat = () => {
   if (!form.value.baseUrl.trim()) {
@@ -399,7 +438,7 @@ const handleCliPathBlur = () => {
               type="text"
               class="form-input"
               :class="{ 'form-input--error': fieldErrors.cliPath }"
-              :placeholder="t('settings.agent.cliPathPlaceholder')"
+              :placeholder="cliPathPlaceholder"
               :disabled="isValidating.cliPath"
               @blur="handleCliPathBlur"
             >

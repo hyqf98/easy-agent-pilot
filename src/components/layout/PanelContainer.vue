@@ -23,7 +23,9 @@ const layoutStore = useLayoutStore()
 .panel-container {
   display: flex;
   flex-direction: column;
+  width: 100%;
   height: 100%;
+  min-width: 0;
   background-color: var(--color-surface);
   border-right: 1px solid var(--color-border);
   overflow: hidden;

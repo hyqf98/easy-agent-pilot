@@ -25,6 +25,10 @@ const handlePanelResize = (delta: number) => {
   layoutStore.setPanelWidth(newWidth)
 }
 
+const handlePanelResizeEnd = (width: number) => {
+  layoutStore.setPanelWidth(width)
+}
+
 // 窗口大小变化时的响应式处理
 let resizeTimeout: ReturnType<typeof setTimeout> | null = null
 const handleWindowResize = () => {
@@ -105,7 +109,7 @@ onUnmounted(() => {
               :max-width="PANEL_LIMITS.panel.maxWidth"
               :current-width="layoutStore.panelWidth"
               @resize="handlePanelResize"
-              @resize-end="handlePanelResize"
+              @resize-end="handlePanelResizeEnd"
             />
           </template>
 
@@ -152,6 +156,8 @@ onUnmounted(() => {
 
 .main-layout__panel {
   flex-shrink: 0;
+  min-width: 0;
+  overflow: hidden;
   transition: width var(--transition-normal) var(--easing-default);
 }
 

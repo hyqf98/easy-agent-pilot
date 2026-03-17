@@ -51,10 +51,9 @@ const toggleExpand = () => {
 
 <style scoped>
 .thinking-display {
-  align-self: stretch;
   width: 100%;
+  min-width: 100%;
   max-width: 100%;
-  min-width: 0;
   box-sizing: border-box;
   border-radius: var(--radius-lg);
   background:
@@ -136,13 +135,20 @@ const toggleExpand = () => {
 }
 
 .thinking-display__content {
+  width: 100%;
+  box-sizing: border-box;
   border-top: 1px solid rgba(14, 165, 233, 0.14);
+  max-height: calc(var(--message-compact-max-height, 20rem) - 44px);
+  overflow: hidden;
 }
 
 .thinking-display__scroll {
-  max-height: calc(1.5em * 6 + var(--spacing-2) * 2); /* 6行高度 */
-  overflow-y: auto;
+  width: 100%;
+  max-height: calc(var(--message-compact-max-height, 20rem) - 44px);
+  overflow: auto;
+  scrollbar-gutter: stable;
   padding: var(--spacing-2) var(--spacing-3);
+  box-sizing: border-box;
 }
 
 /* 自定义滚动条 */
@@ -165,6 +171,9 @@ const toggleExpand = () => {
 
 .thinking-display__text {
   margin: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   font-family: var(--font-family-mono);
   font-size: var(--font-size-xs);
   line-height: 1.5;

@@ -12,6 +12,8 @@ use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
+use crate::commands::cli_support::{find_cli_executable, get_cli_version};
+
 /// 安装进行中标志
 static INSTALLING: AtomicBool = AtomicBool::new(false);
 
@@ -171,58 +173,8 @@ pub fn detect_package_managers() -> Result<Vec<PackageManager>, String> {
 
 /// 检测 CLI 是否已安装及其版本
 fn detect_cli_installed(cli_name: &str) -> (bool, Option<String>) {
-    // 尝试直接运行 CLI 获取版本
-    if let Ok(output) = Command::new(cli_name).arg("--version").output() {
-        if output.status.success() {
-            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            return (true, Some(version));
-        }
-    }
-
-    // 尝试使用 which/where 查找
-    #[cfg(not(windows))]
-    {
-        if let Ok(output) = Command::new("which").arg(cli_name).output() {
-            if output.status.success() {
-                let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !path.is_empty() {
-                    // 尝试获取版本
-                    if let Ok(version_output) = Command::new(&path).arg("--version").output() {
-                        if version_output.status.success() {
-                            let version = String::from_utf8_lossy(&version_output.stdout)
-                                .trim()
-                                .to_string();
-                            return (true, Some(version));
-                        }
-                    }
-                    return (true, None);
-                }
-            }
-        }
-    }
-
-    #[cfg(windows)]
-    {
-        if let Ok(output) = Command::new("where").arg(cli_name).output() {
-            if output.status.success() {
-                let path = String::from_utf8_lossy(&output.stdout)
-                    .lines()
-                    .next()
-                    .map(|s| s.trim().to_string())
-                    .unwrap_or_default();
-                if !path.is_empty() {
-                    if let Ok(version_output) = Command::new(&path).arg("--version").output() {
-                        if version_output.status.success() {
-                            let version = String::from_utf8_lossy(&version_output.stdout)
-                                .trim()
-                                .to_string();
-                            return (true, Some(version));
-                        }
-                    }
-                    return (true, None);
-                }
-            }
-        }
+    if let Some(cli_path) = find_cli_executable(cli_name, &[]) {
+        return (true, get_cli_version(&cli_path));
     }
 
     (false, None)

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Plan, PlanStatus } from '@/types/plan'
 import type { AgentOption, ModelOption, PlanEditFormState } from './planListShared'
+import { useOverlayDismiss } from '@/composables/useOverlayDismiss'
 
 const props = defineProps<{
   visible: boolean
@@ -29,6 +30,8 @@ const minDateTime = new Date().toISOString().slice(0, 16)
 function isDraftEditable(status: PlanStatus | undefined): boolean {
   return status === 'draft'
 }
+
+const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(() => emit('close'))
 </script>
 
 <template>
@@ -36,7 +39,8 @@ function isDraftEditable(status: PlanStatus | undefined): boolean {
     <div
       v-if="visible"
       class="dialog-overlay"
-      @click.self="emit('close')"
+      @pointerdown.capture="handleOverlayPointerDown"
+      @click.self="handleOverlayClick"
     >
       <div class="dialog">
         <div class="dialog-header">

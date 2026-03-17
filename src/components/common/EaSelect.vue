@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { EaIcon } from '@/components/common'
+import { useSafeOutsideClick } from '@/composables/useSafeOutsideClick'
 
 export interface SelectOption {
   value: string | number
@@ -89,19 +90,6 @@ const selectOption = (option: SelectOption) => {
   }
 }
 
-const handleClickOutside = (event: MouseEvent) => {
-  const target = event.target as Node
-  if (
-    triggerRef.value &&
-    !triggerRef.value.contains(target) &&
-    dropdownRef.value &&
-    !dropdownRef.value.contains(target)
-  ) {
-    isOpen.value = false
-  }
-}
-
-// 滚动时更新位置
 const handleScroll = () => {
   if (isOpen.value) {
     updatePosition()
@@ -109,14 +97,19 @@ const handleScroll = () => {
   }
 }
 
+useSafeOutsideClick(
+  () => [triggerRef.value, dropdownRef.value],
+  () => {
+    isOpen.value = false
+  }
+)
+
 onMounted(() => {
-  document.addEventListener('click', handleClickOutside)
   window.addEventListener('scroll', handleScroll, true)
   window.addEventListener('resize', updatePosition)
 })
 
 onUnmounted(() => {
-  document.removeEventListener('click', handleClickOutside)
   window.removeEventListener('scroll', handleScroll, true)
   window.removeEventListener('resize', updatePosition)
 })

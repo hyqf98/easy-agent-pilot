@@ -100,7 +100,7 @@ function handleMessageFormCancel(formId: string) {
 
 <style scoped>
 .execution-timeline {
-  --timeline-entry-width: var(--timeline-panel-width, min(100%, 29.5rem));
+  --timeline-entry-width: var(--timeline-panel-width, min(100%, clamp(18rem, 40%, 34rem)));
   display: flex;
   flex-direction: column;
   gap: var(--spacing-3);
@@ -120,8 +120,8 @@ function handleMessageFormCancel(formId: string) {
 }
 
 .timeline-message__content {
-  width: fit-content;
-  max-width: min(100%, 44rem);
+  width: min(100%, clamp(18rem, 40%, 34rem));
+  max-width: 100%;
   border-radius: 1rem;
   padding: 0.875rem 1rem;
   background: rgba(248, 250, 252, 0.92);
