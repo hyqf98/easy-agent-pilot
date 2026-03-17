@@ -9,6 +9,7 @@ pub fn run() {
         .with_max_level(tracing::Level::ERROR)
         .init();
 
+    #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_sql::Builder::default().build())
