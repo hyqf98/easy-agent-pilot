@@ -1347,7 +1347,8 @@ mod tests {
         assert_eq!(stats_cleared.message_count, 0);
         assert_eq!(stats_cleared.log_count, 0);
 
-        let import_result = import_data_from_file(backup_path.to_string_lossy().to_string()).unwrap();
+        let import_result =
+            import_data_from_file(backup_path.to_string_lossy().to_string()).unwrap();
         assert_eq!(import_result.projects_imported, 1);
         assert_eq!(import_result.sessions_imported, 1);
         assert_eq!(import_result.messages_imported, 1);

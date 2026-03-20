@@ -1,7 +1,7 @@
 use core_foundation::runloop::CFRunLoop;
 use core_graphics::event::{
-    CallbackResult, CGEventFlags, CGEventTap, CGEventTapLocation, CGEventTapOptions,
-    CGEventTapPlacement, CGEventType, EventField, KeyCode,
+    CGEventFlags, CGEventTap, CGEventTapLocation, CGEventTapOptions, CGEventTapPlacement,
+    CGEventType, CallbackResult, EventField, KeyCode,
 };
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
@@ -61,8 +61,14 @@ pub fn register_shortcut(app: AppHandle, shortcut: String) -> Result<(), String>
             CGEventTapLocation::HID,
             CGEventTapPlacement::HeadInsertEventTap,
             CGEventTapOptions::Default,
-            vec![CGEventType::KeyDown, CGEventType::KeyUp, CGEventType::FlagsChanged],
-            move |_proxy, event_type, event| handle_registered_event(&worker_runtime, event_type, event),
+            vec![
+                CGEventType::KeyDown,
+                CGEventType::KeyUp,
+                CGEventType::FlagsChanged,
+            ],
+            move |_proxy, event_type, event| {
+                handle_registered_event(&worker_runtime, event_type, event)
+            },
             || {
                 let _ = ready_tx_run.send(Ok(run_loop.clone()));
                 CFRunLoop::run_current();
@@ -71,7 +77,9 @@ pub fn register_shortcut(app: AppHandle, shortcut: String) -> Result<(), String>
 
         if tap_result.is_err() {
             *ACTIVE_RUNTIME.lock() = None;
-            let _ = ready_tx.send(Err("MACOS_SHORTCUT_OVERRIDE_PERMISSION_REQUIRED".to_string()));
+            let _ = ready_tx.send(Err(
+                "MACOS_SHORTCUT_OVERRIDE_PERMISSION_REQUIRED".to_string()
+            ));
             return;
         }
 
@@ -126,7 +134,9 @@ pub fn capture_shortcut_once(timeout_ms: Option<u64>) -> Result<String, String> 
         );
 
         if tap_result.is_err() {
-            let _ = ready_tx.send(Err("MACOS_SHORTCUT_OVERRIDE_PERMISSION_REQUIRED".to_string()));
+            let _ = ready_tx.send(Err(
+                "MACOS_SHORTCUT_OVERRIDE_PERMISSION_REQUIRED".to_string()
+            ));
         }
     });
 

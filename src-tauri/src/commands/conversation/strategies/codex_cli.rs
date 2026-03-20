@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use async_trait::async_trait;
 use tauri::AppHandle;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 use tokio::time::sleep;
 use uuid::Uuid;
 
@@ -358,7 +358,12 @@ impl AgentExecutionStrategy for CodexCliStrategy {
             messages.last().map(render_cli_message).unwrap_or_default()
         };
 
-        args.push(input_text.clone());
+        let should_pipe_prompt_via_stdin = use_exec_mode;
+        if should_pipe_prompt_via_stdin {
+            args.push("-".to_string());
+        } else {
+            args.push(input_text.clone());
+        }
 
         // 构建完整命令（用于日志）
         let full_command = build_full_codex_command(&cli_path, &global_args, &args);
@@ -378,15 +383,40 @@ impl AgentExecutionStrategy for CodexCliStrategy {
             }
         }
 
-        cmd.stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .env_remove("CLAUDECODE");
+        cmd.stdin(if should_pipe_prompt_via_stdin {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env_remove("CLAUDECODE");
 
         let execution_started_at = Instant::now();
         let monitor = CliExecutionMonitor::new();
         let timeout_config = timeout_config_for_execution_mode(request.execution_mode.as_deref());
         let mut child = cmd.spawn()?;
+
+        let stdin_write_handle = if should_pipe_prompt_via_stdin {
+            let stdin_payload = input_text.clone();
+            let mut stdin = child
+                .stdin
+                .take()
+                .ok_or_else(|| anyhow::anyhow!("failed to acquire stdin"))?;
+
+            Some(tokio::spawn(async move {
+                if let Err(error) = stdin.write_all(stdin_payload.as_bytes()).await {
+                    log_error!("[stdin] failed to write prompt: {}", error);
+                    return;
+                }
+
+                if let Err(error) = stdin.shutdown().await {
+                    log_error!("[stdin] failed to close stdin: {}", error);
+                }
+            }))
+        } else {
+            None
+        };
 
         // 注册进程 PID，用于后续可能的中断操作
         if let Some(pid) = child.id() {
@@ -624,6 +654,11 @@ impl AgentExecutionStrategy for CodexCliStrategy {
                 StderrReadOutcome::none()
             }
         };
+        if let Some(handle) = stdin_write_handle {
+            if let Err(error) = handle.await {
+                log_error!("[stdin] task join failed: {}", error);
+            }
+        }
 
         let finished_at = Instant::now();
         let summary = build_execution_summary(&monitor.snapshot(), finished_at);
@@ -718,6 +753,86 @@ fn build_usage_event(
     }
 }
 
+fn build_command_execution_tool_use_event(
+    session_id: &str,
+    item: &serde_json::Value,
+) -> Option<CliStreamEvent> {
+    let tool_call_id = item.get("id").and_then(|value| value.as_str())?;
+    let command = item
+        .get("command")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    let tool_input = serde_json::json!({ "command": command }).to_string();
+
+    Some(CliStreamEvent {
+        event_type: "tool_use".to_string(),
+        session_id: session_id.to_string(),
+        content: None,
+        tool_name: Some("Bash".to_string()),
+        tool_call_id: Some(tool_call_id.to_string()),
+        tool_input: Some(tool_input),
+        tool_result: None,
+        error: None,
+        input_tokens: None,
+        output_tokens: None,
+        model: None,
+    })
+}
+
+fn build_command_execution_tool_result_event(
+    session_id: &str,
+    item: &serde_json::Value,
+) -> Option<CliStreamEvent> {
+    let tool_call_id = item.get("id").and_then(|value| value.as_str())?;
+    let command = item
+        .get("command")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    let status = item
+        .get("status")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    let exit_code = item.get("exit_code").and_then(|value| value.as_i64());
+    let output = item
+        .get("aggregated_output")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+
+    let mut parts = Vec::new();
+    if !command.trim().is_empty() {
+        parts.push(format!("command: {}", command));
+    }
+    if !status.trim().is_empty() {
+        parts.push(format!("status: {}", status));
+    }
+    if let Some(code) = exit_code {
+        parts.push(format!("exit_code: {}", code));
+    }
+    if !output.trim().is_empty() {
+        parts.push(output.trim().to_string());
+    }
+
+    let tool_result = if parts.is_empty() {
+        "command completed".to_string()
+    } else {
+        parts.join("\n")
+    };
+
+    Some(CliStreamEvent {
+        event_type: "tool_result".to_string(),
+        session_id: session_id.to_string(),
+        content: None,
+        tool_name: None,
+        tool_call_id: Some(tool_call_id.to_string()),
+        tool_input: None,
+        tool_result: Some(tool_result),
+        error: None,
+        input_tokens: None,
+        output_tokens: None,
+        model: None,
+    })
+}
+
 fn build_full_codex_command(cli_path: &str, global_args: &[String], args: &[String]) -> String {
     let mut cmd_parts = Vec::new();
     cmd_parts.push(shell_escape(cli_path));
@@ -736,6 +851,15 @@ fn parse_codex_json_output(session_id: &str, json: &serde_json::Value) -> Option
         "system" => extract_runtime_system_notice(json)
             .map(|content| build_system_event(session_id, content)),
         // === Codex CLI 特有事件类型 ===
+        "item.started" => {
+            let item = json.get("item")?;
+            let item_type = item.get("type").and_then(|value| value.as_str())?;
+
+            match item_type {
+                "command_execution" => build_command_execution_tool_use_event(session_id, item),
+                _ => None,
+            }
+        }
         "item.completed" => {
             let item = json.get("item")?;
             let item_type = item.get("type").and_then(|value| value.as_str())?;
@@ -749,6 +873,7 @@ fn parse_codex_json_output(session_id: &str, json: &serde_json::Value) -> Option
                     let text = extract_item_text(item)?;
                     Some(build_thinking_event(session_id, text))
                 }
+                "command_execution" => build_command_execution_tool_result_event(session_id, item),
                 _ => None,
             }
         }

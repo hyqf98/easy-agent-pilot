@@ -418,7 +418,8 @@ pub fn suggest_mini_panel_directories(
         .into_iter()
         .take(limit)
         .map(|path| {
-            let value = build_suggestion_value(&base_directory, &path, &input.partial_path, separator);
+            let value =
+                build_suggestion_value(&base_directory, &path, &input.partial_path, separator);
             let display_value = path
                 .file_name()
                 .map(|value| value.to_string_lossy().to_string())
