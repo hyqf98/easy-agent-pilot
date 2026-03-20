@@ -4,6 +4,7 @@ import { EaButton, EaIcon } from '@/components/common'
 import AgentConfigForm from '@/components/agent/AgentConfigForm.vue'
 import ModelManageModal from '@/components/agent/ModelManageModal.vue'
 import AgentSettingsDeleteDialog from '@/components/settings/agent-settings/AgentSettingsDeleteDialog.vue'
+import AgentProfileWorkspace from '@/components/settings/agent-settings/AgentProfileWorkspace.vue'
 import DetectedCliToolsBanner from '@/components/settings/agent-settings/DetectedCliToolsBanner.vue'
 import AgentSettingsTable from '@/components/settings/agent-settings/AgentSettingsTable.vue'
 import CliSettings from './CliSettings.vue'
@@ -14,6 +15,8 @@ const {
   PAGE_SIZE,
   addingToolName,
   agentStore,
+  activeAgentId,
+  activeAgent,
   currentPage,
   searchQuery,
   showModal,
@@ -37,6 +40,7 @@ const {
   handleMigration,
   handleMigrationLater,
   handleQuickAdd,
+  handleFocusAgent,
   handleAdd,
   handleEdit,
   handleDelete,
@@ -232,23 +236,36 @@ const {
       </div>
     </Transition>
 
-    <AgentSettingsTable
-      :agents="paginatedAgents"
-      :search-query="searchQuery"
-      :filtered-count="filteredAgents.length"
-      :current-page="currentPage"
-      :total-pages="totalPages"
-      :page-numbers="pageNumbers"
-      :page-size="PAGE_SIZE"
-      :testing-agent-id="agentStore.testingAgentId"
-      @test="handleTest"
-      @manage-models="handleOpenModelManage"
-      @edit="handleEdit"
-      @delete="handleDelete"
-      @page-change="goToPage"
-    />
+    <div class="agent-list-page__split">
+      <div class="agent-list-page__main">
+        <AgentSettingsTable
+          :agents="paginatedAgents"
+          :active-agent-id="activeAgentId"
+          :search-query="searchQuery"
+          :filtered-count="filteredAgents.length"
+          :current-page="currentPage"
+          :total-pages="totalPages"
+          :page-numbers="pageNumbers"
+          :page-size="PAGE_SIZE"
+          :testing-agent-id="agentStore.testingAgentId"
+          @focus-agent="handleFocusAgent"
+          @test="handleTest"
+          @manage-models="handleOpenModelManage"
+          @edit="handleEdit"
+          @delete="handleDelete"
+          @page-change="goToPage"
+        />
 
-    <CliSettings embedded />
+        <CliSettings embedded />
+      </div>
+
+      <div class="agent-list-page__workspace">
+        <AgentProfileWorkspace
+          :agent="activeAgent"
+          @manage-models="handleOpenModelManage"
+        />
+      </div>
+    </div>
 
     <!-- 配置表单弹框 -->
     <Teleport to="body">
@@ -307,6 +324,8 @@ const {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-4);
+  width: 100%;
+  min-width: 0;
 }
 
 .agent-list-page__header {
@@ -404,9 +423,42 @@ const {
 }
 
 .agent-count {
-  margin-left: auto;
   font-size: var(--font-size-xs);
   color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
+.agent-list-page__split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.95fr);
+  gap: var(--spacing-4);
+  align-items: start;
+  width: 100%;
+  min-width: 0;
+}
+
+.agent-list-page__main,
+.agent-list-page__workspace {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+  min-width: 0;
+}
+
+@media (max-width: 1200px) {
+  .agent-list-page__split {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 960px) {
+  .toolbar-actions {
+    margin-left: 0;
+  }
+
+  .agent-count {
+    width: 100%;
+  }
 }
 
 /* 测试结果提示 */

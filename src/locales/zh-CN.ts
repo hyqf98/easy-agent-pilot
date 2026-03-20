@@ -253,6 +253,7 @@ const zhCN = {
     title: '设置',
     nav: {
       general: '通用设置',
+      agentStudio: 'Agent Studio',
       agents: 'Agent 配置',
       agentConfig: '技能配置',
       integration: 'Agent 集成',

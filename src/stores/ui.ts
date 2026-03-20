@@ -3,6 +3,7 @@ import { ref } from 'vue'
 
 export type SettingsTab =
   | 'general'
+  | 'agentStudio'
   | 'agents'
   | 'agentConfig'
   | 'integration'
