@@ -75,6 +75,15 @@ jobs:
       - name: install frontend dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
+      - name: validate updater signing secret
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
+            echo "::error::Missing repository secret TAURI_SIGNING_PRIVATE_KEY"
+            echo "::error::Go to Settings > Secrets and variables > Actions > Repository secrets"
+            exit 1
+          fi
+
       - uses: tauri-apps/tauri-action@v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
