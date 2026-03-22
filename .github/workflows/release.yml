@@ -78,9 +78,18 @@ jobs:
       - name: validate updater signing secret
         shell: bash
         run: |
-          if [ -z "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
+          secret='${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}'
+
+          if [ -z "$secret" ]; then
             echo "::error::Missing repository secret TAURI_SIGNING_PRIVATE_KEY"
             echo "::error::Go to Settings > Secrets and variables > Actions > Repository secrets"
+            exit 1
+          fi
+
+          if [[ "$secret" != dW50cnVzdGVkIGNvbW1lbnQ6* ]]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY does not look like a Tauri updater private key file content"
+            echo "::error::Paste the full content of .local/signing/tauri-updater-private.key into the repository secret"
+            echo "::error::Do not paste a local file path or the public key"
             exit 1
           fi
 
