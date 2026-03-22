@@ -47,6 +47,9 @@ jobs:
       - name: type check
         run: pnpm typecheck
 
+      - name: run app update regression tests
+        run: pnpm test:update
+
   build-test:
     strategy:
       fail-fast: false

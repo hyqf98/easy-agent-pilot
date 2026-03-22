@@ -219,6 +219,8 @@ export interface AppSettings {
   // 高级设置
   enableDebugMode: boolean
   logLevel: 'debug' | 'info' | 'warn' | 'error'
+  autoCheckAppUpdate: boolean
+  appUpdateLastCheckedAt: string | null
 
   // 会话压缩设置
   compressionStrategy: 'simple' | 'smart' | 'summary'
@@ -241,6 +243,8 @@ const defaultSettings: AppSettings = {
   editorWordWrap: true,
   enableDebugMode: false,
   logLevel: 'info',
+  autoCheckAppUpdate: true,
+  appUpdateLastCheckedAt: null,
   // 会话压缩设置
   compressionStrategy: 'summary',
   compressionThreshold: 80,
@@ -378,6 +382,10 @@ export const useSettingsStore = defineStore('settings', () => {
             parsedSettings.enableDebugMode = value === 'true'
           } else if (key === 'logLevel') {
             parsedSettings.logLevel = (value as 'debug' | 'info' | 'warn' | 'error') || defaultSettings.logLevel
+          } else if (key === 'autoCheckAppUpdate') {
+            parsedSettings.autoCheckAppUpdate = value === 'true'
+          } else if (key === 'appUpdateLastCheckedAt') {
+            parsedSettings.appUpdateLastCheckedAt = value && value !== 'null' ? value : null
           } else if (key === 'compressionStrategy') {
             parsedSettings.compressionStrategy = (value as 'simple' | 'smart' | 'summary') || defaultSettings.compressionStrategy
           } else if (key === 'compressionThreshold') {

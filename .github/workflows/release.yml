@@ -78,23 +78,26 @@ jobs:
       - uses: tauri-apps/tauri-action@v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'EasyAgentPilot ${{ github.ref_name }}'
           releaseBody: |
             ## EasyAgentPilot ${{ github.ref_name }}
 
-            ### 下载说明
-            - **macOS**: 下载 `.dmg` 文件 (ARM Mac 选 aarch64，Intel Mac 选 x64)
-            - **Windows**: 下载 `.msi` 或 `.exe` (NSIS 安装程序)
-            - **Linux**: 下载 `.AppImage` (通用) 或 `.deb` (Debian/Ubuntu) 或 `.rpm` (Fedora/RHEL)
+            ### Downloads
+            - **macOS**: Use the `.dmg` installer. Choose `aarch64` for Apple Silicon and `x64` for Intel.
+            - **Windows**: Use the `.msi` or `-setup.exe` installer.
+            - **Linux**: Use `.AppImage`, `.deb`, or `.rpm`.
 
-            ### 支持的平台
+            ### Supported Platforms
             - macOS 10.13+
             - Windows 10+
-            - Ubuntu 20.04+, Debian 11+, Fedora 36+, Arch Linux 等
+            - Ubuntu 20.04+, Debian 11+, Fedora 36+, Arch Linux
 
-            详细更新日志请查看 [CHANGELOG.md](./CHANGELOG.md)
+            In-app auto update becomes visible after this draft release is published and `latest.json` is available.
           releaseDraft: true
           prerelease: false
+          includeUpdaterJson: true
           args: ${{ matrix.args }}

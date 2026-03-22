@@ -31,6 +31,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": ["nsis", "msi", "dmg", "app", "deb", "rpm", "appimage"],
     "resources": {
       "../scripts/mcpmarket-fetcher.mjs": "scripts/mcpmarket-fetcher.mjs",
@@ -80,5 +81,15 @@
       }
     }
   },
-  "plugins": {}
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU2NzY4NUIzMERDQzAyNTQKUldSVUFzd05zNFYyNW9XVW5kYlVCMUJ0VUlDeW1LcCs1a0Y1ek85NmtjdVk1TXY5SDBGemE5aloK",
+      "endpoints": [
+        "https://github.com/hyqf98/easy-agent-pilot/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
 }

@@ -289,8 +289,11 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
       isLoading.value = true
     }
 
-    let request!: Promise<void>
-    request = (async () => {
+    const requestRef: { current: Promise<void> | null } = {
+      current: null,
+    }
+
+    const request = (async () => {
       try {
         const scanResult = await invoke<ClaudeConfigScanResult>('scan_cli_config', {
           cliPath: targetAgent.cliPath,
@@ -317,7 +320,7 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
         )
         throw error
       } finally {
-        if (cliInventoryRequests.get(cacheKey) === request) {
+        if (cliInventoryRequests.get(cacheKey) === requestRef.current) {
           cliInventoryRequests.delete(cacheKey)
         }
         if (shouldRestoreLoading) {
@@ -326,6 +329,7 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
       }
     })()
 
+    requestRef.current = request
     cliInventoryRequests.set(cacheKey, request)
     await request
   }
