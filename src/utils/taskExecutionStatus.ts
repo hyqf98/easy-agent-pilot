@@ -1,6 +1,21 @@
 import type { BlockReason, TaskStatus } from '@/types/plan'
 import type { ExecutionStatus } from '@/types/taskExecution'
 
+interface ExecutionStatusDescriptor {
+  label: string
+  color: 'primary' | 'warning' | 'success' | 'error' | 'gray'
+}
+
+const executionStatusDescriptors: Record<ExecutionStatus, ExecutionStatusDescriptor> = {
+  idle: { label: '等待执行', color: 'gray' },
+  queued: { label: '排队中', color: 'warning' },
+  running: { label: '执行中', color: 'primary' },
+  waiting_input: { label: '等待输入', color: 'warning' },
+  completed: { label: '执行完成', color: 'success' },
+  failed: { label: '执行失败', color: 'error' },
+  stopped: { label: '已停止', color: 'gray' }
+}
+
 export function resolveTaskExecutionStatus(task?: {
   status?: TaskStatus
   blockReason?: BlockReason
@@ -36,20 +51,5 @@ export function getTaskExecutionStatusMeta(status: ExecutionStatus): {
   label: string
   color: 'primary' | 'warning' | 'success' | 'error' | 'gray'
 } {
-  switch (status) {
-    case 'queued':
-      return { label: '排队中', color: 'warning' }
-    case 'running':
-      return { label: '执行中', color: 'primary' }
-    case 'waiting_input':
-      return { label: '等待输入', color: 'warning' }
-    case 'completed':
-      return { label: '执行完成', color: 'success' }
-    case 'failed':
-      return { label: '执行失败', color: 'error' }
-    case 'stopped':
-      return { label: '已停止', color: 'gray' }
-    default:
-      return { label: '等待执行', color: 'gray' }
-  }
+  return executionStatusDescriptors[status] ?? executionStatusDescriptors.idle
 }

@@ -12,9 +12,10 @@ import {
   buildTaskResplitKickoffPrompt
 } from '@/services/plan'
 import type { ExecutionRequest, MessageInput } from '@/services/conversation/strategies/types'
+import { buildAgentExecutionRequest } from '@/services/conversation/runtimeProfiles'
 import type { RuntimeNotice } from '@/utils/runtimeNotice'
 import { buildCliEnvironmentNotice } from '@/utils/runtimeNotice'
-import { appendClaudeMcpAllowedTools, loadAgentMcpServers } from '@/utils/mcpServerConfig'
+import { loadAgentMcpServers } from '@/utils/mcpServerConfig'
 import type {
   AITaskItem,
   DynamicFormSchema,
@@ -50,16 +51,6 @@ interface PlanSplitRuntimeMetrics {
   doneAt?: number
 }
 
-function getAllowedTools(provider: string, mcpServers?: ExecutionRequest['mcpServers']): string[] {
-  if ((provider || '').toLowerCase() === 'codex') {
-    return ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash']
-  }
-  return appendClaudeMcpAllowedTools(
-    ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'WebFetch', 'WebSearch'],
-    mcpServers
-  )
-}
-
 function formatOptionValue(field: DynamicFormSchema['fields'][number], value: unknown): string {
   if (value === undefined || value === null || value === '') return '-'
   if (Array.isArray(value)) {
@@ -93,29 +84,23 @@ function buildExecutionRequest(
   llmMessages: MessageInput[],
   mcpServers: ExecutionRequest['mcpServers']
 ): ExecutionRequest {
-  const provider = agent.provider || 'claude'
-  return {
+  const provider = (agent.provider || 'claude').toLowerCase() === 'codex' ? 'codex' : 'claude'
+  return buildAgentExecutionRequest({
     sessionId: crypto.randomUUID(),
     planId: context.planId,
-    agentType: agent.type as 'cli' | 'sdk',
-    provider,
-    cliPath: agent.type === 'cli' ? agent.cliPath : undefined,
-    apiKey: agent.type === 'sdk' ? agent.apiKey : undefined,
-    baseUrl: agent.type === 'sdk' ? agent.baseUrl : undefined,
-    modelId: context.modelId || undefined,
+    agent,
     messages: llmMessages,
+    modelId: context.modelId || undefined,
     workingDirectory: context.workingDirectory,
-    allowedTools: agent.type === 'cli' ? getAllowedTools(provider, mcpServers) : undefined,
     systemPrompt: llmMessages.find(message => message.role === 'system')?.content,
-    maxTokens: agent.type === 'sdk' ? 4096 : undefined,
     mcpServers,
-    cliOutputFormat: agent.type === 'cli' ? 'stream-json' : undefined,
+    cliOutputFormat: 'stream-json',
     jsonSchema: agent.type === 'cli'
-      ? buildPlanSplitJsonSchema(context.granularity, provider.toLowerCase() === 'codex' ? 'codex' : 'claude')
+      ? buildPlanSplitJsonSchema(context.granularity, provider)
       : undefined,
     executionMode: 'task_split',
     responseMode: 'stream_text'
-  }
+  })
 }
 
 function toSplitMessages(raw?: string | null): SplitMessage[] {

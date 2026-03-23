@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::commands::cli_support::resolve_cli_name;
@@ -106,6 +106,36 @@ pub struct ClaudeConfigScanResult {
     pub plugins: Vec<ScannedPlugin>,
     pub scan_success: bool,
     pub error_message: Option<String>,
+}
+
+fn build_cli_config_scan_result(
+    config_dir: String,
+    mcp_servers: Vec<ScannedMcpServer>,
+    skills: Vec<ScannedSkill>,
+    plugins: Vec<ScannedPlugin>,
+) -> ClaudeConfigScanResult {
+    ClaudeConfigScanResult {
+        claude_dir: config_dir,
+        mcp_servers,
+        skills,
+        plugins,
+        scan_success: true,
+        error_message: None,
+    }
+}
+
+fn build_cli_config_scan_error(
+    config_dir: String,
+    error_message: String,
+) -> ClaudeConfigScanResult {
+    ClaudeConfigScanResult {
+        claude_dir: config_dir,
+        mcp_servers: Vec::new(),
+        skills: Vec::new(),
+        plugins: Vec::new(),
+        scan_success: false,
+        error_message: Some(error_message),
+    }
 }
 
 fn get_cli_config_dir(
@@ -259,6 +289,10 @@ fn scan_mcp_config(config_dir: &PathBuf, config_file: &PathBuf) -> Result<Vec<Sc
     Ok(servers)
 }
 
+fn is_jsonl_file(path: &Path) -> bool {
+    path.extension().map(|ext| ext == "jsonl").unwrap_or(false)
+}
+
 /// 解析 YAML frontmatter 中的字段
 fn parse_yaml_frontmatter(content: &str) -> (Option<String>, Option<String>) {
     // YAML frontmatter 格式:
@@ -346,9 +380,7 @@ fn build_directory_skill(path: &PathBuf, actual_path: &PathBuf) -> ScannedSkill 
         .unwrap_or((None, None));
 
     ScannedSkill {
-        name: frontmatter_name
-            .clone()
-            .unwrap_or_else(|| dir_name.clone()),
+        name: frontmatter_name.clone().unwrap_or_else(|| dir_name.clone()),
         path: path.to_string_lossy().to_string(),
         description,
         frontmatter_name,
@@ -410,9 +442,7 @@ fn scan_skills_directory(claude_dir: &PathBuf) -> Result<Vec<ScannedSkill>> {
 }
 
 /// 解析 plugin.json 文件
-fn parse_plugin_json(
-    plugin_json_path: &PathBuf,
-) -> (Option<String>, Option<String>, Option<String>) {
+fn parse_plugin_json(plugin_json_path: &Path) -> (Option<String>, Option<String>, Option<String>) {
     if let Ok(content) = fs::read_to_string(plugin_json_path) {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
             let version = json
@@ -434,7 +464,7 @@ fn parse_plugin_json(
 }
 
 /// 检查 Plugin 目录的子目录结构
-fn check_plugin_subdirectories(plugin_path: &PathBuf) -> PluginSubdirectories {
+fn check_plugin_subdirectories(plugin_path: &Path) -> PluginSubdirectories {
     PluginSubdirectories {
         has_agents: plugin_path.join("agents").exists(),
         has_commands: plugin_path.join("commands").exists(),
@@ -444,109 +474,105 @@ fn check_plugin_subdirectories(plugin_path: &PathBuf) -> PluginSubdirectories {
     }
 }
 
-/// 扫描 Plugins 目录
-fn scan_plugins_directory(claude_dir: &PathBuf) -> Result<Vec<ScannedPlugin>> {
+fn build_scanned_plugin(plugin_path: &Path, name: String, enabled: bool) -> ScannedPlugin {
+    let plugin_json_path = plugin_path.join(".claude-plugin").join("plugin.json");
+    let (version, description, author) = parse_plugin_json(&plugin_json_path);
+
+    ScannedPlugin {
+        name,
+        path: plugin_path.to_string_lossy().to_string(),
+        enabled,
+        version,
+        description,
+        author,
+        subdirectories: check_plugin_subdirectories(plugin_path),
+    }
+}
+
+fn scan_installed_plugins_file(plugins_dir: &Path) -> Vec<ScannedPlugin> {
+    let installed_plugins_path = plugins_dir.join("installed_plugins.json");
+    let Ok(content) = fs::read_to_string(installed_plugins_path) else {
+        return Vec::new();
+    };
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return Vec::new();
+    };
+    let Some(plugins_obj) = json.get("plugins").and_then(|value| value.as_object()) else {
+        return Vec::new();
+    };
+
     let mut plugins = Vec::new();
+
+    for (plugin_key, plugin_entries) in plugins_obj {
+        let Some(first_entry) = plugin_entries
+            .as_array()
+            .and_then(|entries| entries.first())
+        else {
+            continue;
+        };
+        let Some(install_path_str) = first_entry
+            .get("installPath")
+            .and_then(|value| value.as_str())
+        else {
+            continue;
+        };
+
+        let install_path = PathBuf::from(install_path_str);
+        if !install_path.exists() {
+            continue;
+        }
+
+        let display_name = plugin_key
+            .split('@')
+            .next()
+            .unwrap_or(plugin_key)
+            .to_string();
+        let enabled = first_entry
+            .get("scope")
+            .and_then(|value| value.as_str())
+            .map(|scope| scope == "user")
+            .unwrap_or(true);
+
+        plugins.push(build_scanned_plugin(&install_path, display_name, enabled));
+    }
+
+    plugins
+}
+
+fn scan_plugin_directories(plugins_dir: &Path) -> Result<Vec<ScannedPlugin>> {
+    let mut plugins = Vec::new();
+
+    for entry in fs::read_dir(plugins_dir)? {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let name = path
+            .file_name()
+            .map(|value| value.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let enabled = !path.join(".disabled").exists();
+        plugins.push(build_scanned_plugin(&path, name, enabled));
+    }
+
+    Ok(plugins)
+}
+
+/// 扫描 Plugins 目录
+fn scan_plugins_directory(claude_dir: &Path) -> Result<Vec<ScannedPlugin>> {
     let plugins_dir = claude_dir.join("plugins");
 
     if !plugins_dir.exists() {
-        return Ok(plugins);
+        return Ok(Vec::new());
     }
 
-    // 尝试从 installed_plugins.json 读取已安装的插件
-    let installed_plugins_path = plugins_dir.join("installed_plugins.json");
-    if installed_plugins_path.exists() {
-        if let Ok(content) = fs::read_to_string(&installed_plugins_path) {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                // 解析 installed_plugins.json 格式:
-                // { "version": 2, "plugins": { "name@source": [ { "installPath": "...", "version": "...", ... } ] } }
-                if let Some(plugins_obj) = json.get("plugins").and_then(|v| v.as_object()) {
-                    for (plugin_key, plugin_entries) in plugins_obj {
-                        // 获取第一个安装条目（通常只有一个）
-                        if let Some(entries) = plugin_entries.as_array() {
-                            if let Some(first_entry) = entries.first() {
-                                // 获取安装路径
-                                if let Some(install_path_str) =
-                                    first_entry.get("installPath").and_then(|v| v.as_str())
-                                {
-                                    let install_path = PathBuf::from(install_path_str);
-
-                                    if install_path.exists() {
-                                        // 解析 plugin.json（位于 .claude-plugin/plugin.json）
-                                        let plugin_json_path =
-                                            install_path.join(".claude-plugin").join("plugin.json");
-                                        let (version, description, author) =
-                                            parse_plugin_json(&plugin_json_path);
-
-                                        // 检查子目录
-                                        let subdirectories =
-                                            check_plugin_subdirectories(&install_path);
-
-                                        // 从 plugin_key 中提取名称（格式: name@source）
-                                        let display_name =
-                                            plugin_key.split('@').next().unwrap_or(plugin_key);
-
-                                        // 检查是否启用（检查 scope 是否为 user）
-                                        let enabled = first_entry
-                                            .get("scope")
-                                            .and_then(|v| v.as_str())
-                                            .map(|s| s == "user")
-                                            .unwrap_or(true);
-
-                                        plugins.push(ScannedPlugin {
-                                            name: display_name.to_string(),
-                                            path: install_path.to_string_lossy().to_string(),
-                                            enabled,
-                                            version,
-                                            description,
-                                            author,
-                                            subdirectories,
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // 如果没有从 installed_plugins.json 解析到插件，则扫描目录（向后兼容）
+    let plugins = scan_installed_plugins_file(&plugins_dir);
     if plugins.is_empty() {
-        let entries = fs::read_dir(&plugins_dir)?;
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let path = entry.path();
-                if path.is_dir() {
-                    let name = path
-                        .file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_default();
-
-                    // 检查是否启用（可以通过存在 .disabled 文件来判断）
-                    let disabled_marker = path.join(".disabled");
-                    let enabled = !disabled_marker.exists();
-
-                    // 尝试解析 plugin.json
-                    let plugin_json_path = path.join(".claude-plugin").join("plugin.json");
-                    let (version, description, author) = parse_plugin_json(&plugin_json_path);
-
-                    // 检查子目录
-                    let subdirectories = check_plugin_subdirectories(&path);
-
-                    plugins.push(ScannedPlugin {
-                        name,
-                        path: path.to_string_lossy().to_string(),
-                        enabled,
-                        version,
-                        description,
-                        author,
-                        subdirectories,
-                    });
-                }
-            }
-        }
+        return scan_plugin_directories(&plugins_dir);
     }
 
     Ok(plugins)
@@ -558,53 +584,36 @@ pub fn scan_cli_config(
     cli_path: Option<String>,
     cli_type: Option<String>,
 ) -> Result<ClaudeConfigScanResult, String> {
-    // 获取 CLI 配置目录和配置文件路径
     let (config_dir, config_file, cli_name) =
         match get_cli_config_dir(cli_path.as_deref(), cli_type.as_deref()) {
             Ok(result) => result,
             Err(e) => {
-                return Ok(ClaudeConfigScanResult {
-                    claude_dir: String::new(),
-                    mcp_servers: Vec::new(),
-                    skills: Vec::new(),
-                    plugins: Vec::new(),
-                    scan_success: false,
-                    error_message: Some(format!("无法确定配置目录: {}", e)),
-                });
+                return Ok(build_cli_config_scan_error(
+                    String::new(),
+                    format!("无法确定配置目录: {}", e),
+                ));
             }
         };
 
     let config_dir_str = config_dir.to_string_lossy().to_string();
 
-    // 检查配置文件是否存在
     if !config_file.exists() && !config_dir.exists() {
-        return Ok(ClaudeConfigScanResult {
-            claude_dir: config_dir_str,
-            mcp_servers: Vec::new(),
-            skills: Vec::new(),
-            plugins: Vec::new(),
-            scan_success: false,
-            error_message: Some(format!("{} 配置不存在", cli_name)),
-        });
+        return Ok(build_cli_config_scan_error(
+            config_dir_str,
+            format!("{} 配置不存在", cli_name),
+        ));
     }
 
-    // 扫描 MCP 配置
     let mcp_servers = scan_mcp_config(&config_dir, &config_file).unwrap_or_default();
-
-    // 扫描 Skills 目录
     let skills = scan_skills_directory(&config_dir).unwrap_or_default();
-
-    // 扫描 Plugins 目录
     let plugins = scan_plugins_directory(&config_dir).unwrap_or_default();
 
-    Ok(ClaudeConfigScanResult {
-        claude_dir: config_dir_str,
+    Ok(build_cli_config_scan_result(
+        config_dir_str,
         mcp_servers,
         skills,
         plugins,
-        scan_success: true,
-        error_message: None,
-    })
+    ))
 }
 
 /// 尝试通过 claude mcp list 命令获取 MCP 配置
@@ -704,11 +713,41 @@ pub struct ScanCliSessionsResult {
     pub error_message: Option<String>,
 }
 
+fn build_session_scan_result(
+    cli_name: String,
+    config_dir: String,
+    mut sessions: Vec<ScannedCliSession>,
+) -> ScanCliSessionsResult {
+    sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+
+    ScanCliSessionsResult {
+        cli_name,
+        config_dir,
+        sessions,
+        scan_success: true,
+        error_message: None,
+    }
+}
+
+fn build_session_scan_error(
+    cli_name: String,
+    config_dir: String,
+    error_message: String,
+) -> ScanCliSessionsResult {
+    ScanCliSessionsResult {
+        cli_name,
+        config_dir,
+        sessions: Vec::new(),
+        scan_success: false,
+        error_message: Some(error_message),
+    }
+}
+
 const FAST_SESSION_SCAN_LINE_LIMIT: usize = 120;
 const FULL_SESSION_SCAN_SIZE_THRESHOLD: u64 = 256 * 1024;
 const UNKNOWN_MESSAGE_COUNT: i32 = -1;
 
-fn extract_session_project_path(session_path: &PathBuf) -> Option<String> {
+fn extract_session_project_path(session_path: &Path) -> Option<String> {
     let file = fs::File::open(session_path).ok()?;
     let reader = BufReader::new(file);
 
@@ -731,11 +770,70 @@ fn extract_session_project_path(session_path: &PathBuf) -> Option<String> {
     None
 }
 
+fn normalized_project_dir_name(project_path: &str) -> String {
+    project_path
+        .replace('\\', "-")
+        .replace('/', "-")
+        .replace(':', "-")
+}
+
+fn should_keep_session(session: &ScannedCliSession, project_filter: Option<&str>) -> bool {
+    project_filter
+        .map(|project| session.project_path.as_deref() == Some(project))
+        .unwrap_or(true)
+}
+
+fn collect_claude_session_files(projects_dir: &Path, project_filter: Option<&str>) -> Vec<PathBuf> {
+    let mut session_files = Vec::new();
+
+    if let Some(filter_project) = project_filter {
+        let project_session_dir = projects_dir.join(normalized_project_dir_name(filter_project));
+        if let Ok(entries) = fs::read_dir(project_session_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if is_jsonl_file(&path) {
+                    session_files.push(path);
+                }
+            }
+        }
+        return session_files;
+    }
+
+    if let Ok(project_entries) = fs::read_dir(projects_dir) {
+        for project_entry in project_entries.flatten() {
+            let project_path = project_entry.path();
+            if !project_path.is_dir() {
+                continue;
+            }
+
+            if let Ok(session_entries) = fs::read_dir(project_path) {
+                for session_entry in session_entries.flatten() {
+                    let session_path = session_entry.path();
+                    if is_jsonl_file(&session_path) {
+                        session_files.push(session_path);
+                    }
+                }
+            }
+        }
+    }
+
+    session_files
+}
+
+fn collect_cli_sessions_from_files(
+    session_files: Vec<PathBuf>,
+    prefer_fast_scan: bool,
+    project_filter: Option<&str>,
+) -> Vec<ScannedCliSession> {
+    session_files
+        .into_iter()
+        .filter_map(|session_path| extract_session_info(&session_path, prefer_fast_scan))
+        .filter(|session| should_keep_session(session, project_filter))
+        .collect()
+}
+
 /// 从会话jsonl文件中提取会话信息
-fn extract_session_info(
-    session_path: &PathBuf,
-    force_fast_scan: bool,
-) -> Option<ScannedCliSession> {
+fn extract_session_info(session_path: &Path, force_fast_scan: bool) -> Option<ScannedCliSession> {
     let file_name = session_path.file_stem()?.to_string_lossy().to_string();
     let metadata = fs::metadata(session_path).ok()?;
     let modified = metadata
@@ -814,7 +912,7 @@ fn extract_session_info(
     })
 }
 
-fn list_cli_session_project_paths(cli_name: &str, config_dir: &PathBuf) -> Vec<String> {
+fn list_cli_session_project_paths(cli_name: &str, config_dir: &Path) -> Vec<String> {
     let mut project_paths = Vec::new();
 
     match cli_name {
@@ -830,11 +928,7 @@ fn list_cli_session_project_paths(cli_name: &str, config_dir: &PathBuf) -> Vec<S
                     if let Ok(session_entries) = fs::read_dir(&project_dir) {
                         for session_entry in session_entries.flatten() {
                             let session_path = session_entry.path();
-                            if session_path
-                                .extension()
-                                .map(|ext| ext == "jsonl")
-                                .unwrap_or(false)
-                            {
+                            if is_jsonl_file(&session_path) {
                                 if let Some(project_path) =
                                     extract_session_project_path(&session_path)
                                 {
@@ -1184,137 +1278,91 @@ fn scan_cli_sessions_internal(
     input: ScanCliSessionsInput,
     prefer_fast_scan: bool,
 ) -> Result<ScanCliSessionsResult, String> {
-    // 获取 CLI 配置目录
     let (config_dir, _, cli_name) = match get_cli_config_dir(input.cli_path.as_deref(), None) {
         Ok(result) => result,
         Err(e) => {
-            return Ok(ScanCliSessionsResult {
-                cli_name: String::new(),
-                config_dir: String::new(),
-                sessions: Vec::new(),
-                scan_success: false,
-                error_message: Some(format!("无法确定配置目录: {}", e)),
-            });
+            return Ok(build_session_scan_error(
+                String::new(),
+                String::new(),
+                format!("无法确定配置目录: {}", e),
+            ));
         }
     };
 
     let config_dir_str = config_dir.to_string_lossy().to_string();
 
-    // 检查配置目录是否存在
     if !config_dir.exists() {
-        return Ok(ScanCliSessionsResult {
-            cli_name: cli_name.clone(),
-            config_dir: config_dir_str,
-            sessions: Vec::new(),
-            scan_success: false,
-            error_message: Some(format!("{} 配置目录不存在", cli_name)),
-        });
+        return Ok(build_session_scan_error(
+            cli_name.clone(),
+            config_dir_str,
+            format!("{} 配置目录不存在", cli_name),
+        ));
     }
 
-    let mut sessions = Vec::new();
-
-    // 根据CLI类型扫描会话
-    match cli_name.as_str() {
+    let project_filter = input.project_path.as_deref();
+    let sessions = match cli_name.as_str() {
         "claude" | "claude-code" => {
-            // Claude CLI: 会话存储在 ~/.claude/projects/<project-path>/ 目录下
             let projects_dir = config_dir.join("projects");
-            if projects_dir.exists() {
-                if let Some(filter_project) = &input.project_path {
-                    // 如果指定了项目路径，只扫描该项目的会话
-                    // Claude CLI 将路径中的分隔符替换为 "-"，Windows 路径需要同时处理 \ 和 /
-                    let project_dir_name = filter_project
-                        .replace('\\', "-")
-                        .replace('/', "-")
-                        .replace(':', "-"); // Windows 盘符如 C:
-                    let project_session_dir = projects_dir.join(&project_dir_name);
-                    if project_session_dir.exists() {
-                        if let Ok(entries) = fs::read_dir(&project_session_dir) {
-                            for entry in entries.flatten() {
-                                let path = entry.path();
-                                if path.extension().map(|e| e == "jsonl").unwrap_or(false) {
-                                    if let Some(session) = extract_session_info(&path, false) {
-                                        sessions.push(session);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    // 扫描所有项目的会话
-                    if let Ok(project_entries) = fs::read_dir(&projects_dir) {
-                        for project_entry in project_entries.flatten() {
-                            let project_path = project_entry.path();
-                            if project_path.is_dir() {
-                                if let Ok(session_entries) = fs::read_dir(&project_path) {
-                                    for session_entry in session_entries.flatten() {
-                                        let session_path = session_entry.path();
-                                        if session_path
-                                            .extension()
-                                            .map(|e| e == "jsonl")
-                                            .unwrap_or(false)
-                                        {
-                                            if let Some(session) = extract_session_info(
-                                                &session_path,
-                                                prefer_fast_scan,
-                                            ) {
-                                                sessions.push(session);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            collect_cli_sessions_from_files(
+                collect_claude_session_files(&projects_dir, project_filter),
+                prefer_fast_scan && project_filter.is_none(),
+                project_filter,
+            )
         }
         "codex" => {
-            // Codex CLI: 会话存储在 ~/.codex/sessions/YYYY/MM/DD/*.jsonl
             let sessions_dir = config_dir.join("sessions");
+            let mut session_files = Vec::new();
             if sessions_dir.exists() {
-                let mut session_files = Vec::new();
                 collect_jsonl_files(&sessions_dir, &mut session_files);
-
-                for session_file in session_files {
-                    if let Some(session) = extract_session_info(&session_file, prefer_fast_scan) {
-                        let should_keep = input
-                            .project_path
-                            .as_ref()
-                            .map(|project| session.project_path.as_ref() == Some(project))
-                            .unwrap_or(true);
-
-                        if should_keep {
-                            sessions.push(session);
-                        }
-                    }
-                }
             }
+            collect_cli_sessions_from_files(session_files, prefer_fast_scan, project_filter)
         }
-        "qwen" | "qwen-code" => {
-            // Qwen Code: 会话存储格式可能不同，需要根据实际情况调整
-            // 暂时返回空列表
-        }
-        _ => {
-            // 未知CLI类型
-        }
-    }
+        "qwen" | "qwen-code" => Vec::new(),
+        _ => Vec::new(),
+    };
 
-    // 按更新时间排序（最新的在前）
-    sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-
-    Ok(ScanCliSessionsResult {
+    Ok(build_session_scan_result(
         cli_name,
-        config_dir: config_dir_str,
+        config_dir_str,
         sessions,
-        scan_success: true,
-        error_message: None,
-    })
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct TestDir {
+        path: PathBuf,
+    }
+
+    impl TestDir {
+        fn new(prefix: &str) -> Self {
+            let unique = format!(
+                "{}-{}",
+                prefix,
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            );
+            let path = std::env::temp_dir().join(unique);
+            fs::create_dir_all(&path).unwrap();
+            Self { path }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
 
     #[test]
     fn extracts_codex_user_message_from_payload_content() {
@@ -1417,5 +1465,116 @@ mod tests {
             Some("/tmp/demo-project")
         );
         assert_eq!(extract_jsonl_message_type(&json), "system");
+    }
+
+    #[test]
+    fn normalizes_claude_project_dir_names() {
+        assert_eq!(
+            normalized_project_dir_name("C:\\work/demo-project"),
+            "C--work-demo-project"
+        );
+        assert_eq!(
+            normalized_project_dir_name("/Users/demo/project"),
+            "-Users-demo-project"
+        );
+    }
+
+    #[test]
+    fn filters_sessions_by_project_path() {
+        let session = ScannedCliSession {
+            session_id: "session-1".to_string(),
+            session_path: "/tmp/session-1.jsonl".to_string(),
+            project_path: Some("/tmp/project-a".to_string()),
+            first_message: Some("hello".to_string()),
+            message_count: 2,
+            created_at: "2026-03-20T10:00:00Z".to_string(),
+            updated_at: "2026-03-20T10:00:00Z".to_string(),
+        };
+
+        assert!(should_keep_session(&session, None));
+        assert!(should_keep_session(&session, Some("/tmp/project-a")));
+        assert!(!should_keep_session(&session, Some("/tmp/project-b")));
+    }
+
+    #[test]
+    fn collects_claude_session_files_for_filtered_project() {
+        let temp_dir = TestDir::new("scan-claude-projects");
+        let projects_dir = temp_dir.path().join("projects");
+        let project_dir = projects_dir.join(normalized_project_dir_name("/tmp/project-a"));
+        let other_dir = projects_dir.join(normalized_project_dir_name("/tmp/project-b"));
+
+        fs::create_dir_all(&project_dir).unwrap();
+        fs::create_dir_all(&other_dir).unwrap();
+        fs::write(project_dir.join("keep.jsonl"), "{}\n").unwrap();
+        fs::write(project_dir.join("ignore.txt"), "not a session").unwrap();
+        fs::write(other_dir.join("other.jsonl"), "{}\n").unwrap();
+
+        let files = collect_claude_session_files(&projects_dir, Some("/tmp/project-a"));
+
+        assert_eq!(files.len(), 1);
+        assert!(files[0].ends_with("keep.jsonl"));
+    }
+
+    #[test]
+    fn collects_sessions_from_files_and_applies_project_filter() {
+        let temp_dir = TestDir::new("scan-session-files");
+        let first = temp_dir.path().join("session-a.jsonl");
+        let second = temp_dir.path().join("session-b.jsonl");
+
+        fs::write(
+            &first,
+            concat!(
+                "{\"type\":\"session_meta\",\"payload\":{\"cwd\":\"/tmp/project-a\"}}\n",
+                "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"first task\"}]},\"timestamp\":\"2026-03-20T10:00:00Z\"}\n"
+            ),
+        )
+        .unwrap();
+        fs::write(
+            &second,
+            concat!(
+                "{\"type\":\"session_meta\",\"payload\":{\"cwd\":\"/tmp/project-b\"}}\n",
+                "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"second task\"}]},\"timestamp\":\"2026-03-20T11:00:00Z\"}\n"
+            ),
+        )
+        .unwrap();
+
+        let sessions =
+            collect_cli_sessions_from_files(vec![first, second], false, Some("/tmp/project-b"));
+
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].project_path.as_deref(), Some("/tmp/project-b"));
+        assert_eq!(sessions[0].first_message.as_deref(), Some("second task"));
+        assert_eq!(sessions[0].message_count, 1);
+    }
+
+    #[test]
+    fn sorts_session_scan_results_by_updated_time_descending() {
+        let result = build_session_scan_result(
+            "codex".to_string(),
+            "/tmp/.codex".to_string(),
+            vec![
+                ScannedCliSession {
+                    session_id: "older".to_string(),
+                    session_path: "/tmp/older.jsonl".to_string(),
+                    project_path: None,
+                    first_message: None,
+                    message_count: 0,
+                    created_at: "2026-03-20T09:00:00Z".to_string(),
+                    updated_at: "2026-03-20T09:00:00Z".to_string(),
+                },
+                ScannedCliSession {
+                    session_id: "newer".to_string(),
+                    session_path: "/tmp/newer.jsonl".to_string(),
+                    project_path: None,
+                    first_message: None,
+                    message_count: 0,
+                    created_at: "2026-03-20T12:00:00Z".to_string(),
+                    updated_at: "2026-03-20T12:00:00Z".to_string(),
+                },
+            ],
+        );
+
+        assert_eq!(result.sessions[0].session_id, "newer");
+        assert_eq!(result.sessions[1].session_id, "older");
     }
 }

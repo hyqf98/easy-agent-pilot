@@ -88,6 +88,22 @@ const latestRuntimeLog = computed(() => {
   )[taskSplitStore.logs.length - 1] ?? null
 })
 
+const runtimeLogStatusTextResolvers: Partial<Record<PlanSplitLogRecord['type'], (log: PlanSplitLogRecord) => string>> = {
+  thinking: () => '正在思考并拆分任务...',
+  thinking_start: () => '正在进入思考阶段...',
+  system: () => '正在加载运行扩展...',
+  tool_use: (log) => {
+    const toolCall = buildToolCallFromLogs(log, taskSplitStore.logs, {
+      fallbackStatus: isSessionRunning.value ? 'running' : 'success'
+    })
+    return toolCall ? `正在调用工具 ${toolCall.name}...` : '正在调用工具...'
+  },
+  tool_input_delta: () => '工具参数正在流式更新...',
+  content: () => '正在生成结构化结果...',
+  tool_result: () => '工具返回结果，正在继续处理...',
+  error: () => '收到错误输出，正在等待最终状态...'
+}
+
 const runningStatusText = computed(() => {
   if (!isSessionRunning.value) {
     return ''
@@ -98,39 +114,9 @@ const runningStatusText = computed(() => {
     return '任务已启动，等待首个输出...'
   }
 
-  if (latestLog.type === 'thinking') {
-    return '正在思考并拆分任务...'
-  }
-
-  if (latestLog.type === 'thinking_start') {
-    return '正在进入思考阶段...'
-  }
-
-  if (latestLog.type === 'system') {
-    return '正在加载运行扩展...'
-  }
-
-  if (latestLog.type === 'tool_use') {
-    const toolCall = buildToolCallFromLogs(latestLog, taskSplitStore.logs, {
-      fallbackStatus: isSessionRunning.value ? 'running' : 'success'
-    })
-    return toolCall ? `正在调用工具 ${toolCall.name}...` : '正在调用工具...'
-  }
-
-  if (latestLog.type === 'tool_input_delta') {
-    return '工具参数正在流式更新...'
-  }
-
-  if (latestLog.type === 'content') {
-    return '正在生成结构化结果...'
-  }
-
-  if (latestLog.type === 'tool_result') {
-    return '工具返回结果，正在继续处理...'
-  }
-
-  if (latestLog.type === 'error') {
-    return '收到错误输出，正在等待最终状态...'
+  const resolver = runtimeLogStatusTextResolvers[latestLog.type]
+  if (resolver) {
+    return resolver(latestLog)
   }
 
   return '正在处理中...'

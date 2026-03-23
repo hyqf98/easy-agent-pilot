@@ -116,7 +116,7 @@ const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(() =>
 .modal-overlay {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  z-index: calc(var(--z-modal, 1050) + 10);
   display: flex;
   align-items: center;
   justify-content: center;

@@ -579,13 +579,21 @@ fn scan_plugin_internal_items(
     plugin_path: &PathBuf,
 ) -> (Vec<InternalItem>, Vec<InternalItem>, Vec<InternalItem>) {
     (
-        collect_internal_items(&plugin_path.join("skills"), "skill", &["skill.md", "SKILL.md"]),
+        collect_internal_items(
+            &plugin_path.join("skills"),
+            "skill",
+            &["skill.md", "SKILL.md"],
+        ),
         collect_internal_items(
             &plugin_path.join("commands"),
             "command",
             &["command.md", "COMMAND.md"],
         ),
-        collect_internal_items(&plugin_path.join("agents"), "agent", &["agent.md", "AGENT.md"]),
+        collect_internal_items(
+            &plugin_path.join("agents"),
+            "agent",
+            &["agent.md", "AGENT.md"],
+        ),
     )
 }
 

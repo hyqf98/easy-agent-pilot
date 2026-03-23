@@ -35,11 +35,10 @@ interface UsageSnapshot {
   outputTokens?: number
 }
 
-function inferRuntimeNoticeId(title: string): string {
-  if (title.includes('运行扩展')) {
-    return 'environment'
-  }
-  return 'system'
+interface RuntimeNoticeDescriptor {
+  id: RuntimeNotice['id']
+  matches: (notice: Pick<RuntimeNotice, 'id' | 'title'>) => boolean
+  summarize: (lines: RuntimeNoticeLine[]) => string[]
 }
 
 function formatNameList(label: string, names: string[], maxCount: number = 5): string | null {
@@ -90,6 +89,53 @@ function extractListCount(value: string): number | null {
   }
 
   return Number(match[1] || match[2] || 0) || null
+}
+
+const runtimeNoticeDescriptors: RuntimeNoticeDescriptor[] = [
+  {
+    id: 'environment',
+    matches: (notice) => notice.id === 'environment' || notice.title.includes('运行扩展'),
+    summarize: (lines) => lines
+      .map((line) => {
+        const count = extractListCount(line.value)
+        if (count !== null) {
+          return `${line.label} ${count}`
+        }
+
+        const preview = line.value.split('、')[0]?.trim()
+        return preview ? `${line.label} ${preview}` : line.label
+      })
+      .slice(0, 5)
+  },
+  {
+    id: 'usage',
+    matches: (notice) => notice.id === 'usage' || notice.title.includes('用量'),
+    summarize: (lines) => lines
+      .map((line) => {
+        if (line.label.includes('模型')) {
+          return line.value
+        }
+
+        const numeric = Number(line.value.replace(/[^\d]/g, ''))
+        if (Number.isFinite(numeric) && numeric > 0) {
+          const prefix = line.label.includes('输入') ? 'In' : line.label.includes('输出') ? 'Out' : line.label
+          return `${prefix} ${formatCompactNumber(numeric)}`
+        }
+
+        return `${line.label} ${line.value}`.trim()
+      })
+      .slice(0, 3)
+  }
+]
+
+function resolveRuntimeNoticeDescriptor(
+  notice: Pick<RuntimeNotice, 'id' | 'title'>
+): RuntimeNoticeDescriptor | null {
+  return runtimeNoticeDescriptors.find((descriptor) => descriptor.matches(notice)) ?? null
+}
+
+function inferRuntimeNoticeId(title: string): string {
+  return resolveRuntimeNoticeDescriptor({ id: '', title })?.id ?? 'system'
 }
 
 export async function buildCliEnvironmentNotice(agent: AgentConfig): Promise<RuntimeNotice | null> {
@@ -164,37 +210,9 @@ export function buildRuntimeNoticeFromSystemContent(content?: string | null): Ru
 
 export function summarizeRuntimeNotice(notice: RuntimeNotice): string[] {
   const lines = parseRuntimeNoticeLines(notice.content)
-
-  if (notice.id === 'environment' || notice.title.includes('运行扩展')) {
-    return lines
-      .map((line) => {
-        const count = extractListCount(line.value)
-        if (count !== null) {
-          return `${line.label} ${count}`
-        }
-
-        const preview = line.value.split('、')[0]?.trim()
-        return preview ? `${line.label} ${preview}` : line.label
-      })
-      .slice(0, 5)
-  }
-
-  if (notice.id === 'usage' || notice.title.includes('用量')) {
-    return lines
-      .map((line) => {
-        if (line.label.includes('模型')) {
-          return line.value
-        }
-
-        const numeric = Number(line.value.replace(/[^\d]/g, ''))
-        if (Number.isFinite(numeric) && numeric > 0) {
-          const prefix = line.label.includes('输入') ? 'In' : line.label.includes('输出') ? 'Out' : line.label
-          return `${prefix} ${formatCompactNumber(numeric)}`
-        }
-
-        return `${line.label} ${line.value}`.trim()
-      })
-      .slice(0, 3)
+  const descriptor = resolveRuntimeNoticeDescriptor(notice)
+  if (descriptor) {
+    return descriptor.summarize(lines)
   }
 
   return lines
@@ -204,7 +222,7 @@ export function summarizeRuntimeNotice(notice: RuntimeNotice): string[] {
 }
 
 export function getUsageNoticeSummary(notice: RuntimeNotice): UsageNoticeSummary | null {
-  if (notice.id !== 'usage' && !notice.title.includes('用量')) {
+  if (resolveRuntimeNoticeDescriptor(notice)?.id !== 'usage') {
     return null
   }
 

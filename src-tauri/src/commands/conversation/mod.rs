@@ -21,6 +21,15 @@ pub use types::{CliExecutionRequest, ExecutionRequest, SdkExecutionRequest};
 use anyhow::Result;
 use tauri::AppHandle;
 
+async fn execute_compat_request(app: AppHandle, request: ExecutionRequest) -> Result<(), String> {
+    let registry = get_registry().await;
+    let registry = registry.read().await;
+    registry
+        .execute(app, request)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 // ============== 向后兼容的命令包装器 ==============
 
 /// 执行 Claude CLI 命令（向后兼容）
@@ -29,29 +38,13 @@ pub async fn execute_claude_cli(
     app: AppHandle,
     request: CliExecutionRequest,
 ) -> Result<(), String> {
-    let unified_request = ExecutionRequest::from_cli(request, "claude");
-
-    // 调用策略执行
-    let registry = get_registry().await;
-    let registry = registry.read().await;
-    registry
-        .execute(app, unified_request)
-        .await
-        .map_err(|e| e.to_string())
+    execute_compat_request(app, ExecutionRequest::from_cli(request, "claude")).await
 }
 
 /// 执行 Codex CLI 命令（向后兼容）
 #[tauri::command]
 pub async fn execute_codex_cli(app: AppHandle, request: CliExecutionRequest) -> Result<(), String> {
-    let unified_request = ExecutionRequest::from_cli(request, "codex");
-
-    // 调用策略执行
-    let registry = get_registry().await;
-    let registry = registry.read().await;
-    registry
-        .execute(app, unified_request)
-        .await
-        .map_err(|e| e.to_string())
+    execute_compat_request(app, ExecutionRequest::from_cli(request, "codex")).await
 }
 
 /// 执行 Claude SDK API 调用（向后兼容）
@@ -60,28 +53,12 @@ pub async fn execute_claude_sdk(
     app: AppHandle,
     request: SdkExecutionRequest,
 ) -> Result<(), String> {
-    let unified_request = ExecutionRequest::from_sdk(request, "claude");
-
-    // 调用策略执行
-    let registry = get_registry().await;
-    let registry = registry.read().await;
-    registry
-        .execute(app, unified_request)
-        .await
-        .map_err(|e| e.to_string())
+    execute_compat_request(app, ExecutionRequest::from_sdk(request, "claude")).await
 }
 /// 执行 Codex SDK API 调用（新命令）
 #[tauri::command]
 pub async fn execute_codex_sdk(app: AppHandle, request: SdkExecutionRequest) -> Result<(), String> {
-    let unified_request = ExecutionRequest::from_sdk(request, "codex");
-
-    // 调用策略执行
-    let registry = get_registry().await;
-    let registry = registry.read().await;
-    registry
-        .execute(app, unified_request)
-        .await
-        .map_err(|e| e.to_string())
+    execute_compat_request(app, ExecutionRequest::from_sdk(request, "codex")).await
 }
 /// 中断 CLI 执行
 #[tauri::command]

@@ -2,7 +2,12 @@ import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { setLocale } from '@/i18n'
-import { DEFAULT_MINI_PANEL_SHORTCUT, migrateMiniPanelShortcut } from '@/utils/shortcut'
+import {
+  defaultSettings,
+  parseStoredSettings,
+  serializeSettings,
+  type AppSettings
+} from './settingsSchema'
 
 // CLI 相关类型定义
 export type CliStatus = 'available' | 'not_found' | 'error'
@@ -197,55 +202,7 @@ export interface InstalledPlugin {
   config_values: Record<string, string>
 }
 
-export interface AppSettings {
-  // 通用设置
-  language: string
-  fontSize: number  // 字体大小，范围 12-24px
-
-  // 行为设置
-  autoSave: boolean
-  autoSaveInterval: number
-  confirmBeforeDelete: boolean
-  sendOnEnter: boolean  // Enter 键发送消息（false 则为 Ctrl/Cmd+Enter 发送）
-  miniPanelEnabled: boolean
-  miniPanelShortcut: string
-  miniPanelShortcutOverride: boolean
-
-  // 编辑器设置
-  editorFontSize: number
-  editorTabSize: number
-  editorWordWrap: boolean
-
-  // 高级设置
-  enableDebugMode: boolean
-  logLevel: 'debug' | 'info' | 'warn' | 'error'
-
-  // 会话压缩设置
-  compressionStrategy: 'simple' | 'smart' | 'summary'
-  compressionThreshold: number  // 自动压缩阈值 (0-100)
-  autoCompressionEnabled: boolean
-}
-
-const defaultSettings: AppSettings = {
-  language: 'zh-CN',
-  fontSize: 14,
-  autoSave: true,
-  autoSaveInterval: 30,
-  confirmBeforeDelete: true,
-  sendOnEnter: true,
-  miniPanelEnabled: false,
-  miniPanelShortcut: DEFAULT_MINI_PANEL_SHORTCUT,
-  miniPanelShortcutOverride: false,
-  editorFontSize: 14,
-  editorTabSize: 2,
-  editorWordWrap: true,
-  enableDebugMode: false,
-  logLevel: 'info',
-  // 会话压缩设置
-  compressionStrategy: 'summary',
-  compressionThreshold: 80,
-  autoCompressionEnabled: true
-}
+export type { AppSettings } from './settingsSchema'
 
 export const useSettingsStore = defineStore('settings', () => {
   // State
@@ -298,10 +255,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
       // 保存到数据库
       try {
-        const settingsToSave: Record<string, string> = {}
-        for (const [key, value] of Object.entries(newSettings)) {
-          settingsToSave[key] = String(value)
-        }
+        const settingsToSave = serializeSettings(newSettings)
         await invoke('save_app_settings', { settings: settingsToSave })
       } catch (error) {
         console.error('Failed to auto-save settings:', error)
@@ -346,46 +300,7 @@ export const useSettingsStore = defineStore('settings', () => {
     try {
       const savedSettings = await invoke<Record<string, string>>('get_all_app_settings')
       if (savedSettings && Object.keys(savedSettings).length > 0) {
-        // 将保存的设置应用到当前设置
-        const parsedSettings: Partial<AppSettings> = {}
-        for (const [key, value] of Object.entries(savedSettings)) {
-          // 解析设置值
-          if (key === 'language') {
-            parsedSettings.language = value
-          } else if (key === 'fontSize') {
-            parsedSettings.fontSize = parseInt(value, 10) || defaultSettings.fontSize
-          } else if (key === 'autoSave') {
-            parsedSettings.autoSave = value === 'true'
-          } else if (key === 'autoSaveInterval') {
-            parsedSettings.autoSaveInterval = parseInt(value, 10) || defaultSettings.autoSaveInterval
-          } else if (key === 'confirmBeforeDelete') {
-            parsedSettings.confirmBeforeDelete = value === 'true'
-          } else if (key === 'sendOnEnter') {
-            parsedSettings.sendOnEnter = value === 'true'
-          } else if (key === 'miniPanelEnabled') {
-            parsedSettings.miniPanelEnabled = value === 'true'
-          } else if (key === 'miniPanelShortcut') {
-            parsedSettings.miniPanelShortcut = migrateMiniPanelShortcut(value || defaultSettings.miniPanelShortcut)
-          } else if (key === 'miniPanelShortcutOverride') {
-            parsedSettings.miniPanelShortcutOverride = value === 'true'
-          } else if (key === 'editorFontSize') {
-            parsedSettings.editorFontSize = parseInt(value, 10) || defaultSettings.editorFontSize
-          } else if (key === 'editorTabSize') {
-            parsedSettings.editorTabSize = parseInt(value, 10) || defaultSettings.editorTabSize
-          } else if (key === 'editorWordWrap') {
-            parsedSettings.editorWordWrap = value === 'true'
-          } else if (key === 'enableDebugMode') {
-            parsedSettings.enableDebugMode = value === 'true'
-          } else if (key === 'logLevel') {
-            parsedSettings.logLevel = (value as 'debug' | 'info' | 'warn' | 'error') || defaultSettings.logLevel
-          } else if (key === 'compressionStrategy') {
-            parsedSettings.compressionStrategy = (value as 'simple' | 'smart' | 'summary') || defaultSettings.compressionStrategy
-          } else if (key === 'compressionThreshold') {
-            parsedSettings.compressionThreshold = parseInt(value, 10) || defaultSettings.compressionThreshold
-          } else if (key === 'autoCompressionEnabled') {
-            parsedSettings.autoCompressionEnabled = value === 'true'
-          }
-        }
+        const parsedSettings = parseStoredSettings(savedSettings)
         settings.value = { ...defaultSettings, ...parsedSettings }
 
         // 确保语言设置同步到 i18n
@@ -409,10 +324,7 @@ export const useSettingsStore = defineStore('settings', () => {
     }
     // 保存到数据库
     try {
-      const settingsToSave: Record<string, string> = {}
-      for (const [key, value] of Object.entries(updates)) {
-        settingsToSave[key] = String(value)
-      }
+      const settingsToSave = serializeSettings(updates)
       await invoke('save_app_settings', { settings: settingsToSave })
     } catch (error) {
       console.error('Failed to save settings:', error)
@@ -423,10 +335,7 @@ export const useSettingsStore = defineStore('settings', () => {
     settings.value = { ...defaultSettings }
     // 保存默认设置到数据库
     try {
-      const settingsToSave: Record<string, string> = {}
-      for (const [key, value] of Object.entries(defaultSettings)) {
-        settingsToSave[key] = String(value)
-      }
+      const settingsToSave = serializeSettings(defaultSettings)
       await invoke('save_app_settings', { settings: settingsToSave })
     } catch (error) {
       console.error('Failed to reset settings:', error)

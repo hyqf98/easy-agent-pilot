@@ -1,6 +1,14 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import type { AgentConfig } from '@/stores/agent'
+import {
+  buildAgentExecutionRequest,
+  getAgentRuntimeProfile,
+  matchesAgentRuntimeProfile,
+  validateAgentRuntime,
+  type AbortCommand,
+  type AgentRuntimeKey
+} from '../runtimeProfiles'
 import type {
   AgentStrategy,
   BackendStreamEvent,
@@ -8,8 +16,6 @@ import type {
   ExecutionRequest,
   StreamEvent
 } from './types'
-
-type AbortCommand = 'abort_cli_execution' | 'abort_sdk_execution'
 
 interface ExecutionEventState {
   sawMeaningfulOutput: boolean
@@ -34,23 +40,29 @@ function parseToolPayload(value?: string): Record<string, unknown> | undefined {
 
 export abstract class BaseAgentStrategy implements AgentStrategy {
   abstract readonly name: string
+  protected abstract readonly runtimeKey: AgentRuntimeKey
 
   private abortController: AbortController | null = null
   private unlistenStream: UnlistenFn | null = null
   private currentSessionId: string | null = null
 
-  abstract supports(agent: AgentConfig): boolean
-
-  protected abstract getEventName(sessionId: string): string
-  protected abstract getAbortCommand(): AbortCommand
-  protected abstract buildRequest(context: ConversationContext): ExecutionRequest
+  supports(agent: AgentConfig): boolean {
+    return matchesAgentRuntimeProfile(agent, this.runtimeKey)
+  }
 
   protected validateContext(
     context: ConversationContext,
     onEvent: (event: StreamEvent) => void
   ): boolean {
-    void context
-    void onEvent
+    const error = validateAgentRuntime(context.agent, this.runtimeKey)
+    if (error) {
+      onEvent({
+        type: 'error',
+        error
+      })
+      return false
+    }
+
     return true
   }
 
@@ -134,6 +146,30 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
     this.abortController?.abort()
     this.abortExecution()
     this.cleanup()
+  }
+
+  protected getEventName(sessionId: string): string {
+    return getAgentRuntimeProfile(this.runtimeKey).eventName(sessionId)
+  }
+
+  protected getAbortCommand(): AbortCommand {
+    return getAgentRuntimeProfile(this.runtimeKey).abortCommand
+  }
+
+  protected buildRequest(context: ConversationContext): ExecutionRequest {
+    return buildAgentExecutionRequest({
+      sessionId: context.sessionId,
+      agent: context.agent,
+      messages: this.toMessageInputs(context.messages),
+      workingDirectory: context.workingDirectory,
+      mcpServers: context.mcpServers,
+      tools: context.tools,
+      cliOutputFormat: context.cliOutputFormat,
+      jsonSchema: context.jsonSchema,
+      extraCliArgs: context.extraCliArgs,
+      executionMode: context.executionMode,
+      responseMode: context.responseMode
+    })
   }
 
   protected toMessageInputs(messages: ConversationContext['messages']): ExecutionRequest['messages'] {

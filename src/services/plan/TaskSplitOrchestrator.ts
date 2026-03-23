@@ -2,6 +2,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import type { AgentConfig } from '@/stores/agent'
 import type { ExecutionRequest } from '@/services/conversation/strategies/types'
+import { buildAgentExecutionRequest, resolveAgentRuntimeProfile } from '@/services/conversation/runtimeProfiles'
 
 export interface SplitChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -48,46 +49,44 @@ export class TaskSplitOrchestrator {
       responseMode,
       onContent
     } = params
-    const provider = agent.provider || 'claude'
     const sessionId = crypto.randomUUID()
+    const profile = resolveAgentRuntimeProfile(agent)
+
+    if (!profile) {
+      throw new Error(`不支持的智能体类型: ${agent.type} (${agent.provider || 'unknown'})`)
+    }
 
     // 先设置 activeSessionId，再调用 getEventName
     this.activeSessionId = sessionId
     this.activeAgentType = agent.type
-    const eventName = this.getEventName(agent.type, provider)
+    const eventName = profile.eventName(sessionId)
 
     let fullContent = ''
     const streamErrors: string[] = []
-
-    const request: ExecutionRequest = {
-      sessionId,
-      agentType: agent.type as 'cli' | 'sdk',
-      provider,
-      messages,
-      modelId: modelId || undefined,
-      workingDirectory,
-      systemPrompt,
-      maxTokens: agent.type === 'sdk' ? 4096 : undefined,
-      executionMode: executionMode ?? 'task_split',
-      responseMode: responseMode ?? 'json_once'
-    }
 
     if (agent.type === 'cli') {
       if (!agent.cliPath) {
         throw new Error('CLI 路径未配置')
       }
-      request.cliPath = agent.cliPath
-      request.allowedTools = this.getAllowedTools(provider)
-      request.cliOutputFormat = cliOutputFormat
-      request.jsonSchema = jsonSchema
-      request.extraCliArgs = extraCliArgs
     } else {
       if (!agent.apiKey) {
         throw new Error('SDK API Key 未配置')
       }
-      request.apiKey = agent.apiKey
-      request.baseUrl = agent.baseUrl
     }
+
+    const request: ExecutionRequest = buildAgentExecutionRequest({
+      sessionId,
+      agent,
+      messages,
+      modelId: modelId || undefined,
+      workingDirectory,
+      systemPrompt,
+      cliOutputFormat,
+      jsonSchema,
+      extraCliArgs,
+      executionMode: executionMode ?? 'task_split',
+      responseMode: responseMode ?? 'json_once'
+    })
 
     this.activeUnlisten = await listen<StreamPayload>(eventName, (event) => {
       const payload = event.payload
@@ -115,7 +114,7 @@ export class TaskSplitOrchestrator {
       }
       if (streamErrors.length > 0) {
         const error = streamErrors[streamErrors.length - 1]
-        console.error('[AI Execute] failed', { provider, sessionId, error })
+        console.error('[AI Execute] failed', { provider: profile.provider, sessionId, error })
         throw new Error(error)
       }
       return fullContent
@@ -146,20 +145,6 @@ export class TaskSplitOrchestrator {
     this.activeAgentType = null
   }
 
-  private getAllowedTools(provider: string): string[] {
-    if (provider === 'codex') {
-      return ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash']
-    }
-    return ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'WebFetch', 'WebSearch']
-  }
-
-  private getEventName(agentType: string, provider: string): string {
-    const sessionId = this.activeSessionId || ''
-    if (agentType === 'cli' && provider === 'claude') return `claude-stream-${sessionId}`
-    if (agentType === 'cli' && provider === 'codex') return `codex-stream-${sessionId}`
-    if (agentType === 'sdk' && provider === 'codex') return `codex-sdk-stream-${sessionId}`
-    return `sdk-stream-${sessionId}`
-  }
 }
 
 export const taskSplitOrchestrator = new TaskSplitOrchestrator()
