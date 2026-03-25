@@ -6,6 +6,7 @@ import { EaIcon, EaSelect } from '@/components/common'
 import MarketplaceTabs from './MarketplaceTabs.vue'
 import McpMarketList from './mcp/McpMarketList.vue'
 import SkillMarketList from './skills/SkillMarketList.vue'
+import PluginMarketList from './plugins/PluginMarketList.vue'
 
 const { t } = useI18n()
 const marketplaceStore = useMarketplaceStore()
@@ -22,6 +23,8 @@ watch(() => marketplaceStore.activeMarketTab, async (newTab) => {
     await marketplaceStore.fetchMcpMarket()
   } else if (newTab === 'skills' && marketplaceStore.skillsMarketItems.length === 0) {
     await marketplaceStore.fetchSkillsMarket()
+  } else if (newTab === 'plugins' && marketplaceStore.pluginsMarketItems.length === 0) {
+    await marketplaceStore.fetchPluginsMarket()
   }
 })
 
@@ -63,6 +66,7 @@ watch(() => marketplaceStore.activeMarketSource, async () => {
     <div class="marketplace-page__content">
       <McpMarketList v-if="marketplaceStore.activeMarketTab === 'mcp'" />
       <SkillMarketList v-else-if="marketplaceStore.activeMarketTab === 'skills'" />
+      <PluginMarketList v-else />
     </div>
   </div>
 </template>

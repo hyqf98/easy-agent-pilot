@@ -97,6 +97,7 @@ function handleClose() {
 }
 
 onMounted(async () => {
+  await agentStore.loadAgents()
   if (cliAgents.value.length > 0) {
     selectedAgentId.value = cliAgents.value[0].id
   }

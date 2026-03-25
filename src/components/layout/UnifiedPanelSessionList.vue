@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Session } from '@/stores/session'
 import { useSessionView } from '@/composables'
@@ -31,11 +32,79 @@ const {
   formatRelativeTime,
   formatSessionCreatedAt
 } = useSessionView()
+const sessionListRef = ref<HTMLElement | null>(null)
+const openMenuSessionId = ref<string | null>(null)
 
 function closeCompactMenu(event: Event) {
   const details = (event.currentTarget as HTMLElement | null)?.closest('details')
   if (details instanceof HTMLDetailsElement) {
     details.open = false
+  }
+  openMenuSessionId.value = null
+}
+
+function closeAllCompactMenus() {
+  const root = sessionListRef.value
+  if (!root) {
+    openMenuSessionId.value = null
+    return
+  }
+
+  root.querySelectorAll<HTMLDetailsElement>('details[open]').forEach((details) => {
+    details.open = false
+  })
+  openMenuSessionId.value = null
+}
+
+function closeOtherMenus(currentDetails: HTMLDetailsElement) {
+  const root = sessionListRef.value
+  if (!root) {
+    return
+  }
+
+  root.querySelectorAll<HTMLDetailsElement>('details[open]').forEach((details) => {
+    if (details !== currentDetails) {
+      details.open = false
+    }
+  })
+}
+
+function handleMenuToggle(sessionId: string, event: Event) {
+  const details = event.currentTarget as HTMLDetailsElement | null
+  if (!details) {
+    return
+  }
+
+  if (details.open) {
+    closeOtherMenus(details)
+    openMenuSessionId.value = sessionId
+    return
+  }
+
+  if (openMenuSessionId.value === sessionId) {
+    openMenuSessionId.value = null
+  }
+}
+
+function handleDocumentMouseDown(event: MouseEvent) {
+  const root = sessionListRef.value
+  const target = event.target
+  if (!(root && target instanceof Node)) {
+    return
+  }
+
+  const clickedMenu = target instanceof Element
+    ? target.closest('.session-item__menu')
+    : null
+
+  if (!clickedMenu || !root.contains(clickedMenu)) {
+    closeAllCompactMenus()
+  }
+}
+
+function handleDocumentKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    closeAllCompactMenus()
   }
 }
 
@@ -59,10 +128,23 @@ function handleCompactAction(
 
   emit('delete', session)
 }
+
+onMounted(() => {
+  document.addEventListener('mousedown', handleDocumentMouseDown)
+  document.addEventListener('keydown', handleDocumentKeydown)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', handleDocumentMouseDown)
+  document.removeEventListener('keydown', handleDocumentKeydown)
+})
 </script>
 
 <template>
-  <div class="session-list">
+  <div
+    ref="sessionListRef"
+    class="session-list"
+  >
     <div
       v-for="session in sessions"
       :key="session.id"
@@ -70,7 +152,8 @@ function handleCompactAction(
         'session-item',
         {
           'session-item--active': session.id === currentSessionId,
-          'session-item--pinned': session.pinned
+          'session-item--pinned': session.pinned,
+          'session-item--menu-open': openMenuSessionId === session.id
         }
       ]"
       @click="emit('select', session.id)"
@@ -207,6 +290,7 @@ function handleCompactAction(
         v-if="editingSessionId !== session.id"
         class="session-item__menu"
         @click.stop
+        @toggle="handleMenuToggle(session.id, $event)"
       >
         <summary
           class="session-item__menu-trigger"
@@ -275,6 +359,7 @@ function handleCompactAction(
 }
 
 .session-item {
+  position: relative;
   display: flex;
   container-type: inline-size;
   align-items: flex-start;
@@ -284,6 +369,10 @@ function handleCompactAction(
   border-radius: var(--radius-md);
   background-color: var(--color-surface);
   border: 1px solid transparent;
+}
+
+.session-item--menu-open {
+  z-index: 8;
 }
 
 .session-item:hover {
@@ -468,7 +557,7 @@ function handleCompactAction(
 }
 
 .session-item__menu[open] {
-  z-index: 3;
+  z-index: 9;
 }
 
 .session-item__menu-trigger {
@@ -497,6 +586,7 @@ function handleCompactAction(
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
+  z-index: 10;
   display: flex;
   min-width: 112px;
   flex-direction: column;

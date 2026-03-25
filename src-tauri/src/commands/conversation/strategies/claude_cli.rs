@@ -11,8 +11,8 @@ use uuid::Uuid;
 
 use super::cli_common::{
     build_content_event, build_error_event, build_execution_summary, build_system_event,
-    build_timeout_error_message, detect_cli_timeout, emit_cli_event, extract_error_from_json_blob,
-    extract_result_content_from_json_blob, extract_runtime_system_notice,
+    build_timeout_error_message, describe_timeout_config, detect_cli_timeout, emit_cli_event,
+    extract_error_from_json_blob, extract_result_content_from_json_blob, extract_runtime_system_notice,
     extract_structured_output_from_json_blob, parse_json_blob_with_fallback, preview_text,
     shell_escape, timeout_config_for_execution_mode, CliExecutionMonitor,
 };
@@ -427,6 +427,11 @@ impl AgentExecutionStrategy for ClaudeCliStrategy {
         let execution_started_at = Instant::now();
         let monitor = CliExecutionMonitor::new();
         let timeout_config = timeout_config_for_execution_mode(request.execution_mode.as_deref());
+        log_info!(
+            "Claude CLI timeout config: mode={}, {}",
+            request.execution_mode.as_deref().unwrap_or("chat"),
+            describe_timeout_config(timeout_config)
+        );
         let mut child = cmd.spawn()?;
 
         // 注册进程 PID，用于后续可能的中断操作

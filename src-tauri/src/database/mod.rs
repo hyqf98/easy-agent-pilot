@@ -414,6 +414,93 @@ const INIT_SQL: &str = r#"
     CREATE INDEX IF NOT EXISTS idx_task_execution_results_task_created
         ON task_execution_results(task_id, created_at DESC);
 
+    -- 无人值守渠道配置
+    CREATE TABLE IF NOT EXISTS unattended_channels (
+        id TEXT PRIMARY KEY,
+        channel_type TEXT NOT NULL,
+        name TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        default_project_id TEXT,
+        default_agent_id TEXT,
+        default_model_id TEXT,
+        reply_style TEXT NOT NULL DEFAULT 'final_only',
+        allow_all_senders INTEGER NOT NULL DEFAULT 1,
+        future_auth_mode TEXT NOT NULL DEFAULT 'allow_all',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (default_project_id) REFERENCES projects(id) ON DELETE SET NULL,
+        FOREIGN KEY (default_agent_id) REFERENCES agents(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_unattended_channels_type ON unattended_channels(channel_type);
+    CREATE INDEX IF NOT EXISTS idx_unattended_channels_enabled ON unattended_channels(enabled);
+
+    -- 无人值守渠道账号
+    CREATE TABLE IF NOT EXISTS unattended_channel_accounts (
+        id TEXT PRIMARY KEY,
+        channel_id TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        user_id TEXT,
+        base_url TEXT NOT NULL,
+        bot_token TEXT NOT NULL,
+        sync_cursor TEXT,
+        login_status TEXT NOT NULL DEFAULT 'connected',
+        runtime_status TEXT NOT NULL DEFAULT 'idle',
+        last_connected_at TEXT,
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (channel_id) REFERENCES unattended_channels(id) ON DELETE CASCADE,
+        UNIQUE(channel_id, account_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_unattended_accounts_channel ON unattended_channel_accounts(channel_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_unattended_accounts_runtime ON unattended_channel_accounts(runtime_status);
+
+    -- 无人值守远程线程
+    CREATE TABLE IF NOT EXISTS unattended_threads (
+        id TEXT PRIMARY KEY,
+        channel_account_id TEXT NOT NULL,
+        peer_id TEXT NOT NULL,
+        peer_name_snapshot TEXT,
+        session_id TEXT,
+        active_project_id TEXT,
+        active_agent_id TEXT,
+        active_model_id TEXT,
+        last_context_token TEXT,
+        last_plan_id TEXT,
+        last_task_id TEXT,
+        last_message_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (channel_account_id) REFERENCES unattended_channel_accounts(id) ON DELETE CASCADE,
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL,
+        FOREIGN KEY (active_project_id) REFERENCES projects(id) ON DELETE SET NULL,
+        FOREIGN KEY (active_agent_id) REFERENCES agents(id) ON DELETE SET NULL,
+        FOREIGN KEY (last_plan_id) REFERENCES plans(id) ON DELETE SET NULL,
+        FOREIGN KEY (last_task_id) REFERENCES tasks(id) ON DELETE SET NULL,
+        UNIQUE(channel_account_id, peer_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_unattended_threads_account ON unattended_threads(channel_account_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_unattended_threads_peer ON unattended_threads(peer_id);
+
+    -- 无人值守审计日志
+    CREATE TABLE IF NOT EXISTS unattended_events (
+        id TEXT PRIMARY KEY,
+        channel_account_id TEXT,
+        thread_id TEXT,
+        direction TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'success',
+        summary TEXT,
+        payload_json TEXT,
+        correlation_id TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (channel_account_id) REFERENCES unattended_channel_accounts(id) ON DELETE SET NULL,
+        FOREIGN KEY (thread_id) REFERENCES unattended_threads(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_unattended_events_account_created ON unattended_events(channel_account_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_unattended_events_thread_created ON unattended_events(thread_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_unattended_events_type_created ON unattended_events(event_type, created_at DESC);
+
     -- 记忆分类表（用于 Skills 式层级展示）
     CREATE TABLE IF NOT EXISTS memory_categories (
         id TEXT PRIMARY KEY,
@@ -515,6 +602,8 @@ pub fn init_database() -> Result<()> {
         "ALTER TABLE sessions ADD COLUMN pinned INTEGER DEFAULT 0",
         "ALTER TABLE sessions ADD COLUMN last_message TEXT",
         "ALTER TABLE sessions ADD COLUMN error_message TEXT",
+        "ALTER TABLE unattended_channels ADD COLUMN default_model_id TEXT",
+        "ALTER TABLE unattended_threads ADD COLUMN active_project_id TEXT",
     ];
 
     for migration in migrations {

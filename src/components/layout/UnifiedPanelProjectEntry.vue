@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { NTree, type TreeOption } from 'naive-ui'
 import type { Project } from '@/stores/project'
@@ -51,6 +52,8 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const projectItemRef = ref<HTMLElement | null>(null)
+const isCompactMenuOpen = ref(false)
 
 function handleStartEditSession(session: Session, event: Event) {
   emit('startEditSession', session, event)
@@ -60,6 +63,51 @@ function closeCompactMenu(event: Event) {
   const details = (event.currentTarget as HTMLElement | null)?.closest('details')
   if (details instanceof HTMLDetailsElement) {
     details.open = false
+  }
+  isCompactMenuOpen.value = false
+}
+
+function closeProjectCompactMenu() {
+  const root = projectItemRef.value
+  if (!root) {
+    isCompactMenuOpen.value = false
+    return
+  }
+
+  root.querySelectorAll<HTMLDetailsElement>('details[open]').forEach((details) => {
+    details.open = false
+  })
+  isCompactMenuOpen.value = false
+}
+
+function handleProjectMenuToggle(event: Event) {
+  const details = event.currentTarget as HTMLDetailsElement | null
+  if (!details) {
+    return
+  }
+
+  isCompactMenuOpen.value = details.open
+}
+
+function handleDocumentMouseDown(event: MouseEvent) {
+  const root = projectItemRef.value
+  const target = event.target
+  if (!(root && target instanceof Node)) {
+    return
+  }
+
+  const clickedMenu = target instanceof Element
+    ? target.closest('.project-item__menu')
+    : null
+
+  if (!clickedMenu || !root.contains(clickedMenu)) {
+    closeProjectCompactMenu()
+  }
+}
+
+function handleDocumentKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    closeProjectCompactMenu()
   }
 }
 
@@ -74,15 +122,27 @@ function handleProjectCompactAction(action: 'edit' | 'delete', project: Project,
 
   emit('deleteProject', project)
 }
+
+onMounted(() => {
+  document.addEventListener('mousedown', handleDocumentMouseDown)
+  document.addEventListener('keydown', handleDocumentKeydown)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', handleDocumentMouseDown)
+  document.removeEventListener('keydown', handleDocumentKeydown)
+})
 </script>
 
 <template>
   <div
+    ref="projectItemRef"
     :class="[
       'project-item',
       {
         'project-item--active': isActive,
-        'project-item--expanded': isExpanded
+        'project-item--expanded': isExpanded,
+        'project-item--menu-open': isCompactMenuOpen
       }
     ]"
     tabindex="0"
@@ -156,6 +216,7 @@ function handleProjectCompactAction(action: 'edit' | 'delete', project: Project,
     <details
       class="project-item__menu"
       @click.stop
+      @toggle="handleProjectMenuToggle"
     >
       <summary
         class="project-item__menu-trigger"
@@ -337,6 +398,10 @@ function handleProjectCompactAction(action: 'edit' | 'delete', project: Project,
   border-color: var(--color-primary);
 }
 
+.project-item--menu-open {
+  z-index: 8;
+}
+
 [data-theme='dark'] .project-item--expanded {
   background-color: var(--color-surface-hover);
   border-color: var(--color-active-border);
@@ -479,7 +544,7 @@ function handleProjectCompactAction(action: 'edit' | 'delete', project: Project,
 }
 
 .project-item__menu[open] {
-  z-index: 3;
+  z-index: 9;
 }
 
 .project-item__menu-trigger {
@@ -508,6 +573,7 @@ function handleProjectCompactAction(action: 'edit' | 'delete', project: Project,
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
+  z-index: 10;
   display: flex;
   min-width: 104px;
   flex-direction: column;

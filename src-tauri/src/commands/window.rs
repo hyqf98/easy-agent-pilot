@@ -53,7 +53,9 @@ pub fn get_window_context(window: tauri::Window) -> WindowContext {
     let label = window.label().to_string();
 
     // 从窗口标签解析项目 ID（格式：project-{project_id}）
-    let project_id = label.strip_prefix("project-").map(|stripped| stripped.to_string());
+    let project_id = label
+        .strip_prefix("project-")
+        .map(|stripped| stripped.to_string());
 
     let window_type = if label == crate::commands::mini_panel::MINI_PANEL_WINDOW_LABEL {
         "mini-panel".to_string()

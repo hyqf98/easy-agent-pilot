@@ -59,8 +59,39 @@ function finalizePendingToolCalls(toolCalls: ToolCall[]): ToolCall[] {
 export class ConversationService {
   private static instance: ConversationService | null = null
   private readonly queueDrainLocks = new Set<string>()
+  private readonly dedupedInjectedSystemPrompts = new Map<string, Set<string>>()
 
   private constructor() {}
+
+  /**
+   * 记录已在指定会话成功注入过的系统提示词。
+   * 仅用于需要“同一会话只注入一次”的场景，避免重复堆积上下文。
+   */
+  private markInjectedSystemMessages(sessionId: string, messages: string[]): void {
+    if (!sessionId || messages.length === 0) {
+      return
+    }
+
+    const existing = this.dedupedInjectedSystemPrompts.get(sessionId) ?? new Set<string>()
+    messages.forEach(message => existing.add(message))
+    this.dedupedInjectedSystemPrompts.set(sessionId, existing)
+  }
+
+  /**
+   * 过滤已在当前会话注入过的系统提示词，保证同一提示词只追加一次。
+   */
+  private filterSessionScopedInjectedMessages(sessionId: string, messages: string[]): string[] {
+    if (!sessionId || messages.length === 0) {
+      return messages
+    }
+
+    const existing = this.dedupedInjectedSystemPrompts.get(sessionId)
+    if (!existing?.size) {
+      return messages
+    }
+
+    return messages.filter(message => !existing.has(message))
+  }
 
   /**
    * 获取单例实例
@@ -85,6 +116,8 @@ export class ConversationService {
     options?: {
       workingDirectory?: string
       modelId?: string
+      injectedSystemMessages?: string[]
+      dedupeInjectedSystemMessagesBySession?: boolean
     }
   ): Promise<void> {
     const messageStore = useMessageStore()
@@ -208,13 +241,26 @@ export class ConversationService {
         })
       ])
 
+      const rawInjectedSystemMessages = (options?.injectedSystemMessages ?? [])
+        .map(message => message.trim())
+        .filter(message => message.length > 0)
+
+      const sessionScopedInjectedSystemMessages = options?.dedupeInjectedSystemMessagesBySession
+        ? this.filterSessionScopedInjectedMessages(sessionId, rawInjectedSystemMessages)
+        : rawInjectedSystemMessages
+
+      const injectedSystemMessages = [
+        ...sessionScopedInjectedSystemMessages,
+        ...(projectMemoryPrompt ? [projectMemoryPrompt] : [])
+      ]
+
       // 构建对话上下文
       const messages = buildConversationMessages(
         messageStore.messagesBySession(sessionId),
         {
           fallbackUserContent: content,
           sessionId,
-          injectedSystemMessages: projectMemoryPrompt ? [projectMemoryPrompt] : []
+          injectedSystemMessages
         }
       )
       const userMessages = messages.filter(message => message.role === 'user')
@@ -241,6 +287,9 @@ export class ConversationService {
 
       // 执行对话
       await this.executeConversation(context, aiMessage, sessionId)
+      if (options?.dedupeInjectedSystemMessagesBySession) {
+        this.markInjectedSystemMessages(sessionId, sessionScopedInjectedSystemMessages)
+      }
 
     } catch (error) {
       this.finalizeSend(sessionId)

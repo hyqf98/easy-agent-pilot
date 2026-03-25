@@ -162,6 +162,7 @@ fn build_source_options() -> Vec<MarketplaceSourceOption> {
             supported_resources: vec![
                 MarketplaceResourceType::Mcp,
                 MarketplaceResourceType::Skills,
+                MarketplaceResourceType::Plugins,
             ],
         },
         MarketplaceSourceOption {

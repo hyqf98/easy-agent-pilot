@@ -8,14 +8,15 @@ const { t } = useI18n()
 const marketplaceStore = useMarketplaceStore()
 
 interface TabItem {
-  id: 'mcp' | 'skills'
+  id: 'mcp' | 'skills' | 'plugins'
   labelKey: string
   icon: string
 }
 
 const tabs: TabItem[] = [
   { id: 'mcp', labelKey: 'marketplace.tabs.mcp', icon: 'plug' },
-  { id: 'skills', labelKey: 'marketplace.tabs.skills', icon: 'sparkles' }
+  { id: 'skills', labelKey: 'marketplace.tabs.skills', icon: 'sparkles' },
+  { id: 'plugins', labelKey: 'marketplace.tabs.plugins', icon: 'puzzle' }
 ]
 
 const visibleTabs = computed(() =>

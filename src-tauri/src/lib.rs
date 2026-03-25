@@ -2,6 +2,7 @@ mod commands;
 mod database;
 mod logging;
 mod scheduler;
+mod unattended;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -40,6 +41,7 @@ pub fn run() {
     }
 
     builder
+        .manage(unattended::runtime::UnattendedRuntimeState::default())
         .setup(|app| {
             // 初始化持久化目录
             if let Err(e) = commands::init_persistence_dirs() {
@@ -62,13 +64,19 @@ pub fn run() {
             }
 
             // 初始化策略注册表
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(commands::conversation::init_registry());
+            tauri::async_runtime::block_on(commands::conversation::init_registry());
 
-            // 恢复待执行的定时计划
+            // 恢复待执行的定时计划和无人值守监听，必须挂在 Tauri 常驻运行时上。
             let app_handle = app.handle().clone();
-            rt.block_on(async {
+            tauri::async_runtime::spawn(async move {
                 scheduler::restore_scheduled_plans(&app_handle).await;
+                if let Err(error) = unattended::runtime::restore_runtime(&app_handle).await {
+                    crate::logging::write_log(
+                        "ERROR",
+                        "bootstrap",
+                        &format!("Failed to restore unattended runtime: {}", error),
+                    );
+                }
 
                 // 启动后台调度器（需要在 Tokio 运行时上下文中）
                 scheduler::start_scheduler(app_handle);
@@ -132,6 +140,7 @@ pub fn run() {
             commands::skills_market::fetch_skill_market_detail,
             commands::skills_market::list_installed_skills,
             commands::skills_market::install_skill_to_cli,
+            commands::skills_market::install_skill_from_git,
             commands::skills_market::toggle_installed_skill,
             commands::skills_market::uninstall_skill,
             commands::skills_market::check_skill_updates,
@@ -139,6 +148,7 @@ pub fn run() {
             commands::plugins_market::fetch_plugins_market,
             commands::plugins_market::fetch_plugin_detail,
             commands::plugins_market::install_plugin,
+            commands::plugins_market::install_plugin_from_git,
             commands::plugins_market::list_installed_plugins,
             commands::plugins_market::toggle_plugin,
             commands::plugins_market::uninstall_plugin,
@@ -188,6 +198,7 @@ pub fn run() {
             commands::message::delete_message,
             commands::message::clear_session_messages,
             commands::message::upload_session_images,
+            commands::message::resolve_uploaded_image_preview,
             commands::message::delete_uploaded_image,
             commands::mini_panel::ensure_mini_panel_state,
             commands::mini_panel::set_mini_panel_working_directory,
@@ -330,6 +341,23 @@ pub fn run() {
             commands::task_execution::list_recent_plan_results,
             commands::task_execution::list_plan_execution_progress,
             commands::task_execution::clear_plan_execution_results,
+            // Unattended commands
+            commands::unattended::list_unattended_channels,
+            commands::unattended::create_unattended_channel,
+            commands::unattended::update_unattended_channel,
+            commands::unattended::delete_unattended_channel,
+            commands::unattended::list_unattended_channel_accounts,
+            commands::unattended::start_unattended_weixin_login,
+            commands::unattended::get_unattended_weixin_login_status,
+            commands::unattended::logout_unattended_account,
+            commands::unattended::start_unattended_runtime,
+            commands::unattended::stop_unattended_runtime,
+            commands::unattended::list_unattended_runtime_status,
+            commands::unattended::list_unattended_threads,
+            commands::unattended::update_unattended_thread_context,
+            commands::unattended::list_unattended_events,
+            commands::unattended::record_unattended_event,
+            commands::unattended::send_unattended_text,
             // Memory commands
             commands::memory::list_memory_libraries,
             commands::memory::get_memory_library,

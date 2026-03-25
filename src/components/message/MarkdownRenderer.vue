@@ -18,6 +18,20 @@ const containerRef = ref<HTMLDivElement | null>(null)
 const codeBlockContents = ref(new Map<string, string>())
 const codeBlockCounter = ref(0)
 
+function trimCodeFencePadding(value: string): string {
+  const lines = value.replace(/\r\n/g, '\n').split('\n')
+
+  while (lines.length > 0 && lines[0].trim().length === 0) {
+    lines.shift()
+  }
+
+  while (lines.length > 0 && lines[lines.length - 1].trim().length === 0) {
+    lines.pop()
+  }
+
+  return lines.join('\n')
+}
+
 // 创建 MarkdownIt 实例，配置语法高亮
 const md = new MarkdownIt({
   html: false,
@@ -25,9 +39,10 @@ const md = new MarkdownIt({
   linkify: true,
   typographer: true,
   highlight: (str: string, lang: string): string => {
+    const normalizedCode = trimCodeFencePadding(str)
     // 生成唯一 ID 并存储原始代码
     const blockId = `code-block-${codeBlockCounter.value++}`
-    codeBlockContents.value.set(blockId, str)
+    codeBlockContents.value.set(blockId, normalizedCode)
 
     // 确定语言标签
     let languageLabel = lang || 'auto'
@@ -36,21 +51,21 @@ const md = new MarkdownIt({
     // 代码块语法高亮
     if (lang && hljs.getLanguage(lang)) {
       try {
-        highlightedCode = hljs.highlight(str, { language: lang, ignoreIllegals: true }).value
+        highlightedCode = hljs.highlight(normalizedCode, { language: lang, ignoreIllegals: true }).value
       } catch {
-        highlightedCode = md.utils.escapeHtml(str)
+        highlightedCode = md.utils.escapeHtml(normalizedCode)
       }
     } else {
       // 没有指定语言时，使用自动检测
       try {
-        const result = hljs.highlightAuto(str)
+        const result = hljs.highlightAuto(normalizedCode)
         highlightedCode = result.value
         // 如果自动检测到了语言，显示检测到的语言名
         if (result.language) {
           languageLabel = result.language
         }
       } catch {
-        highlightedCode = md.utils.escapeHtml(str)
+        highlightedCode = md.utils.escapeHtml(normalizedCode)
       }
     }
 
@@ -204,8 +219,15 @@ onUnmounted(() => {
 @import 'highlight.js/styles/github-dark.css';
 
 .markdown-content {
-  line-height: 1.6;
+  --md-code-bg: linear-gradient(180deg, #f8fbff 0%, #edf4ff 100%);
+  --md-code-header-bg: rgba(219, 234, 254, 0.92);
+  --md-code-border: rgba(96, 165, 250, 0.28);
+  --md-code-fg: #1e293b;
+  --md-code-muted: #475569;
+  --md-code-hover-bg: rgba(191, 219, 254, 0.95);
+  line-height: 1.55;
   color: var(--color-text-primary);
+  width: 100%;
 }
 
 .markdown-content h1,
@@ -214,9 +236,10 @@ onUnmounted(() => {
 .markdown-content h4,
 .markdown-content h5,
 .markdown-content h6 {
-  margin: 1em 0 0.5em;
+  margin: 0.55em 0 0.22em;
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-primary);
+  line-height: 1.3;
 }
 
 .markdown-content h1 { font-size: 1.5em; }
@@ -227,18 +250,18 @@ onUnmounted(() => {
 .markdown-content h6 { font-size: 0.85em; }
 
 .markdown-content p {
-  margin: 0.5em 0;
+  margin: 0.22em 0 0.38em;
   color: inherit;
 }
 
 .markdown-content ul,
 .markdown-content ol {
-  margin: 0.5em 0;
+  margin: 0.22em 0 0.4em;
   padding-left: 1.5em;
 }
 
 .markdown-content li {
-  margin: 0.25em 0;
+  margin: 0.12em 0;
   color: inherit;
 }
 
@@ -261,9 +284,13 @@ onUnmounted(() => {
 
 /* 代码块包装器样式 */
 .markdown-content .code-block-wrapper {
-  margin: 1em 0;
-  background-color: #1e1e1e;
+  margin: 0 0 0.35em;
+  width: 100%;
+  max-width: 100%;
+  border: 1px solid var(--md-code-border);
   border-radius: var(--radius-md);
+  background: var(--md-code-bg);
+  box-shadow: 0 10px 24px rgba(148, 163, 184, 0.16);
   overflow: hidden;
 }
 
@@ -272,17 +299,18 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--spacing-2) var(--spacing-3);
-  background-color: #2d2d2d;
-  border-bottom: 1px solid #3d3d3d;
+  padding: 0.18rem 0.58rem;
+  background: var(--md-code-header-bg);
+  border-bottom: 1px solid var(--md-code-border);
 }
 
 /* 语言标签样式 */
 .markdown-content .code-block-language {
-  font-size: var(--font-size-xs);
-  color: #999;
+  font-size: 0.68rem;
+  color: var(--md-code-muted);
   text-transform: lowercase;
   font-family: var(--font-family-mono);
+  letter-spacing: 0.02em;
 }
 
 /* 复制按钮样式 */
@@ -290,18 +318,18 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--spacing-1);
+  padding: 0.2rem;
   background: transparent;
   border: none;
   border-radius: var(--radius-sm);
-  color: #999;
+  color: var(--md-code-muted);
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .markdown-content .code-block-copy-btn:hover {
-  background-color: #3d3d3d;
-  color: #fff;
+  background-color: var(--md-code-hover-bg);
+  color: var(--md-code-fg);
 }
 
 .markdown-content .code-block-copy-btn .check-icon {
@@ -320,10 +348,15 @@ onUnmounted(() => {
   display: block;
 }
 
+.markdown-content .hljs {
+  color: var(--md-code-fg);
+  background: transparent;
+}
+
 /* highlight.js 代码块样式 */
 .markdown-content pre.hljs {
-  padding: var(--spacing-3);
-  background-color: #1e1e1e;
+  padding: 0 0.76rem 0.62rem;
+  background: transparent;
   margin: 0;
   border-radius: 0;
 }
@@ -331,8 +364,49 @@ onUnmounted(() => {
 .markdown-content pre.hljs code {
   padding: 0;
   background: none;
-  font-size: var(--font-size-sm);
-  line-height: 1.5;
+  font-size: 0.82rem;
+  line-height: 1.38;
+}
+
+.markdown-content .hljs-comment,
+.markdown-content .hljs-quote {
+  color: #64748b;
+  font-style: italic;
+}
+
+.markdown-content .hljs-keyword,
+.markdown-content .hljs-selector-tag,
+.markdown-content .hljs-subst {
+  color: #7c3aed;
+}
+
+.markdown-content .hljs-string,
+.markdown-content .hljs-doctag,
+.markdown-content .hljs-template-variable,
+.markdown-content .hljs-variable,
+.markdown-content .hljs-regexp {
+  color: #0f766e;
+}
+
+.markdown-content .hljs-title,
+.markdown-content .hljs-section,
+.markdown-content .hljs-selector-id,
+.markdown-content .hljs-selector-class {
+  color: #2563eb;
+}
+
+.markdown-content .hljs-number,
+.markdown-content .hljs-literal,
+.markdown-content .hljs-symbol,
+.markdown-content .hljs-bullet,
+.markdown-content .hljs-attr {
+  color: #c2410c;
+}
+
+.markdown-content .hljs-type,
+.markdown-content .hljs-built_in,
+.markdown-content .hljs-class .hljs-title {
+  color: #b45309;
 }
 
 /* 链接样式 */
@@ -426,6 +500,12 @@ onUnmounted(() => {
 
 :global([data-theme='dark']) .markdown-content,
 :global(.dark) .markdown-content {
+  --md-code-bg: linear-gradient(180deg, #0f172a 0%, #111827 100%);
+  --md-code-header-bg: rgba(30, 41, 59, 0.92);
+  --md-code-border: rgba(148, 163, 184, 0.18);
+  --md-code-fg: #e2e8f0;
+  --md-code-muted: #94a3b8;
+  --md-code-hover-bg: rgba(51, 65, 85, 0.96);
   color: #e5e7eb;
 }
 

@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useMarketplaceStore } from '@/stores/marketplace'
 import { EaIcon, EaLoading, EaButton, EaInput } from '@/components/common'
+import PluginGitInstallModal from './PluginGitInstallModal.vue'
 import PluginMarketCard from './PluginMarketCard.vue'
 import PluginInstallModal from './PluginInstallModal.vue'
 import type { PluginMarketItem } from '@/types/marketplace'
@@ -13,6 +14,7 @@ const marketplaceStore = useMarketplaceStore()
 const searchQuery = ref('')
 const selectedCategory = ref<string | null>(null)
 const showInstallModal = ref(false)
+const showGitInstallModal = ref(false)
 const selectedPlugin = ref<PluginMarketItem | null>(null)
 
 const categories = computed(() => {
@@ -55,8 +57,20 @@ function closeInstallModal() {
   selectedPlugin.value = null
 }
 
+function openGitInstallModal() {
+  showGitInstallModal.value = true
+}
+
+function closeGitInstallModal() {
+  showGitInstallModal.value = false
+}
+
 function onInstallComplete() {
   closeInstallModal()
+}
+
+function onGitInstallComplete() {
+  closeGitInstallModal()
 }
 
 async function refreshMarket() {
@@ -109,6 +123,14 @@ onMounted(() => {
             name="refresh-cw"
             :size="16"
           />
+        </EaButton>
+
+        <EaButton
+          type="secondary"
+          size="small"
+          @click="openGitInstallModal"
+        >
+          {{ t('marketplace.installFromGit') }}
         </EaButton>
       </div>
     </div>
@@ -169,6 +191,12 @@ onMounted(() => {
       :plugin-item="selectedPlugin"
       @close="closeInstallModal"
       @complete="onInstallComplete"
+    />
+
+    <PluginGitInstallModal
+      v-if="showGitInstallModal"
+      @close="closeGitInstallModal"
+      @complete="onGitInstallComplete"
     />
   </div>
 </template>

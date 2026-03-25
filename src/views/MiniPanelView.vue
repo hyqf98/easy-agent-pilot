@@ -8,7 +8,7 @@ import ConversationComposer from '@/components/layout/ConversationComposer.vue'
 import { useMessageStore, type Message, type MessageAttachment } from '@/stores/message'
 import { useMiniPanelStore } from '@/stores/miniPanel'
 import { useSessionExecutionStore } from '@/stores/sessionExecution'
-import { convertFileSrc } from '@tauri-apps/api/core'
+import { resolveAttachmentPreviewUrl } from '@/utils/attachmentPreview'
 
 const miniPanelStore = useMiniPanelStore()
 const messageStore = useMessageStore()
@@ -22,10 +22,12 @@ type ComposerExposed = ComponentPublicInstance & {
 const composerRef = ref<ComposerExposed | null>(null)
 let unlistenFocus: (() => void) | null = null
 
-const toPendingImages = (attachments: MessageAttachment[]) => attachments.map(attachment => ({
-  ...attachment,
-  previewUrl: convertFileSrc(attachment.path)
-}))
+async function toPendingImages(attachments: MessageAttachment[]) {
+  return Promise.all(attachments.map(async attachment => ({
+    ...attachment,
+    previewUrl: await resolveAttachmentPreviewUrl(attachment)
+  })))
+}
 
 async function hideMiniPanel() {
   await invoke('hide_mini_panel')
@@ -53,7 +55,7 @@ async function handleRetry(message: Message) {
 
   if (message.role === 'user') {
     sessionExecutionStore.setInputText(sessionId, message.content)
-    sessionExecutionStore.setPendingImages(sessionId, toPendingImages(message.attachments ?? []))
+    sessionExecutionStore.setPendingImages(sessionId, await toPendingImages(message.attachments ?? []))
     composerRef.value?.focusInput()
     return
   }
@@ -65,7 +67,7 @@ async function handleRetry(message: Message) {
     for (let index = messageIndex - 1; index >= 0; index -= 1) {
       if (messages[index].role === 'user') {
         sessionExecutionStore.setInputText(sessionId, messages[index].content)
-        sessionExecutionStore.setPendingImages(sessionId, toPendingImages(messages[index].attachments ?? []))
+        sessionExecutionStore.setPendingImages(sessionId, await toPendingImages(messages[index].attachments ?? []))
         break
       }
     }

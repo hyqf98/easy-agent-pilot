@@ -8,7 +8,7 @@ import {
   type MaybeRefOrGetter
 } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { convertFileSrc, invoke } from '@tauri-apps/api/core'
+import { invoke } from '@tauri-apps/api/core'
 import { useAgentConfigStore } from '@/stores/agentConfig'
 import { inferAgentProvider, useAgentStore } from '@/stores/agent'
 import { useMessageStore, type MessageAttachment } from '@/stores/message'
@@ -36,6 +36,7 @@ import {
 import { useSafeOutsideClick } from '@/composables/useSafeOutsideClick'
 import { FILE_MENTION_PATTERN, getMentionDisplayText, getMentionTitle, isGlobalMentionPath } from '@/utils/fileMention'
 import { resolveSessionAgent, resolveSessionAgentId } from '@/utils/sessionAgent'
+import { resolveAttachmentPreviewUrl } from '@/utils/attachmentPreview'
 
 interface TextSegment {
   type: 'text' | 'file' | 'slash'
@@ -827,9 +828,9 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     updateSlashCommandState(target, value, cursorPosition)
   }
 
-  const toPendingImage = (attachment: MessageAttachment): PendingImageAttachment => ({
+  const toPendingImage = async (attachment: MessageAttachment): Promise<PendingImageAttachment> => ({
     ...attachment,
-    previewUrl: convertFileSrc(attachment.path)
+    previewUrl: await resolveAttachmentPreviewUrl(attachment)
   })
 
   const uploadImages = async (files: File[]) => {
@@ -858,10 +859,8 @@ export function useConversationComposer(options: UseConversationComposerOptions)
         files: payload
       })
 
-      sessionExecutionStore.appendPendingImages(
-        sessionId,
-        result.attachments.map(toPendingImage)
-      )
+      const pendingImages = await Promise.all(result.attachments.map(toPendingImage))
+      sessionExecutionStore.appendPendingImages(sessionId, pendingImages)
     } catch (error) {
       console.error('Failed to upload images:', error)
       notificationStore.smartError('上传图片', error instanceof Error ? error : new Error(String(error)))
@@ -915,16 +914,14 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     }
   }
 
-  const restorePendingImages = (attachments: MessageAttachment[] = []) => {
+  const restorePendingImages = async (attachments: MessageAttachment[] = []) => {
     const sessionId = currentSessionId.value
     if (!sessionId) {
       return
     }
 
-    sessionExecutionStore.setPendingImages(
-      sessionId,
-      attachments.map(toPendingImage)
-    )
+    const pendingImages = await Promise.all(attachments.map(toPendingImage))
+    sessionExecutionStore.setPendingImages(sessionId, pendingImages)
   }
 
   const buildQueuedMessagePreview = (draft: Pick<QueuedMessageDraft, 'content' | 'displayContent' | 'attachments'>) => {
@@ -1143,7 +1140,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
       focusInput()
     } else {
       inputText.value = rawInput
-      restorePendingImages(attachments)
+      await restorePendingImages(attachments)
       focusInput()
     }
   }

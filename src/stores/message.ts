@@ -34,6 +34,7 @@ export interface MessageAttachment {
   path: string
   mimeType: string
   size: number
+  previewUrl?: string
 }
 
 // 压缩消息元数据

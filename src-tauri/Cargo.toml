@@ -62,6 +62,7 @@ uuid = { version = "1", features = ["v4"] }
 
 # HTTP 客户端
 reqwest = { version = "0.12", features = ["json", "stream"] }
+qrcode = "0.14"
 
 # 并发
 parking_lot = "0.12"

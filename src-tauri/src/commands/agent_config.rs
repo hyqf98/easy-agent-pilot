@@ -108,7 +108,13 @@ const MODELS_SELECT_BY_ID_SQL: &str = r#"
 "#;
 
 const CODEX_BUILTIN_MODELS: &[BuiltinModelDef] = &[
-    ("", "\u{4F7F}\u{7528}\u{9ED8}\u{8BA4}\u{6A21}\u{578B}", 0, true, Some(400000)),
+    (
+        "",
+        "\u{4F7F}\u{7528}\u{9ED8}\u{8BA4}\u{6A21}\u{578B}",
+        0,
+        true,
+        Some(400000),
+    ),
     ("gpt-5.4", "GPT-5.4", 1, false, Some(400000)),
     ("gpt-5.3-codex", "GPT-5.3 Codex", 2, false, Some(400000)),
     ("gpt-5.2", "GPT-5.2", 3, false, Some(400000)),
@@ -117,7 +123,13 @@ const CODEX_BUILTIN_MODELS: &[BuiltinModelDef] = &[
 ];
 
 const CLAUDE_BUILTIN_MODELS: &[BuiltinModelDef] = &[
-    ("", "\u{4F7F}\u{7528}\u{9ED8}\u{8BA4}\u{6A21}\u{578B}", 0, true, Some(200000)),
+    (
+        "",
+        "\u{4F7F}\u{7528}\u{9ED8}\u{8BA4}\u{6A21}\u{578B}",
+        0,
+        true,
+        Some(200000),
+    ),
     ("claude-opus-4-6", "Claude Opus 4.6", 1, false, Some(200000)),
     (
         "claude-sonnet-4-6",

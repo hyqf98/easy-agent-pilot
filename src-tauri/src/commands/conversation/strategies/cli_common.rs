@@ -107,26 +107,40 @@ pub struct CliTimeoutConfig {
     pub hard: Duration,
 }
 
-impl Default for CliTimeoutConfig {
-    fn default() -> Self {
+impl CliTimeoutConfig {
+    const fn from_secs(startup: u64, idle: u64, hard: u64) -> Self {
         Self {
-            startup: Duration::from_secs(60),
-            idle: Duration::from_secs(180),
-            hard: Duration::from_secs(900),
+            startup: Duration::from_secs(startup),
+            idle: Duration::from_secs(idle),
+            hard: Duration::from_secs(hard),
         }
     }
 }
 
-pub fn timeout_config_for_execution_mode(execution_mode: Option<&str>) -> CliTimeoutConfig {
-    if matches!(execution_mode, Some("task_split")) {
-        return CliTimeoutConfig {
-            startup: Duration::from_secs(180),
-            idle: Duration::from_secs(240),
-            hard: Duration::from_secs(900),
-        };
+impl Default for CliTimeoutConfig {
+    fn default() -> Self {
+        // 主会话需要允许长时间编码/测试，但仍保留启动与空闲保护。
+        Self::from_secs(300, 1_800, 14_400)
     }
+}
 
-    CliTimeoutConfig::default()
+pub fn timeout_config_for_execution_mode(execution_mode: Option<&str>) -> CliTimeoutConfig {
+    match execution_mode {
+        // 任务拆分可能要消化较长上下文并生成结构化结果，给更宽松的启动与总时长。
+        Some("task_split") => CliTimeoutConfig::from_secs(600, 1_800, 14_400),
+        // 计划任务执行经常伴随大规模读写、构建和测试，保留更长的 idle/hard 窗口。
+        Some("task_execution") => CliTimeoutConfig::from_secs(600, 3_600, 28_800),
+        _ => CliTimeoutConfig::default(),
+    }
+}
+
+pub fn describe_timeout_config(config: CliTimeoutConfig) -> String {
+    format!(
+        "startup={}s idle={}s hard={}s",
+        config.startup.as_secs(),
+        config.idle.as_secs(),
+        config.hard.as_secs()
+    )
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -378,7 +392,8 @@ fn render_runtime_notice_markdown(value: &serde_json::Value) -> Option<String> {
     let mcp_names = extract_mcp_items(value.get("mcp_servers").or_else(|| value.get("mcpServers")));
     let agent_names = extract_named_items(value.get("agents"));
     let command_names = extract_named_items(
-        value.get("slash_commands")
+        value
+            .get("slash_commands")
             .or_else(|| value.get("slashCommands"))
             .or_else(|| value.get("commands")),
     );
@@ -722,8 +737,9 @@ fn extract_tool_output_from_result(parsed: &serde_json::Value) -> Option<String>
 #[cfg(test)]
 mod tests {
     use super::{
-        build_timeout_error_message, detect_cli_timeout, extract_runtime_system_notice,
-        CliExecutionSnapshot, CliTimeoutConfig, CliTimeoutKind,
+        build_timeout_error_message, describe_timeout_config, detect_cli_timeout,
+        extract_runtime_system_notice, timeout_config_for_execution_mode, CliExecutionSnapshot,
+        CliTimeoutConfig, CliTimeoutKind,
     };
     use std::time::{Duration, Instant};
 
@@ -801,6 +817,31 @@ mod tests {
         assert!(message.contains("Codex CLI idle_timeout"));
         assert!(message.contains("stderr_warnings=3"));
         assert!(message.contains("first_meaningful=1.0s"));
+    }
+
+    #[test]
+    fn chat_mode_uses_longer_hard_timeout_budget() {
+        let config = timeout_config_for_execution_mode(Some("chat"));
+
+        assert_eq!(config.startup, Duration::from_secs(300));
+        assert_eq!(config.idle, Duration::from_secs(1_800));
+        assert_eq!(config.hard, Duration::from_secs(14_400));
+    }
+
+    #[test]
+    fn task_execution_mode_uses_largest_timeout_budget() {
+        let config = timeout_config_for_execution_mode(Some("task_execution"));
+
+        assert_eq!(config.startup, Duration::from_secs(600));
+        assert_eq!(config.idle, Duration::from_secs(3_600));
+        assert_eq!(config.hard, Duration::from_secs(28_800));
+    }
+
+    #[test]
+    fn timeout_description_reports_all_windows() {
+        let text = describe_timeout_config(CliTimeoutConfig::from_secs(5, 10, 15));
+
+        assert_eq!(text, "startup=5s idle=10s hard=15s");
     }
 
     #[test]

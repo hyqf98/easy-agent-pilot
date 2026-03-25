@@ -8,6 +8,9 @@ use std::path::{Component, Path, PathBuf};
 use tauri::AppHandle;
 use zip::ZipArchive;
 
+use crate::commands::git_install::{
+    cleanup_checkout, clone_repository, copy_dir_recursive, normalize_lookup_name,
+};
 use crate::commands::mcpmarket_source::{
     get_marketplace_source_strategy, MarketListResponse, MarketplaceSourceQuery,
     SkillArchivePayload, SkillSourceDetail, SkillSourceListItem,
@@ -27,6 +30,15 @@ pub struct SkillInstallInput {
     pub scope: String,
     pub project_path: Option<String>,
     pub source_market: Option<String>,
+}
+
+/// Git skill install input
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitSkillInstallInput {
+    pub repository_url: String,
+    pub git_ref: Option<String>,
+    pub skill_name: String,
+    pub cli_type: String,
 }
 
 /// Skill install result
@@ -241,14 +253,24 @@ fn unzip_skill_archive(zip_bytes: &[u8], target_dir: &Path) -> Result<(), String
 
 type ParsedSkillMetadata = (Option<String>, Option<String>, Vec<String>);
 
+fn resolve_skill_markdown_path(skill_dir: &Path) -> Option<PathBuf> {
+    ["SKILL.md", "skill.md"]
+        .into_iter()
+        .map(|file_name| skill_dir.join(file_name))
+        .find(|path| path.exists() && path.is_file())
+}
+
+fn has_skill_markdown(skill_dir: &Path) -> bool {
+    resolve_skill_markdown_path(skill_dir).is_some()
+}
+
 fn parse_skill_metadata(skill_dir: &Path) -> Result<ParsedSkillMetadata, String> {
-    let skill_md_path = skill_dir.join("SKILL.md");
-    if !skill_md_path.exists() {
+    let Some(skill_md_path) = resolve_skill_markdown_path(skill_dir) else {
         return Ok((None, None, Vec::new()));
-    }
+    };
 
     let content = fs::read_to_string(&skill_md_path)
-        .map_err(|e| format!("Failed to read SKILL.md: {}", e))?;
+        .map_err(|e| format!("Failed to read {}: {}", skill_md_path.display(), e))?;
     let map = extract_frontmatter_map(&content);
     let name = map.get("name").cloned();
     let description = map.get("description").cloned();
@@ -327,6 +349,130 @@ fn extract_skill_triggers(content: &str) -> Vec<String> {
     }
 
     triggers
+}
+
+fn collect_skill_candidate_dirs(
+    current_dir: &Path,
+    depth: usize,
+    candidates: &mut Vec<PathBuf>,
+) -> Result<(), String> {
+    if depth > 6 {
+        return Ok(());
+    }
+
+    let entries = fs::read_dir(current_dir).map_err(|error| {
+        format!(
+            "Failed to read directory {}: {}",
+            current_dir.display(),
+            error
+        )
+    })?;
+
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("Failed to read directory entry: {}", error))?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name == ".git")
+        {
+            continue;
+        }
+
+        if has_skill_markdown(&path) {
+            candidates.push(path.clone());
+        }
+
+        collect_skill_candidate_dirs(&path, depth + 1, candidates)?;
+    }
+
+    Ok(())
+}
+
+fn find_matching_skill_directory(repo_dir: &Path, skill_name: &str) -> Result<PathBuf, String> {
+    let expected_name = normalize_lookup_name(skill_name);
+    if expected_name.is_empty() {
+        return Err("Skill 名称不能为空".to_string());
+    }
+
+    let mut candidates = Vec::new();
+    collect_skill_candidate_dirs(repo_dir, 0, &mut candidates)?;
+
+    let mut matched_paths = candidates
+        .into_iter()
+        .filter(|candidate| {
+            let dir_name = candidate
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(normalize_lookup_name)
+                .unwrap_or_default();
+            let frontmatter_name = parse_skill_metadata(candidate)
+                .ok()
+                .and_then(|(name, _, _)| name)
+                .map(|name| normalize_lookup_name(&name))
+                .unwrap_or_default();
+
+            dir_name == expected_name || frontmatter_name == expected_name
+        })
+        .collect::<Vec<_>>();
+
+    matched_paths.sort();
+    matched_paths.dedup();
+
+    match matched_paths.len() {
+        0 => Err(format!("仓库中未找到名为 '{}' 的 Skill", skill_name)),
+        1 => Ok(matched_paths.remove(0)),
+        _ => Err(format!("仓库中存在多个同名 Skill '{}'", skill_name)),
+    }
+}
+
+fn install_skill_directory_to_cli(
+    source_dir: &Path,
+    skill_name: &str,
+    cli_type: &str,
+) -> Result<SkillInstallResult, String> {
+    let skills_dir = get_cli_skills_dir(cli_type)?;
+    fs::create_dir_all(&skills_dir).map_err(|e| format!("Failed to create skills dir: {}", e))?;
+
+    let target_name = source_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(slugify_skill_name)
+        .unwrap_or_else(|| slugify_skill_name(skill_name));
+    let target_dir = skills_dir.join(target_name);
+    let backup_path = create_skill_backup(&target_dir)?;
+
+    if let Err(error) = copy_dir_recursive(source_dir, &target_dir) {
+        restore_skill_backup(&target_dir, &backup_path)?;
+        return Ok(SkillInstallResult {
+            success: false,
+            message: error,
+            skill_path: Some(target_dir.to_string_lossy().to_string()),
+            backup_path: None,
+        });
+    }
+
+    if !has_skill_markdown(&target_dir) {
+        restore_skill_backup(&target_dir, &backup_path)?;
+        return Ok(SkillInstallResult {
+            success: false,
+            message: "仓库中的技能目录未包含 SKILL.md".to_string(),
+            skill_path: Some(target_dir.to_string_lossy().to_string()),
+            backup_path: None,
+        });
+    }
+
+    finalize_skill_backup(&backup_path);
+
+    Ok(SkillInstallResult {
+        success: true,
+        message: format!("Skill '{}' installed successfully", skill_name),
+        skill_path: Some(target_dir.to_string_lossy().to_string()),
+        backup_path,
+    })
 }
 
 fn list_skill_dirs(base_dir: &Path, cli_type: &str) -> Result<Vec<InstalledSkill>, String> {
@@ -425,7 +571,7 @@ pub async fn install_skill_to_cli(
         });
     }
 
-    if !skill_dir.join("SKILL.md").exists() {
+    if !has_skill_markdown(&skill_dir) {
         restore_skill_backup(&skill_dir, &backup_path)?;
         return Ok(SkillInstallResult {
             success: false,
@@ -443,6 +589,20 @@ pub async fn install_skill_to_cli(
         skill_path: Some(skill_dir.to_string_lossy().to_string()),
         backup_path,
     })
+}
+
+/// Install a skill from a Git repository into the target CLI native skills directory.
+#[tauri::command]
+pub async fn install_skill_from_git(
+    input: GitSkillInstallInput,
+) -> Result<SkillInstallResult, String> {
+    let checkout = clone_repository(&input.repository_url, input.git_ref.as_deref())?;
+    let result = (|| {
+        let source_dir = find_matching_skill_directory(&checkout.repo_dir, &input.skill_name)?;
+        install_skill_directory_to_cli(&source_dir, &input.skill_name, &input.cli_type)
+    })();
+    cleanup_checkout(&checkout);
+    result
 }
 
 /// List installed skills from Claude/Codex native skills directories.

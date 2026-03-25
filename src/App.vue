@@ -13,6 +13,7 @@ import { useAppStateStore } from './stores/appState'
 import { usePlanStore } from './stores/plan'
 import { useTaskStore } from './stores/task'
 import { useTaskExecutionStore } from './stores/taskExecution'
+import { useUnattendedStore } from './stores/unattended'
 import { useConfirmDialog, useWindowEvents } from './composables'
 import { useMiniPanelShortcut } from './composables/useMiniPanelShortcut'
 import { createMockUpdaterAdapter } from './services/appUpdate'
@@ -31,6 +32,7 @@ const appStateStore = useAppStateStore()
 const planStore = usePlanStore()
 const taskStore = useTaskStore()
 const taskExecutionStore = useTaskExecutionStore()
+const unattendedStore = useUnattendedStore()
 const confirmDialog = useConfirmDialog()
 const confirmDialogState = confirmDialog.state
 
@@ -211,6 +213,7 @@ onMounted(async () => {
   if (windowManagerStore.isMainWindow) {
     await appStateStore.loadState()
     await appUpdateStore.initialize()
+    await unattendedStore.initialize()
   }
 
   if (!windowManagerStore.isMiniPanelWindow) {
@@ -247,6 +250,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
+  unattendedStore.dispose()
 })
 </script>
 

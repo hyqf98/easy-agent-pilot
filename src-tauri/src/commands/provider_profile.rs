@@ -738,31 +738,31 @@ pub fn read_cli_connection_info(cli_type: String) -> Result<CliConnectionInfo, S
                     if let Ok(toml::Value::Table(ref table)) =
                         toml::from_str::<toml::Value>(&content)
                     {
-                            // 读取模型
-                            if let Some(model) = table.get("model").and_then(|v| v.as_str()) {
-                                info.main_model = Some(model.to_string());
-                            }
+                        // 读取模型
+                        if let Some(model) = table.get("model").and_then(|v| v.as_str()) {
+                            info.main_model = Some(model.to_string());
+                        }
 
-                            // 从 model_providers 中读取 base_url
-                            if let Some(providers) =
-                                table.get("model_providers").and_then(|p| p.as_table())
+                        // 从 model_providers 中读取 base_url
+                        if let Some(providers) =
+                            table.get("model_providers").and_then(|p| p.as_table())
+                        {
+                            // 获取当前使用的 provider 名称
+                            let provider_name = table
+                                .get("model_provider")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("custom_provider");
+
+                            if let Some(provider) =
+                                providers.get(provider_name).and_then(|p| p.as_table())
                             {
-                                // 获取当前使用的 provider 名称
-                                let provider_name = table
-                                    .get("model_provider")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("custom_provider");
-
-                                if let Some(provider) =
-                                    providers.get(provider_name).and_then(|p| p.as_table())
+                                if let Some(base_url) =
+                                    provider.get("base_url").and_then(|v| v.as_str())
                                 {
-                                    if let Some(base_url) =
-                                        provider.get("base_url").and_then(|v| v.as_str())
-                                    {
-                                        info.base_url = Some(base_url.to_string());
-                                    }
+                                    info.base_url = Some(base_url.to_string());
                                 }
                             }
+                        }
 
                         info.is_valid = true;
                     }

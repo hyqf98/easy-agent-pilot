@@ -56,6 +56,13 @@ export interface SkillInstallInput {
   source_market?: MarketplaceSourceId | null
 }
 
+export interface GitSkillInstallInput {
+  repository_url: string
+  git_ref?: string | null
+  skill_name: string
+  cli_type: 'claude' | 'codex'
+}
+
 interface MarketPagination {
   page: number
   total: number
@@ -91,6 +98,14 @@ export interface PluginInstallInput {
   project_path: string | null
   selected_components: string[]
   config_values: Record<string, string>
+}
+
+export interface GitPluginInstallInput {
+  repository_url: string
+  git_ref?: string | null
+  plugin_name: string
+  cli_type: 'claude' | 'codex'
+  cli_path: string
 }
 
 export interface PluginInstallResult {
@@ -129,7 +144,7 @@ const DEFAULT_MARKETPLACE_SOURCES: MarketplaceSourceOption[] = [
   {
     id: 'mcpmarket',
     label: 'MCP Market',
-    supported_resources: ['mcp', 'skills']
+    supported_resources: ['mcp', 'skills', 'plugins']
   },
   {
     id: 'modelscope',
@@ -538,6 +553,26 @@ export const useMarketplaceStore = defineStore('marketplace', () => {
     }
   }
 
+  async function installSkillFromGit(input: GitSkillInstallInput): Promise<SkillInstallResult> {
+    isInstallingSkill.value = true
+    skillInstallError.value = null
+
+    try {
+      const result = await invoke<SkillInstallResult>('install_skill_from_git', { input })
+      if (result.success) {
+        await loadInstalledSkills()
+      }
+      return result
+    } catch (error) {
+      console.error('Failed to install skill from git:', error)
+      const message = error instanceof Error ? error.message : '从 Git 安装 Skill 失败'
+      skillInstallError.value = message
+      throw error
+    } finally {
+      isInstallingSkill.value = false
+    }
+  }
+
   async function toggleSkill(skillPath: string, disable: boolean): Promise<SkillInstallResult> {
     try {
       const result = await invoke<SkillInstallResult>('toggle_installed_skill', { skillPath, disable })
@@ -628,6 +663,26 @@ export const useMarketplaceStore = defineStore('marketplace', () => {
     } catch (error) {
       console.error('Failed to install plugin:', error)
       const message = error instanceof Error ? error.message : '安装 Plugin 失败'
+      pluginInstallError.value = message
+      throw error
+    } finally {
+      isInstallingPlugin.value = false
+    }
+  }
+
+  async function installPluginFromGit(input: GitPluginInstallInput): Promise<PluginInstallResult> {
+    isInstallingPlugin.value = true
+    pluginInstallError.value = null
+
+    try {
+      const result = await invoke<PluginInstallResult>('install_plugin_from_git', { input })
+      if (result.success) {
+        await loadInstalledPlugins()
+      }
+      return result
+    } catch (error) {
+      console.error('Failed to install plugin from git:', error)
+      const message = error instanceof Error ? error.message : '从 Git 安装 Plugin 失败'
       pluginInstallError.value = message
       throw error
     } finally {
@@ -772,6 +827,7 @@ export const useMarketplaceStore = defineStore('marketplace', () => {
     clearSkillDetail,
     loadInstalledSkills,
     installSkill,
+    installSkillFromGit,
     toggleSkill,
     uninstallSkill,
     fetchPluginsMarket,
@@ -780,6 +836,7 @@ export const useMarketplaceStore = defineStore('marketplace', () => {
     clearPluginDetail,
     loadInstalledPlugins,
     installPlugin,
+    installPluginFromGit,
     togglePlugin,
     uninstallPlugin,
     loadAllInstalled,

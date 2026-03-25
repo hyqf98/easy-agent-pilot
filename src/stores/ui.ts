@@ -14,6 +14,7 @@ export type SettingsTab =
   | 'lsp'
   | 'marketplace'
   | 'sessions'
+  | 'unattended'
 
 export type AppMode = 'chat' | 'plan' | 'memory'
 export type MainContentMode = 'chat' | 'fileEditor'

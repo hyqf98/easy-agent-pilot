@@ -297,19 +297,22 @@ fn parse_anthropic_stream_event(
                     model: None,
                 })
             } else {
-                delta.get("thinking").and_then(|t| t.as_str()).map(|thinking| SdkStreamEvent {
-                    event_type: "thinking".to_string(),
-                    session_id: session_id.to_string(),
-                    content: Some(thinking.to_string()),
-                    tool_name: None,
-                    tool_call_id: None,
-                    tool_input: None,
-                    tool_result: None,
-                    error: None,
-                    input_tokens: None,
-                    output_tokens: None,
-                    model: None,
-                })
+                delta
+                    .get("thinking")
+                    .and_then(|t| t.as_str())
+                    .map(|thinking| SdkStreamEvent {
+                        event_type: "thinking".to_string(),
+                        session_id: session_id.to_string(),
+                        content: Some(thinking.to_string()),
+                        tool_name: None,
+                        tool_call_id: None,
+                        tool_input: None,
+                        tool_result: None,
+                        error: None,
+                        input_tokens: None,
+                        output_tokens: None,
+                        model: None,
+                    })
             }
         }
         "content_block_start" => {

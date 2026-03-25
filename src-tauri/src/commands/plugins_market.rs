@@ -3,7 +3,11 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use crate::commands::git_install::{
+    cleanup_checkout, clone_repository, copy_dir_recursive, normalize_lookup_name,
+};
 
 /// Plugin component type
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -450,6 +454,207 @@ async fn load_plugin_install_payload(
     ))
 }
 
+fn plugin_manifest_path(plugin_dir: &Path) -> PathBuf {
+    plugin_dir.join(".claude-plugin").join("plugin.json")
+}
+
+fn parse_plugin_directory_metadata(
+    plugin_dir: &Path,
+) -> Result<(Option<String>, Option<String>, Option<String>), String> {
+    let manifest_path = plugin_manifest_path(plugin_dir);
+    if !manifest_path.exists() {
+        return Ok((None, None, None));
+    }
+
+    let content = fs::read_to_string(&manifest_path)
+        .map_err(|error| format!("Failed to read {}: {}", manifest_path.display(), error))?;
+    let json = serde_json::from_str::<serde_json::Value>(&content)
+        .map_err(|error| format!("Failed to parse plugin.json: {}", error))?;
+
+    let name = json
+        .get("name")
+        .and_then(|value| value.as_str())
+        .map(str::to_string);
+    let version = json
+        .get("version")
+        .and_then(|value| value.as_str())
+        .map(str::to_string);
+    let description = json
+        .get("description")
+        .and_then(|value| value.as_str())
+        .map(str::to_string);
+
+    Ok((name, version, description))
+}
+
+fn has_plugin_manifest(plugin_dir: &Path) -> bool {
+    plugin_manifest_path(plugin_dir).exists()
+}
+
+fn collect_plugin_candidate_dirs(
+    current_dir: &Path,
+    depth: usize,
+    candidates: &mut Vec<PathBuf>,
+) -> Result<(), String> {
+    if depth > 6 {
+        return Ok(());
+    }
+
+    let entries = fs::read_dir(current_dir).map_err(|error| {
+        format!(
+            "Failed to read directory {}: {}",
+            current_dir.display(),
+            error
+        )
+    })?;
+
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("Failed to read directory entry: {}", error))?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name == ".git")
+        {
+            continue;
+        }
+
+        if has_plugin_manifest(&path) {
+            candidates.push(path.clone());
+        }
+
+        collect_plugin_candidate_dirs(&path, depth + 1, candidates)?;
+    }
+
+    Ok(())
+}
+
+fn find_matching_plugin_directory(repo_dir: &Path, plugin_name: &str) -> Result<PathBuf, String> {
+    let expected_name = normalize_lookup_name(plugin_name);
+    if expected_name.is_empty() {
+        return Err("Plugin 名称不能为空".to_string());
+    }
+
+    let mut candidates = Vec::new();
+    collect_plugin_candidate_dirs(repo_dir, 0, &mut candidates)?;
+
+    let mut matched_paths = candidates
+        .into_iter()
+        .filter(|candidate| {
+            let dir_name = candidate
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(normalize_lookup_name)
+                .unwrap_or_default();
+            let manifest_name = parse_plugin_directory_metadata(candidate)
+                .ok()
+                .and_then(|(name, _, _)| name)
+                .map(|name| normalize_lookup_name(&name))
+                .unwrap_or_default();
+
+            dir_name == expected_name || manifest_name == expected_name
+        })
+        .collect::<Vec<_>>();
+
+    matched_paths.sort();
+    matched_paths.dedup();
+
+    match matched_paths.len() {
+        0 => Err(format!("仓库中未找到名为 '{}' 的 Plugin", plugin_name)),
+        1 => Ok(matched_paths.remove(0)),
+        _ => Err(format!("仓库中存在多个同名 Plugin '{}'", plugin_name)),
+    }
+}
+
+fn get_cli_plugins_dir(cli_type: &str) -> Result<PathBuf, String> {
+    let home_dir = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
+
+    match cli_type.to_lowercase().as_str() {
+        "claude" => Ok(home_dir.join(".claude").join("plugins")),
+        "codex" => Ok(home_dir.join(".codex").join("plugins")),
+        other => Err(format!("Unsupported CLI type for plugins: {}", other)),
+    }
+}
+
+fn build_plugin_backup_path(plugin_dir: &Path) -> PathBuf {
+    let backup_name = format!(
+        "{}.backup",
+        plugin_dir
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("plugin")
+    );
+    plugin_dir.with_file_name(backup_name)
+}
+
+fn move_dir_with_overwrite(source: &Path, target: &Path) -> Result<(), String> {
+    if target.exists() {
+        fs::remove_dir_all(target)
+            .map_err(|error| format!("Failed to clear target dir: {}", error))?;
+    }
+
+    fs::rename(source, target)
+        .map_err(|error| format!("Failed to move plugin directory: {}", error))
+}
+
+fn create_plugin_backup(plugin_dir: &Path) -> Result<Option<String>, String> {
+    if !plugin_dir.exists() {
+        return Ok(None);
+    }
+
+    let backup_path = build_plugin_backup_path(plugin_dir);
+    move_dir_with_overwrite(plugin_dir, &backup_path)?;
+    Ok(Some(backup_path.to_string_lossy().to_string()))
+}
+
+fn restore_plugin_backup(plugin_dir: &Path, backup_path: &Option<String>) -> Result<(), String> {
+    if plugin_dir.exists() {
+        fs::remove_dir_all(plugin_dir)
+            .map_err(|error| format!("Failed to clear plugin dir: {}", error))?;
+    }
+
+    if let Some(backup_path) = backup_path {
+        let backup_path = PathBuf::from(backup_path);
+        if backup_path.exists() {
+            fs::rename(&backup_path, plugin_dir)
+                .map_err(|error| format!("Failed to restore plugin backup: {}", error))?;
+        }
+    }
+
+    Ok(())
+}
+
+fn finalize_plugin_backup(backup_path: &Option<String>) {
+    if let Some(backup_path) = backup_path {
+        let backup_path = PathBuf::from(backup_path);
+        if backup_path.exists() {
+            let _ = fs::remove_dir_all(backup_path);
+        }
+    }
+}
+
+fn slugify_plugin_identifier(value: &str) -> String {
+    let normalized = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+
+    normalized
+        .split('-')
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
 // ============== Plugin Installation Types ==============
 
 /// Plugin install input
@@ -463,6 +668,16 @@ pub struct PluginInstallInput {
     pub project_path: Option<String>,
     pub selected_components: Vec<String>, // component names to install
     pub config_values: std::collections::HashMap<String, String>, // config option values
+}
+
+/// Git plugin install input
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitPluginInstallInput {
+    pub repository_url: String,
+    pub git_ref: Option<String>,
+    pub plugin_name: String,
+    pub cli_type: String,
+    pub cli_path: String,
 }
 
 /// Plugin install result
@@ -576,6 +791,114 @@ fn save_installed_plugins(plugins: &[InstalledPlugin]) -> Result<PathBuf, String
         .map_err(|e| format!("Failed to write plugins.json: {}", e))?;
 
     Ok(plugins_json_path)
+}
+
+fn install_plugin_directory_to_cli(
+    source_dir: &Path,
+    input: &GitPluginInstallInput,
+) -> Result<PluginInstallResult, String> {
+    let plugins_dir = get_cli_plugins_dir(&input.cli_type)?;
+    fs::create_dir_all(&plugins_dir)
+        .map_err(|error| format!("Failed to create plugins dir: {}", error))?;
+
+    let target_name = source_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_string)
+        .unwrap_or_else(|| input.plugin_name.clone());
+    let target_dir = plugins_dir.join(&target_name);
+    let backup_path = create_plugin_backup(&target_dir)?;
+
+    if let Err(error) = copy_dir_recursive(source_dir, &target_dir) {
+        restore_plugin_backup(&target_dir, &backup_path)?;
+        return Ok(PluginInstallResult {
+            success: false,
+            message: error,
+            plugin_id: String::new(),
+            installed_components: Vec::new(),
+            backup_path: None,
+            plugins_json_path: None,
+        });
+    }
+
+    if !has_plugin_manifest(&target_dir) {
+        restore_plugin_backup(&target_dir, &backup_path)?;
+        return Ok(PluginInstallResult {
+            success: false,
+            message: "仓库中的插件目录未包含 .claude-plugin/plugin.json".to_string(),
+            plugin_id: String::new(),
+            installed_components: Vec::new(),
+            backup_path: None,
+            plugins_json_path: None,
+        });
+    }
+
+    let (display_name, version, description) = parse_plugin_directory_metadata(&target_dir)?;
+    let installed_name = display_name.unwrap_or_else(|| input.plugin_name.clone());
+    let installed_components = vec![InstalledPluginComponent {
+        name: installed_name.clone(),
+        component_type: "plugin_directory".to_string(),
+        target_path: target_dir.to_string_lossy().to_string(),
+    }];
+
+    let plugin_id = format!(
+        "git-{}-{}",
+        input.cli_type,
+        slugify_plugin_identifier(&format!("{}-{}", input.repository_url, input.plugin_name))
+    );
+    let now = chrono::Utc::now().to_rfc3339();
+    let mut plugins = load_installed_plugins()?;
+
+    if let Some(existing) = plugins.iter_mut().find(|plugin| plugin.id == plugin_id) {
+        existing.name = installed_name.clone();
+        existing.version = version.clone().unwrap_or_else(|| "unknown".to_string());
+        existing.source_market = "git".to_string();
+        existing.cli_path = input.cli_path.clone();
+        existing.scope = "global".to_string();
+        existing.components = installed_components.clone();
+        existing.enabled = true;
+        existing.installed_at = now.clone();
+        existing.config_values = HashMap::from([
+            ("repository_url".to_string(), input.repository_url.clone()),
+            (
+                "git_ref".to_string(),
+                input.git_ref.clone().unwrap_or_default(),
+            ),
+            ("description".to_string(), description.unwrap_or_default()),
+        ]);
+    } else {
+        plugins.push(InstalledPlugin {
+            id: plugin_id.clone(),
+            name: installed_name.clone(),
+            version: version.unwrap_or_else(|| "unknown".to_string()),
+            source_market: "git".to_string(),
+            cli_path: input.cli_path.clone(),
+            scope: "global".to_string(),
+            components: installed_components.clone(),
+            enabled: true,
+            installed_at: now,
+            config_values: HashMap::from([
+                ("repository_url".to_string(), input.repository_url.clone()),
+                (
+                    "git_ref".to_string(),
+                    input.git_ref.clone().unwrap_or_default(),
+                ),
+                ("description".to_string(), description.unwrap_or_default()),
+            ]),
+        });
+    }
+
+    let plugins_json_path = save_installed_plugins(&plugins)?;
+    finalize_plugin_backup(&backup_path);
+
+    Ok(PluginInstallResult {
+        success: true,
+        message: format!("Plugin '{}' installed successfully", installed_name),
+        plugin_id,
+        installed_components,
+        backup_path,
+        plugins_json_path: Some(plugins_json_path.to_string_lossy().to_string()),
+    })
 }
 
 /// Install plugin to CLI
@@ -736,6 +1059,20 @@ pub async fn install_plugin(input: PluginInstallInput) -> Result<PluginInstallRe
     })
 }
 
+/// Install a plugin from a Git repository into the target CLI native plugins directory.
+#[tauri::command]
+pub async fn install_plugin_from_git(
+    input: GitPluginInstallInput,
+) -> Result<PluginInstallResult, String> {
+    let checkout = clone_repository(&input.repository_url, input.git_ref.as_deref())?;
+    let result = (|| {
+        let source_dir = find_matching_plugin_directory(&checkout.repo_dir, &input.plugin_name)?;
+        install_plugin_directory_to_cli(&source_dir, &input)
+    })();
+    cleanup_checkout(&checkout);
+    result
+}
+
 /// List installed plugins
 #[tauri::command]
 pub fn list_installed_plugins() -> Result<Vec<InstalledPlugin>, String> {
@@ -757,6 +1094,19 @@ pub fn toggle_plugin(plugin_id: String, enabled: bool) -> Result<InstalledPlugin
     // Disable/enable component files by renaming
     for component in &plugin.components {
         let path = PathBuf::from(&component.target_path);
+        if path.is_dir() {
+            let disabled_marker = path.join(".disabled");
+            if enabled {
+                if disabled_marker.exists() {
+                    fs::remove_file(&disabled_marker).map_err(|e: std::io::Error| e.to_string())?;
+                }
+            } else if !disabled_marker.exists() {
+                fs::write(&disabled_marker, b"disabled")
+                    .map_err(|e: std::io::Error| e.to_string())?;
+            }
+            continue;
+        }
+
         if component.component_type == "mcp" {
             // MCP components are toggled in settings.json - skip for now
             continue;
@@ -804,6 +1154,11 @@ pub fn uninstall_plugin(plugin_id: String) -> Result<PluginInstallResult, String
     // Remove component files
     for component in &plugin.components {
         let path = PathBuf::from(&component.target_path);
+        if path.is_dir() {
+            fs::remove_dir_all(&path).map_err(|e| format!("Failed to remove plugin dir: {}", e))?;
+            continue;
+        }
+
         let disabled_path = PathBuf::from(format!("{}.disabled", component.target_path));
 
         if path.exists() {

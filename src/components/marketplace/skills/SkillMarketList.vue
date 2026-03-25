@@ -5,6 +5,7 @@ import { useMarketplaceStore } from '@/stores/marketplace'
 import { EaButton, EaIcon, EaInput, EaLoading } from '@/components/common'
 import SkillMarketCard from './SkillMarketCard.vue'
 import SkillDetailModal from './SkillDetailModal.vue'
+import SkillGitInstallModal from './SkillGitInstallModal.vue'
 import SkillInstallModal from './SkillInstallModal.vue'
 import type { SkillMarketItem } from '@/types/marketplace'
 
@@ -18,6 +19,7 @@ const searchQuery = ref('')
 const selectedCategorySlug = ref('')
 const showDetailModal = ref(false)
 const showInstallModal = ref(false)
+const showGitInstallModal = ref(false)
 const selectedSkill = ref<SkillMarketItem | null>(null)
 
 let loadMoreScheduled = false
@@ -116,6 +118,14 @@ function closeInstallModal() {
   selectedSkill.value = null
 }
 
+function openGitInstallModal() {
+  showGitInstallModal.value = true
+}
+
+function closeGitInstallModal() {
+  showGitInstallModal.value = false
+}
+
 function openInstallFromDetail(item: SkillMarketItem) {
   selectedSkill.value = item
   showDetailModal.value = false
@@ -124,6 +134,10 @@ function openInstallFromDetail(item: SkillMarketItem) {
 
 function onInstallComplete() {
   closeInstallModal()
+}
+
+function onGitInstallComplete() {
+  closeGitInstallModal()
 }
 
 function isNearBottom() {
@@ -158,7 +172,6 @@ function cleanupLoadMoreObserver() {
   loadMoreObserver?.disconnect()
   loadMoreObserver = null
 }
-
 function stopLoadMorePolling() {
   if (loadMorePollTimer !== null) {
     window.clearInterval(loadMorePollTimer)
@@ -293,6 +306,14 @@ onBeforeUnmount(() => {
             :size="16"
           />
         </EaButton>
+
+        <EaButton
+          type="secondary"
+          size="small"
+          @click="openGitInstallModal"
+        >
+          {{ t('marketplace.installFromGit') }}
+        </EaButton>
       </div>
     </div>
 
@@ -377,6 +398,12 @@ onBeforeUnmount(() => {
       :skill-item="selectedSkill"
       @close="closeDetailModal"
       @install="openInstallFromDetail"
+    />
+
+    <SkillGitInstallModal
+      v-if="showGitInstallModal"
+      @close="closeGitInstallModal"
+      @complete="onGitInstallComplete"
     />
   </div>
 </template>
