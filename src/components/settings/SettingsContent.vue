@@ -51,7 +51,8 @@ const activeTabDescriptor = computed(() => getSettingsTabDescriptor(uiStore.acti
 .settings-content__full {
   flex: 1;
   width: 100%;
-  height: 100%;
+  height: auto;
+  min-height: max-content;
   min-width: 0;
 }
 

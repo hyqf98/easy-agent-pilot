@@ -10,6 +10,7 @@ import LogSettings from './tabs/LogSettings.vue'
 import LspSettings from './tabs/LspSettings.vue'
 import SessionManagementSettings from './tabs/SessionManagementSettings.vue'
 import AppUpdateSettings from './tabs/AppUpdateSettings.vue'
+import UnattendedSettings from './tabs/UnattendedSettings.vue'
 import MarketplacePage from '@/components/marketplace/MarketplacePage.vue'
 
 export interface SettingsTabDescriptor {
@@ -40,6 +41,13 @@ export const SETTINGS_TAB_DESCRIPTORS: SettingsTabDescriptor[] = [
     labelKey: 'settings.nav.agentConfig',
     icon: 'settings-2',
     component: markRaw(SkillConfigPage),
+    layout: 'full'
+  },
+  {
+    id: 'unattended',
+    labelKey: 'settings.nav.unattended',
+    icon: 'satellite',
+    component: markRaw(UnattendedSettings),
     layout: 'full'
   },
   {

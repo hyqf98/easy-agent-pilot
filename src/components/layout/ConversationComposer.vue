@@ -328,6 +328,32 @@ defineExpose({
 
     <div class="conversation-composer__panel">
       <div
+        v-if="isMainPanel && pendingImages.length > 0"
+        class="conversation-composer__attachments conversation-composer__attachments--main"
+      >
+        <div
+          v-for="image in pendingImages"
+          :key="image.id"
+          class="conversation-composer__attachment"
+        >
+          <img
+            :src="image.previewUrl"
+            :alt="image.name"
+            class="conversation-composer__attachment-image"
+          >
+          <button
+            class="conversation-composer__attachment-remove"
+            @click="removeImage(image.id)"
+          >
+            <EaIcon
+              name="x"
+              :size="12"
+            />
+          </button>
+        </div>
+      </div>
+
+      <div
         v-if="isMainPanel"
         class="conversation-composer__main-header"
       >
@@ -456,7 +482,7 @@ defineExpose({
       >
 
       <div
-        v-if="pendingImages.length > 0"
+        v-if="!isMainPanel && pendingImages.length > 0"
         class="conversation-composer__attachments"
       >
         <div
@@ -889,6 +915,12 @@ defineExpose({
 .conversation-composer--main .conversation-composer__attachments {
   gap: 8px;
   padding: 2px 2px 0;
+}
+
+.conversation-composer__attachments--main {
+  align-items: flex-start;
+  padding-bottom: 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 68%, transparent);
 }
 
 .conversation-composer__attachment {
@@ -1329,6 +1361,11 @@ defineExpose({
   background: rgba(30, 64, 175, 0.2);
   border-color: rgba(96, 165, 250, 0.28);
   color: #bfdbfe;
+}
+
+:global([data-theme='dark']) .conversation-composer__attachments--main,
+:global(.dark) .conversation-composer__attachments--main {
+  border-bottom-color: rgba(71, 85, 105, 0.72);
 }
 
 :global([data-theme='dark']) .conversation-composer__attachment,

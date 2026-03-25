@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { convertFileSrc } from '@tauri-apps/api/core'
 import type { Message } from '@/stores/message'
 import { useMessageStore } from '@/stores/message'
 import { conversationService } from '@/services/conversation'
 import { EaIcon } from '@/components/common'
 import { FILE_MENTION_PATTERN, getMentionDisplayText } from '@/utils/fileMention'
 import { parseStructuredContent } from '@/utils/structuredContent'
+import { getAttachmentPreviewUrl, resolveAttachmentPreviewUrl } from '@/utils/attachmentPreview'
 import StructuredContentRenderer from './StructuredContentRenderer.vue'
 import ToolCallDisplay from './ToolCallDisplay.vue'
 import ThinkingDisplay from './ThinkingDisplay.vue'
@@ -28,11 +28,40 @@ const isCompression = computed(() => props.message.role === 'compression')
 const isStreaming = computed(() => props.message.status === 'streaming')
 const isError = computed(() => props.message.status === 'error')
 const messageStore = useMessageStore()
-const messageAttachmentPreviews = computed(() =>
-  (props.message.attachments ?? []).map(attachment => ({
-    ...attachment,
-    previewUrl: convertFileSrc(attachment.path)
+const messageAttachmentPreviews = ref<Array<{ id: string, name: string, previewUrl: string }>>([])
+
+async function syncMessageAttachmentPreviews(): Promise<void> {
+  const attachments = props.message.attachments ?? []
+  if (attachments.length === 0) {
+    messageAttachmentPreviews.value = []
+    return
+  }
+
+  messageAttachmentPreviews.value = attachments.map(attachment => ({
+    id: attachment.id,
+    name: attachment.name,
+    previewUrl: getAttachmentPreviewUrl(attachment)
   }))
+
+  const resolvedPreviews = await Promise.all(attachments.map(async attachment => ({
+    id: attachment.id,
+    name: attachment.name,
+    previewUrl: await resolveAttachmentPreviewUrl(attachment)
+  })))
+
+  if ((props.message.attachments ?? []).map(attachment => attachment.id).join('|') !== attachments.map(attachment => attachment.id).join('|')) {
+    return
+  }
+
+  messageAttachmentPreviews.value = resolvedPreviews
+}
+
+watch(
+  () => props.message.attachments?.map(attachment => `${attachment.id}:${attachment.path}`).join('|') || '',
+  () => {
+    void syncMessageAttachmentPreviews()
+  },
+  { immediate: true }
 )
 
 // 停止流式输出
@@ -511,13 +540,13 @@ const isAssistantFormOnly = computed(() => {
 
 <style scoped>
 .message-bubble {
-  --message-fixed-width: 28rem;
+  --message-fixed-width: 36rem;
   --message-min-width: var(--message-fixed-width);
-  --message-max-width: 36rem;
-  --message-max-height: 30rem;
+  --message-max-width: 50rem;
+  --message-max-height: 42rem;
   --message-compact-max-width: var(--message-fixed-width);
   --message-compact-max-height: 20rem;
-  --message-trace-max-width: 35rem;
+  --message-trace-max-width: 46rem;
   --thinking-display-width: var(--message-fixed-width);
   display: flex;
   flex-direction: row;

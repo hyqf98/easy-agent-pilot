@@ -58,6 +58,16 @@ function transformSession(rustSession: RustSession): Session {
   }
 }
 
+function shouldDisplaySession(session: Session): boolean {
+  const isUnattendedShell = session.name.startsWith('无人值守')
+  if (!isUnattendedShell) {
+    return true
+  }
+
+  const hasPreview = Boolean(session.lastMessage?.trim())
+  return hasPreview || session.messageCount > 0
+}
+
 // 最大同时打开的会话数量
 export const MAX_OPEN_SESSIONS = 5
 
@@ -85,6 +95,10 @@ export const useSessionStore = defineStore('session', () => {
     const query = normalizedSearchQuery.value
 
     for (const session of sessions.value) {
+      if (!shouldDisplaySession(session)) {
+        continue
+      }
+
       if (query) {
         const name = session.name.toLowerCase()
         const lastMessage = session.lastMessage?.toLowerCase() ?? ''
@@ -116,7 +130,7 @@ export const useSessionStore = defineStore('session', () => {
   const openSessions = computed(() => {
     return openSessionIds.value
       .map(id => sessions.value.find(s => s.id === id))
-      .filter((s): s is Session => s !== undefined)
+      .filter((s): s is Session => s !== undefined && shouldDisplaySession(s))
   })
 
   const sessionsByProject = computed(() => {
@@ -126,6 +140,7 @@ export const useSessionStore = defineStore('session', () => {
       }
 
       let filtered = sessions.value.filter(s => s.projectId === projectId)
+      filtered = filtered.filter(shouldDisplaySession)
 
       // 搜索过滤
       if (searchQuery.value) {
@@ -160,6 +175,7 @@ export const useSessionStore = defineStore('session', () => {
       }
 
       let filtered = sessions.value.filter(s => s.projectId === projectId)
+      filtered = filtered.filter(shouldDisplaySession)
 
       // 智能体筛选（根据智能体 ID）
       if (agentFilter && agentFilter !== 'all') {
@@ -197,7 +213,11 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   function pruneStaleOpenSessions() {
-    const validSessionIds = new Set(sessions.value.map(session => session.id))
+    const validSessionIds = new Set(
+      sessions.value
+        .filter(shouldDisplaySession)
+        .map(session => session.id)
+    )
     const nextOpenSessionIds = openSessionIds.value.filter(sessionId => validSessionIds.has(sessionId))
 
     if (nextOpenSessionIds.length !== openSessionIds.value.length) {

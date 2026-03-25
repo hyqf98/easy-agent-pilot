@@ -30,6 +30,8 @@ pub struct MessageAttachment {
     pub path: String,
     pub mime_type: String,
     pub size: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview_url: Option<String>,
 }
 
 /// 消息数据结构
@@ -250,6 +252,34 @@ fn extension_from_mime_type(mime_type: &str) -> &'static str {
         "image/svg+xml" => "svg",
         _ => "png",
     }
+}
+
+fn mime_type_from_path(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "bmp" => "image/bmp",
+        "svg" => "image/svg+xml",
+        _ => "application/octet-stream",
+    }
+}
+
+fn build_image_preview_data_url(bytes: &[u8], mime_type: &str) -> String {
+    use base64::Engine as _;
+
+    format!(
+        "data:{};base64,{}",
+        mime_type,
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    )
 }
 
 fn parse_tool_calls(tool_calls_json: Option<String>) -> Option<Vec<ToolCall>> {
@@ -626,16 +656,38 @@ pub fn upload_session_images(
 
         fs::write(&file_path, &file.bytes).map_err(|e| e.to_string())?;
 
+        let mime_type = file.mime_type;
+        let preview_url = build_image_preview_data_url(&file.bytes, &mime_type);
+
         attachments.push(MessageAttachment {
             id: attachment_id,
             name: original_name,
             path: file_path.to_string_lossy().to_string(),
-            mime_type: file.mime_type,
+            mime_type,
             size: file.bytes.len(),
+            preview_url: Some(preview_url),
         });
     }
 
     Ok(UploadSessionImagesResponse { attachments })
+}
+
+#[tauri::command]
+pub fn resolve_uploaded_image_preview(
+    path: String,
+    mime_type: Option<String>,
+) -> Result<String, String> {
+    let file_path = PathBuf::from(&path);
+    if !uploads_root_contains(&file_path)? {
+        return Err("非法的图片路径".to_string());
+    }
+
+    let bytes = fs::read(&file_path).map_err(|e| e.to_string())?;
+    let resolved_mime_type = mime_type
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| mime_type_from_path(&file_path).to_string());
+
+    Ok(build_image_preview_data_url(&bytes, &resolved_mime_type))
 }
 
 #[tauri::command]
