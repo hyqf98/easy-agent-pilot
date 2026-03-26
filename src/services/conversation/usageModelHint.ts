@@ -6,6 +6,15 @@ interface CliConfigModelProfile {
   codex_model?: string | null
 }
 
+function resolveOfficialCliDefaultModel(cliType: 'claude' | 'codex'): string | undefined {
+  if (cliType === 'codex') {
+    return 'gpt-5-codex'
+  }
+
+  // Claude Code default is account-dependent, so do not hardcode a single full model id.
+  return undefined
+}
+
 /**
  * Resolve a compact model hint for runtime usage UI without altering the actual execution request.
  */
@@ -30,11 +39,12 @@ export async function resolveUsageModelHint(
 
   try {
     const profile = await invoke<CliConfigModelProfile>('read_current_cli_config', { cliType })
-    return cliType === 'codex'
+    const configuredModel = cliType === 'codex'
       ? (profile.codex_model?.trim() || undefined)
       : (profile.main_model?.trim() || undefined)
+    return configuredModel || resolveOfficialCliDefaultModel(cliType)
   } catch (error) {
     console.warn('[usageModelHint] Failed to resolve usage model hint:', error)
-    return undefined
+    return resolveOfficialCliDefaultModel(cliType)
   }
 }

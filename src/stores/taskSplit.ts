@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { useAgentStore, type AgentConfig } from './agent'
+import { usePlanStore } from './plan'
 import { logger } from '@/utils/logger'
 import { normalizeFormSchemaForRendering, normalizeFormSchemasForRendering } from '@/utils/formSchema'
 import {
@@ -17,6 +18,7 @@ import { buildAgentExecutionRequest } from '@/services/conversation/runtimeProfi
 import type { RuntimeNotice } from '@/utils/runtimeNotice'
 import { buildCliEnvironmentNotice } from '@/utils/runtimeNotice'
 import { loadAgentMcpServers } from '@/utils/mcpServerConfig'
+import { findLatestUsageSnapshot, recordAgentCliUsageInBackground } from '@/services/usage/agentCliUsageRecorder'
 import type {
   AITaskItem,
   DynamicFormSchema,
@@ -162,6 +164,7 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
   const runtimeNotices = ref<RuntimeNotice[]>([])
   const usageModelHint = ref<string | null>(null)
   const runtimeMetrics = ref<PlanSplitRuntimeMetrics | null>(null)
+  const recordedUsageSessionIds = ref<Set<string>>(new Set())
 
   const subSplitMode = ref(false)
   const subSplitTargetIndex = ref<number | null>(null)
@@ -194,6 +197,7 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     runtimeNotices.value = []
     usageModelHint.value = null
     runtimeMetrics.value = null
+    recordedUsageSessionIds.value = new Set()
     subSplitMode.value = false
     subSplitTargetIndex.value = null
     subSplitOriginalTasks.value = []
@@ -221,6 +225,36 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     currentFormIndex.value = snapshot.currentFormIndex ?? 0
     currentFormId.value = formQueue.value[currentFormIndex.value]?.formId ?? null
     isProcessing.value = snapshot.status === 'running'
+
+    if (['completed', 'failed', 'stopped'].includes(snapshot.status)) {
+      recordPlanSplitUsage(snapshot)
+    }
+  }
+
+  function recordPlanSplitUsage(snapshot: PlanSplitSessionRecord) {
+    if (recordedUsageSessionIds.value.has(snapshot.id) || !context.value) {
+      return
+    }
+
+    const agent = useAgentStore().agents.find(item => item.id === context.value?.agentId)
+    if (!agent) {
+      return
+    }
+
+    const latestUsage = findLatestUsageSnapshot(logs.value)
+    const projectId = usePlanStore().plans.find(plan => plan.id === context.value?.planId)?.projectId ?? null
+
+    recordedUsageSessionIds.value.add(snapshot.id)
+    recordAgentCliUsageInBackground(agent, {
+      executionId: `plan-split-${snapshot.id}`,
+      executionMode: 'task_split',
+      modelId: latestUsage.modelId || context.value.modelId || usageModelHint.value || null,
+      projectId,
+      sessionId: null,
+      inputTokens: latestUsage.inputTokens,
+      outputTokens: latestUsage.outputTokens,
+      occurredAt: snapshot.completedAt || snapshot.stoppedAt || snapshot.updatedAt
+    })
   }
 
   async function loadSession(planId: string) {

@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useNotificationStore } from './notification'
 import { useSessionStore } from './session'
+import { useSessionExecutionStore } from './sessionExecution'
 import { getErrorMessage } from '@/utils/api'
 import type { CompressionStrategy } from './token'
 import type { FileEditTrace } from '@/types/fileTrace'
@@ -232,6 +233,22 @@ function buildLatestAssistantTraceMap(
   }
 
   return traceMap
+}
+
+function shouldReconcileStreamingMessage(
+  message: Message,
+  currentStreamingMessageId: string | null,
+  isSending: boolean
+): boolean {
+  if (message.role !== 'assistant' || message.status !== 'streaming') {
+    return false
+  }
+
+  if (!isSending) {
+    return true
+  }
+
+  return Boolean(currentStreamingMessageId) && message.id !== currentStreamingMessageId
 }
 
 function transformMessage(rustMsg: RustMessage): Message {
@@ -531,6 +548,7 @@ export const useMessageStore = defineStore('message', () => {
 
   async function loadMessages(sessionId: string) {
     const notificationStore = useNotificationStore()
+    const sessionExecutionStore = useSessionExecutionStore()
     isLoading.value = true
     try {
       const result = await invoke<PaginatedRustMessages>('list_messages', {
@@ -538,9 +556,36 @@ export const useMessageStore = defineStore('message', () => {
         limit: PAGE_SIZE
       })
 
+      const currentExecutionState = sessionExecutionStore.getExecutionState(sessionId)
       const nextSessionMessages = result.messages.map(transformMessage)
-      updateGlobalMessagesForSession(sessionId, nextSessionMessages)
-      setSessionMessages(sessionId, nextSessionMessages)
+      const streamingMessagesToReconcile = nextSessionMessages.filter(message => (
+        shouldReconcileStreamingMessage(
+          message,
+          currentExecutionState.currentStreamingMessageId,
+          currentExecutionState.isSending
+        )
+      ))
+
+      const normalizedSessionMessages = streamingMessagesToReconcile.length > 0
+        ? nextSessionMessages.map(message => (
+          streamingMessagesToReconcile.some(streamingMessage => streamingMessage.id === message.id)
+            ? { ...message, status: 'interrupted' as const }
+            : message
+        ))
+        : nextSessionMessages
+
+      updateGlobalMessagesForSession(sessionId, normalizedSessionMessages)
+      setSessionMessages(sessionId, normalizedSessionMessages)
+
+      if (streamingMessagesToReconcile.length > 0) {
+        await Promise.allSettled(streamingMessagesToReconcile.map(async message => {
+          try {
+            await persistMessageUpdates(message.id, { status: 'interrupted' })
+          } catch (error) {
+            console.warn('[MessageStore] Failed to reconcile stale streaming message:', message.id, error)
+          }
+        }))
+      }
 
       // 更新分页状态
       const oldestMessage = result.messages[0]

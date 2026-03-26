@@ -23,6 +23,7 @@ export const TERMINAL_TASK_STATUSES = new Set<TaskStatus>(['completed', 'failed'
 export function createExecutionState(taskId: string): TaskExecutionState {
   return {
     taskId,
+    executionRunId: null,
     status: 'idle',
     sessionId: null,
     startedAt: null,

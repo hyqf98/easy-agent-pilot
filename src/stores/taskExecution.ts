@@ -15,7 +15,7 @@ import type { AIFormRequest, UpdatePlanInput, UpdateTaskInput } from '@/types/pl
 import { useTaskStore } from '@/stores/task'
 import { usePlanStore } from '@/stores/plan'
 import { useProjectStore } from '@/stores/project'
-import { useAgentStore } from '@/stores/agent'
+import { useAgentStore, type AgentConfig } from '@/stores/agent'
 import { agentExecutor } from '@/services/conversation/AgentExecutor'
 import type { ConversationContext } from '@/services/conversation/strategies/types'
 import { extractFirstFormRequest } from '@/utils/structuredContent'
@@ -64,6 +64,7 @@ import {
 import { loadAgentMcpServers } from '@/utils/mcpServerConfig'
 import { mergeToolInputArguments } from '@/utils/toolInput'
 import { getErrorMessage } from '@/utils/api'
+import { recordAgentCliUsageInBackground } from '@/services/usage/agentCliUsageRecorder'
 
 function finalizeRunningToolCalls(toolCalls: ToolCall[]): void {
   for (const toolCall of toolCalls) {
@@ -454,9 +455,14 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
 
     const state = initExecutionState(taskId)
     const isResume = options.resume === true
+    const executionSessionId = `task-${taskId}`
     const resumeContext = isResume ? buildResumeExecutionContext(state) : ''
     clearTaskStopRequested(taskId, stopRequestedTaskIds.value)
     state.status = 'running'
+    state.sessionId = executionSessionId
+    state.executionRunId = isResume && state.executionRunId
+      ? state.executionRunId
+      : crypto.randomUUID()
     state.startedAt = isResume ? (state.startedAt ?? new Date().toISOString()) : new Date().toISOString()
     state.completedAt = null
 
@@ -478,6 +484,27 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
     await syncPlanRuntimeState(planId)
 
     let skipQueueAdvance = false
+    let usageRecorded = false
+    let currentAgentForUsage: AgentConfig | null = null
+
+    const recordTaskUsageOnce = () => {
+      if (usageRecorded || !currentAgentForUsage || !state.executionRunId) {
+        return
+      }
+
+      usageRecorded = true
+      recordAgentCliUsageInBackground(currentAgentForUsage, {
+        executionId: state.executionRunId,
+        executionMode: 'task_execution',
+        modelId: state.tokenUsage.model || currentAgentForUsage.modelId || null,
+        projectId: plan.projectId,
+        sessionId: null,
+        taskId,
+        inputTokens: state.tokenUsage.inputTokens,
+        outputTokens: state.tokenUsage.outputTokens,
+        occurredAt: state.completedAt || new Date().toISOString()
+      })
+    }
 
     try {
       const selection = resolvePlanTaskAgentSelection(
@@ -502,6 +529,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
         ...baseAgent,
         modelId: selection.modelId || baseAgent.modelId
       }
+      currentAgentForUsage = agent
 
       if (!agentExecutor.isSupported(agent)) {
         throw new Error(`当前不支持该智能体类型: ${agent.type}`)
@@ -519,11 +547,11 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
 
       // 构建对话上下文
       const context: ConversationContext = {
-        sessionId: `task-${taskId}`,
+        sessionId: executionSessionId,
         agent,
         messages: [{
           id: `task-prompt-${taskId}`,
-          sessionId: `task-${taskId}`,
+          sessionId: executionSessionId,
           role: 'user',
           content: prompt,
           status: 'completed',
@@ -558,6 +586,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
       const formRequest = parseFormRequest(state.accumulatedContent)
       if (formRequest) {
         await blockTaskForInput(taskId, formRequest)
+        recordTaskUsageOnce()
         return
       }
 
@@ -574,6 +603,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
       } catch (statusError) {
         console.warn('[TaskExecution] Failed to update task status to completed:', statusError)
       }
+      recordTaskUsageOnce()
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
@@ -582,6 +612,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
 
       if (wasStopped) {
         await markTaskStopped(taskId)
+        recordTaskUsageOnce()
       } else {
         const currentRetryCount = task.retryCount + 1
 
@@ -607,6 +638,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
           finalizeRunningToolCalls(state.toolCalls)
           state.status = 'queued'
           state.completedAt = new Date().toISOString()
+          recordTaskUsageOnce()
           skipQueueAdvance = true
 
           // 使用 setTimeout 延迟重试，避免立即重入
@@ -637,6 +669,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
           }
 
           await persistTaskResult(taskId, 'failed', `任务执行失败: ${errorMessage}`, errorMessage)
+          recordTaskUsageOnce()
         }
       }
     } finally {

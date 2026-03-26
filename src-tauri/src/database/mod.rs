@@ -355,6 +355,41 @@ const INIT_SQL: &str = r#"
     CREATE INDEX IF NOT EXISTS idx_task_execution_logs_task ON task_execution_logs(task_id);
     CREATE INDEX IF NOT EXISTS idx_task_execution_logs_created ON task_execution_logs(created_at);
 
+    -- Agent CLI 用量统计表
+    CREATE TABLE IF NOT EXISTS agent_cli_usage_records (
+        execution_id TEXT PRIMARY KEY,
+        execution_mode TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        agent_id TEXT,
+        agent_name_snapshot TEXT,
+        model_id TEXT,
+        project_id TEXT,
+        session_id TEXT,
+        task_id TEXT,
+        message_id TEXT,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        total_tokens INTEGER NOT NULL DEFAULT 0,
+        call_count INTEGER NOT NULL DEFAULT 1,
+        estimated_input_cost_usd REAL,
+        estimated_output_cost_usd REAL,
+        estimated_total_cost_usd REAL,
+        pricing_status TEXT NOT NULL DEFAULT 'missing_usage',
+        pricing_version TEXT NOT NULL,
+        occurred_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL,
+        FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL,
+        FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE SET NULL,
+        FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_occurred ON agent_cli_usage_records(occurred_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_provider_time ON agent_cli_usage_records(provider, occurred_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_agent_time ON agent_cli_usage_records(agent_id, occurred_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_model_time ON agent_cli_usage_records(model_id, occurred_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_mode_time ON agent_cli_usage_records(execution_mode, occurred_at DESC);
+
     -- 部门�?
     CREATE TABLE IF NOT EXISTS departments (
         id TEXT PRIMARY KEY,
@@ -925,6 +960,53 @@ pub fn init_database() -> Result<()> {
     for migration in task_execution_results_indexes {
         if let Err(e) = conn.execute(migration, []) {
             println!("Task execution results index migration warning: {}", e);
+        }
+    }
+
+    let agent_cli_usage_table_sql = r#"
+        CREATE TABLE IF NOT EXISTS agent_cli_usage_records (
+            execution_id TEXT PRIMARY KEY,
+            execution_mode TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            agent_id TEXT,
+            agent_name_snapshot TEXT,
+            model_id TEXT,
+            project_id TEXT,
+            session_id TEXT,
+            task_id TEXT,
+            message_id TEXT,
+            input_tokens INTEGER NOT NULL DEFAULT 0,
+            output_tokens INTEGER NOT NULL DEFAULT 0,
+            total_tokens INTEGER NOT NULL DEFAULT 0,
+            call_count INTEGER NOT NULL DEFAULT 1,
+            estimated_input_cost_usd REAL,
+            estimated_output_cost_usd REAL,
+            estimated_total_cost_usd REAL,
+            pricing_status TEXT NOT NULL DEFAULT 'missing_usage',
+            pricing_version TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL,
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL,
+            FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE SET NULL,
+            FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE SET NULL
+        )
+    "#;
+    if let Err(e) = conn.execute(agent_cli_usage_table_sql, []) {
+        println!("Agent CLI usage table migration warning: {}", e);
+    }
+
+    let agent_cli_usage_indexes = [
+        "CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_occurred ON agent_cli_usage_records(occurred_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_provider_time ON agent_cli_usage_records(provider, occurred_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_agent_time ON agent_cli_usage_records(agent_id, occurred_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_model_time ON agent_cli_usage_records(model_id, occurred_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_mode_time ON agent_cli_usage_records(execution_mode, occurred_at DESC)",
+    ];
+    for migration in agent_cli_usage_indexes {
+        if let Err(e) = conn.execute(migration, []) {
+            println!("Agent CLI usage index migration warning: {}", e);
         }
     }
 

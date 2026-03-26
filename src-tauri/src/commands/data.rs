@@ -17,6 +17,8 @@ pub struct ExportData {
     pub cli_paths: Vec<CliPathExport>,
     pub market_sources: Vec<MarketSourceExport>,
     pub app_settings: Vec<AppSettingExport>,
+    #[serde(default)]
+    pub agent_cli_usage_records: Vec<AgentCliUsageRecordExport>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -123,6 +125,31 @@ pub struct AppSettingExport {
     pub updated_at: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AgentCliUsageRecordExport {
+    pub execution_id: String,
+    pub execution_mode: String,
+    pub provider: String,
+    pub agent_id: Option<String>,
+    pub agent_name_snapshot: Option<String>,
+    pub model_id: Option<String>,
+    pub project_id: Option<String>,
+    pub session_id: Option<String>,
+    pub task_id: Option<String>,
+    pub message_id: Option<String>,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub total_tokens: i64,
+    pub call_count: i64,
+    pub estimated_input_cost_usd: Option<f64>,
+    pub estimated_output_cost_usd: Option<f64>,
+    pub estimated_total_cost_usd: Option<f64>,
+    pub pricing_status: String,
+    pub pricing_version: String,
+    pub occurred_at: String,
+    pub created_at: String,
+}
+
 /// 获取数据库路径
 fn get_db_path() -> Result<PathBuf> {
     let persistence_dir = super::get_persistence_dir_path()?;
@@ -196,7 +223,8 @@ pub fn get_data_management_stats() -> Result<DataManagementStats, String> {
     let log_count = query_count(&conn, "SELECT COUNT(*) FROM task_execution_logs")?
         + query_count(&conn, "SELECT COUNT(*) FROM task_execution_results")?
         + query_count(&conn, "SELECT COUNT(*) FROM task_split_sessions")?
-        + query_count(&conn, "SELECT COUNT(*) FROM plan_split_logs")?;
+        + query_count(&conn, "SELECT COUNT(*) FROM plan_split_logs")?
+        + query_count(&conn, "SELECT COUNT(*) FROM agent_cli_usage_records")?;
 
     let session_data_size_bytes = query_size(
         &conn,
@@ -334,6 +362,24 @@ pub fn get_data_management_stats() -> Result<DataManagementStats, String> {
             LENGTH(COALESCE(fail_reason, '')) +
             LENGTH(COALESCE(created_at, ''))
         ), 0) FROM task_execution_results",
+    )? + query_size(
+        &conn,
+        "SELECT COALESCE(SUM(
+            LENGTH(COALESCE(execution_id, '')) +
+            LENGTH(COALESCE(execution_mode, '')) +
+            LENGTH(COALESCE(provider, '')) +
+            LENGTH(COALESCE(agent_id, '')) +
+            LENGTH(COALESCE(agent_name_snapshot, '')) +
+            LENGTH(COALESCE(model_id, '')) +
+            LENGTH(COALESCE(project_id, '')) +
+            LENGTH(COALESCE(session_id, '')) +
+            LENGTH(COALESCE(task_id, '')) +
+            LENGTH(COALESCE(message_id, '')) +
+            LENGTH(COALESCE(pricing_status, '')) +
+            LENGTH(COALESCE(pricing_version, '')) +
+            LENGTH(COALESCE(occurred_at, '')) +
+            LENGTH(COALESCE(created_at, ''))
+        ), 0) FROM agent_cli_usage_records",
     )?;
 
     let config_data_size_bytes = query_size(
@@ -490,6 +536,7 @@ pub fn export_all_data() -> Result<ExportData, String> {
     let market_sources = export_market_sources(&conn)?;
     // 导出应用设置
     let app_settings = export_app_settings(&conn)?;
+    let agent_cli_usage_records = export_agent_cli_usage_records(&conn)?;
 
     Ok(ExportData {
         version: "1.0.0".to_string(),
@@ -502,6 +549,7 @@ pub fn export_all_data() -> Result<ExportData, String> {
         cli_paths,
         market_sources,
         app_settings,
+        agent_cli_usage_records,
     })
 }
 
@@ -731,6 +779,51 @@ fn export_app_settings(conn: &Connection) -> Result<Vec<AppSettingExport>, Strin
     Ok(app_settings)
 }
 
+fn export_agent_cli_usage_records(conn: &Connection) -> Result<Vec<AgentCliUsageRecordExport>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT execution_id, execution_mode, provider, agent_id, agent_name_snapshot, model_id,
+                    project_id, session_id, task_id, message_id, input_tokens, output_tokens, total_tokens,
+                    call_count, estimated_input_cost_usd, estimated_output_cost_usd, estimated_total_cost_usd,
+                    pricing_status, pricing_version, occurred_at, created_at
+             FROM agent_cli_usage_records
+             ORDER BY occurred_at ASC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(AgentCliUsageRecordExport {
+                execution_id: row.get(0)?,
+                execution_mode: row.get(1)?,
+                provider: row.get(2)?,
+                agent_id: row.get(3)?,
+                agent_name_snapshot: row.get(4)?,
+                model_id: row.get(5)?,
+                project_id: row.get(6)?,
+                session_id: row.get(7)?,
+                task_id: row.get(8)?,
+                message_id: row.get(9)?,
+                input_tokens: row.get(10)?,
+                output_tokens: row.get(11)?,
+                total_tokens: row.get(12)?,
+                call_count: row.get(13)?,
+                estimated_input_cost_usd: row.get(14)?,
+                estimated_output_cost_usd: row.get(15)?,
+                estimated_total_cost_usd: row.get(16)?,
+                pricing_status: row.get(17)?,
+                pricing_version: row.get(18)?,
+                occurred_at: row.get(19)?,
+                created_at: row.get(20)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(rows)
+}
+
 /// 导入结果统计
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ImportResult {
@@ -742,6 +835,7 @@ pub struct ImportResult {
     pub cli_paths_imported: usize,
     pub market_sources_imported: usize,
     pub app_settings_imported: usize,
+    pub agent_cli_usage_records_imported: usize,
 }
 
 /// 验证导入数据格式
@@ -779,6 +873,7 @@ pub fn clear_all_data() -> Result<(), String> {
             "DELETE FROM task_execution_results",
         ),
         ("plan_split_logs", "DELETE FROM plan_split_logs"),
+        ("agent_cli_usage_records", "DELETE FROM agent_cli_usage_records"),
         ("task_split_sessions", "DELETE FROM task_split_sessions"),
         ("window_session_locks", "DELETE FROM window_session_locks"),
         ("tasks", "DELETE FROM tasks"),
@@ -915,6 +1010,7 @@ pub fn export_selected_data(options: ExportOptions) -> Result<ExportData, String
     } else {
         vec![]
     };
+    let agent_cli_usage_records = export_agent_cli_usage_records(&conn)?;
 
     Ok(ExportData {
         version: "1.0.0".to_string(),
@@ -927,6 +1023,7 @@ pub fn export_selected_data(options: ExportOptions) -> Result<ExportData, String
         cli_paths,
         market_sources,
         app_settings,
+        agent_cli_usage_records,
     })
 }
 
@@ -973,6 +1070,7 @@ pub fn import_data_from_file(file_path: String) -> Result<ImportResult, String> 
         cli_paths_imported: 0,
         market_sources_imported: 0,
         app_settings_imported: 0,
+        agent_cli_usage_records_imported: 0,
     };
 
     // 导入项目
@@ -1149,6 +1247,48 @@ pub fn import_data_from_file(file_path: String) -> Result<ImportResult, String> 
         );
         if res.is_ok() {
             result.app_settings_imported += 1;
+        }
+    }
+
+    for usage in &data.agent_cli_usage_records {
+        let res = tx.execute(
+            "INSERT OR REPLACE INTO agent_cli_usage_records (
+                execution_id, execution_mode, provider, agent_id, agent_name_snapshot, model_id,
+                project_id, session_id, task_id, message_id, input_tokens, output_tokens, total_tokens,
+                call_count, estimated_input_cost_usd, estimated_output_cost_usd, estimated_total_cost_usd,
+                pricing_status, pricing_version, occurred_at, created_at
+             ) VALUES (
+                ?1, ?2, ?3, ?4, ?5, ?6,
+                ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+                ?14, ?15, ?16, ?17,
+                ?18, ?19, ?20, ?21
+             )",
+            rusqlite::params![
+                &usage.execution_id,
+                &usage.execution_mode,
+                &usage.provider,
+                &usage.agent_id,
+                &usage.agent_name_snapshot,
+                &usage.model_id,
+                &usage.project_id,
+                &usage.session_id,
+                &usage.task_id,
+                &usage.message_id,
+                &usage.input_tokens,
+                &usage.output_tokens,
+                &usage.total_tokens,
+                &usage.call_count,
+                &usage.estimated_input_cost_usd,
+                &usage.estimated_output_cost_usd,
+                &usage.estimated_total_cost_usd,
+                &usage.pricing_status,
+                &usage.pricing_version,
+                &usage.occurred_at,
+                &usage.created_at,
+            ],
+        );
+        if res.is_ok() {
+            result.agent_cli_usage_records_imported += 1;
         }
     }
 

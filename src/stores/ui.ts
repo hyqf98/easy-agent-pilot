@@ -10,6 +10,7 @@ export type SettingsTab =
   | 'theme'
   | 'data'
   | 'logs'
+  | 'usageStats'
   | 'providerSwitch'
   | 'lsp'
   | 'marketplace'

@@ -32,6 +32,7 @@ export interface ExecutionLogEntry {
 
 export interface TaskExecutionState {
   taskId: string
+  executionRunId: string | null
   status: ExecutionStatus
   sessionId: string | null
   startedAt: string | null

@@ -11,6 +11,7 @@ import LspSettings from './tabs/LspSettings.vue'
 import SessionManagementSettings from './tabs/SessionManagementSettings.vue'
 import AppUpdateSettings from './tabs/AppUpdateSettings.vue'
 import UnattendedSettings from './tabs/UnattendedSettings.vue'
+import AgentCliUsageSettings from './tabs/AgentCliUsageSettings.vue'
 import MarketplacePage from '@/components/marketplace/MarketplacePage.vue'
 
 export interface SettingsTabDescriptor {
@@ -105,6 +106,13 @@ export const SETTINGS_TAB_DESCRIPTORS: SettingsTabDescriptor[] = [
     icon: 'download',
     component: markRaw(AppUpdateSettings),
     layout: 'default'
+  },
+  {
+    id: 'usageStats',
+    labelKey: 'settings.nav.usageStats',
+    icon: 'chart-column',
+    component: markRaw(AgentCliUsageSettings),
+    layout: 'full'
   }
 ]
 

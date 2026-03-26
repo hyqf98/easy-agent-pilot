@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod agent_cli_usage;
 pub mod agent_config;
 pub mod app_state;
 pub mod builtin_mcp;

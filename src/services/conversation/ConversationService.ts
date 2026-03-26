@@ -23,6 +23,7 @@ import {
 } from '@/utils/runtimeNotice'
 import { loadAgentMcpServers } from '@/utils/mcpServerConfig'
 import { mergeToolInputArguments } from '@/utils/toolInput'
+import { recordAgentCliUsageInBackground } from '@/services/usage/agentCliUsageRecorder'
 
 interface StreamTimingMetrics {
   startedAt: number
@@ -286,7 +287,7 @@ export class ConversationService {
       }
 
       // 执行对话
-      await this.executeConversation(context, aiMessage, sessionId)
+      await this.executeConversation(context, aiMessage, sessionId, targetProject?.id)
       if (options?.dedupeInjectedSystemMessagesBySession) {
         this.markInjectedSystemMessages(sessionId, sessionScopedInjectedSystemMessages)
       }
@@ -393,11 +394,15 @@ export class ConversationService {
   private async executeConversation(
     context: ConversationContext,
     aiMessage: Message,
-    sessionId: string
+    sessionId: string,
+    projectId?: string
   ): Promise<void> {
     const messageStore = useMessageStore()
     const sessionStore = useSessionStore()
     const sessionExecutionStore = useSessionExecutionStore()
+    const resolvedProjectId = projectId
+      ?? sessionStore.sessions.find(session => session.id === sessionId)?.projectId
+      ?? null
 
     let accumulatedContent = ''
     let accumulatedThinking = ''
@@ -420,6 +425,7 @@ export class ConversationService {
       startedAt: globalThis.performance?.now() ?? Date.now()
     }
     let hasError = false
+    let usageRecorded = false
     let pendingUiUpdate: Partial<Message> | null = null
     let scheduledUiFlushHandle: number | ReturnType<typeof setTimeout> | null = null
 
@@ -531,6 +537,25 @@ export class ConversationService {
 
       console.info('[ConversationService] stream timing metrics', summary)
       ;(globalThis as { __EASY_AGENT_LAST_STREAM_METRICS?: typeof summary }).__EASY_AGENT_LAST_STREAM_METRICS = summary
+    }
+
+    const recordUsageOnce = (occurredAt?: string) => {
+      if (usageRecorded || context.agent.type !== 'cli') {
+        return
+      }
+
+      usageRecorded = true
+      recordAgentCliUsageInBackground(context.agent, {
+        executionId: `chat-${aiMessage.id}`,
+        executionMode: 'chat',
+        modelId: usageState.model || context.agent.modelId || null,
+        projectId: resolvedProjectId,
+        sessionId,
+        messageId: aiMessage.id,
+        inputTokens: usageState.inputTokens,
+        outputTokens: usageState.outputTokens,
+        occurredAt: occurredAt || new Date().toISOString()
+      })
     }
 
     try {
@@ -696,6 +721,7 @@ export class ConversationService {
             registerPersistenceTask(
               messageStore.flushBufferedMessageUpdate(aiMessage.id, { notifyOnFailure: true })
             )
+            recordUsageOnce(new Date().toISOString())
           }
         })
       })
@@ -727,6 +753,7 @@ export class ConversationService {
         await messageStore.flushBufferedMessageUpdate(aiMessage.id, { notifyOnFailure: true })
         markMetric('persistedAt')
         recordTimingSummary()
+        recordUsageOnce(new Date().toISOString())
         this.finalizeSend(sessionId)
       }
     } catch (error) {
@@ -740,6 +767,7 @@ export class ConversationService {
       await messageStore.flushBufferedMessageUpdate(aiMessage.id, { notifyOnFailure: true })
       markMetric('persistedAt')
       recordTimingSummary()
+      recordUsageOnce(new Date().toISOString())
       this.finalizeSend(sessionId)
     } finally {
       clearScheduledUiFlush()

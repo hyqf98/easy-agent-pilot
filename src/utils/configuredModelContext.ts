@@ -1,4 +1,5 @@
 import type { AgentModelConfig } from '@/stores/agentConfig'
+import { resolveKnownContextWindow } from '@/utils/modelContextWindow'
 
 export const DEFAULT_CONTEXT_WINDOW = 128000
 
@@ -11,6 +12,20 @@ interface ResolveConfiguredContextWindowOptions {
   selectedModelId?: string | null
   agentModelId?: string | null
   fallbackContextWindow?: number
+}
+
+function matchConfiguredModel(
+  models: AgentModelConfig[],
+  modelId?: string | null
+): AgentModelConfig | undefined {
+  const normalizedModelId = normalizeModelId(modelId)
+  if (!normalizedModelId) {
+    return undefined
+  }
+
+  return models
+    .filter(model => model.enabled)
+    .find(model => normalizeModelId(model.modelId) === normalizedModelId)
 }
 
 export function findConfiguredModel(
@@ -26,11 +41,7 @@ export function findConfiguredModel(
   const selectedModelId = normalizeModelId(options.selectedModelId)
   const agentModelId = normalizeModelId(options.agentModelId)
 
-  const matchById = (modelId: string) => (
-    modelId
-      ? enabledModels.find(model => normalizeModelId(model.modelId) === modelId)
-      : undefined
-  )
+  const matchById = (modelId: string) => enabledModels.find(model => normalizeModelId(model.modelId) === modelId)
 
   return matchById(runtimeModelId)
     ?? matchById(selectedModelId)
@@ -43,7 +54,22 @@ export function resolveConfiguredContextWindow(
   models: AgentModelConfig[],
   options: ResolveConfiguredContextWindowOptions = {}
 ): number {
-  return findConfiguredModel(models, options)?.contextWindow
+  const runtimeConfiguredModel = matchConfiguredModel(models, options.runtimeModelId)
+  if (runtimeConfiguredModel?.contextWindow) {
+    return runtimeConfiguredModel.contextWindow
+  }
+
+  const runtimeKnownContext = resolveKnownContextWindow(options.runtimeModelId)
+  if (runtimeKnownContext) {
+    return runtimeKnownContext
+  }
+
+  return matchConfiguredModel(models, options.selectedModelId)?.contextWindow
+    ?? matchConfiguredModel(models, options.agentModelId)?.contextWindow
+    ?? findConfiguredModel(models, options)?.contextWindow
+    ?? resolveKnownContextWindow(options.runtimeModelId)
+    ?? resolveKnownContextWindow(options.selectedModelId)
+    ?? resolveKnownContextWindow(options.agentModelId)
     ?? options.fallbackContextWindow
     ?? DEFAULT_CONTEXT_WINDOW
 }
