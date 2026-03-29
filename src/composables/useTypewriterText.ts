@@ -11,6 +11,7 @@ export function useTypewriterText(
   options: TypewriterOptions = {}
 ) {
   const displayedText = ref('')
+  const hasInitialized = ref(false)
   const charsPerSecond = options.charsPerSecond ?? 120
   const maxChunkSize = options.maxChunkSize ?? 20
   let frameId: number | null = null
@@ -75,6 +76,15 @@ export function useTypewriterText(
   watch(
     [() => toValue(source) || '', () => Boolean(toValue(enabled))],
     ([nextText, isEnabled], previousValues) => {
+      if (!hasInitialized.value) {
+        hasInitialized.value = true
+
+        if (nextText) {
+          syncImmediately(nextText)
+          return
+        }
+      }
+
       const prevText = previousValues?.[0] || ''
       if (!isEnabled) {
         syncImmediately(nextText)

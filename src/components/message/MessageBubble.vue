@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Message } from '@/stores/message'
 import { useMessageStore } from '@/stores/message'
 import { conversationService } from '@/services/conversation'
+import { useTokenStore } from '@/stores/token'
 import { EaIcon } from '@/components/common'
 import { FILE_MENTION_PATTERN, getMentionDisplayText } from '@/utils/fileMention'
 import { parseStructuredContent } from '@/utils/structuredContent'
@@ -28,7 +29,10 @@ const isCompression = computed(() => props.message.role === 'compression')
 const isStreaming = computed(() => props.message.status === 'streaming')
 const isError = computed(() => props.message.status === 'error')
 const messageStore = useMessageStore()
+const tokenStore = useTokenStore()
 const messageAttachmentPreviews = ref<Array<{ id: string, name: string, previewUrl: string }>>([])
+const nowTick = ref(Date.now())
+let elapsedTimer: ReturnType<typeof setInterval> | null = null
 
 async function syncMessageAttachmentPreviews(): Promise<void> {
   const attachments = props.message.attachments ?? []
@@ -63,6 +67,30 @@ watch(
   },
   { immediate: true }
 )
+
+watch(isStreaming, (streaming) => {
+  if (elapsedTimer) {
+    clearInterval(elapsedTimer)
+    elapsedTimer = null
+  }
+
+  if (!streaming) {
+    nowTick.value = Date.now()
+    return
+  }
+
+  nowTick.value = Date.now()
+  elapsedTimer = setInterval(() => {
+    nowTick.value = Date.now()
+  }, 1000)
+}, { immediate: true })
+
+onBeforeUnmount(() => {
+  if (elapsedTimer) {
+    clearInterval(elapsedTimer)
+    elapsedTimer = null
+  }
+})
 
 // 停止流式输出
 const handleStop = () => {
@@ -171,6 +199,44 @@ const assistantStatusInfo = computed(() => {
       return { text: t('message.status.assistantCompleted'), icon: 'check', class: 'status--completed' }
     default:
       return null
+  }
+})
+
+const assistantElapsedLabel = computed(() => {
+  if (!isAssistant.value || !isStreaming.value) {
+    return ''
+  }
+
+  const startedAt = new Date(props.message.createdAt).getTime()
+  if (!Number.isFinite(startedAt)) {
+    return ''
+  }
+
+  const elapsedSeconds = Math.max(0, Math.floor((nowTick.value - startedAt) / 1000))
+  const minutes = Math.floor(elapsedSeconds / 60)
+  const seconds = elapsedSeconds % 60
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`
+})
+
+const runtimeUsageFallback = computed(() => {
+  if (!props.sessionId || !isAssistant.value) {
+    return null
+  }
+
+  const latestMessageId = messageStore.lastMessage(props.sessionId)?.id
+  if (latestMessageId !== props.message.id) {
+    return null
+  }
+
+  const realtimeUsage = tokenStore.realtimeTokens.get(props.sessionId)
+  if (!realtimeUsage) {
+    return null
+  }
+
+  return {
+    model: realtimeUsage.model,
+    inputTokens: realtimeUsage.inputTokens,
+    outputTokens: realtimeUsage.outputTokens
   }
 })
 
@@ -392,7 +458,10 @@ const isAssistantFormOnly = computed(() => {
         v-if="isAssistant && message.runtimeNotices && message.runtimeNotices.length > 0"
         class="message-bubble__runtime"
       >
-        <RuntimeNoticeList :notices="message.runtimeNotices" />
+        <RuntimeNoticeList
+          :notices="message.runtimeNotices"
+          :fallback-usage="runtimeUsageFallback"
+        />
       </div>
 
       <!-- 工具调用显示 -->
@@ -536,6 +605,12 @@ const isAssistantFormOnly = computed(() => {
             class="status-icon status-icon--interrupted"
           >⏹</span>
           <span class="status-text">{{ assistantStatusInfo.text }}</span>
+          <span
+            v-if="assistantElapsedLabel"
+            class="message-bubble__elapsed"
+          >
+            {{ assistantElapsedLabel }}
+          </span>
         </span>
         <!-- 停止按钮 - 仅在流式输出时显示 -->
         <button
@@ -1180,6 +1255,17 @@ const isAssistantFormOnly = computed(() => {
   display: flex;
   align-items: center;
   gap: var(--spacing-1);
+}
+
+.message-bubble__elapsed {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  font-family: var(--font-family-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 10px;
+  line-height: 1.3;
 }
 
 .status-icon {

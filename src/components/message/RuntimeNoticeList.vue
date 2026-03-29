@@ -4,11 +4,19 @@ import MarkdownRenderer from './MarkdownRenderer.vue'
 import type { RuntimeNotice } from '@/utils/runtimeNotice'
 import { getUsageNoticeSummary, summarizeRuntimeNotice } from '@/utils/runtimeNotice'
 
+interface UsageFallback {
+  model?: string
+  inputTokens?: number
+  outputTokens?: number
+}
+
 const props = withDefaults(defineProps<{
   notices: RuntimeNotice[]
   defaultExpanded?: boolean
+  fallbackUsage?: UsageFallback | null
 }>(), {
-  defaultExpanded: false
+  defaultExpanded: false,
+  fallbackUsage: null
 })
 
 const expandedIds = ref<Set<string>>(new Set(
@@ -50,7 +58,29 @@ function noticeChips(notice: RuntimeNotice) {
 }
 
 function usageSummary(notice: RuntimeNotice) {
-  return getUsageNoticeSummary(notice)
+  const summary = getUsageNoticeSummary(notice)
+  const fallback = props.fallbackUsage
+
+  if (!summary) {
+    if (!fallback) {
+      return null
+    }
+
+    return {
+      model: fallback.model || null,
+      input: typeof fallback.inputTokens === 'number' ? String(fallback.inputTokens) : null,
+      output: typeof fallback.outputTokens === 'number' ? String(fallback.outputTokens) : null
+    }
+  }
+
+  const fallbackInput = typeof fallback?.inputTokens === 'number' ? String(fallback.inputTokens) : null
+  const fallbackOutput = typeof fallback?.outputTokens === 'number' ? String(fallback.outputTokens) : null
+
+  return {
+    model: summary.model || fallback?.model || null,
+    input: !summary.input || summary.input === '0' ? fallbackInput || summary.input : summary.input,
+    output: !summary.output || summary.output === '0' ? fallbackOutput || summary.output : summary.output
+  }
 }
 
 function formatChipLabel(notice: RuntimeNotice, chip: string) {

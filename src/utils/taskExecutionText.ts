@@ -5,6 +5,7 @@ import type {
   TaskExecutionResultRecord,
   TaskExecutionState
 } from '@/types/taskExecution'
+import i18n from '@/i18n'
 import { extractExecutionResult } from '@/utils/structuredContent'
 import { buildPlanExecutionSnapshot } from '@/utils/planExecutionProgress'
 
@@ -12,11 +13,15 @@ const MAX_RESULT_SUMMARY_LENGTH = 180
 const MAX_RESUME_LOG_LINES = 50
 const MAX_RESUME_CONTEXT_LENGTH = 9000
 
+function t(key: string, params?: Record<string, unknown>): string {
+  return params ? i18n.global.t(key, params) as string : i18n.global.t(key) as string
+}
+
 export function parseExecutionResult(content: string): { summary: string; files: string[] } {
   const trimmed = content.trim()
   if (!trimmed) {
     return {
-      summary: '任务已执行完成（无详细输出）',
+      summary: t('prompts.taskExecution.noDetailedOutput'),
       files: []
     }
   }
@@ -61,23 +66,23 @@ export function buildExecutionPrompt(
   }
 
   if (resumeContext) {
-    parts.push('## 恢复上下文')
+    parts.push(t('prompts.taskExecution.resumeContext'))
     parts.push(resumeContext)
     parts.push('')
   }
 
-  parts.push('# 任务')
-  parts.push(`标题: ${task.title}`)
+  parts.push(t('prompts.taskExecution.taskHeading'))
+  parts.push(`${t('prompts.taskExecution.title')}: ${task.title}`)
   parts.push('')
 
   if (task.description) {
-    parts.push('描述:')
+    parts.push(`${t('prompts.taskExecution.description')}:`)
     parts.push(task.description)
     parts.push('')
   }
 
   if (task.implementationSteps && task.implementationSteps.length > 0) {
-    parts.push('实现步骤:')
+    parts.push(`${t('prompts.taskExecution.implementationSteps')}:`)
     task.implementationSteps.forEach((step, index) => {
       parts.push(`${index + 1}. ${step}`)
     })
@@ -85,7 +90,7 @@ export function buildExecutionPrompt(
   }
 
   if (task.testSteps && task.testSteps.length > 0) {
-    parts.push('测试步骤:')
+    parts.push(`${t('prompts.taskExecution.testSteps')}:`)
     task.testSteps.forEach((step, index) => {
       parts.push(`${index + 1}. ${step}`)
     })
@@ -93,7 +98,7 @@ export function buildExecutionPrompt(
   }
 
   if (task.acceptanceCriteria && task.acceptanceCriteria.length > 0) {
-    parts.push('验收标准:')
+    parts.push(`${t('prompts.taskExecution.acceptanceCriteria')}:`)
     task.acceptanceCriteria.forEach(criteria => {
       parts.push(`- [ ] ${criteria}`)
     })
@@ -101,24 +106,24 @@ export function buildExecutionPrompt(
   }
 
   if (task.inputResponse && Object.keys(task.inputResponse).length > 0) {
-    parts.push('用户补充:')
+    parts.push(`${t('prompts.taskExecution.userSupplement')}:`)
     Object.entries(task.inputResponse).forEach(([key, value]) => {
       parts.push(`- ${key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`)
     })
     parts.push('')
   }
 
-  parts.push('要求:')
-  parts.push('- 基于已有上下文继续，不重复已完成步骤。')
-  parts.push('- 需要用户补充信息时，只输出 JSON：')
+  parts.push(`${t('prompts.taskExecution.requirements')}:`)
+  parts.push(t('prompts.taskExecution.continueFromContext'))
+  parts.push(t('prompts.taskExecution.formRequestJsonOnly'))
   parts.push('```json')
-  parts.push('{"type":"form_request","question":"问题描述","formSchema":{"formId":"id","title":"标题","fields":[{"name":"字段","label":"标签","type":"text"}]}}')
+  parts.push(t('prompts.taskExecution.formRequestExample'))
   parts.push('```')
-  parts.push('- 完成后，只输出 JSON：')
+  parts.push(t('prompts.taskExecution.resultJsonOnly'))
   parts.push('```json')
-  parts.push('{"result_summary":"1-3句总结本次执行结果","generated_files":[],"modified_files":[],"deleted_files":[]}')
+  parts.push(t('prompts.taskExecution.resultExample'))
   parts.push('```')
-  parts.push('- result_summary 只写结果、关键改动和遗留风险。')
+  parts.push(t('prompts.taskExecution.resultSummaryRule'))
 
   return parts.join('\n')
 }
@@ -148,16 +153,18 @@ export function buildResumeExecutionContext(state: TaskExecutionState | undefine
 function buildRecentResultsContext(results: TaskExecutionResultRecord[]): string {
   if (results.length === 0) return ''
 
-  const lines: string[] = ['## 最近结果', '']
+  const lines: string[] = [t('prompts.taskExecution.recentResults'), '']
 
   results.slice(-4).forEach((result, index) => {
-    const status = result.result_status === 'success' ? '成功' : '失败'
+    const status = result.result_status === 'success'
+      ? t('prompts.taskExecution.success')
+      : t('prompts.taskExecution.failed')
     lines.push(`${index + 1}. [${status}] ${result.task_title_snapshot}`)
     if (result.result_summary) {
-      lines.push(`   摘要: ${fallbackSummary(result.result_summary)}`)
+      lines.push(`   ${t('prompts.taskExecution.summary')}: ${fallbackSummary(result.result_summary)}`)
     }
     if (result.fail_reason) {
-      lines.push(`   失败: ${result.fail_reason}`)
+      lines.push(`   ${t('prompts.taskExecution.failure')}: ${result.fail_reason}`)
     }
   })
 
@@ -168,7 +175,7 @@ function formatResumeLogLine(log: ExecutionLogEntry): string {
   const content = log.content.trim()
   if (!content) {
     if (log.type === 'thinking_start') {
-      return '[thinking] 思考开始'
+      return `[thinking] ${t('prompts.taskExecution.thinkingStarted')}`
     }
     return ''
   }
@@ -210,7 +217,7 @@ export function compactExecutionSummary(summary: string): string {
     .trim()
 
   if (!normalized) {
-    return '任务已执行完成（无详细输出）'
+    return t('prompts.taskExecution.noDetailedOutput')
   }
 
   if (normalized.length <= MAX_RESULT_SUMMARY_LENGTH) {
@@ -229,35 +236,45 @@ function buildPlanProgressContext(
   }
 
   const snapshot = buildPlanExecutionSnapshot(planProgress, taskId)
-  const lines: string[] = ['## 计划进度', '']
+  const lines: string[] = [t('prompts.taskExecution.planProgress'), '']
   const failedCount = snapshot.failedTasks.length
 
   lines.push(
-    `- 总任务: ${snapshot.totalTasks}，已完成 ${snapshot.completedTasks.length}，进行中 ${planProgress.in_progress_count}，阻塞 ${planProgress.blocked_count}，失败 ${failedCount}，待执行 ${planProgress.pending_count}`
+    `- ${t('prompts.taskExecution.totalTasksLine', {
+      total: snapshot.totalTasks,
+      completed: snapshot.completedTasks.length,
+      inProgress: planProgress.in_progress_count,
+      blocked: planProgress.blocked_count,
+      failed: failedCount,
+      pending: planProgress.pending_count
+    })}`
   )
 
   if (snapshot.currentTaskIndex) {
-    lines.push(`- 当前任务: 第 ${snapshot.currentTaskIndex}/${snapshot.totalTasks} 个`)
+    lines.push(`- ${t('prompts.taskExecution.currentTaskLine', {
+      current: snapshot.currentTaskIndex,
+      total: snapshot.totalTasks
+    })}`)
   }
 
   if (snapshot.completedTasks.length > 0) {
-    lines.push('', '已完成:')
+    lines.push('', t('prompts.taskExecution.completedSection'))
     snapshot.completedTasks.slice(-3).forEach((item) => {
-      lines.push(`- ${item.title}: ${compactExecutionSummary(item.last_result_summary || '暂无摘要')}`)
+      lines.push(`- ${item.title}: ${compactExecutionSummary(item.last_result_summary || t('prompts.taskExecution.noSummary'))}`)
     })
   }
 
   if (snapshot.failedTasks.length > 0) {
-    lines.push('', '失败:')
+    lines.push('', t('prompts.taskExecution.failedSection'))
     snapshot.failedTasks.slice(-2).forEach((item) => {
-      const reason = item.last_fail_reason || item.last_result_summary || '暂无失败原因'
+      const reason = item.last_fail_reason || item.last_result_summary || t('prompts.taskExecution.noFailureReason')
       lines.push(`- ${item.title}: ${compactExecutionSummary(reason)}`)
     })
   }
 
   const fileLines = formatPlanFileChanges(snapshot.fileGroups)
   if (fileLines.length > 0) {
-    lines.push('', '文件:', ...fileLines)
+    lines.push('', t('prompts.taskExecution.filesSection'), ...fileLines)
   }
 
   return lines.join('\n')
@@ -265,10 +282,10 @@ function buildPlanProgressContext(
 
 function formatPlanFileChanges(fileGroups: ReturnType<typeof buildPlanExecutionSnapshot>['fileGroups']): string[] {
   return [
-    formatFileGroupLine('新增', fileGroups.generatedFiles),
-    formatFileGroupLine('修改', fileGroups.modifiedFiles),
-    formatFileGroupLine('变更', fileGroups.changedFiles),
-    formatFileGroupLine('删除', fileGroups.deletedFiles)
+    formatFileGroupLine(t('prompts.taskExecution.fileAdded'), fileGroups.generatedFiles),
+    formatFileGroupLine(t('prompts.taskExecution.fileModified'), fileGroups.modifiedFiles),
+    formatFileGroupLine(t('prompts.taskExecution.fileChanged'), fileGroups.changedFiles),
+    formatFileGroupLine(t('prompts.taskExecution.fileDeleted'), fileGroups.deletedFiles)
   ].filter(Boolean) as string[]
 }
 
@@ -279,7 +296,7 @@ function formatFileGroupLine(label: string, files: string[]): string | null {
 
   const visible = files.slice(0, 5)
   const overflow = files.length - visible.length
-  const suffix = overflow > 0 ? ` 等 ${files.length} 个` : ''
+  const suffix = overflow > 0 ? t('prompts.taskExecution.fileOverflowSuffix', { count: files.length }) : ''
   return `- ${label}: ${visible.join('、')}${suffix}`
 }
 

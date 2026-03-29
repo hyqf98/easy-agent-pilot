@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import type { Plan, Task } from '@/types/plan'
+import { DEFAULT_SPLIT_GRANULARITY } from '@/constants/plan'
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn()
@@ -29,7 +30,7 @@ function createPlan(overrides: Partial<Plan> = {}): Plan {
     status: 'executing',
     executionStatus: 'running',
     currentTaskId: undefined,
-    granularity: 20,
+    granularity: DEFAULT_SPLIT_GRANULARITY,
     maxRetryCount: 3,
     createdAt: now,
     updatedAt: now,

@@ -87,8 +87,11 @@ function parseRuntimeNoticeLines(content: string): RuntimeNoticeLine[] {
 function isRuntimeNoticeLineLabel(label: string): boolean {
   return [
     '模型',
+    'model',
     '输入 Token',
+    'input token',
     '输出 Token',
+    'output token',
     '输入',
     '输出',
     'Skills',
@@ -97,6 +100,21 @@ function isRuntimeNoticeLineLabel(label: string): boolean {
     '当前任务',
     '状态'
   ].some(keyword => label.includes(keyword))
+}
+
+function isModelLabel(label: string): boolean {
+  const normalized = label.trim().toLowerCase()
+  return normalized.includes('模型') || normalized === 'model'
+}
+
+function isInputLabel(label: string): boolean {
+  const normalized = label.trim().toLowerCase()
+  return normalized.includes('输入') || normalized.includes('input')
+}
+
+function isOutputLabel(label: string): boolean {
+  const normalized = label.trim().toLowerCase()
+  return normalized.includes('输出') || normalized.includes('output')
 }
 
 function formatCompactNumber(value: number): string {
@@ -135,13 +153,13 @@ const runtimeNoticeDescriptors: RuntimeNoticeDescriptor[] = [
     matches: (notice) => notice.id === 'usage' || notice.title.includes('用量'),
     summarize: (lines) => lines
       .map((line) => {
-        if (line.label.includes('模型')) {
+        if (isModelLabel(line.label)) {
           return line.value
         }
 
         const numeric = Number(line.value.replace(/[^\d]/g, ''))
         if (Number.isFinite(numeric) && numeric > 0) {
-          const prefix = line.label.includes('输入') ? 'In' : line.label.includes('输出') ? 'Out' : line.label
+          const prefix = isInputLabel(line.label) ? 'In' : isOutputLabel(line.label) ? 'Out' : line.label
           return `${prefix} ${formatCompactNumber(numeric)}`
         }
 
@@ -285,7 +303,7 @@ export function getUsageNoticeSummary(notice: RuntimeNotice): UsageNoticeSummary
   let output: string | null = null
 
   lines.forEach((line) => {
-    if (line.label.includes('模型')) {
+    if (isModelLabel(line.label)) {
       model = line.value || null
       return
     }
@@ -295,12 +313,12 @@ export function getUsageNoticeSummary(notice: RuntimeNotice): UsageNoticeSummary
       ? formatCompactNumber(numeric)
       : (line.value || null)
 
-    if (line.label.includes('输入')) {
+    if (isInputLabel(line.label)) {
       input = formatted
       return
     }
 
-    if (line.label.includes('输出')) {
+    if (isOutputLabel(line.label)) {
       output = formatted
     }
   })

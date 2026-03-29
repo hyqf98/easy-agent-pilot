@@ -153,6 +153,18 @@ pub struct AgentCliUsageStatsResponse {
     pub meta: AgentCliUsageMeta,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// CLI 用量历史修复结果。
+///
+/// 用于反馈本次是否命中自动纠偏条件，以及实际修复了多少条历史记录。
+pub struct RepairAgentCliUsageHistoryResult {
+    pub provider: String,
+    pub target_model_id: Option<String>,
+    pub updated_count: i64,
+    pub skipped_reason: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct ModelPricing {
     input_per_million_usd: f64,
@@ -223,6 +235,25 @@ fn normalize_model_id(model_id: Option<&str>) -> Option<String> {
             Some(normalized)
         }
     })
+}
+
+fn is_builtin_claude_model(model_id: &str) -> bool {
+    let normalized = model_id.trim().to_lowercase();
+    normalized.starts_with("claude")
+        || normalized.contains("opus")
+        || normalized.contains("sonnet")
+        || normalized.contains("haiku")
+}
+
+fn suspicious_claude_history_models() -> &'static [&'static str] {
+    &[
+        "claude-haiku-4-5",
+        "claude-haiku4-5",
+        "claude-haiku-4.5",
+        "haiku-4.5",
+        "haiku-4-5",
+        "haiku",
+    ]
 }
 
 fn resolve_model_pricing(provider: &str, model_id: Option<&str>) -> Option<ModelPricing> {
@@ -406,6 +437,133 @@ fn breakdown_order_sql(dimension: &str) -> &'static str {
     } else {
         "SUM(total_tokens) DESC, SUM(estimated_total_cost_usd) DESC, dimension_label ASC"
     }
+}
+
+fn repair_claude_usage_history(
+    conn: &rusqlite::Connection,
+) -> Result<RepairAgentCliUsageHistoryResult, String> {
+    let current_profile = super::provider_profile::read_current_cli_config("claude".to_string())?;
+    let Some(target_model_id) = normalize_optional_text(current_profile.main_model.clone()) else {
+        return Ok(RepairAgentCliUsageHistoryResult {
+            provider: "claude".to_string(),
+            target_model_id: None,
+            updated_count: 0,
+            skipped_reason: Some("missing_current_model".to_string()),
+        });
+    };
+
+    if is_builtin_claude_model(&target_model_id) {
+        return Ok(RepairAgentCliUsageHistoryResult {
+            provider: "claude".to_string(),
+            target_model_id: Some(target_model_id),
+            updated_count: 0,
+            skipped_reason: Some("current_model_is_builtin".to_string()),
+        });
+    }
+
+    let suspicious_models = suspicious_claude_history_models();
+    let suspicious_count: i64 = conn
+        .query_row(
+            r#"
+            SELECT COUNT(*)
+            FROM agent_cli_usage_records
+            WHERE provider = 'claude'
+              AND LOWER(COALESCE(model_id, '')) IN (?1, ?2, ?3, ?4, ?5, ?6)
+            "#,
+            params![
+                suspicious_models[0],
+                suspicious_models[1],
+                suspicious_models[2],
+                suspicious_models[3],
+                suspicious_models[4],
+                suspicious_models[5]
+            ],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+
+    if suspicious_count == 0 {
+        return Ok(RepairAgentCliUsageHistoryResult {
+            provider: "claude".to_string(),
+            target_model_id: Some(target_model_id),
+            updated_count: 0,
+            skipped_reason: Some("no_suspicious_history".to_string()),
+        });
+    }
+
+    let mut select_stmt = conn
+        .prepare(
+            r#"
+            SELECT execution_id, input_tokens, output_tokens
+            FROM agent_cli_usage_records
+            WHERE provider = 'claude'
+              AND LOWER(COALESCE(model_id, '')) IN (?1, ?2, ?3, ?4, ?5, ?6)
+            "#,
+        )
+        .map_err(|error| error.to_string())?;
+
+    let repair_rows = select_stmt
+        .query_map(
+            params![
+                suspicious_models[0],
+                suspicious_models[1],
+                suspicious_models[2],
+                suspicious_models[3],
+                suspicious_models[4],
+                suspicious_models[5]
+            ],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            },
+        )
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+
+    let mut updated_count = 0_i64;
+    for (execution_id, input_tokens, output_tokens) in repair_rows {
+        let pricing = estimate_pricing(
+            "claude",
+            Some(target_model_id.as_str()),
+            input_tokens,
+            output_tokens,
+        );
+
+        updated_count += conn
+            .execute(
+                r#"
+                UPDATE agent_cli_usage_records
+                SET model_id = ?1,
+                    estimated_input_cost_usd = ?2,
+                    estimated_output_cost_usd = ?3,
+                    estimated_total_cost_usd = ?4,
+                    pricing_status = ?5,
+                    pricing_version = ?6
+                WHERE execution_id = ?7
+                "#,
+                params![
+                    target_model_id,
+                    pricing.estimated_input_cost_usd,
+                    pricing.estimated_output_cost_usd,
+                    pricing.estimated_total_cost_usd,
+                    pricing.pricing_status,
+                    PRICING_VERSION,
+                    execution_id
+                ],
+            )
+            .map_err(|error| error.to_string())? as i64;
+    }
+
+    Ok(RepairAgentCliUsageHistoryResult {
+        provider: "claude".to_string(),
+        target_model_id: Some(target_model_id),
+        updated_count,
+        skipped_reason: None,
+    })
 }
 
 /// 记录一次 CLI 用量统计。
@@ -721,6 +879,31 @@ pub fn query_agent_cli_usage_stats(input: QueryAgentCliUsageStatsInput) -> Resul
             cost_partial,
         },
     })
+}
+
+/// 自动修复 CLI 用量历史中的错误模型归属。
+///
+/// 用途：在统计页加载前，纠偏旧版本把 Claude 兼容源请求错误写成 Haiku 的历史记录。
+/// 主要参数：可选 Provider；当前仅对 `claude` 生效。
+/// 返回值：返回目标模型、修复数量和跳过原因。
+/// 关键副作用：可能更新本地 SQLite 中的 `agent_cli_usage_records` 历史数据。
+#[tauri::command]
+pub fn repair_agent_cli_usage_history(
+    provider: Option<String>,
+) -> Result<RepairAgentCliUsageHistoryResult, String> {
+    let normalized_provider = normalize_provider_filter(provider);
+    let conn = open_db_connection().map_err(|error| error.to_string())?;
+
+    if normalized_provider != "all" && normalized_provider != "claude" {
+        return Ok(RepairAgentCliUsageHistoryResult {
+            provider: normalized_provider,
+            target_model_id: None,
+            updated_count: 0,
+            skipped_reason: Some("provider_not_supported".to_string()),
+        });
+    }
+
+    repair_claude_usage_history(&conn)
 }
 
 #[cfg(test)]

@@ -81,6 +81,7 @@ const {
   handleMessageFormSubmit,
   handleOpenCompress,
   handlePaste,
+  hasVisibleMemorySuggestions,
   insertMemoryReference,
   handleSlashCommandSelect,
   inputPlaceholder,
@@ -89,8 +90,8 @@ const {
   isActiveMemorySuggestion,
   isAgentDropdownOpen,
   isCompressing,
+  isMemorySuggestionLoading,
   isModelDropdownOpen,
-  isSearchingMemory,
   isSending,
   isUploadingImages,
   mentionSearchText,
@@ -121,6 +122,8 @@ const {
   slashCommandPosition,
   slashCommandQuery,
   slashCommands,
+  shouldShowMemorySuggestionEmptyState,
+  shouldShowMemorySuggestionIdleHint,
   shouldShowMemorySuggestions,
   syncScroll,
   textareaRef,
@@ -136,6 +139,10 @@ const {
   workingDirectory: computed(() => props.workingDirectory || null),
   setWorkingDirectory: props.setWorkingDirectory
 })
+
+const shouldUseRichTextOverlay = computed(() => (
+  !inputText.value || parsedInputText.value.some(segment => segment.type !== 'text')
+))
 
 function isWithinComposer(position: { x: number, y: number }) {
   if (!rootRef.value) {
@@ -381,7 +388,7 @@ defineExpose({
 
     <div class="conversation-composer__panel">
       <ConversationTodoPanel
-        v-if="isMainPanel"
+        v-if="sessionId"
         :session-id="sessionId"
         :default-collapsed="true"
       />
@@ -740,17 +747,21 @@ defineExpose({
               {{ t('message.memorySuggestionEyebrow') }}
             </div>
             <div class="conversation-composer__memory-title">
-              {{ t('message.memorySuggestionTitle') }}
+              {{ hasVisibleMemorySuggestions ? t('message.memorySuggestionTitle') : t('message.memorySearchingActive') }}
             </div>
-            <div class="conversation-composer__memory-keyboard-hint">
+            <div
+              v-if="hasVisibleMemorySuggestions"
+              class="conversation-composer__memory-keyboard-hint"
+            >
               {{ t('message.memoryKeyboardHint') }}
             </div>
           </div>
           <div
-            v-if="isSearchingMemory"
+            v-if="isMemorySuggestionLoading"
             class="conversation-composer__memory-loading"
           >
-            {{ t('message.memorySearching') }}
+            <span class="conversation-composer__memory-spinner" />
+            <span>{{ t('message.memorySearchingActive') }}</span>
           </div>
         </div>
 
@@ -777,7 +788,28 @@ defineExpose({
         </div>
 
         <div
-          v-if="visibleMemorySuggestions.librarySuggestions.length > 0"
+          v-if="shouldShowMemorySuggestionEmptyState"
+          class="conversation-composer__memory-empty"
+        >
+          <div class="conversation-composer__memory-empty-title">
+            {{ t('message.memoryNoMatches') }}
+          </div>
+          <div class="conversation-composer__memory-empty-hint">
+            {{ t('message.memoryKeepTypingHint') }}
+          </div>
+        </div>
+
+        <div
+          v-else-if="shouldShowMemorySuggestionIdleHint"
+          class="conversation-composer__memory-empty conversation-composer__memory-empty--subtle"
+        >
+          <div class="conversation-composer__memory-empty-hint">
+            {{ t('message.memorySearchSettling') }}
+          </div>
+        </div>
+
+        <div
+          v-if="hasVisibleMemorySuggestions && visibleMemorySuggestions.librarySuggestions.length > 0"
           class="conversation-composer__memory-group"
         >
           <div class="conversation-composer__memory-group-title">
@@ -829,7 +861,7 @@ defineExpose({
         </div>
 
         <div
-          v-if="visibleMemorySuggestions.rawSuggestions.length > 0"
+          v-if="hasVisibleMemorySuggestions && visibleMemorySuggestions.rawSuggestions.length > 0"
           class="conversation-composer__memory-group"
         >
           <div class="conversation-composer__memory-group-title">
@@ -888,6 +920,9 @@ defineExpose({
         <div
           ref="renderLayerRef"
           class="conversation-composer__render"
+          :class="{
+            'conversation-composer__render--hidden': !shouldUseRichTextOverlay
+          }"
         >
           <template v-if="parsedInputText.length > 0">
             <template
@@ -932,6 +967,9 @@ defineExpose({
           ref="textareaRef"
           v-model="inputText"
           class="conversation-composer__textarea"
+          :class="{
+            'conversation-composer__textarea--plain': !shouldUseRichTextOverlay
+          }"
           rows="4"
           :disabled="!sessionId"
           @compositionstart="handleCompositionStart"
@@ -1496,6 +1534,10 @@ defineExpose({
   text-indent: 0;
 }
 
+.conversation-composer__render--hidden {
+  opacity: 0;
+}
+
 .conversation-composer__textarea {
   position: absolute;
   inset: 0;
@@ -1508,6 +1550,11 @@ defineExpose({
   text-indent: 0;
 }
 
+.conversation-composer__textarea--plain {
+  color: var(--color-text-primary);
+  -webkit-text-fill-color: currentColor;
+}
+
 .conversation-composer__textarea::selection {
   background: color-mix(in srgb, var(--color-primary) 22%, transparent);
   color: transparent;
@@ -1517,6 +1564,15 @@ defineExpose({
 .conversation-composer__textarea::-moz-selection {
   background: color-mix(in srgb, var(--color-primary) 22%, transparent);
   color: transparent;
+}
+
+.conversation-composer__textarea--plain::selection {
+  color: inherit;
+  -webkit-text-fill-color: currentColor;
+}
+
+.conversation-composer__textarea--plain::-moz-selection {
+  color: inherit;
 }
 
 .conversation-composer__placeholder {
@@ -1673,8 +1729,21 @@ defineExpose({
 }
 
 .conversation-composer__memory-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-size: clamp(11px, 0.72rem + 0.1vw, var(--font-size-xs));
   color: var(--color-text-secondary);
+}
+
+.conversation-composer__memory-spinner {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border: 2px solid color-mix(in srgb, var(--color-primary) 18%, rgba(255, 255, 255, 0.36));
+  border-top-color: var(--color-primary);
+  border-radius: 999px;
+  animation: conversation-composer-memory-spin 0.72s linear infinite;
 }
 
 .conversation-composer__memory-preview {
@@ -1737,6 +1806,33 @@ defineExpose({
   line-height: 1.58;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.conversation-composer__memory-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px dashed color-mix(in srgb, var(--color-primary) 18%, var(--color-border));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--color-primary-light) 18%, white);
+}
+
+.conversation-composer__memory-empty--subtle {
+  background: color-mix(in srgb, var(--color-bg-secondary) 72%, white);
+  border-style: solid;
+}
+
+.conversation-composer__memory-empty-title {
+  font-size: clamp(12px, 0.78rem + 0.14vw, var(--font-size-sm));
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.conversation-composer__memory-empty-hint {
+  font-size: clamp(11px, 0.72rem + 0.1vw, var(--font-size-xs));
+  line-height: 1.5;
+  color: var(--color-text-secondary);
 }
 
 .conversation-composer__memory-group {
@@ -1977,6 +2073,12 @@ defineExpose({
   transform: translateY(-6px);
 }
 
+@keyframes conversation-composer-memory-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 :global([data-theme='dark']) .conversation-composer--main,
 :global(.dark) .conversation-composer--main {
   background: var(--color-bg-primary);
@@ -2129,6 +2231,19 @@ defineExpose({
 :global([data-theme='dark']) .conversation-composer__memory-keyboard-hint,
 :global(.dark) .conversation-composer__memory-keyboard-hint,
 .conversation-composer--dark .conversation-composer__memory-keyboard-hint {
+  color: #94a3b8;
+}
+
+:global([data-theme='dark']) .conversation-composer__memory-empty,
+:global(.dark) .conversation-composer__memory-empty,
+.conversation-composer--dark .conversation-composer__memory-empty {
+  border-color: rgba(56, 189, 248, 0.18);
+  background: rgba(15, 23, 42, 0.68);
+}
+
+:global([data-theme='dark']) .conversation-composer__memory-empty-hint,
+:global(.dark) .conversation-composer__memory-empty-hint,
+.conversation-composer--dark .conversation-composer__memory-empty-hint {
   color: #94a3b8;
 }
 

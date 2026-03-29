@@ -13,6 +13,7 @@ import type { AITaskItem, DynamicFormSchema, PlanSplitLogRecord, TaskResplitConf
 import type { TimelineEntry } from '@/types/timeline'
 import { buildToolCallMapFromLogs, extractDynamicFormSchemas } from '@/utils/toolCallLog'
 import { buildUsageNotice } from '@/utils/runtimeNotice'
+import { DEFAULT_SPLIT_GRANULARITY } from '@/constants/plan'
 
 const planStore = usePlanStore()
 const taskSplitStore = useTaskSplitStore()
@@ -1050,7 +1051,7 @@ const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(close
     <TaskResplitModal
       v-model:visible="resplitModalVisible"
       :task="resplitTargetTask"
-      :default-granularity="taskSplitStore.context?.granularity || 3"
+      :default-granularity="taskSplitStore.context?.granularity || DEFAULT_SPLIT_GRANULARITY"
       :default-agent-id="taskSplitStore.context?.agentId"
       :default-model-id="taskSplitStore.context?.modelId"
       @confirm="handleResplitConfirm"

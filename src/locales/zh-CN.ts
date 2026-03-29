@@ -225,6 +225,10 @@ const zhCN = {
     memoryKeyboardHint: '上下键选择，回车引入',
     memoryPreviewTitle: '悬停预览',
     memorySearching: '正在检索历史记忆...',
+    memorySearchingActive: '正在搜索相关记忆...',
+    memorySearchSettling: '输入期间会保留当前列表，并持续刷新结果',
+    memoryNoMatches: '暂时没有匹配到记忆',
+    memoryKeepTypingHint: '继续输入更多关键词，停顿后仍无结果时会保持为空态',
     memoryInsert: '引入',
     memoryDismiss: '忽略',
     memorySourceLibrary: '记忆库',
@@ -1366,6 +1370,92 @@ const zhCN = {
     skipAndContinue: '跳过并继续',
     noLogs: '暂无执行日志',
     aiRunning: 'AI 执行中...'
+  },
+  prompts: {
+    conversation: {
+      mainFormRequest: `你正在桌面应用的主会话中与用户协作。
+
+当你还不能继续当前任务、必须向用户补充收集明确参数、范围、偏好、环境信息时：
+1. 不要用普通段落、编号列表或 markdown 提问。
+2. 必须只输出一个 JSON 对象，且不要放在代码块里。
+3. JSON 格式如下：
+{"type":"form_request","question":"一句话说明为什么需要补充这些信息","forms":[{"formId":"request_more_info","title":"请补充以下信息","description":"可选补充说明","submitText":"继续","fields":[{"name":"goal","label":"目标","type":"text","required":true,"placeholder":"请输入"}]}]}
+4. 优先输出 forms 数组；字段 type 只能是 text、textarea、select、multiselect、number、checkbox、radio、date、slider。
+5. select、radio、multiselect 必须提供 options，格式为 [{"label":"显示名","value":"实际值"}]。
+6. 只有在确实需要用户补充信息才能继续时，才输出 form_request；其余场景正常回答。
+7. 如果用户发送 {"type":"form_response","formId":"...","values":{...}}，把它视为表单回答并继续处理，不要要求用户改写格式。
+8. 输出 form_request 时，JSON 前后不要再附加解释、标题、列表或其他文本。`
+    },
+    plan: {
+      splitSystem: `你是项目规划助手，目标是把需求拆成可执行任务。
+
+规则：
+1. 只输出单个 JSON 对象，不要 markdown 或解释。
+2. 信息不足输出 form_request；信息足够输出 task_split。
+3. form_request 优先输出 forms 数组；字段 type 只能是 text、textarea、select、multiselect、number、checkbox、radio、date、slider。
+4. select / radio / multiselect 的 options 必须是 [{ "label": "...", "value": "..." }]，并保留 allowOther；可补充 suggestion、suggestionReason、optionReasons。
+5. 条件显示仅使用 condition: { field, value }。
+6. task_split 必须包含 status:"DONE"、tasks、dependsOn；每个任务都要有 title、description、priority、implementationSteps、testSteps、acceptanceCriteria。
+7. 任务要边界清晰，可直接执行。`,
+      kickoffPlanName: '计划名称',
+      kickoffPlanDescription: '计划描述',
+      kickoffMinTaskCount: '最少任务数',
+      kickoffStart: '开始拆分：信息不足就输出 form_request，信息足够就直接输出 task_split。',
+      none: '（无）',
+      resplitIntro: '将以下任务继续拆分为至少 {minTaskCount} 个子任务：',
+      plan: '计划',
+      task: '任务',
+      description: '描述',
+      implementationSteps: '实现步骤',
+      testSteps: '测试步骤',
+      acceptanceCriteria: '验收标准',
+      extraRequirements: '用户额外要求',
+      directTaskSplitDone: '直接输出 task_split（status=DONE）。',
+      formResponse: '表单 {formId} 回答: {valueStr}',
+      formResponseContinue: '继续：需要更多信息就输出 form_request；足够则输出 task_split（status=DONE）。',
+      outputCorrection: `输出格式错误，请重新输出：
+- form_request：必须输出 forms 数组（兼容单个 formSchema 但优先 forms）
+- task_split：必须含 status:DONE，tasks >= {minTaskCount}
+- 禁止 markdown 代码块和额外文字`,
+      dependsOnDescription: '依赖的任务标题列表（必须先完成的任务）'
+    },
+    taskExecution: {
+      noDetailedOutput: '任务已执行完成（无详细输出）',
+      resumeContext: '## 恢复上下文',
+      taskHeading: '# 任务',
+      title: '标题',
+      description: '描述',
+      implementationSteps: '实现步骤',
+      testSteps: '测试步骤',
+      acceptanceCriteria: '验收标准',
+      userSupplement: '用户补充',
+      requirements: '要求',
+      continueFromContext: '- 基于已有上下文继续，不重复已完成步骤。',
+      formRequestJsonOnly: '- 需要用户补充信息时，只输出 JSON：',
+      resultJsonOnly: '- 完成后，只输出 JSON：',
+      resultSummaryRule: '- result_summary 只写结果、关键改动和遗留风险。',
+      formRequestExample: '{"type":"form_request","question":"问题描述","formSchema":{"formId":"id","title":"标题","fields":[{"name":"字段","label":"标签","type":"text"}]}}',
+      resultExample: '{"result_summary":"1-3句总结本次执行结果","generated_files":[],"modified_files":[],"deleted_files":[]}',
+      planProgress: '## 计划进度',
+      totalTasksLine: '总任务: {total}，已完成 {completed}，进行中 {inProgress}，阻塞 {blocked}，失败 {failed}，待执行 {pending}',
+      currentTaskLine: '当前任务: 第 {current}/{total} 个',
+      completedSection: '已完成:',
+      failedSection: '失败:',
+      filesSection: '文件:',
+      noSummary: '暂无摘要',
+      noFailureReason: '暂无失败原因',
+      fileAdded: '新增',
+      fileModified: '修改',
+      fileChanged: '变更',
+      fileDeleted: '删除',
+      fileOverflowSuffix: ' 等 {count} 个',
+      recentResults: '## 最近结果',
+      success: '成功',
+      failed: '失败',
+      summary: '摘要',
+      failure: '失败',
+      thinkingStarted: '思考开始'
+    }
   },
 
   // 任务拆分

@@ -5,6 +5,7 @@ import { inferAgentProvider } from '@/stores/agent'
 import type { AgentModelConfig } from '@/stores/agentConfig'
 import type { AITaskItem, TaskResplitConfig } from '@/types/plan'
 import { useOverlayDismiss } from '@/composables/useOverlayDismiss'
+import { DEFAULT_SPLIT_GRANULARITY } from '@/constants/plan'
 
 const props = defineProps<{
   visible: boolean
@@ -24,7 +25,7 @@ const agentConfigStore = useAgentConfigStore()
 
 // 表单状态
 const customPrompt = ref('')
-const granularity = ref(3)
+const granularity = ref(DEFAULT_SPLIT_GRANULARITY)
 const selectedAgentId = ref<string | undefined>(undefined)
 const selectedModelId = ref<string | undefined>(undefined)
 
@@ -47,7 +48,7 @@ const availableModels = computed(() => {
 // 重置表单
 function resetForm() {
   customPrompt.value = ''
-  granularity.value = props.defaultGranularity || 3
+  granularity.value = props.defaultGranularity || DEFAULT_SPLIT_GRANULARITY
   selectedAgentId.value = props.defaultAgentId
   selectedModelId.value = props.defaultModelId
 }

@@ -14,6 +14,7 @@ import { buildConversationMessages } from './buildConversationMessages'
 import { buildProjectMemorySystemPrompt } from '@/services/memory'
 import type { FileEditTrace } from '@/types/fileTrace'
 import { FileTraceCollector } from './fileTraceCollector'
+import { buildMainConversationFormRequestPrompt } from './prompts'
 import { resolveUsageModelHint } from './usageModelHint'
 import {
   buildCliEnvironmentNotice,
@@ -285,6 +286,7 @@ export class ConversationService {
         : rawInjectedSystemMessages
 
       const injectedSystemMessages = [
+        buildMainConversationFormRequestPrompt(),
         ...sessionScopedInjectedSystemMessages,
         ...(projectMemoryPrompt ? [projectMemoryPrompt] : [])
       ]
@@ -481,14 +483,11 @@ export class ConversationService {
     const sourceMessages = resumeSessionId
       ? [currentUserMessage]
       : sessionMessages
-    const nextInjectedSystemMessages = resumeSessionId
-      ? []
-      : injectedSystemMessages
 
     return buildConversationMessages(sourceMessages, {
       fallbackUserContent,
       sessionId,
-      injectedSystemMessages: nextInjectedSystemMessages
+      injectedSystemMessages
     })
   }
 
@@ -551,6 +550,7 @@ export class ConversationService {
     const messageStore = useMessageStore()
     const sessionStore = useSessionStore()
     const sessionExecutionStore = useSessionExecutionStore()
+    const tokenStore = useTokenStore()
     const resolvedProjectId = projectId
       ?? sessionStore.sessions.find(session => session.id === sessionId)?.projectId
       ?? null
@@ -764,6 +764,31 @@ export class ConversationService {
       })
     }
 
+    const syncFinalUsageNotice = () => {
+      const realtimeUsage = tokenStore.realtimeTokens.get(sessionId)
+      if (realtimeUsage) {
+        if ((!usageState.model || usageState.model.trim().length === 0) && realtimeUsage.model) {
+          usageState.model = realtimeUsage.model
+        }
+        if ((usageState.inputTokens ?? 0) <= 0 && realtimeUsage.inputTokens > 0) {
+          usageState.inputTokens = realtimeUsage.inputTokens
+        }
+        if ((usageState.outputTokens ?? 0) <= 0 && realtimeUsage.outputTokens > 0) {
+          usageState.outputTokens = realtimeUsage.outputTokens
+        }
+      }
+
+      const usageNotice = buildUsageNotice(usageState)
+      if (!usageNotice) {
+        return
+      }
+
+      runtimeNoticesState = upsertRuntimeNotice(runtimeNoticesState, usageNotice)
+      bufferMessageUpdate({
+        runtimeNotices: runtimeNoticesState
+      })
+    }
+
     try {
       await agentExecutor.execute(context, (event: StreamEvent) => {
         markMetric('firstEventAt')
@@ -914,6 +939,7 @@ export class ConversationService {
             if (finalizedToolCalls !== toolCalls) {
               toolCalls.splice(0, toolCalls.length, ...finalizedToolCalls)
             }
+            syncFinalUsageNotice()
             // 更新消息状态
             if (!hasError && !isAiMessageInterrupted()) {
               bufferMessageUpdate({
@@ -953,6 +979,7 @@ export class ConversationService {
         if (finalizedToolCalls !== toolCalls) {
           toolCalls.splice(0, toolCalls.length, ...finalizedToolCalls)
         }
+        syncFinalUsageNotice()
         if (!hasError) {
           bufferMessageUpdate({
             status: 'completed',
@@ -974,6 +1001,7 @@ export class ConversationService {
       hasError = true
       const errorMessage = error instanceof Error ? error.message : String(error)
       if (isAiMessageInterrupted()) {
+        syncFinalUsageNotice()
         bufferMessageUpdate({
           thinkingActive: false
         }, { immediate: true })
@@ -985,6 +1013,7 @@ export class ConversationService {
         return
       }
 
+      syncFinalUsageNotice()
       bufferMessageUpdate({
         status: 'error',
         errorMessage,

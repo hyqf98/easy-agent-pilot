@@ -1,3 +1,5 @@
+import i18n from '@/i18n'
+
 export interface PlanSplitPromptContext {
   planName: string
   planDescription?: string
@@ -16,60 +18,57 @@ export interface TaskResplitPromptContext {
   minTaskCount: number
 }
 
-export function buildPlanSplitSystemPrompt(): string {
-  return `你是项目规划助手，目标是把需求拆成可执行任务。
+function t(key: string, params?: Record<string, unknown>): string {
+  return params ? i18n.global.t(key, params) as string : i18n.global.t(key) as string
+}
 
-规则：
-1. 只输出单个 JSON 对象，不要 markdown 或解释。
-2. 信息不足输出 form_request；信息足够输出 task_split。
-3. form_request 优先输出 forms 数组；字段 type 只能是 text、textarea、select、multiselect、number、checkbox、radio、date、slider。
-4. select / radio / multiselect 的 options 必须是 [{ "label": "...", "value": "..." }]，并保留 allowOther；可补充 suggestion、suggestionReason、optionReasons。
-5. 条件显示仅使用 condition: { field, value }。
-6. task_split 必须包含 status:"DONE"、tasks、dependsOn；每个任务都要有 title、description、priority、implementationSteps、testSteps、acceptanceCriteria。
-7. 任务要边界清晰，可直接执行。`.trim()
+export function buildPlanSplitSystemPrompt(): string {
+  return t('prompts.plan.splitSystem').trim()
 }
 
 export function buildPlanSplitKickoffPrompt(context: PlanSplitPromptContext): string {
-  return `计划名称: ${context.planName}
-计划描述: ${context.planDescription?.trim() || '（无）'}
-最少任务数: ${context.minTaskCount}
-
-开始拆分：信息不足就输出 form_request，信息足够就直接输出 task_split。`.trim()
+  return [
+    `${t('prompts.plan.kickoffPlanName')}: ${context.planName}`,
+    `${t('prompts.plan.kickoffPlanDescription')}: ${context.planDescription?.trim() || t('prompts.plan.none')}`,
+    `${t('prompts.plan.kickoffMinTaskCount')}: ${context.minTaskCount}`,
+    '',
+    t('prompts.plan.kickoffStart')
+  ].join('\n').trim()
 }
 
 export function buildTaskResplitKickoffPrompt(context: TaskResplitPromptContext): string {
   const stepsList = context.implementationSteps.length > 0
     ? context.implementationSteps.map((s, i) => `   ${i + 1}. ${s}`).join('\n')
-    : '   （无）'
+    : `   ${t('prompts.plan.none')}`
 
   const testStepsList = context.testSteps.length > 0
     ? context.testSteps.map((s, i) => `   ${i + 1}. ${s}`).join('\n')
-    : '   （无）'
+    : `   ${t('prompts.plan.none')}`
 
   const criteriaList = context.acceptanceCriteria && context.acceptanceCriteria.length > 0
     ? context.acceptanceCriteria.map((c, i) => `   ${i + 1}. ${c}`).join('\n')
-    : '   （无）'
+    : `   ${t('prompts.plan.none')}`
 
   const userPromptSection = context.userPrompt
-    ? `\n\n用户额外要求:\n${context.userPrompt}`
+    ? `\n\n${t('prompts.plan.extraRequirements')}:\n${context.userPrompt}`
     : ''
 
-  return `将以下任务继续拆分为至少 ${context.minTaskCount} 个子任务：
+  return `${t('prompts.plan.resplitIntro', { minTaskCount: context.minTaskCount })}
 
-计划: ${context.planName}
-任务: ${context.taskTitle}
-描述: ${context.taskDescription?.trim() || '（无）'}
+${t('prompts.plan.plan')}: ${context.planName}
+${t('prompts.plan.task')}: ${context.taskTitle}
+${t('prompts.plan.description')}: ${context.taskDescription?.trim() || t('prompts.plan.none')}
 
-实现步骤:
+${t('prompts.plan.implementationSteps')}:
 ${stepsList}
 
-测试步骤:
+${t('prompts.plan.testSteps')}:
 ${testStepsList}
 
-验收标准:
+${t('prompts.plan.acceptanceCriteria')}:
 ${criteriaList}${userPromptSection}
 
-直接输出 task_split（status=DONE）。`.trim()
+${t('prompts.plan.directTaskSplitDone')}`.trim()
 }
 
 export function buildFormResponsePrompt(formId: string, values: Record<string, unknown>): string {
@@ -77,16 +76,15 @@ export function buildFormResponsePrompt(formId: string, values: Record<string, u
     .map(([key, val]) => `${key}: ${typeof val === 'object' ? JSON.stringify(val) : val}`)
     .join(', ')
 
-  return `表单 ${formId} 回答: ${valueStr}
-
-继续：需要更多信息就输出 form_request；足够则输出 task_split（status=DONE）。`.trim()
+  return [
+    t('prompts.plan.formResponse', { formId, valueStr }),
+    '',
+    t('prompts.plan.formResponseContinue')
+  ].join('\n').trim()
 }
 
 export function buildOutputCorrectionPrompt(minTaskCount: number): string {
-  return `输出格式错误，请重新输出：
-- form_request：必须输出 forms 数组（兼容单个 formSchema 但优先 forms）
-- task_split：必须含 status:DONE，tasks >= ${minTaskCount}
-- 禁止 markdown 代码块和额外文字`
+  return t('prompts.plan.outputCorrection', { minTaskCount })
 }
 
 type PlanSplitSchemaProvider = 'claude' | 'codex' | 'generic'
@@ -199,7 +197,7 @@ function buildPlanSplitTaskSchema() {
       },
       dependsOn: {
         type: 'array',
-        description: '依赖的任务标题列表（必须先完成的任务）',
+        description: t('prompts.plan.dependsOnDescription'),
         items: { type: 'string' }
       }
     },

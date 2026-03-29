@@ -1,0 +1,1 @@
+export const DEFAULT_SPLIT_GRANULARITY = 5

@@ -11,7 +11,6 @@ interface TodoItem {
 }
 
 interface TodoSnapshot {
-  source: 'claude' | 'codex'
   items: TodoItem[]
   updatedAt: string
 }
@@ -100,7 +99,6 @@ function parseTodoSnapshot(): TodoSnapshot | null {
         const items = parseClaudeTodos(toolCall)
         if (items.length > 0) {
           return {
-            source: 'claude',
             items,
             updatedAt: message.createdAt
           }
@@ -111,7 +109,6 @@ function parseTodoSnapshot(): TodoSnapshot | null {
         const items = parseCodexPlan(toolCall)
         if (items.length > 0) {
           return {
-            source: 'codex',
             items,
             updatedAt: message.createdAt
           }
@@ -152,7 +149,7 @@ const formatStatusLabel = (status: TodoItem['status']) => {
     case 'completed':
       return '已完成'
     default:
-      return '待处理'
+      return '待办'
   }
 }
 
@@ -178,9 +175,6 @@ const toggleCollapsed = () => {
           :size="14"
         />
         <span>待办列表</span>
-        <span class="conversation-todo-panel__source">
-          {{ todoSnapshot.source === 'claude' ? 'Claude TodoWrite' : 'Codex update_plan' }}
-        </span>
       </div>
       <div class="conversation-todo-panel__summary">
         {{ completedCount }}/{{ sortedTodoItems.length }}
@@ -191,8 +185,11 @@ const toggleCollapsed = () => {
       </div>
     </button>
 
-    <div class="conversation-todo-panel__items">
-      <div v-show="!isCollapsed">
+    <div
+      v-show="!isCollapsed"
+      class="conversation-todo-panel__items"
+    >
+      <div class="conversation-todo-panel__items-inner">
         <div
           v-for="item in sortedTodoItems"
           :key="item.id"
@@ -254,7 +251,6 @@ const toggleCollapsed = () => {
   font-weight: 600;
 }
 
-.conversation-todo-panel__source,
 .conversation-todo-panel__summary,
 .conversation-todo-panel__hint,
 .conversation-todo-panel__status {
@@ -271,6 +267,11 @@ const toggleCollapsed = () => {
 .conversation-todo-panel__items {
   display: flex;
   flex-direction: column;
+}
+
+.conversation-todo-panel__items-inner {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
 }
 
@@ -280,19 +281,24 @@ const toggleCollapsed = () => {
   gap: 10px;
   padding: 10px 12px;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--color-bg-secondary) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
+  background: color-mix(in srgb, var(--color-bg-secondary) 84%, transparent);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
 }
 
 .conversation-todo-panel__item--in_progress {
-  background: color-mix(in srgb, #22c55e 14%, var(--color-bg-secondary));
+  border-color: color-mix(in srgb, #22c55e 22%, var(--color-border));
+  background: color-mix(in srgb, #22c55e 10%, var(--color-bg-secondary));
 }
 
 .conversation-todo-panel__item--pending {
-  background: color-mix(in srgb, #f59e0b 12%, var(--color-bg-secondary));
+  border-color: color-mix(in srgb, #94a3b8 30%, var(--color-border));
+  background: color-mix(in srgb, #cbd5e1 18%, var(--color-bg-secondary));
 }
 
 .conversation-todo-panel__item--completed {
   opacity: 0.86;
+  border-color: color-mix(in srgb, var(--color-border) 56%, transparent);
 }
 
 .conversation-todo-panel__dot {
@@ -333,5 +339,23 @@ const toggleCollapsed = () => {
 .conversation-todo-panel__status {
   flex-shrink: 0;
   white-space: nowrap;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-bg-secondary) 88%, transparent);
+}
+
+.conversation-todo-panel__item--in_progress .conversation-todo-panel__status {
+  color: #15803d;
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.conversation-todo-panel__item--pending .conversation-todo-panel__status {
+  color: var(--color-text-secondary);
+  background: rgba(148, 163, 184, 0.16);
+}
+
+.conversation-todo-panel__item--completed .conversation-todo-panel__status {
+  color: var(--color-text-secondary);
+  background: rgba(148, 163, 184, 0.14);
 }
 </style>

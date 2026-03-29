@@ -262,6 +262,47 @@ onUnmounted(() => {
   gap: 6px;
 }
 
+:deep(.mini-panel__composer .conversation-todo-panel) {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 12px;
+}
+
+:deep(.mini-panel__composer .conversation-todo-panel__head) {
+  margin-bottom: 6px;
+}
+
+:deep(.mini-panel__composer .conversation-todo-panel__title) {
+  font-size: 12px;
+}
+
+:deep(.mini-panel__composer .conversation-todo-panel__summary),
+:deep(.mini-panel__composer .conversation-todo-panel__status),
+:deep(.mini-panel__composer .conversation-todo-panel__hint) {
+  font-size: 10px;
+}
+
+:deep(.mini-panel__composer .conversation-todo-panel__items-inner) {
+  gap: 6px;
+}
+
+:deep(.mini-panel__composer .conversation-todo-panel__item) {
+  gap: 8px;
+  padding: 8px 9px;
+  border-radius: 10px;
+}
+
+:deep(.mini-panel__composer .conversation-todo-panel__dot) {
+  width: 7px;
+  height: 7px;
+  margin-top: 5px;
+}
+
+:deep(.mini-panel__composer .conversation-todo-panel__text) {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 :deep(.mini-panel__composer .conversation-composer__queue) {
   gap: 5px;
 }
@@ -445,6 +486,26 @@ onUnmounted(() => {
 
 :deep(.mini-panel__messages .message-bubble__tool-calls) {
   gap: 6px;
+}
+
+:deep(.mini-panel__messages .message-bubble__tool-calls-shell) {
+  padding: 0.55rem;
+  border-radius: 0.85rem;
+}
+
+:deep(.mini-panel__messages .message-bubble__tool-calls-head) {
+  gap: 0.5rem;
+}
+
+:deep(.mini-panel__messages .message-bubble__tool-calls-title),
+:deep(.mini-panel__messages .message-bubble__tool-calls-toggle) {
+  font-size: 0.64rem;
+}
+
+:deep(.mini-panel__messages .message-bubble__tool-calls-count) {
+  min-width: 1.2rem;
+  height: 1.2rem;
+  font-size: 0.64rem;
 }
 
 :deep(.mini-panel__messages .message-bubble__runtime) {

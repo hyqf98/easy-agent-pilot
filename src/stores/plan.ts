@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { useNotificationStore } from './notification'
 import { getErrorMessage } from '@/utils/api'
 import type { Plan, PlanStatus, PlanExecutionStatus, ScheduleStatus, CreatePlanInput, UpdatePlanInput, AgentRole, PlanSplitMode } from '@/types/plan'
+import { DEFAULT_SPLIT_GRANULARITY } from '@/constants/plan'
 
 // Rust 后端返回的 snake_case 结构
 interface RustPlan {
@@ -150,7 +151,7 @@ export const usePlanStore = defineStore('plan', () => {
       split_agent_id: input.splitAgentId ?? null,
       split_model_id: input.splitModelId ?? null,
       agent_team: input.agentTeam ?? null,
-      granularity: input.granularity ?? 20,
+      granularity: input.granularity ?? DEFAULT_SPLIT_GRANULARITY,
       max_retry_count: input.maxRetryCount ?? 3,
       scheduled_at: input.scheduledAt ?? null
     }

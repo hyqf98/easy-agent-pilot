@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import type {
   AgentCliUsageGranularity,
   AgentCliUsageProviderFilter,
+  RepairAgentCliUsageHistoryResult,
   AgentCliUsageStatsResponse,
   QueryAgentCliUsageStatsInput
 } from '@/types/agentCliUsage'
@@ -121,6 +122,13 @@ export const useAgentCliUsageStore = defineStore('agentCliUsage', () => {
     errorMessage.value = ''
 
     try {
+      await invoke<RepairAgentCliUsageHistoryResult>('repair_agent_cli_usage_history', {
+        provider: filters.value.cliType === 'codex' ? 'codex' : 'claude'
+      }).catch((error) => {
+        console.warn('[agentCliUsage] Failed to repair historical usage records:', error)
+        return null
+      })
+
       const [agentResponse, modelResponse] = await Promise.all([
         invoke<AgentCliUsageStatsResponse>('query_agent_cli_usage_stats', {
           input: agentQueryInput.value

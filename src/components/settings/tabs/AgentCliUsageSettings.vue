@@ -407,9 +407,28 @@ function applyAgentChart() {
         ].join('<br />')
       }
     },
-    grid: { left: 180, right: 24, top: 16, bottom: 16 },
-    xAxis: { type: 'value', name: t('settings.usageStats.summaryTotalTokens') },
-    yAxis: { type: 'category', data: rows.map(item => item.label) },
+    grid: { left: 210, right: 40, top: 16, bottom: 68, containLabel: true },
+    xAxis: {
+      type: 'value',
+      name: t('settings.usageStats.summaryTotalTokens'),
+      nameLocation: 'middle',
+      nameGap: 42,
+      axisLabel: {
+        hideOverlap: true,
+        margin: 12
+      },
+      nameTextStyle: {
+        padding: [12, 0, 0, 0]
+      }
+    },
+    yAxis: {
+      type: 'category',
+      data: rows.map(item => item.label),
+      axisLabel: {
+        width: 180,
+        overflow: 'truncate'
+      }
+    },
     series: [
       {
         type: 'bar',
@@ -447,9 +466,29 @@ function applyModelChart() {
         ].join('<br />')
       }
     },
-    grid: { left: 200, right: 24, top: 16, bottom: 16 },
-    xAxis: { type: 'value', name: t('settings.usageStats.summaryEstimatedCost') },
-    yAxis: { type: 'category', data: rows.map(item => item.label) },
+    grid: { left: 230, right: 48, top: 16, bottom: 72, containLabel: true },
+    xAxis: {
+      type: 'value',
+      name: t('settings.usageStats.summaryEstimatedCost'),
+      nameLocation: 'middle',
+      nameGap: 44,
+      axisLabel: {
+        formatter: (value: number) => formatCurrency(value),
+        hideOverlap: true,
+        margin: 12
+      },
+      nameTextStyle: {
+        padding: [12, 0, 0, 0]
+      }
+    },
+    yAxis: {
+      type: 'category',
+      data: rows.map(item => item.label),
+      axisLabel: {
+        width: 200,
+        overflow: 'truncate'
+      }
+    },
     series: [
       {
         type: 'bar',
@@ -685,7 +724,7 @@ onBeforeUnmount(() => {
         </SettingsSectionCard>
       </div>
 
-      <div class="usage-chart-grid">
+      <div class="usage-chart-grid usage-chart-grid--ranking">
         <SettingsSectionCard
           :title="t('settings.usageStats.agentRankingTitle')"
           :description="t('settings.usageStats.agentRankingDescription')"
@@ -919,13 +958,17 @@ onBeforeUnmount(() => {
   gap: var(--spacing-4);
 }
 
+.usage-chart-grid--ranking {
+  grid-template-columns: repeat(2, minmax(420px, 1fr));
+}
+
 .usage-chart {
   width: 100%;
   min-height: 340px;
 }
 
 .usage-chart--compact {
-  min-height: 420px;
+  min-height: 450px;
 }
 
 .usage-chart--provider {
@@ -946,6 +989,12 @@ onBeforeUnmount(() => {
   .usage-insight-grid,
   .usage-chart-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1480px) {
+  .usage-chart-grid--ranking {
+    grid-template-columns: 1fr;
   }
 }
 

@@ -217,6 +217,7 @@ pub fn run() {
             commands::agent::test_agent_connection,
             commands::agent_cli_usage::record_agent_cli_usage,
             commands::agent_cli_usage::query_agent_cli_usage_stats,
+            commands::agent_cli_usage::repair_agent_cli_usage_history,
             // Agent MCP Config commands
             commands::agent_config::list_agent_mcp_configs,
             commands::agent_config::create_agent_mcp_config,

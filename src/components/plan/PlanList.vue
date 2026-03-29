@@ -8,6 +8,7 @@ import { usePlanStore } from '@/stores/plan'
 import { useProjectStore } from '@/stores/project'
 import { useTaskStore } from '@/stores/task'
 import type { Plan, PlanStatus, TaskStatus, UpdatePlanInput } from '@/types/plan'
+import { DEFAULT_SPLIT_GRANULARITY } from '@/constants/plan'
 import PlanCreateDialog from './PlanCreateDialog.vue'
 import PlanEditDialog from './PlanEditDialog.vue'
 import PlanListEmptyState from './PlanListEmptyState.vue'
@@ -67,7 +68,7 @@ const createForm = reactive<PlanCreateFormState>({
   name: '',
   description: '',
   splitMode: 'ai',
-  granularity: 20,
+  granularity: DEFAULT_SPLIT_GRANULARITY,
   maxRetryCount: 3,
   splitAgentId: null,
   splitModelId: '',
@@ -84,7 +85,7 @@ const editForm = reactive<PlanEditFormState>({
   name: '',
   description: '',
   splitMode: 'ai',
-  granularity: 20,
+  granularity: DEFAULT_SPLIT_GRANULARITY,
   maxRetryCount: 3,
   splitAgentId: null,
   splitModelId: '',
@@ -296,7 +297,7 @@ function resetCreateForm() {
     name: '',
     description: '',
     splitMode: 'ai',
-    granularity: 20,
+    granularity: DEFAULT_SPLIT_GRANULARITY,
     maxRetryCount: 3,
     splitAgentId: null,
     splitModelId: '',
@@ -397,7 +398,7 @@ function resetEditForm() {
     name: '',
     description: '',
     splitMode: 'ai',
-    granularity: 20,
+    granularity: DEFAULT_SPLIT_GRANULARITY,
     maxRetryCount: 3,
     splitAgentId: null,
     splitModelId: '',

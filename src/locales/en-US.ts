@@ -313,6 +313,10 @@ export default {
     memoryKeyboardHint: 'Use Up/Down to focus, Enter to insert',
     memoryPreviewTitle: 'Hover preview',
     memorySearching: 'Searching past memory...',
+    memorySearchingActive: 'Searching related memory...',
+    memorySearchSettling: 'Keep typing and the current list will stay visible while results refresh',
+    memoryNoMatches: 'No matching memories yet',
+    memoryKeepTypingHint: 'Continue typing more keywords. If nothing matches after a pause, this empty state stays visible.',
     memoryInsert: 'Insert',
     memoryDismiss: 'Dismiss',
     memorySourceLibrary: 'Library',
@@ -1824,6 +1828,92 @@ export default {
     skipAndContinue: 'Skip and Continue',
     noLogs: 'No execution logs',
     aiRunning: 'AI is running...'
+  },
+  prompts: {
+    conversation: {
+      mainFormRequest: `You are collaborating with the user in the app's main conversation.
+
+When you cannot continue the current task and must collect explicit parameters, scope, preferences, or environment details from the user:
+1. Do not ask using normal paragraphs, numbered lists, or markdown.
+2. You must output exactly one JSON object and do not wrap it in a code block.
+3. Use this JSON shape:
+{"type":"form_request","question":"One sentence explaining why the missing information is needed","forms":[{"formId":"request_more_info","title":"Please provide the following information","description":"Optional clarification","submitText":"Continue","fields":[{"name":"goal","label":"Goal","type":"text","required":true,"placeholder":"Please enter"}]}]}
+4. Prefer the forms array. Field type may only be text, textarea, select, multiselect, number, checkbox, radio, date, or slider.
+5. select, radio, and multiselect must provide options in the format [{"label":"Visible Label","value":"actual_value"}].
+6. Output form_request only when you truly need more user input to continue. Otherwise reply normally.
+7. If the user sends {"type":"form_response","formId":"...","values":{...}}, treat it as the form answer and continue. Do not ask the user to rewrite the format.
+8. When outputting form_request, do not add explanations, headings, lists, or any extra text before or after the JSON.`
+    },
+    plan: {
+      splitSystem: `You are a project planning assistant. Your goal is to split requirements into executable tasks.
+
+Rules:
+1. Output exactly one JSON object. No markdown and no explanations.
+2. If information is insufficient, output form_request. If information is sufficient, output task_split.
+3. For form_request, prefer the forms array. Field type may only be text, textarea, select, multiselect, number, checkbox, radio, date, or slider.
+4. select / radio / multiselect options must be [{ "label": "...", "value": "..." }], and keep allowOther. You may also provide suggestion, suggestionReason, and optionReasons.
+5. Conditional display may only use condition: { field, value }.
+6. task_split must include status:"DONE", tasks, and dependsOn. Every task must contain title, description, priority, implementationSteps, testSteps, and acceptanceCriteria.
+7. Tasks must have clear boundaries and be directly executable.`,
+      kickoffPlanName: 'Plan Name',
+      kickoffPlanDescription: 'Plan Description',
+      kickoffMinTaskCount: 'Minimum Task Count',
+      kickoffStart: 'Start splitting: if information is insufficient, output form_request; if information is sufficient, output task_split directly.',
+      none: '(none)',
+      resplitIntro: 'Continue splitting the following task into at least {minTaskCount} subtasks:',
+      plan: 'Plan',
+      task: 'Task',
+      description: 'Description',
+      implementationSteps: 'Implementation Steps',
+      testSteps: 'Test Steps',
+      acceptanceCriteria: 'Acceptance Criteria',
+      extraRequirements: 'Additional User Requirements',
+      directTaskSplitDone: 'Output task_split directly (status=DONE).',
+      formResponse: 'Form {formId} response: {valueStr}',
+      formResponseContinue: 'Continue: if more information is needed, output form_request; if sufficient, output task_split (status=DONE).',
+      outputCorrection: `Output format is invalid. Please output again:
+- form_request: must contain the forms array (single formSchema is tolerated but forms is preferred)
+- task_split: must contain status:DONE and tasks >= {minTaskCount}
+- Do not output markdown code fences or extra text`,
+      dependsOnDescription: 'List of task titles this task depends on and that must be completed first'
+    },
+    taskExecution: {
+      noDetailedOutput: 'Task completed with no detailed output',
+      resumeContext: '## Resume Context',
+      taskHeading: '# Task',
+      title: 'Title',
+      description: 'Description',
+      implementationSteps: 'Implementation Steps',
+      testSteps: 'Test Steps',
+      acceptanceCriteria: 'Acceptance Criteria',
+      userSupplement: 'User Supplement',
+      requirements: 'Requirements',
+      continueFromContext: '- Continue from the existing context and do not repeat completed work.',
+      formRequestJsonOnly: '- If you need more information from the user, output JSON only:',
+      resultJsonOnly: '- When finished, output JSON only:',
+      resultSummaryRule: '- result_summary should contain only the result, key changes, and residual risks.',
+      formRequestExample: '{"type":"form_request","question":"Describe the missing information","formSchema":{"formId":"id","title":"Title","fields":[{"name":"field","label":"Label","type":"text"}]}}',
+      resultExample: '{"result_summary":"Summarize the execution result in 1-3 sentences","generated_files":[],"modified_files":[],"deleted_files":[]}',
+      planProgress: '## Plan Progress',
+      totalTasksLine: 'Total tasks: {total}, completed {completed}, in progress {inProgress}, blocked {blocked}, failed {failed}, pending {pending}',
+      currentTaskLine: 'Current task: {current}/{total}',
+      completedSection: 'Completed:',
+      failedSection: 'Failed:',
+      filesSection: 'Files:',
+      noSummary: 'No summary available',
+      noFailureReason: 'No failure reason available',
+      fileAdded: 'Added',
+      fileModified: 'Modified',
+      fileChanged: 'Changed',
+      fileDeleted: 'Deleted',
+      fileOverflowSuffix: ' and {count} total',
+      recentResults: '## Recent Results',
+      success: 'Success',
+      failed: 'Failed',
+      summary: 'Summary',
+      failure: 'Failure',
+      thinkingStarted: 'Thinking started'
+    }
   },
 
   // Task Split

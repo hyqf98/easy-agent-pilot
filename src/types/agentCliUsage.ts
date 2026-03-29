@@ -89,3 +89,10 @@ export interface AgentCliUsageStatsResponse {
   stackedTimeline: AgentCliUsageStackedPoint[]
   meta: AgentCliUsageMeta
 }
+
+export interface RepairAgentCliUsageHistoryResult {
+  provider: string
+  targetModelId?: string | null
+  updatedCount: number
+  skippedReason?: string | null
+}
