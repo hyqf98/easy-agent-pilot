@@ -279,6 +279,13 @@ watch(latestMessageActivity, async () => {
   await nextTick()
   updateViewportMetrics()
 
+  if (latestMessage?.role === 'user' && hasNewMessage) {
+    isUserAtBottom.value = true
+    showScrollToBottom.value = false
+    scrollToBottom(false)
+    return
+  }
+
   if (isUserAtBottom.value && (hasNewMessage || hasStreamingMessage)) {
     scrollToBottom(hasNewMessage)
   }

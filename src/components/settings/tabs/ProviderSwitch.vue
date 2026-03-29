@@ -12,10 +12,12 @@ import ProviderConnectionInfoCard from '@/components/settings/provider-switch/Pr
 import ProviderDeleteDialog from '@/components/settings/provider-switch/ProviderDeleteDialog.vue'
 import ProviderProfilesSection from '@/components/settings/provider-switch/ProviderProfilesSection.vue'
 import ProviderSwitchTabs from '@/components/settings/provider-switch/ProviderSwitchTabs.vue'
+import { useNotificationStore } from '@/stores/notification'
 import ProviderProfileForm from './ProviderProfileForm.vue'
 
 const { t } = useI18n()
 const store = useProviderProfileStore()
+const notificationStore = useNotificationStore()
 
 const currentCliType = ref<CliType>('claude')
 const showFormModal = ref(false)
@@ -91,11 +93,15 @@ async function handleSave(input: CreateProviderProfileInput | UpdateProviderProf
   try {
     if (editingProfile.value) {
       await store.updateProfile(editingProfile.value.id, input as UpdateProviderProfileInput)
-      showSuccess(t('settings.providerSwitch.messages.updateSuccess'))
     } else {
       await store.createProfile(input as CreateProviderProfileInput)
-      showSuccess(t('settings.providerSwitch.messages.createSuccess'))
     }
+
+    await store.refreshCliTypeState(currentCliType.value, { reloadProfiles: true })
+
+    showSuccess(editingProfile.value
+      ? t('settings.providerSwitch.messages.updateSuccess')
+      : t('settings.providerSwitch.messages.createSuccess'))
     showFormModal.value = false
     editingProfile.value = null
   } catch (error) {
@@ -107,11 +113,12 @@ async function handleSave(input: CreateProviderProfileInput | UpdateProviderProf
   }
 }
 
-function showSuccess(_message: string) {
+function showSuccess(message: string) {
+  notificationStore.success(message)
 }
 
 function showError(message: string) {
-  console.error('Error:', message)
+  notificationStore.error(t('common.error'), message)
 }
 
 function handleDeleteDialogVisibleChange(visible: boolean) {
@@ -123,14 +130,12 @@ function handleDeleteDialogVisibleChange(visible: boolean) {
 
 onMounted(async () => {
   await store.loadProfiles()
-  await store.readAllCliConnections()
+  await store.refreshCliTypeState(currentCliType.value)
 })
 
 watch(currentCliType, async (type) => {
-  await store.loadActiveProfile(type)
-  await store.readCurrentConfig(type)
-  await store.readCliConnectionInfo(type)
-}, { immediate: true })
+  await store.refreshCliTypeState(type)
+})
 </script>
 
 <template>

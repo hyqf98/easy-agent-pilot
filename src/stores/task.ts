@@ -26,6 +26,7 @@ interface RustTask {
   agent_id?: string
   model_id?: string
   session_id?: string
+  cli_session_provider?: string
   progress_file?: string
   dependencies?: string | string[] // JSON 字符串或数组
   task_order?: number
@@ -101,6 +102,7 @@ function transformTask(rustTask: RustTask): Task {
     agentId: rustTask.agent_id,
     modelId: rustTask.model_id,
     sessionId: rustTask.session_id,
+    cliSessionProvider: rustTask.cli_session_provider,
     progressFile: rustTask.progress_file,
     dependencies,
     order,
@@ -327,6 +329,7 @@ export const useTaskStore = defineStore('task', () => {
     if ('agentId' in updates) input.agent_id = updates.agentId ?? null
     if ('modelId' in updates) input.model_id = updates.modelId ?? null
     if ('sessionId' in updates) input.session_id = updates.sessionId ?? null
+    if ('cliSessionProvider' in updates) input.cli_session_provider = updates.cliSessionProvider ?? null
     if ('progressFile' in updates) input.progress_file = updates.progressFile ?? null
     if ('dependencies' in updates) input.dependencies = updates.dependencies ?? null
     if ('order' in updates) input.order = updates.order ?? null
@@ -506,6 +509,25 @@ export const useTaskStore = defineStore('task', () => {
     }
 
     return task.dependencies
+      .map(depId => {
+        const depTask = tasks.value.find(t => t.id === depId)
+        return depTask?.title ?? depId
+      })
+      .filter(Boolean) as string[]
+  }
+
+  // 获取未满足依赖的任务标题列表
+  function getUnmetDependencyTitles(taskId: string): string[] {
+    const task = tasks.value.find(t => t.id === taskId)
+    if (!task?.dependencies || task.dependencies.length === 0) {
+      return []
+    }
+
+    return task.dependencies
+      .filter(depId => {
+        const depTask = tasks.value.find(t => t.id === depId)
+        return depTask?.status !== 'completed'
+      })
       .map(depId => {
         const depTask = tasks.value.find(t => t.id === depId)
         return depTask?.title ?? depId
@@ -742,6 +764,7 @@ export const useTaskStore = defineStore('task', () => {
     setCurrentTask,
     areDependenciesMet,
     getDependencyTitles,
+    getUnmetDependencyTitles,
     getUnmetDependenciesCount,
     getReadyTasks,
     // 批量操作

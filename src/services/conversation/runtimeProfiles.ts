@@ -151,6 +151,7 @@ interface BuildAgentExecutionRequestOptions {
   modelId?: string
   systemPrompt?: string
   maxTokens?: number
+  resumeSessionId?: string
 }
 
 export function buildAgentExecutionRequest(
@@ -189,6 +190,7 @@ export function buildAgentExecutionRequest(
     extraCliArgs: options.extraCliArgs,
     mcpServers: options.mcpServers,
     executionMode: options.executionMode ?? 'chat',
-    responseMode: options.responseMode ?? 'stream_text'
+    responseMode: options.responseMode ?? 'stream_text',
+    resumeSessionId: options.resumeSessionId
   }
 }

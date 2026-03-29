@@ -6,12 +6,14 @@ import TaskEditModal from './TaskEditModal.vue'
 import { usePlanStore } from '@/stores/plan'
 import { useTaskStore } from '@/stores/task'
 import { useTaskExecutionStore } from '@/stores/taskExecution'
+import { useNotificationStore } from '@/stores/notification'
 import { useConfirmDialog } from '@/composables'
 import type { Task, TaskStatus, TaskOrderItem } from '@/types/plan'
 
 const planStore = usePlanStore()
 const taskStore = useTaskStore()
 const taskExecutionStore = useTaskExecutionStore()
+const notificationStore = useNotificationStore()
 const confirmDialog = useConfirmDialog()
 const { t } = useI18n()
 const emit = defineEmits<{
@@ -124,6 +126,44 @@ const columns = computed<Array<{ status: TaskStatus; label: string; color: strin
   { status: 'failed', label: t('taskBoard.columns.failed'), color: 'red' }
 ])
 
+function isTaskTrackedByExecution(taskId: string): boolean {
+  const state = taskExecutionStore.getExecutionState(taskId)
+  if (state && state.status !== 'idle' && state.status !== 'completed' && state.status !== 'failed') {
+    return true
+  }
+
+  const queue = currentExecutionQueue.value
+  return Boolean(
+    queue
+    && (
+      queue.currentTaskId === taskId
+      || queue.lastInterruptedTaskId === taskId
+      || queue.pendingTaskIds.includes(taskId)
+    )
+  )
+}
+
+async function showUnmetDependencyDialog(task: Task) {
+  const dependencyNames = taskStore.getUnmetDependencyTitles(task.id)
+  const firstDependency = dependencyNames[0] ?? ''
+  const dependencyList = dependencyNames.join('、')
+
+  await confirmDialog.show({
+    type: 'info',
+    title: t('taskBoard.dependencyBlockedTitle'),
+    message: dependencyNames.length > 0
+      ? t('taskBoard.dependencyBlockedMessage', {
+        task: task.title,
+        dependencies: dependencyList,
+        nextTask: firstDependency
+      })
+      : t('taskBoard.dependencyBlockedFallback', { task: task.title }),
+    confirmLabel: t('common.gotIt'),
+    cancelLabel: t('common.close'),
+    confirmButtonType: 'primary'
+  })
+}
+
 async function loadTasks() {
   if (currentPlanId.value) {
     await taskStore.loadTasks(currentPlanId.value)
@@ -140,14 +180,21 @@ async function handleTaskDrop(taskId: string, newStatus: TaskStatus) {
   const task = tasks.value.find(t => t.id === taskId)
   if (!task || task.status === newStatus) return
 
-  if (taskExecutionStore.isTaskExecuting(taskId)) {
+  const oldStatus = task.status
+  const oldOrder = task.order
+
+  if (taskExecutionStore.isTaskRunning(taskId)) {
+    return
+  }
+
+  if (newStatus === 'in_progress' && oldStatus === 'pending' && !taskStore.areDependenciesMet(taskId)) {
+    await showUnmetDependencyDialog(task)
     return
   }
 
   const targetColumnTasks = tasksByStatus.value[newStatus]
   const newOrder = targetColumnTasks.length
 
-  const oldStatus = task.status
   task.status = newStatus
   task.order = newOrder
 
@@ -163,35 +210,59 @@ async function handleTaskDrop(taskId: string, newStatus: TaskStatus) {
     try {
       await taskStore.updateTask(taskId, {
         status: newStatus,
-        order: newOrder
+        order: newOrder,
+        errorMessage: undefined,
+        blockReason: undefined
       })
 
       if (currentPlanId.value) {
-        await planStore.startPlanExecution(currentPlanId.value)
-        if (isCurrentPlanPaused.value) {
-          await taskExecutionStore.resumeTaskExecution(taskId)
-        } else {
-          await taskExecutionStore.enqueueTask(currentPlanId.value, taskId)
-        }
+        await taskExecutionStore.startTaskExecution(taskId)
       }
     } catch (error) {
-      // 回滚
+      task.status = oldStatus
+      task.order = oldOrder
+      await loadTasks()
       console.error('Failed to start task execution:', error)
     }
     return
   }
 
   try {
-    // 持久化更新
+    if (isTaskTrackedByExecution(taskId)) {
+      await taskExecutionStore.detachTaskFromExecution(taskId)
+    }
+
     await taskStore.updateTask(taskId, {
       status: newStatus,
       order: newOrder
     })
+
+    if (currentPlanId.value) {
+      await taskExecutionStore.synchronizePlanExecutionQueue(currentPlanId.value)
+    }
   } catch (error) {
-    // 回滚
     task.status = oldStatus
+    task.order = oldOrder
+    await loadTasks()
     console.error('Failed to update task:', error)
   }
+}
+
+function collectTaskAndDescendantIds(taskId: string): string[] {
+  const ids = new Set<string>([taskId])
+  let changed = true
+
+  while (changed) {
+    changed = false
+    tasks.value.forEach((task) => {
+      if (task.parentId && ids.has(task.parentId) && !ids.has(task.id)) {
+        ids.add(task.id)
+        changed = true
+      }
+    })
+  }
+
+  return Array.from(ids)
 }
 
 async function handleTaskReorder(taskId: string, targetIndex: number) {
@@ -219,10 +290,11 @@ async function handleTaskReorder(taskId: string, targetIndex: number) {
   })
 
   try {
-    // 更新后端
     await taskStore.reorderTasks(orderUpdates)
+    if (currentPlanId.value && movedTask.status === 'in_progress') {
+      await taskExecutionStore.synchronizePlanExecutionQueue(currentPlanId.value)
+    }
   } catch (error) {
-    // 失败时回退到后端最新顺序
     loadTasks()
     console.error('Failed to reorder tasks:', error)
   }
@@ -242,15 +314,42 @@ function handleTaskEdit(task: Task) {
 
 async function handleTaskStop(task: Task) {
   try {
-    await taskExecutionStore.stopTaskExecution(task.id)
+    const shouldPauseQueue = Boolean(
+      currentPlanId.value
+      && taskExecutionStore.getCurrentRunningTaskId(currentPlanId.value) === task.id
+    )
+
+    await taskExecutionStore.stopTaskExecution(task.id, shouldPauseQueue
+      ? { pauseQueue: true, autoAdvance: false }
+      : undefined)
+
+    if (currentPlanId.value) {
+      await taskExecutionStore.synchronizePlanExecutionQueue(currentPlanId.value)
+    }
   } catch (error) {
     console.error('Failed to stop task:', error)
+  }
+}
+
+async function handleTaskStart(task: Task) {
+  if (!taskStore.areDependenciesMet(task.id)) {
+    await showUnmetDependencyDialog(task)
+    return
+  }
+
+  try {
+    await taskExecutionStore.startTaskExecution(task.id)
+  } catch (error) {
+    notificationStore.warning('无法开始任务', error instanceof Error ? error.message : String(error))
   }
 }
 
 async function handleTaskResume(task: Task) {
   try {
     await taskExecutionStore.resumeTaskExecution(task.id)
+    if (currentPlanId.value) {
+      await taskExecutionStore.synchronizePlanExecutionQueue(currentPlanId.value)
+    }
   } catch (error) {
     console.error('Failed to resume task:', error)
   }
@@ -267,7 +366,7 @@ async function handleTaskRetry(task: Task) {
         errorMessage: undefined
       })
 
-      await taskExecutionStore.enqueueTask(currentPlanId.value, task.id)
+      await taskExecutionStore.startTaskExecution(task.id)
     }
   } catch (error) {
     console.error('Failed to retry task:', error)
@@ -282,7 +381,18 @@ async function handleTaskDelete(task: Task) {
 
   if (confirmed) {
     try {
+      const deletedTaskIds = collectTaskAndDescendantIds(task.id)
+      const trackedTaskIds = deletedTaskIds.filter(isTaskTrackedByExecution)
+
+      for (const trackedTaskId of trackedTaskIds) {
+        await taskExecutionStore.detachTaskFromExecution(trackedTaskId)
+      }
+
       await taskStore.deleteTask(task.id)
+
+      if (currentPlanId.value) {
+        await taskExecutionStore.synchronizePlanExecutionQueue(currentPlanId.value)
+      }
     } catch (error) {
       console.error('Failed to delete task:', error)
     }
@@ -292,7 +402,7 @@ async function handleTaskDelete(task: Task) {
 async function handleExecuteAll() {
   if (!currentPlanId.value) return
 
-  const pendingTasks = tasksByStatus.value.pending
+  const pendingTasks = [...tasksByStatus.value.pending]
   if (pendingTasks.length === 0) return
 
   try {
@@ -301,6 +411,7 @@ async function handleExecuteAll() {
     for (const task of pendingTasks) {
       await taskExecutionStore.enqueueTask(currentPlanId.value, task.id)
     }
+    await taskExecutionStore.synchronizePlanExecutionQueue(currentPlanId.value)
   } catch (error) {
     console.error('Failed to execute all tasks:', error)
   }
@@ -439,6 +550,7 @@ async function markPlanAsReady() {
         @task-click="selectTask"
         @task-reorder="handleTaskReorder"
         @task-edit="handleTaskEdit"
+        @task-start="handleTaskStart"
         @task-stop="handleTaskStop"
         @task-resume="handleTaskResume"
         @task-retry="handleTaskRetry"

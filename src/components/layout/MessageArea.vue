@@ -24,7 +24,7 @@ import ConversationComposer from './ConversationComposer.vue'
 type ComposerExposed = ComponentPublicInstance & {
   focusInput: () => void
   handleMessageFormSubmit: (formId: string, values: Record<string, unknown>) => Promise<void>
-  resendMessage: (content: string, attachments?: Message['attachments']) => Promise<boolean>
+  retryMessage: (messageId: string, content: string, attachments?: Message['attachments']) => Promise<boolean>
 }
 
 const { t } = useI18n()
@@ -64,13 +64,13 @@ const handleRetry = async (message: Message) => {
   const sessionId = sessionStore.currentSessionId
   const isSending = sessionId ? sessionExecutionStore.getIsSending(sessionId) : false
   if (!sessionId || isSending) return
-  const resend = async (targetMessage: Message) => {
-    await composerRef.value?.resendMessage(targetMessage.content, targetMessage.attachments ?? [])
+  const retry = async (targetMessage: Message) => {
+    await composerRef.value?.retryMessage(targetMessage.id, targetMessage.content, targetMessage.attachments ?? [])
   }
 
   // 如果是用户消息的重试，将内容填回输入框
   if (message.role === 'user') {
-    await resend(message)
+    await retry(message)
     return
   }
 
@@ -80,7 +80,7 @@ const handleRetry = async (message: Message) => {
 
     for (let i = messageIndex - 1; i >= 0; i--) {
       if (messages[i].role === 'user') {
-        await resend(messages[i])
+        await retry(messages[i])
         return
       }
     }

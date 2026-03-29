@@ -48,6 +48,24 @@ interface SessionTokenCache {
   lastUpdated: number
 }
 
+function resolvePreferredTokenTotal(options: {
+  estimatedTokens: number
+  persistedTotal: number
+  realtimeTotal: number
+}): number {
+  const { estimatedTokens, persistedTotal, realtimeTotal } = options
+
+  if (realtimeTotal > 0) {
+    return realtimeTotal
+  }
+
+  if (persistedTotal > 0) {
+    return Math.max(persistedTotal, estimatedTokens)
+  }
+
+  return estimatedTokens
+}
+
 function estimateMessageTokens(content: string): number {
   const normalized = content.trim()
   if (!normalized) {
@@ -160,14 +178,11 @@ export const useTokenStore = defineStore('token', () => {
         ? (realtimeData?.inputTokens ?? 0) + (realtimeData?.outputTokens ?? 0)
         : 0
       const persistedTotal = sessionTokenCaches.value.get(sessionId)?.totalTokens ?? 0
-      const hasLoadedMessages = messages.length > 0
-      const usedTokens = realtimeTotal > 0
-        ? realtimeTotal
-        : hasLoadedMessages
-          ? estimatedTokens
-          : persistedTotal > 0
-            ? persistedTotal
-            : estimatedTokens
+      const usedTokens = resolvePreferredTokenTotal({
+        estimatedTokens,
+        persistedTotal,
+        realtimeTotal
+      })
 
       const percentage = Math.min(100, (usedTokens / contextWindow) * 100)
       const level = getLevel(percentage)
@@ -249,14 +264,11 @@ export const useTokenStore = defineStore('token', () => {
       ? (realtimeData?.inputTokens ?? 0) + (realtimeData?.outputTokens ?? 0)
       : 0
     const persistedTotal = sessionTokenCaches.value.get(sessionId)?.totalTokens ?? 0
-    const hasLoadedMessages = messages.length > 0
-    const totalTokens = realtimeTotal > 0
-      ? realtimeTotal
-      : hasLoadedMessages
-        ? estimatedTokens
-        : persistedTotal > 0
-          ? persistedTotal
-          : estimatedTokens
+    const totalTokens = resolvePreferredTokenTotal({
+      estimatedTokens,
+      persistedTotal,
+      realtimeTotal
+    })
 
     sessionTokenCaches.value.set(sessionId, {
       sessionId,

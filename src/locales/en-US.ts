@@ -99,6 +99,7 @@ export default {
     cancel: 'Cancel',
     close: 'Close',
     confirm: 'Confirm',
+    gotIt: 'Got It',
     confirmDelete: 'Confirm Delete',
     create: 'Create',
     delete: 'Delete',
@@ -1747,6 +1748,9 @@ export default {
     emptyNoTasks: 'No tasks yet. Split the plan into tasks first.',
     deleteTaskTitle: 'Delete Task',
     deleteTaskMessage: 'Delete task "{name}"?',
+    dependencyBlockedTitle: 'Dependency Not Ready',
+    dependencyBlockedMessage: 'Task "{task}" cannot start yet. Finish these dependencies first: {dependencies}. Execute "{nextTask}" first.',
+    dependencyBlockedFallback: 'Task "{task}" cannot start yet because its dependencies are not completed.',
     stats: {
       completed: '{count} completed',
       inProgress: '{count} in progress',
@@ -1899,6 +1903,7 @@ export default {
     errorHint: 'Error',
     dependenciesCount: '{count} deps',
     actions: {
+      start: 'Start',
       stop: 'Stop execution',
       resume: 'Continue',
       retry: 'Retry',

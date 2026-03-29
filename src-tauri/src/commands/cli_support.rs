@@ -15,6 +15,7 @@ pub fn configure_windows_std_command(command: &mut Command) {
 }
 
 #[cfg(not(target_os = "windows"))]
+#[allow(dead_code)]
 pub fn configure_windows_std_command(_command: &mut Command) {}
 
 #[cfg(target_os = "windows")]

@@ -252,7 +252,14 @@ pub fn update_provider_profile(
     stmt.raw_execute().map_err(|e| e.to_string())?;
 
     // 获取更新后的配置
-    get_provider_profile_by_id(&conn, &id)
+    let updated_profile = get_provider_profile_by_id(&conn, &id)?;
+
+    // 编辑当前激活配置时，需要同步回写对应 CLI 配置文件，保证设置页无需重进即可读到最新内容。
+    if updated_profile.is_active {
+        write_to_cli_config(&updated_profile)?;
+    }
+
+    Ok(updated_profile)
 }
 
 /// 获取单个 Provider 配置

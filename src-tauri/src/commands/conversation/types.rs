@@ -48,6 +48,8 @@ pub struct CliExecutionRequest {
     pub extra_cli_args: Option<Vec<String>>,
     /// MCP 服务器配置列表
     pub mcp_servers: Option<Vec<McpServerConfig>>,
+    /// 恢复已存在的 CLI 会话 ID
+    pub resume_session_id: Option<String>,
 }
 
 /// SDK 执行请求
@@ -118,6 +120,8 @@ pub struct ExecutionRequest {
     pub execution_mode: Option<String>,
     /// 响应模式（stream_text/json_once）
     pub response_mode: Option<String>,
+    /// 恢复已存在的 CLI 会话 ID
+    pub resume_session_id: Option<String>,
 }
 
 impl ExecutionRequest {
@@ -143,6 +147,7 @@ impl ExecutionRequest {
             mcp_servers: request.mcp_servers,
             execution_mode: None,
             response_mode: None,
+            resume_session_id: request.resume_session_id,
         }
     }
 
@@ -168,6 +173,7 @@ impl ExecutionRequest {
             mcp_servers: request.mcp_servers,
             execution_mode: None,
             response_mode: None,
+            resume_session_id: None,
         }
     }
 }
@@ -227,6 +233,9 @@ pub struct StreamEvent {
     /// 模型名称
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// 外部 CLI 会话 ID
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_session_id: Option<String>,
 }
 
 pub type CliStreamEvent = StreamEvent;

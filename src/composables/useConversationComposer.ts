@@ -254,6 +254,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
   const activeMemorySuggestionIndex = ref(-1)
   const hoveredMemoryPreview = ref<MemoryPreviewPayload | null>(null)
   let memorySuggestionTimer: ReturnType<typeof setTimeout> | null = null
+  let memorySuggestionRequestId = 0
 
   const currentSessionId = computed(() => toValue(options.sessionId) || null)
   const currentSession = computed(() =>
@@ -339,6 +340,13 @@ export function useConversationComposer(options: UseConversationComposerOptions)
   const isUploadingImages = computed(() =>
     currentSessionId.value ? sessionExecutionStore.getIsUploadingImages(currentSessionId.value) : false
   )
+  const hasStreamingAssistantMessage = computed(() =>
+    currentSessionId.value
+      ? messageStore.messagesBySession(currentSessionId.value)
+        .some(message => message.role === 'assistant' && message.status === 'streaming')
+      : false
+  )
+  const isDispatchingMessage = ref(false)
   const currentFileMentions = computed(() =>
     currentSessionId.value ? sessionExecutionStore.getFileMentions(currentSessionId.value) : []
   )
@@ -681,6 +689,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     }
 
     clearMemorySuggestionTimer()
+    memorySuggestionRequestId += 1
     activeMemorySuggestionIndex.value = -1
     hoveredMemoryPreview.value = null
     sessionExecutionStore.setIsSearchingMemory(sessionId, false)
@@ -688,7 +697,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     sessionExecutionStore.clearDismissedMemorySuggestionKeys(sessionId)
   }
 
-  const searchMemorySuggestions = async (draftText: string) => {
+  const searchMemorySuggestions = async (draftText: string, requestId: number) => {
     const sessionId = currentSessionId.value
     if (!sessionId || options.panelType !== 'main') {
       return
@@ -696,13 +705,14 @@ export function useConversationComposer(options: UseConversationComposerOptions)
 
     const searchText = sanitizeMemorySearchText(draftText)
     if (searchText.length < 4) {
-      sessionExecutionStore.setIsSearchingMemory(sessionId, false)
-      sessionExecutionStore.clearMemorySuggestions(sessionId)
-      activeMemorySuggestionIndex.value = -1
+      if (requestId === memorySuggestionRequestId) {
+        sessionExecutionStore.setIsSearchingMemory(sessionId, false)
+        sessionExecutionStore.clearMemorySuggestions(sessionId)
+        activeMemorySuggestionIndex.value = -1
+      }
       return
     }
 
-    sessionExecutionStore.setIsSearchingMemory(sessionId, true)
     const suggestions = await memoryStore.searchSuggestions({
       sessionId,
       projectId: currentSession.value?.projectId,
@@ -710,13 +720,11 @@ export function useConversationComposer(options: UseConversationComposerOptions)
       limit: 6
     })
 
-    if (currentSessionId.value !== sessionId) {
-      sessionExecutionStore.setIsSearchingMemory(sessionId, false)
+    if (requestId !== memorySuggestionRequestId || currentSessionId.value !== sessionId) {
       return
     }
 
     if (sanitizeMemorySearchText(inputText.value) !== searchText) {
-      sessionExecutionStore.setIsSearchingMemory(sessionId, false)
       return
     }
 
@@ -730,9 +738,25 @@ export function useConversationComposer(options: UseConversationComposerOptions)
       return
     }
 
+    const searchText = sanitizeMemorySearchText(draftText)
+    if (searchText.length < 4) {
+      memorySuggestionRequestId += 1
+      clearMemorySuggestionTimer()
+      sessionExecutionStore.setIsSearchingMemory(sessionId, false)
+      sessionExecutionStore.clearMemorySuggestions(sessionId)
+      activeMemorySuggestionIndex.value = -1
+      return
+    }
+
     clearMemorySuggestionTimer()
+    const requestId = ++memorySuggestionRequestId
     memorySuggestionTimer = setTimeout(() => {
-      void searchMemorySuggestions(draftText)
+      if (requestId !== memorySuggestionRequestId || currentSessionId.value !== sessionId) {
+        return
+      }
+
+      sessionExecutionStore.setIsSearchingMemory(sessionId, true)
+      void searchMemorySuggestions(draftText, requestId)
     }, MEMORY_SUGGESTION_DEBOUNCE_MS)
   }
 
@@ -789,6 +813,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
 
   watch(currentSessionId, (sessionId) => {
     clearMemorySuggestionTimer()
+    memorySuggestionRequestId += 1
     activeMemorySuggestionIndex.value = -1
     hoveredMemoryPreview.value = null
     if (sessionId) {
@@ -876,7 +901,12 @@ export function useConversationComposer(options: UseConversationComposerOptions)
 
     try {
       const agent = agentStore.agents.find(item => item.id === agentId)
-      await sessionStore.updateSession(sessionId, { agentType: agentId })
+      await sessionStore.updateSession(sessionId, {
+        agentId,
+        agentType: agent?.provider || agent?.type || 'claude',
+        cliSessionId: '',
+        cliSessionProvider: ''
+      })
       selectedModelId.value = agent?.modelId || ''
       isAgentDropdownOpen.value = false
     } catch (error) {
@@ -1284,12 +1314,9 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     }
 
     if (value.length > 0 && cursorPosition > 0 && value[cursorPosition - 1] === '@') {
-      const charBefore = cursorPosition > 1 ? value[cursorPosition - 2] : ' '
-      if (charBefore === ' ' || charBefore === '\n' || charBefore === '\r' || cursorPosition === 1) {
-        const rect = target.getBoundingClientRect()
-        const caretPos = getCaretCoordinates(target, cursorPosition - 1)
-        openFileMention(rect.left + caretPos.x, rect.top + caretPos.y + 20, '', cursorPosition - 1)
-      }
+      const rect = target.getBoundingClientRect()
+      const caretPos = getCaretCoordinates(target, cursorPosition - 1)
+      openFileMention(rect.left + caretPos.x, rect.top + caretPos.y + 20, '', cursorPosition - 1)
     }
 
     inputText.value = value
@@ -1423,6 +1450,17 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     }
 
     sessionExecutionStore.removeQueuedMessage(currentSessionId.value, draftId)
+  }
+
+  const updateQueuedMessage = (
+    draftId: string,
+    updates: Partial<Pick<QueuedMessageDraft, 'content' | 'displayContent' | 'attachments' | 'agentId' | 'modelId' | 'memoryReferences' | 'status' | 'errorMessage'>>
+  ) => {
+    if (!currentSessionId.value) {
+      return
+    }
+
+    sessionExecutionStore.updateQueuedMessage(currentSessionId.value, draftId, updates)
   }
 
   const retryQueuedMessage = async (draftId: string) => {
@@ -1596,7 +1634,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
       }
     }
 
-    if (isSending.value) {
+    if (isSending.value || hasStreamingAssistantMessage.value || isDispatchingMessage.value) {
       if (!validateCurrentAgentAvailability()) {
         return
       }
@@ -1623,27 +1661,37 @@ export function useConversationComposer(options: UseConversationComposerOptions)
       return
     }
 
-    clearComposerDraft(sessionId)
-    await nextTick()
+    isDispatchingMessage.value = true
 
-    const success = await sendWithCurrentAgent(userInput, attachments, {
-      displayPreviewContent: annotatedMessage.previewContent,
-      memoryReferences: orderedMemoryReferences
-    })
-    if (success) {
-      focusInput()
-    } else {
-      inputText.value = rawInput
-      sessionExecutionStore.setMemoryReferences(sessionId, orderedMemoryReferences)
-      await restorePendingImages(attachments)
-      focusInput()
+    try {
+      clearComposerDraft(sessionId)
+      await nextTick()
+
+      const success = await sendWithCurrentAgent(userInput, attachments, {
+        displayPreviewContent: annotatedMessage.previewContent,
+        memoryReferences: orderedMemoryReferences
+      })
+      if (success) {
+        focusInput()
+      } else {
+        inputText.value = rawInput
+        sessionExecutionStore.setMemoryReferences(sessionId, orderedMemoryReferences)
+        await restorePendingImages(attachments)
+        focusInput()
+      }
+    } finally {
+      isDispatchingMessage.value = false
     }
   }
 
-  const resendMessage = async (content: string, attachments: MessageAttachment[] = []) => {
+  const retryMessage = async (
+    messageId: string,
+    content: string,
+    attachments: MessageAttachment[] = []
+  ) => {
     const sessionId = currentSessionId.value
     const normalizedContent = content.trim()
-    if (!sessionId || isUploadingImages.value || isSending.value) {
+    if (!sessionId || isUploadingImages.value || isSending.value || isDispatchingMessage.value) {
       return false
     }
 
@@ -1655,12 +1703,36 @@ export function useConversationComposer(options: UseConversationComposerOptions)
       return false
     }
 
-    const success = await sendWithCurrentAgent(normalizedContent, attachments)
-    if (success) {
-      focusInput()
+    const executionAgent = getExecutionAgentConfig()
+    if (!executionAgent) {
+      return false
     }
 
-    return success
+    isDispatchingMessage.value = true
+
+    try {
+      await conversationService.sendMessage(
+        sessionId,
+        normalizedContent,
+        executionAgent.id,
+        currentSession.value?.projectId,
+        attachments,
+        {
+          workingDirectory: currentWorkingDirectory.value || undefined,
+          modelId: selectedModelId.value.trim() || undefined,
+          existingUserMessageId: messageId
+        }
+      )
+      focusInput()
+      return true
+    } catch (error) {
+      console.error('Failed to retry message:', error)
+      notificationStore.smartError('重试失败', error instanceof Error ? error : new Error(String(error)))
+      sessionExecutionStore.endSending(sessionId)
+      return false
+    } finally {
+      isDispatchingMessage.value = false
+    }
   }
 
   const handleMessageFormSubmit = async (formId: string, values: Record<string, unknown>) => {
@@ -1812,7 +1884,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     handleOpenCompress,
     handlePaste,
     isSearchingMemory,
-    resendMessage,
+    retryMessage,
     handleSend,
     handleSlashCommandSelect,
     inputPlaceholder,
@@ -1839,6 +1911,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     removeImage,
     removeMemoryReferenceFromDraft,
     removeQueuedMessage,
+    updateQueuedMessage,
     renderLayerRef,
     restorePendingImages,
     retryQueuedMessage,

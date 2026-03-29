@@ -44,6 +44,7 @@ const zhCN = {
     cancel: '取消',
     close: '关闭',
     confirm: '确认',
+    gotIt: '知道了',
     confirmDelete: '确认删除',
     create: '创建',
     delete: '删除',
@@ -1289,6 +1290,9 @@ const zhCN = {
     emptyNoTasks: '暂无任务，请先进行任务拆分',
     deleteTaskTitle: '删除任务',
     deleteTaskMessage: '确定要删除任务“{name}”吗？',
+    dependencyBlockedTitle: '依赖任务未完成',
+    dependencyBlockedMessage: '任务“{task}”暂时不能开始，请先完成这些依赖任务：{dependencies}。建议先执行“{nextTask}”。',
+    dependencyBlockedFallback: '任务“{task}”暂时不能开始，请先完成依赖任务。',
     stats: {
       completed: '{count} 完成',
       inProgress: '{count} 进行中',
@@ -1442,6 +1446,7 @@ const zhCN = {
     errorHint: '错误',
     dependenciesCount: '{count} 个依赖',
     actions: {
+      start: '开始',
       stop: '停止执行',
       resume: '继续',
       retry: '重试',

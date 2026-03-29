@@ -15,7 +15,7 @@ import type { AIFormRequest, UpdatePlanInput, UpdateTaskInput } from '@/types/pl
 import { useTaskStore } from '@/stores/task'
 import { usePlanStore } from '@/stores/plan'
 import { useProjectStore } from '@/stores/project'
-import { useAgentStore, type AgentConfig } from '@/stores/agent'
+import { useAgentStore, type AgentConfig, inferAgentProvider } from '@/stores/agent'
 import { agentExecutor } from '@/services/conversation/AgentExecutor'
 import type { ConversationContext } from '@/services/conversation/strategies/types'
 import { extractFirstFormRequest } from '@/utils/structuredContent'
@@ -49,8 +49,7 @@ import {
   computePlanRuntimeUpdate,
   findNextExecutableTask,
   getPlanTasks,
-  resetExecutionStateRuntime,
-  shouldQueueReadyTask
+  resetExecutionStateRuntime
 } from './taskExecutionPlanRuntime'
 import {
   buildTaskInputRequest,
@@ -312,6 +311,14 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
     return queue
   }
 
+  function getOrderedInProgressTaskIds(planId: string): string[] {
+    const taskStore = useTaskStore()
+    return taskStore.tasks
+      .filter(task => task.planId === planId && task.status === 'in_progress')
+      .sort((a, b) => a.order - b.order)
+      .map(task => task.id)
+  }
+
   function removeTaskFromQueue(queue: ExecutionQueue, taskId: string): void {
     if (queue.currentTaskId === taskId) {
       queue.currentTaskId = null
@@ -321,6 +328,76 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
     if (pendingIndex >= 0) {
       queue.pendingTaskIds.splice(pendingIndex, 1)
     }
+  }
+
+  function resetTaskExecutionState(taskId: string): void {
+    const state = executionStates.value.get(taskId)
+    if (!state) {
+      return
+    }
+
+    finalizeRunningToolCalls(state.toolCalls)
+    state.status = 'idle'
+    state.sessionId = null
+    state.completedAt = null
+  }
+
+  function syncExecutionStateWithTask(taskId: string): void {
+    const taskStore = useTaskStore()
+    const task = taskStore.tasks.find(item => item.id === taskId)
+    const state = executionStates.value.get(taskId)
+    if (!task || !state) {
+      return
+    }
+
+    if (task.status === 'blocked' && task.blockReason === 'waiting_input') {
+      state.status = 'waiting_input'
+      return
+    }
+
+    if (task.status === 'completed') {
+      state.status = 'completed'
+      return
+    }
+
+    if (task.status === 'failed') {
+      state.status = 'failed'
+      return
+    }
+
+    if (task.status === 'cancelled') {
+      state.status = 'stopped'
+      return
+    }
+
+    if (task.status !== 'in_progress') {
+      state.status = 'idle'
+      return
+    }
+
+    const queue = executionQueues.value.get(task.planId)
+    if (queue?.currentTaskId === taskId) {
+      state.status = 'running'
+      return
+    }
+
+    if (queue?.pendingTaskIds.includes(taskId)) {
+      state.status = 'queued'
+      return
+    }
+
+    if (state.status !== 'waiting_input') {
+      state.status = 'stopped'
+    }
+  }
+
+  function normalizePlanExecutionStates(planId: string): void {
+    const taskStore = useTaskStore()
+    taskStore.tasks
+      .filter(task => task.planId === planId)
+      .forEach(task => {
+        syncExecutionStateWithTask(task.id)
+      })
   }
 
   async function markTaskStopped(taskId: string, options: { persistLog?: boolean } = {}): Promise<void> {
@@ -357,26 +434,6 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
 
     if (nextPlanState) {
       await updatePlanSafely(planId, nextPlanState)
-    }
-  }
-
-  async function seedReadyPendingTasks(planId: string): Promise<void> {
-    const taskStore = useTaskStore()
-    let queue = executionQueues.value.get(planId)
-    if (!queue) {
-      queue = createExecutionQueue(planId)
-      executionQueues.value.set(planId, queue)
-    }
-
-    const readyTasks = taskStore.getReadyTasks(planId)
-
-    for (const task of readyTasks) {
-      const state = executionStates.value.get(task.id)
-      if (!shouldQueueReadyTask(task.id, queue, state)) continue
-
-      await markTaskInProgress(task.id)
-      initExecutionState(task.id).status = 'queued'
-      queue.pendingTaskIds.push(task.id)
     }
   }
 
@@ -423,8 +480,9 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
     }
 
     queue.currentTaskId = taskId
+    state.status = 'running'
     await syncPlanRuntimeState(planId)
-    await executeTask(planId, taskId, { resume: isResumingStoppedTask })
+    void executeTask(planId, taskId, { resume: isResumingStoppedTask })
   }
 
   /**
@@ -530,6 +588,12 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
         modelId: selection.modelId || baseAgent.modelId
       }
       currentAgentForUsage = agent
+      const agentProvider = inferAgentProvider(agent)
+      const resumableExternalSessionId = isResume
+        && agentProvider
+        && (!task.cliSessionProvider || task.cliSessionProvider === agentProvider)
+        ? task.sessionId?.trim() || undefined
+        : undefined
 
       if (!agentExecutor.isSupported(agent)) {
         throw new Error(`当前不支持该智能体类型: ${agent.type}`)
@@ -538,7 +602,9 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
       const recentResults = await listRecentPlanResults(planId, 5)
       const planProgress = await getPlanExecutionProgress(planId)
 
-      const prompt = buildExecutionPrompt(task, recentResults, planProgress, resumeContext || undefined)
+      const prompt = resumableExternalSessionId
+        ? '继续'
+        : buildExecutionPrompt(task, recentResults, planProgress, resumeContext || undefined)
 
       const mcpServers = await loadAgentMcpServers(agent).catch((error) => {
         console.warn('[TaskExecution] Failed to load MCP servers:', error)
@@ -560,10 +626,20 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
         workingDirectory,
         mcpServers: mcpServers.length > 0 ? mcpServers : undefined,
         executionMode: 'task_execution',
-        responseMode: 'stream_text'
+        responseMode: 'stream_text',
+        resumeSessionId: resumableExternalSessionId
       }
 
       await agentExecutor.execute(context, (event: StreamEvent) => {
+        const externalSessionId = event.externalSessionId?.trim()
+        if (externalSessionId && agentProvider) {
+          void updateTaskSafely(taskId, {
+            sessionId: externalSessionId,
+            cliSessionProvider: agentProvider
+          }).catch((error) => {
+            console.warn('[TaskExecution] Failed to persist external session binding:', error)
+          })
+        }
         handleStreamEvent(taskId, event)
       })
 
@@ -965,11 +1041,10 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
     queue.currentTaskId = null
 
     if (queue.isPaused) {
+      normalizePlanExecutionStates(planId)
       await syncPlanRuntimeState(planId)
       return
     }
-
-    await seedReadyPendingTasks(planId)
 
     const nextTaskId = findNextExecutableTask(taskStore.tasks, queue.pendingTaskIds, taskStore.areDependenciesMet)
 
@@ -983,10 +1058,12 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
         state.status = 'running'
       }
 
-      await executeTask(planId, nextTaskId)
+      await syncPlanRuntimeState(planId)
+      void executeTask(planId, nextTaskId)
       return
     }
 
+    normalizePlanExecutionStates(planId)
     await syncPlanRuntimeState(planId)
   }
 
@@ -1023,6 +1100,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
       state.completedAt = new Date().toISOString()
       finalizeRunningToolCalls(state.toolCalls)
       agentExecutor.abort(sessionId)
+      normalizePlanExecutionStates(task.planId)
       await syncPlanRuntimeState(task.planId)
       return
     }
@@ -1033,6 +1111,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
       queue.lastInterruptedTaskId = null
     }
     await markTaskStopped(taskId)
+    normalizePlanExecutionStates(task.planId)
 
     if (autoAdvance && !pauseQueue) {
       await processNextInQueue(task.planId)
@@ -1061,42 +1140,127 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
   async function resumePlanExecutionFlow(planId: string): Promise<void> {
     const queue = getOrCreateQueue(planId)
     const taskStore = useTaskStore()
-    const planStore = usePlanStore()
-    queue.isPaused = false
+    const currentTaskId = queue.currentTaskId
+    const currentState = currentTaskId
+      ? executionStates.value.get(currentTaskId)
+      : undefined
 
-    const plan = planStore.plans.find(item => item.id === planId)
-    const resumeTaskId = queue.lastInterruptedTaskId
-      ?? plan?.currentTaskId
-      ?? taskStore.tasks
-        .filter(item => item.planId === planId && item.status === 'in_progress')
-        .sort((a, b) => a.order - b.order)[0]?.id
-
-    if (resumeTaskId) {
-      const task = taskStore.tasks.find(item => item.id === resumeTaskId)
-      const prepared = await prepareInterruptedTaskForResume(resumeTaskId)
-      if (prepared && task?.status === 'in_progress') {
-        removeTaskFromQueue(queue, resumeTaskId)
-        queue.currentTaskId = resumeTaskId
-        queue.lastInterruptedTaskId = null
-        await syncPlanRuntimeState(planId)
-        await executeTask(planId, resumeTaskId, { resume: true })
-        return
-      }
-      queue.lastInterruptedTaskId = null
+    if (currentTaskId && currentState?.status === 'running') {
+      await syncPlanRuntimeState(planId)
+      return
     }
 
-    const resumableTasks = taskStore.tasks
-      .filter((item) => item.planId === planId && item.status === 'in_progress')
-      .sort((a, b) => a.order - b.order)
+    queue.isPaused = false
 
-    if (resumableTasks.length > 0) {
-      for (const task of resumableTasks) {
-        await enqueueTask(planId, task.id)
-      }
+    const inProgressTaskIds = getOrderedInProgressTaskIds(planId)
+    if (inProgressTaskIds.length > 0) {
+      const [firstTaskId, ...queuedTaskIds] = inProgressTaskIds
+
+      queue.currentTaskId = firstTaskId
+      queue.pendingTaskIds = [...queuedTaskIds]
+      queue.lastInterruptedTaskId = null
+
+      queuedTaskIds.forEach((taskId) => {
+        initExecutionState(taskId).status = 'queued'
+      })
+
+      const firstTask = taskStore.tasks.find(item => item.id === firstTaskId)
+      const shouldResume = firstTask?.status === 'in_progress'
+        ? await prepareInterruptedTaskForResume(firstTaskId)
+        : false
+
+      normalizePlanExecutionStates(planId)
+      await syncPlanRuntimeState(planId)
+      void executeTask(planId, firstTaskId, { resume: shouldResume })
       return
     }
 
     await processNextInQueue(planId)
+  }
+
+  async function detachTaskFromExecution(taskId: string): Promise<void> {
+    const taskStore = useTaskStore()
+    const task = taskStore.tasks.find(item => item.id === taskId)
+    if (!task) {
+      return
+    }
+
+    const queue = executionQueues.value.get(task.planId)
+    if (queue) {
+      removeTaskFromQueue(queue, taskId)
+      if (queue.lastInterruptedTaskId === taskId) {
+        queue.lastInterruptedTaskId = null
+      }
+    }
+
+    clearTaskStopRequested(taskId, stopRequestedTaskIds.value)
+    resetTaskExecutionState(taskId)
+
+    normalizePlanExecutionStates(task.planId)
+    await syncPlanRuntimeState(task.planId)
+  }
+
+  async function synchronizePlanExecutionQueue(planId: string): Promise<void> {
+    const queue = getOrCreateQueue(planId)
+    const orderedTaskIds = getOrderedInProgressTaskIds(planId)
+    const orderedTaskIdSet = new Set(orderedTaskIds)
+
+    if (queue.currentTaskId && !orderedTaskIdSet.has(queue.currentTaskId)) {
+      queue.currentTaskId = null
+    }
+
+    queue.pendingTaskIds = orderedTaskIds.filter(taskId => taskId !== queue.currentTaskId)
+
+    if (queue.lastInterruptedTaskId && !orderedTaskIdSet.has(queue.lastInterruptedTaskId)) {
+      queue.lastInterruptedTaskId = null
+    }
+
+    queue.pendingTaskIds.forEach((taskId) => {
+      const state = initExecutionState(taskId)
+      if (state.status !== 'running') {
+        state.status = 'queued'
+      }
+    })
+
+    normalizePlanExecutionStates(planId)
+    await syncPlanRuntimeState(planId)
+  }
+
+  async function startTaskExecution(taskId: string): Promise<void> {
+    const taskStore = useTaskStore()
+    const planStore = usePlanStore()
+    const task = taskStore.tasks.find(item => item.id === taskId)
+    if (!task) {
+      return
+    }
+
+    if (!taskStore.areDependenciesMet(taskId)) {
+      const dependencyNames = taskStore.getUnmetDependencyTitles(taskId)
+      const detail = dependencyNames.length > 0
+        ? `依赖任务未完成: ${dependencyNames.join('、')}`
+        : '依赖任务未完成'
+      throw new Error(detail)
+    }
+
+    if (task.status === 'blocked' && task.blockReason === 'waiting_input') {
+      throw new Error('当前任务正在等待输入，无法直接开始')
+    }
+
+    const queue = getOrCreateQueue(task.planId)
+    queue.isPaused = false
+    if (queue.lastInterruptedTaskId === taskId) {
+      queue.lastInterruptedTaskId = null
+    }
+
+    await planStore.startPlanExecution(task.planId)
+
+    if (task.status === 'in_progress' && isTaskStopped.value(taskId)) {
+      await resumeTaskExecution(taskId)
+    } else {
+      await enqueueTask(task.planId, taskId)
+    }
+
+    await synchronizePlanExecutionQueue(task.planId)
   }
 
   async function resumeTaskExecution(taskId: string): Promise<void> {
@@ -1145,6 +1309,9 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
 
       const task = useTaskStore().tasks.find(item => item.id === taskId)
       hydrateTaskLogs(state, rustLogs, task)
+      if (task) {
+        syncExecutionStateWithTask(task.id)
+      }
 
     } catch (error) {
       console.warn('[TaskExecution] Failed to load logs:', error)
@@ -1162,6 +1329,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
     if (state.logs.length === 0) {
       const rustLogs = await loadTaskLogsFromBackend(taskId)
       hydrateTaskLogs(state, rustLogs, task)
+      syncExecutionStateWithTask(taskId)
     }
 
     if (state.status === 'running' || state.status === 'queued' || state.status === 'idle') {
@@ -1249,9 +1417,12 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
     enqueueTask,
     executeTask,
     stopTaskExecution,
+    startTaskExecution,
     pausePlanExecutionFlow,
     resumePlanExecutionFlow,
     resumeTaskExecution,
+    detachTaskFromExecution,
+    synchronizePlanExecutionQueue,
     submitTaskInput,
     skipBlockedTask,
     setCurrentViewingTask,

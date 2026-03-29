@@ -4,6 +4,9 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
+#[cfg(target_os = "windows")]
+use crate::commands::cli_support::configure_windows_std_command;
+
 // 全局中断状态存储
 lazy_static::lazy_static! {
     static ref ABORT_FLAGS: Arc<RwLock<HashMap<String, Arc<AtomicBool>>>> = Arc::new(RwLock::new(HashMap::new()));
@@ -83,9 +86,9 @@ pub async fn kill_session_process(session_id: &str) {
         {
             use std::process::Command;
             // Windows 上使用 taskkill 命令强制终止进程树
-            let output = Command::new("taskkill")
-                .args(["/F", "/T", "/PID", &pid.to_string()])
-                .output();
+            let mut command = Command::new("taskkill");
+            configure_windows_std_command(&mut command);
+            let output = command.args(["/F", "/T", "/PID", &pid.to_string()]).output();
 
             match output {
                 Ok(output) => {

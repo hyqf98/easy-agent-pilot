@@ -48,6 +48,7 @@ pub fn build_content_event(session_id: &str, content: String) -> CliStreamEvent 
         input_tokens: None,
         output_tokens: None,
         model: None,
+        external_session_id: None,
     }
 }
 
@@ -64,6 +65,7 @@ pub fn build_error_event(session_id: &str, error: String) -> CliStreamEvent {
         input_tokens: None,
         output_tokens: None,
         model: None,
+        external_session_id: None,
     }
 }
 
@@ -80,6 +82,7 @@ pub fn build_system_event(session_id: &str, content: String) -> CliStreamEvent {
         input_tokens: None,
         output_tokens: None,
         model: None,
+        external_session_id: None,
     }
 }
 

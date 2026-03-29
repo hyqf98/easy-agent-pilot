@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useAgentStore } from '@/stores/agent'
 import { usePlanStore } from '@/stores/plan'
 import { useTaskStore } from '@/stores/task'
+import { useTaskExecutionStore } from '@/stores/taskExecution'
 import type { Task } from '@/types/plan'
 import { resolvePlanTaskAgentSelection } from '@/utils/planExecutionProgress'
 import AgentRoleBadge from './AgentRoleBadge.vue'
@@ -12,6 +13,7 @@ import TaskEditModal from './TaskEditModal.vue'
 const agentStore = useAgentStore()
 const planStore = usePlanStore()
 const taskStore = useTaskStore()
+const taskExecutionStore = useTaskExecutionStore()
 const { t, locale } = useI18n()
 
 // 当前任务
@@ -39,7 +41,11 @@ function openEditModal() {
 async function stopTask() {
   if (!currentTask.value) return
   try {
-    await taskStore.stopTask(currentTask.value.id)
+    const shouldPauseQueue = taskExecutionStore.getCurrentRunningTaskId(currentTask.value.planId) === currentTask.value.id
+    await taskExecutionStore.stopTaskExecution(
+      currentTask.value.id,
+      shouldPauseQueue ? { pauseQueue: true, autoAdvance: false } : undefined
+    )
   } catch (error) {
     console.error('Failed to stop task:', error)
   }
@@ -49,7 +55,12 @@ async function stopTask() {
 async function retryTask() {
   if (!currentTask.value) return
   try {
-    await taskStore.retryTask(currentTask.value.id)
+    await taskExecutionStore.clearTaskLogs(currentTask.value.id)
+    await taskStore.updateTask(currentTask.value.id, {
+      status: 'in_progress',
+      errorMessage: undefined
+    })
+    await taskExecutionStore.startTaskExecution(currentTask.value.id)
   } catch (error) {
     console.error('Failed to retry task:', error)
   }

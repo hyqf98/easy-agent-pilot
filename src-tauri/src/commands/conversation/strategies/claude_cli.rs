@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use async_trait::async_trait;
 use tauri::AppHandle;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 use tokio::time::sleep;
 use uuid::Uuid;
 
@@ -228,6 +228,7 @@ fn build_thinking_event(session_id: &str, content: String) -> CliStreamEvent {
         input_tokens: None,
         output_tokens: None,
         model: None,
+        external_session_id: None,
     }
 }
 
@@ -244,6 +245,7 @@ fn build_thinking_start_event(session_id: &str) -> CliStreamEvent {
         input_tokens: None,
         output_tokens: None,
         model: None,
+        external_session_id: None,
     }
 }
 
@@ -264,7 +266,35 @@ fn build_tool_input_delta_event(
         input_tokens: None,
         output_tokens: None,
         model: None,
+        external_session_id: None,
     }
+}
+
+fn extract_external_session_id(json: &serde_json::Value) -> Option<String> {
+    [
+        json.get("session_id"),
+        json.pointer("/session/id"),
+        json.pointer("/message/session_id"),
+        json.pointer("/result/session_id"),
+        json.pointer("/payload/id"),
+        json.pointer("/session_meta/payload/id"),
+    ]
+    .into_iter()
+    .flatten()
+    .find_map(|value| value.as_str())
+    .map(|value| value.trim().to_string())
+    .filter(|value| !value.is_empty())
+}
+
+fn attach_external_session_id(
+    mut event: CliStreamEvent,
+    json: &serde_json::Value,
+) -> CliStreamEvent {
+    if event.external_session_id.is_none() {
+        event.external_session_id = extract_external_session_id(json);
+    }
+
+    event
 }
 
 struct TempMcpConfigFile {
@@ -343,9 +373,15 @@ impl AgentExecutionStrategy for ClaudeCliStrategy {
             .map(str::trim)
             .filter(|schema| !schema.is_empty());
         let plan_id = request.plan_id.clone();
+        let resume_session_id = request
+            .resume_session_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
 
-        // 构建命令参数（prompt 通过 `-p <prompt>` 单独传递）
-        let mut args = vec!["--output-format".to_string(), cli_output_format.clone()];
+        // Claude Code 支持 `echo "..." | claude -p`，统一走 stdin 可避免 Windows 206 长命令问题。
+        let mut args = vec!["-p".to_string(), "--output-format".to_string(), cli_output_format.clone()];
         args.push("--dangerously-skip-permissions".to_string());
 
         // 非流式 JSON 输出时禁用 verbose，避免 stdout 里出现大段事件数组影响结构化提取
@@ -360,6 +396,11 @@ impl AgentExecutionStrategy for ClaudeCliStrategy {
                 args.push("--model".to_string());
                 args.push(trimmed.to_string());
             }
+        }
+
+        if let Some(resume_session_id) = &resume_session_id {
+            args.push("--resume".to_string());
+            args.push(resume_session_id.clone());
         }
 
         // 添加允许的工具
@@ -406,11 +447,10 @@ impl AgentExecutionStrategy for ClaudeCliStrategy {
             .collect::<Vec<_>>()
             .join("\n\n");
 
-        let full_command = build_full_claude_command(&cli_path, &input_text, &args);
+        let full_command = build_full_claude_command(&cli_path, &args);
         log_info!("Claude CLI command: {}", full_command);
         // 执行命令
-        let mut command_args = vec!["-p".to_string(), input_text.clone()];
-        command_args.extend(args.clone());
+        let command_args = args.clone();
         let mut cmd = build_tokio_cli_command(&cli_path, &command_args);
 
         // 设置工作目录，确保文件读写操作在指定目录下进行
@@ -419,7 +459,7 @@ impl AgentExecutionStrategy for ClaudeCliStrategy {
             log_info!("设置工作目录: {}", work_dir);
         }
 
-        cmd.stdin(Stdio::null())
+        cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .env_remove("CLAUDECODE");
@@ -433,6 +473,25 @@ impl AgentExecutionStrategy for ClaudeCliStrategy {
             describe_timeout_config(timeout_config)
         );
         let mut child = cmd.spawn()?;
+
+        let stdin_write_handle = {
+            let stdin_payload = input_text.clone();
+            let mut stdin = child
+                .stdin
+                .take()
+                .ok_or_else(|| anyhow::anyhow!("failed to acquire stdin"))?;
+
+            Some(tokio::spawn(async move {
+                if let Err(error) = stdin.write_all(stdin_payload.as_bytes()).await {
+                    log_error!("[stdin] failed to write prompt: {}", error);
+                    return;
+                }
+
+                if let Err(error) = stdin.shutdown().await {
+                    log_error!("[stdin] failed to close stdin: {}", error);
+                }
+            }))
+        };
 
         // 注册进程 PID，用于后续可能的中断操作
         if let Some(pid) = child.id() {
@@ -683,6 +742,11 @@ impl AgentExecutionStrategy for ClaudeCliStrategy {
                 StderrReadOutcome::none()
             }
         };
+        if let Some(handle) = stdin_write_handle {
+            if let Err(error) = handle.await {
+                log_error!("[stdin] task join failed: {}", error);
+            }
+        }
 
         let finished_at = Instant::now();
         let summary = build_execution_summary(&monitor.snapshot(), finished_at);
@@ -708,6 +772,7 @@ impl AgentExecutionStrategy for ClaudeCliStrategy {
                 input_tokens: None,
                 output_tokens: None,
                 model: None,
+                external_session_id: None,
             };
             emit_cli_event(&app, &event_name, plan_id.as_ref(), &done_event);
         }
@@ -740,12 +805,11 @@ impl AgentExecutionStrategy for ClaudeCliStrategy {
     }
 }
 
-fn build_full_claude_command(cli_path: &str, input_text: &str, args: &[String]) -> String {
+fn build_full_claude_command(cli_path: &str, args: &[String]) -> String {
     let mut cmd_parts = Vec::new();
     cmd_parts.push(shell_escape(cli_path));
-    cmd_parts.push("-p".to_string());
-    cmd_parts.push(shell_escape(input_text));
     cmd_parts.extend(args.iter().map(|arg| shell_escape(arg)));
+    cmd_parts.push("<stdin>".to_string());
     cmd_parts.join(" ")
 }
 
@@ -769,7 +833,10 @@ fn parse_claude_json_blob_output(session_id: &str, output: &str) -> Option<CliSt
     }
 
     if let Some(content) = extract_runtime_system_notice(&parsed) {
-        return Some(build_system_event(session_id, content));
+        return Some(attach_external_session_id(
+            build_system_event(session_id, content),
+            &parsed,
+        ));
     }
 
     if let Some(content) = extract_structured_output_from_json_blob(&parsed) {
@@ -777,12 +844,18 @@ fn parse_claude_json_blob_output(session_id: &str, output: &str) -> Option<CliSt
             "[parse] 提取到 structured_output, 长度: {}",
             content.chars().count()
         );
-        return Some(build_content_event(session_id, content));
+        return Some(attach_external_session_id(
+            build_content_event(session_id, content),
+            &parsed,
+        ));
     }
 
     if let Some(error) = extract_error_from_json_blob(&parsed) {
         log_info!("[parse] 提取到 error: {}", error);
-        return Some(build_error_event(session_id, error));
+        return Some(attach_external_session_id(
+            build_error_event(session_id, error),
+            &parsed,
+        ));
     }
 
     if let Some(content) = extract_result_content_from_json_blob(&parsed) {
@@ -790,12 +863,18 @@ fn parse_claude_json_blob_output(session_id: &str, output: &str) -> Option<CliSt
             "[parse] 提取到 result.content, 长度: {}",
             content.chars().count()
         );
-        return Some(build_content_event(session_id, content));
+        return Some(attach_external_session_id(
+            build_content_event(session_id, content),
+            &parsed,
+        ));
     }
 
     if let Ok(raw_json) = serde_json::to_string(&parsed) {
         log_info!("[parse] 返回原始 JSON, 长度: {}", raw_json.chars().count());
-        return Some(build_content_event(session_id, raw_json));
+        return Some(attach_external_session_id(
+            build_content_event(session_id, raw_json),
+            &parsed,
+        ));
     }
 
     log_error!("[parse] 无法提取任何内容");
@@ -846,7 +925,7 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
         .and_then(|t| t.as_str())
         .unwrap_or("unknown");
 
-    match event_type {
+    let event = match event_type {
         "system" => extract_runtime_system_notice(json)
             .map(|content| build_system_event(session_id, content)),
         "content_block_delta" => {
@@ -914,6 +993,7 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
                         input_tokens: None,
                         output_tokens: None,
                         model: None,
+                        external_session_id: None,
                     })
                 }
                 _ => None,
@@ -948,6 +1028,7 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
                     input_tokens,
                     output_tokens,
                     model,
+                    external_session_id: None,
                 })
             } else {
                 None
@@ -969,6 +1050,7 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
                     input_tokens,
                     output_tokens,
                     model: None,
+                    external_session_id: None,
                 })
             } else {
                 None
@@ -986,6 +1068,7 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
             input_tokens: None,
             output_tokens: None,
             model: None,
+            external_session_id: None,
         }),
         "result" => {
             let (input_tokens, output_tokens) = extract_usage_counts(json.get("usage"));
@@ -1004,6 +1087,7 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
                     input_tokens,
                     output_tokens,
                     model,
+                    external_session_id: None,
                 })
             } else {
                 None
@@ -1025,6 +1109,7 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
                     input_tokens,
                     output_tokens,
                     model: None,
+                    external_session_id: None,
                 })
             } else {
                 None
@@ -1052,6 +1137,7 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
                 input_tokens: None,
                 output_tokens: None,
                 model: None,
+                external_session_id: None,
             })
         }
         "tool_result" => {
@@ -1070,6 +1156,7 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
                 input_tokens: None,
                 output_tokens: None,
                 model: None,
+                external_session_id: None,
             })
         }
         "error" => {
@@ -1109,6 +1196,7 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
                                 input_tokens,
                                 output_tokens,
                                 model: model.clone(),
+                                external_session_id: extract_external_session_id(json),
                                 ..build_thinking_event(session_id, thinking_text.to_string())
                             });
                         }
@@ -1127,6 +1215,7 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
                             input_tokens,
                             output_tokens,
                             model: model.clone(),
+                            external_session_id: None,
                         });
                     }
                     "tool_use" => {
@@ -1148,6 +1237,7 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
                             input_tokens,
                             output_tokens,
                             model: model.clone(),
+                            external_session_id: None,
                         });
                     }
                     _ => {
@@ -1195,6 +1285,7 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
                             input_tokens: None,
                             output_tokens: None,
                             model: None,
+                            external_session_id: None,
                         })
                     }
                     _ => {
@@ -1210,7 +1301,9 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
             log_debug!("[parse] 未处理的事件类型: {}", event_type);
             None
         }
-    }
+    };
+
+    event.map(|event| attach_external_session_id(event, json))
 }
 
 #[cfg(test)]

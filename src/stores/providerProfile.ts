@@ -164,6 +164,57 @@ export const useProviderProfileStore = defineStore('providerProfile', () => {
 
   // Actions
 
+  function upsertCliConnection(info: CliConnectionInfo) {
+    const index = cliConnections.value.findIndex(connection => connection.cliType === info.cliType)
+    if (index >= 0) {
+      cliConnections.value[index] = info
+      return
+    }
+
+    cliConnections.value.push(info)
+  }
+
+  /**
+   * 刷新指定 CLI 类型的运行态信息。
+   * 用于激活配置、编辑激活配置后同步更新当前激活项、当前文件配置和顶部连接信息。
+   */
+  async function refreshCliTypeState(cliType: CliType, options?: { reloadProfiles?: boolean }) {
+    const { reloadProfiles = false } = options ?? {}
+
+    if (reloadProfiles) {
+      await loadProfiles()
+    }
+
+    isLoadingConnections.value = true
+    try {
+      const [active, current, connection] = await Promise.all([
+        loadActiveProfile(cliType),
+        readCurrentConfig(cliType),
+        readCliConnectionInfo(cliType)
+      ])
+
+      if (activeProfile.value?.cliType === cliType || active?.cliType === cliType || !active) {
+        activeProfile.value = active
+      }
+
+      if (currentConfig.value?.cliType === cliType || current?.cliType === cliType || !current) {
+        currentConfig.value = current
+      }
+
+      if (connection) {
+        upsertCliConnection(connection)
+      }
+
+      return {
+        activeProfile: active,
+        currentConfig: current,
+        connection
+      }
+    } finally {
+      isLoadingConnections.value = false
+    }
+  }
+
   /** 加载所有配置 */
   async function loadProfiles(cliType?: CliType) {
     isLoading.value = true
@@ -261,6 +312,13 @@ export const useProviderProfileStore = defineStore('providerProfile', () => {
       if (index !== -1) {
         profiles.value[index] = updatedProfile
       }
+
+      if (updatedProfile.isActive) {
+        await refreshCliTypeState(updatedProfile.cliType, { reloadProfiles: true })
+      } else if (activeProfile.value?.id === updatedProfile.id) {
+        activeProfile.value = updatedProfile
+      }
+
       return updatedProfile
     } catch (error) {
       console.error('Failed to update provider profile:', error)
@@ -277,10 +335,17 @@ export const useProviderProfileStore = defineStore('providerProfile', () => {
   async function deleteProfile(id: string) {
     const notificationStore = useNotificationStore()
     try {
+      const deletedProfile = profiles.value.find(profile => profile.id === id) || null
       await invoke('delete_provider_profile', { id })
       const index = profiles.value.findIndex(p => p.id === id)
       if (index !== -1) {
         profiles.value.splice(index, 1)
+      }
+
+      if (deletedProfile?.isActive) {
+        await refreshCliTypeState(deletedProfile.cliType, { reloadProfiles: true })
+      } else if (activeProfile.value?.id === id) {
+        activeProfile.value = null
       }
     } catch (error) {
       console.error('Failed to delete provider profile:', error)
@@ -331,6 +396,7 @@ export const useProviderProfileStore = defineStore('providerProfile', () => {
       }))
 
       activeProfile.value = updatedProfile
+      await refreshCliTypeState(updatedProfile.cliType, { reloadProfiles: true })
       return updatedProfile
     } catch (error) {
       console.error('Failed to switch provider profile:', error)
@@ -377,13 +443,7 @@ export const useProviderProfileStore = defineStore('providerProfile', () => {
       const info = await invoke<CliConnectionInfo>('read_cli_connection_info', {
         cliType
       })
-      // 更新本地状态
-      const index = cliConnections.value.findIndex(c => c.cliType === cliType)
-      if (index >= 0) {
-        cliConnections.value[index] = info
-      } else {
-        cliConnections.value.push(info)
-      }
+      upsertCliConnection(info)
       return info
     } catch (error) {
       console.error('Failed to read CLI connection info:', error)
@@ -460,6 +520,7 @@ export const useProviderProfileStore = defineStore('providerProfile', () => {
     readCurrentConfig,
     readCliConnectionInfo,
     readAllCliConnections,
+    refreshCliTypeState,
     clearCache
   }
 })

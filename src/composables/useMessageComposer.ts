@@ -303,7 +303,12 @@ export function useMessageComposer() {
 
     try {
       const agent = agentStore.agents.find(item => item.id === agentId)
-      await sessionStore.updateSession(sessionId, { agentType: agentId })
+      await sessionStore.updateSession(sessionId, {
+        agentId,
+        agentType: agent?.provider || agent?.type || 'claude',
+        cliSessionId: '',
+        cliSessionProvider: ''
+      })
       selectedModelId.value = agent?.modelId || ''
       isAgentDropdownOpen.value = false
     } catch (error) {

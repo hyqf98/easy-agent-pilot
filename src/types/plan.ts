@@ -69,6 +69,7 @@ export interface Task {
   /** 执行模型 ID */
   modelId?: string
   sessionId?: string
+  cliSessionProvider?: string
   progressFile?: string
   dependencies?: string[]
   order: number
@@ -148,6 +149,7 @@ export interface UpdateTaskInput {
   /** 执行模型 ID */
   modelId?: string
   sessionId?: string
+  cliSessionProvider?: string
   progressFile?: string
   dependencies?: string[]
   order?: number

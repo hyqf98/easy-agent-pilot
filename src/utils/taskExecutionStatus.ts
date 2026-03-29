@@ -28,7 +28,7 @@ export function resolveTaskExecutionStatus(task?: {
     if (fallbackStatus === 'queued' || fallbackStatus === 'stopped' || fallbackStatus === 'waiting_input') {
       return fallbackStatus
     }
-    return 'running'
+    return 'stopped'
   }
 
   if (task?.status === 'completed') {

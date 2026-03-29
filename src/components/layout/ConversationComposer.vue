@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useI18n } from 'vue-i18n'
 import { EaIcon } from '@/components/common'
 import CompressionConfirmDialog from '@/components/common/CompressionConfirmDialog.vue'
 import { useConversationComposer } from '@/composables/useConversationComposer'
+import { ConversationTodoPanel } from '@/components/message'
 import { useThemeStore } from '@/stores/theme'
 import type { SlashCommandPanelType } from '@/services/slashCommands'
 import CdPathDropdown from './CdPathDropdown.vue'
@@ -38,6 +39,9 @@ const { t } = useI18n()
 const themeStore = useThemeStore()
 const rootRef = ref<HTMLElement | null>(null)
 const isDragOver = ref(false)
+const isQueueCollapsed = ref(true)
+const editingQueuedDraftId = ref<string | null>(null)
+const queuedDraftEditText = ref('')
 let unlistenDragDrop: (() => void) | null = null
 const isMainPanel = computed(() => props.panelType === 'main')
 const isMiniPanel = computed(() => props.panelType === 'mini')
@@ -77,7 +81,6 @@ const {
   handleMessageFormSubmit,
   handleOpenCompress,
   handlePaste,
-  resendMessage,
   insertMemoryReference,
   handleSlashCommandSelect,
   inputPlaceholder,
@@ -105,6 +108,7 @@ const {
   removeMemoryReferenceFromDraft,
   removeQueuedMessage,
   renderLayerRef,
+  retryMessage,
   retryQueuedMessage,
   selectedModelId,
   selectAgent,
@@ -123,6 +127,7 @@ const {
   toggleAgentDropdown,
   toggleModelDropdown,
   tokenUsage,
+  updateQueuedMessage,
   visibleMemorySuggestions
 } = useConversationComposer({
   panelType: props.panelType,
@@ -166,10 +171,44 @@ onUnmounted(() => {
   unlistenDragDrop?.()
 })
 
+watch(() => props.sessionId, () => {
+  isQueueCollapsed.value = true
+  editingQueuedDraftId.value = null
+  queuedDraftEditText.value = ''
+})
+
+const toggleQueueCollapsed = () => {
+  isQueueCollapsed.value = !isQueueCollapsed.value
+}
+
+const startQueuedMessageEdit = (draftId: string, content: string) => {
+  editingQueuedDraftId.value = draftId
+  queuedDraftEditText.value = content
+}
+
+const cancelQueuedMessageEdit = () => {
+  editingQueuedDraftId.value = null
+  queuedDraftEditText.value = ''
+}
+
+const saveQueuedMessageEdit = (draftId: string) => {
+  const normalized = queuedDraftEditText.value.trim()
+  if (!normalized) {
+    return
+  }
+
+  updateQueuedMessage(draftId, {
+    content: normalized,
+    displayContent: normalized,
+    memoryReferences: []
+  })
+  cancelQueuedMessageEdit()
+}
+
 defineExpose({
   focusInput,
   handleMessageFormSubmit,
-  resendMessage,
+  retryMessage,
   openCompressionDialog: handleOpenCompress
 })
 </script>
@@ -341,6 +380,12 @@ defineExpose({
     </div>
 
     <div class="conversation-composer__panel">
+      <ConversationTodoPanel
+        v-if="isMainPanel"
+        :session-id="sessionId"
+        :default-collapsed="true"
+      />
+
       <div
         v-if="isMainPanel && pendingImages.length > 0"
         class="conversation-composer__attachments conversation-composer__attachments--main"
@@ -525,8 +570,29 @@ defineExpose({
         v-if="queuedMessages.length > 0"
         class="conversation-composer__queue"
       >
+        <button
+          v-if="isMainPanel"
+          type="button"
+          class="conversation-composer__queue-head"
+          :aria-expanded="!isQueueCollapsed"
+          @click="toggleQueueCollapsed"
+        >
+          <span class="conversation-composer__queue-head-title">
+            <EaIcon
+              name="clock-3"
+              :size="13"
+            />
+            <span>{{ t('message.queueCount', { count: queuedMessages.length }) }}</span>
+          </span>
+          <EaIcon
+            :name="isQueueCollapsed ? 'chevron-down' : 'chevron-up'"
+            :size="14"
+          />
+        </button>
+
         <div
           v-for="(draft, index) in queuedMessages"
+          v-show="!isMainPanel || !isQueueCollapsed"
           :key="draft.id"
           class="conversation-composer__queue-item"
         >
@@ -539,7 +605,15 @@ defineExpose({
               <span v-if="draft.attachments.length > 0">{{ t('message.queueImages', { count: draft.attachments.length }) }}</span>
             </div>
             <div class="conversation-composer__queue-preview">
-              {{ buildQueuedMessagePreview(draft) || t('message.pendingEmpty') }}
+              <textarea
+                v-if="editingQueuedDraftId === draft.id"
+                v-model="queuedDraftEditText"
+                class="conversation-composer__queue-editor"
+                rows="3"
+              />
+              <template v-else>
+                {{ buildQueuedMessagePreview(draft) || t('message.pendingEmpty') }}
+              </template>
             </div>
             <div
               v-if="draft.status === 'failed' && draft.errorMessage"
@@ -550,7 +624,37 @@ defineExpose({
           </div>
           <div class="conversation-composer__queue-actions">
             <button
-              v-if="draft.status === 'failed'"
+              v-if="editingQueuedDraftId !== draft.id"
+              class="conversation-composer__queue-action"
+              @click="startQueuedMessageEdit(draft.id, draft.displayContent || draft.content)"
+            >
+              <EaIcon
+                name="pencil"
+                :size="12"
+              />
+            </button>
+            <button
+              v-else
+              class="conversation-composer__queue-action"
+              @click="saveQueuedMessageEdit(draft.id)"
+            >
+              <EaIcon
+                name="check"
+                :size="12"
+              />
+            </button>
+            <button
+              v-if="editingQueuedDraftId === draft.id"
+              class="conversation-composer__queue-action"
+              @click="cancelQueuedMessageEdit"
+            >
+              <EaIcon
+                name="x"
+                :size="12"
+              />
+            </button>
+            <button
+              v-else-if="draft.status === 'failed'"
               class="conversation-composer__queue-action"
               @click="retryQueuedMessage(draft.id)"
             >
@@ -1203,6 +1307,27 @@ defineExpose({
   padding: 2px 2px 0;
 }
 
+.conversation-composer__queue-head {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid rgba(226, 232, 240, 0.94);
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.92);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.conversation-composer__queue-head-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .conversation-composer__queue-item {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr) auto;
@@ -1279,6 +1404,19 @@ defineExpose({
   word-break: break-word;
 }
 
+.conversation-composer__queue-editor {
+  width: 100%;
+  min-height: 72px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 18%, var(--color-border));
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--color-text-primary);
+  font: inherit;
+  line-height: 1.5;
+  resize: vertical;
+}
+
 .conversation-composer__queue-error {
   font-size: var(--font-size-xs);
   color: var(--color-danger);
@@ -1331,10 +1469,16 @@ defineExpose({
   width: 100%;
   min-height: 122px;
   padding: 16px 18px;
+  box-sizing: border-box;
+  font-family: inherit;
+  font-weight: inherit;
+  letter-spacing: normal;
+  word-spacing: normal;
   font-size: var(--font-size-sm);
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .conversation-composer--main .conversation-composer__render,
@@ -1348,6 +1492,8 @@ defineExpose({
 .conversation-composer__render {
   pointer-events: none;
   color: var(--color-text-primary);
+  text-align: start;
+  text-indent: 0;
 }
 
 .conversation-composer__textarea {
@@ -1358,6 +1504,8 @@ defineExpose({
   color: transparent;
   caret-color: var(--color-text-primary);
   -webkit-text-fill-color: transparent;
+  text-align: start;
+  text-indent: 0;
 }
 
 .conversation-composer__textarea::selection {

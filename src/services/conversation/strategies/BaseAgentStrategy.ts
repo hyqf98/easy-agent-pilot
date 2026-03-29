@@ -168,7 +168,8 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
       jsonSchema: context.jsonSchema,
       extraCliArgs: context.extraCliArgs,
       executionMode: context.executionMode,
-      responseMode: context.responseMode
+      responseMode: context.responseMode,
+      resumeSessionId: context.resumeSessionId
     })
   }
 
@@ -186,7 +187,8 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
     const baseEvent = {
       inputTokens: event.inputTokens,
       outputTokens: event.outputTokens,
-      model: event.model
+      model: event.model,
+      externalSessionId: event.externalSessionId
     }
 
     switch (event.type) {

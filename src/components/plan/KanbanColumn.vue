@@ -20,6 +20,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   (e: 'taskDrop', taskId: string, status: TaskStatus): void
   (e: 'taskClick', task: Task): void
+  (e: 'taskStart', task: Task): void
   (e: 'taskReorder', taskId: string, targetIndex: number): void
   (e: 'taskEdit', task: Task): void
   (e: 'taskStop', task: Task): void
@@ -91,6 +92,10 @@ function handleTaskClick(task: Task) {
 
 function handleTaskEdit(task: Task) {
   emit('taskEdit', task)
+}
+
+function handleTaskStart(task: Task) {
+  emit('taskStart', task)
 }
 
 function handleTaskStop(task: Task) {
@@ -257,6 +262,7 @@ function handleAddTask() {
           <KanbanCard
             :task="task"
             @click="handleTaskClick"
+            @start="handleTaskStart"
             @edit="handleTaskEdit"
             @stop="handleTaskStop"
             @resume="handleTaskResume"

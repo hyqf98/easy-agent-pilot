@@ -1,8 +1,8 @@
 import { useMessageStore, type Message, type MessageAttachment, type ToolCall } from '@/stores/message'
-import { useSessionStore } from '@/stores/session'
+import { useSessionStore, type Session } from '@/stores/session'
 import { useSessionExecutionStore, type ComposerMemoryReference } from '@/stores/sessionExecution'
 import { useProjectStore } from '@/stores/project'
-import { useAgentStore, type AgentConfig } from '@/stores/agent'
+import { useAgentStore, type AgentConfig, inferAgentProvider } from '@/stores/agent'
 import { useNotificationStore } from '@/stores/notification'
 import { useTokenStore } from '@/stores/token'
 import { useMemoryStore } from '@/stores/memory'
@@ -138,6 +138,7 @@ export class ConversationService {
       dedupeInjectedSystemMessagesBySession?: boolean
       previewContent?: string
       memoryReferencesToPersist?: ComposerMemoryReference[]
+      existingUserMessageId?: string
     }
   ): Promise<void> {
     const messageStore = useMessageStore()
@@ -168,8 +169,12 @@ export class ConversationService {
     tokenStore.clearRealtimeTokens(sessionId)
 
     try {
-      // 添加用户消息
-      const userMessage = await messageStore.addMessage({
+      const existingUserMessageId = options?.existingUserMessageId?.trim()
+      const existingSessionMessages = messageStore.messagesBySession(sessionId)
+      const userMessage = existingUserMessageId
+        ? existingSessionMessages.find(message => message.id === existingUserMessageId && message.role === 'user')
+        : undefined
+      const targetUserMessage = userMessage ?? await messageStore.addMessage({
         sessionId,
         role: 'user',
         content,
@@ -177,36 +182,35 @@ export class ConversationService {
         status: 'completed'
       })
 
-      const rawMemoryContent = extractRawMemoryCaptureContent(content)
-      if (rawMemoryContent) {
-        await memoryStore.captureUserMessage({
+      if (!userMessage) {
+        const rawMemoryContent = extractRawMemoryCaptureContent(content)
+        if (rawMemoryContent) {
+          await memoryStore.captureUserMessage({
+            sessionId,
+            messageId: targetUserMessage.id,
+            content: rawMemoryContent
+          })
+        }
+        await memoryStore.recordSessionMemoryReferences({
           sessionId,
-          messageId: userMessage.id,
-          content: rawMemoryContent
+          messageId: targetUserMessage.id,
+          references: (options?.memoryReferencesToPersist ?? []).map(reference => ({
+            sourceType: reference.sourceType,
+            sourceId: reference.sourceId
+          }))
         })
-      }
-      await memoryStore.recordSessionMemoryReferences({
-        sessionId,
-        messageId: userMessage.id,
-        references: (options?.memoryReferencesToPersist ?? []).map(reference => ({
-          sourceType: reference.sourceType,
-          sourceId: reference.sourceId
-        }))
-      })
 
-      // 更新会话最后消息
-      const messagePreview = this.buildMessagePreview(options?.previewContent ?? content, attachments)
-      sessionStore.updateLastMessage(sessionId, messagePreview)
+        const messagePreview = this.buildMessagePreview(options?.previewContent ?? content, attachments)
+        sessionStore.updateLastMessage(sessionId, messagePreview)
 
-      // 如果会话名称是默认名称（未命名会话），则用第一条消息的前几个字更新
-      const session = sessionStore.sessions.find(s => s.id === sessionId)
-      if (session && (session.name === '未命名会话' || session.name.startsWith('新会话'))) {
-        // 提取前20个字符作为会话名称，去掉换行符
-        const titleSource = this.buildMessagePreview(options?.previewContent ?? content, attachments)
-        const newTitle = titleSource.replace(/\n/g, ' ').slice(0, 20).trim()
-        const finalTitle = newTitle.length < titleSource.length ? newTitle + '...' : newTitle
-        if (finalTitle) {
-          await sessionStore.updateSession(sessionId, { name: finalTitle })
+        const session = sessionStore.sessions.find(s => s.id === sessionId)
+        if (session && (session.name === '未命名会话' || session.name.startsWith('新会话'))) {
+          const titleSource = this.buildMessagePreview(options?.previewContent ?? content, attachments)
+          const newTitle = titleSource.replace(/\n/g, ' ').slice(0, 20).trim()
+          const finalTitle = newTitle.length < titleSource.length ? newTitle + '...' : newTitle
+          if (finalTitle) {
+            await sessionStore.updateSession(sessionId, { name: finalTitle })
+          }
         }
       }
 
@@ -285,14 +289,26 @@ export class ConversationService {
         ...(projectMemoryPrompt ? [projectMemoryPrompt] : [])
       ]
 
+      const session = sessionStore.sessions.find(s => s.id === sessionId)
+      const sessionMessages = messageStore.messagesBySession(sessionId)
+      const executionMessages = existingUserMessageId
+        ? this.sliceMessagesForRetry(sessionMessages, targetUserMessage.id)
+        : sessionMessages
+      const hasCompressionMessage = sessionMessages.some(message => message.role === 'compression')
+      const reusableCliSessionId = this.resolveReusableCliSessionId(
+        session,
+        executionAgent,
+        hasCompressionMessage
+      )
+
       // 构建对话上下文
-      const messages = buildConversationMessages(
-        messageStore.messagesBySession(sessionId),
-        {
-          fallbackUserContent: content,
-          sessionId,
-          injectedSystemMessages
-        }
+      const messages = this.buildExecutionMessages(
+        executionMessages,
+        targetUserMessage,
+        sessionId,
+        injectedSystemMessages,
+        content,
+        reusableCliSessionId
       )
       const userMessages = messages.filter(message => message.role === 'user')
       const systemMessages = messages.filter(message => message.role === 'system')
@@ -301,6 +317,7 @@ export class ConversationService {
         sessionId,
         messageCount: messages.length,
         systemMessageCount: systemMessages.length,
+        resumeSessionId: reusableCliSessionId ?? null,
         lastUserMessageLength: userMessages.length > 0
           ? userMessages[userMessages.length - 1].content.length
           : 0
@@ -313,8 +330,11 @@ export class ConversationService {
         workingDirectory,
         mcpServers: mcpServers.length > 0 ? mcpServers : undefined,
         executionMode: 'chat',
-        responseMode: 'stream_text'
+        responseMode: 'stream_text',
+        resumeSessionId: reusableCliSessionId
       }
+
+      await this.syncSessionExecutionBinding(sessionId, executionAgent)
 
       // 执行对话
       await this.executeConversation(context, aiMessage, sessionId, targetProject?.id)
@@ -422,6 +442,103 @@ export class ConversationService {
     return buildProjectMemorySystemPrompt(mountedLibraries)
   }
 
+  private resolveCliSessionProvider(agent: AgentConfig): string | undefined {
+    const provider = inferAgentProvider(agent)
+    return provider?.trim() || undefined
+  }
+
+  private resolveReusableCliSessionId(
+    session: Session | undefined,
+    agent: AgentConfig,
+    hasCompressionMessage: boolean
+  ): string | undefined {
+    if (!session || agent.type !== 'cli' || hasCompressionMessage) {
+      return undefined
+    }
+
+    const cliSessionId = session.cliSessionId?.trim()
+    if (!cliSessionId) {
+      return undefined
+    }
+
+    const expectedProvider = this.resolveCliSessionProvider(agent)
+    const boundProvider = session.cliSessionProvider?.trim()
+    if (expectedProvider && boundProvider && expectedProvider !== boundProvider) {
+      return undefined
+    }
+
+    return cliSessionId
+  }
+
+  private buildExecutionMessages(
+    sessionMessages: Message[],
+    currentUserMessage: Message,
+    sessionId: string,
+    injectedSystemMessages: string[],
+    fallbackUserContent: string,
+    resumeSessionId?: string
+  ): Message[] {
+    const sourceMessages = resumeSessionId
+      ? [currentUserMessage]
+      : sessionMessages
+    const nextInjectedSystemMessages = resumeSessionId
+      ? []
+      : injectedSystemMessages
+
+    return buildConversationMessages(sourceMessages, {
+      fallbackUserContent,
+      sessionId,
+      injectedSystemMessages: nextInjectedSystemMessages
+    })
+  }
+
+  private sliceMessagesForRetry(sessionMessages: Message[], userMessageId: string): Message[] {
+    const userMessageIndex = sessionMessages.findIndex(message => message.id === userMessageId)
+    if (userMessageIndex < 0) {
+      return sessionMessages
+    }
+
+    return sessionMessages.slice(0, userMessageIndex + 1)
+  }
+
+  private async syncSessionExecutionBinding(
+    sessionId: string,
+    agent: AgentConfig,
+    overrides: Partial<Pick<Session, 'cliSessionId' | 'cliSessionProvider'>> = {}
+  ): Promise<void> {
+    const sessionStore = useSessionStore()
+    const currentSession = sessionStore.sessions.find(session => session.id === sessionId)
+    if (!currentSession) {
+      return
+    }
+
+    const provider = this.resolveCliSessionProvider(agent)
+    const nextAgentType = provider || agent.type
+    const shouldRetainCliBinding = Boolean(provider)
+    const nextCliSessionId = shouldRetainCliBinding
+      ? (overrides.cliSessionId ?? currentSession.cliSessionId)
+      : ''
+    const nextCliSessionProvider = shouldRetainCliBinding
+      ? (overrides.cliSessionProvider ?? provider ?? currentSession.cliSessionProvider)
+      : ''
+
+    if (
+      currentSession.agentId === agent.id
+      && currentSession.agentType === nextAgentType
+      && (currentSession.cliSessionId ?? '') === (nextCliSessionId ?? '')
+      && (currentSession.cliSessionProvider ?? '') === (nextCliSessionProvider ?? '')
+    ) {
+      return
+    }
+
+    await sessionStore.updateSession(sessionId, {
+      agentId: agent.id,
+      agentType: nextAgentType,
+      cliSessionId: nextCliSessionId,
+      cliSessionProvider: nextCliSessionProvider
+    })
+  }
+
   /**
    * 执行对话
    */
@@ -455,6 +572,7 @@ export class ConversationService {
     })
     const pendingTraceTasks = new Set<Promise<void>>()
     const pendingPersistenceTasks = new Set<Promise<void>>()
+    const cliSessionProvider = this.resolveCliSessionProvider(context.agent)
     const streamMetrics: StreamTimingMetrics = {
       startedAt: globalThis.performance?.now() ?? Date.now()
     }
@@ -471,6 +589,20 @@ export class ConversationService {
     const registerPersistenceTask = (task: Promise<void>) => {
       pendingPersistenceTasks.add(task)
       task.finally(() => pendingPersistenceTasks.delete(task))
+    }
+
+    const registerCliSessionBinding = (externalSessionId?: string) => {
+      const normalizedExternalSessionId = externalSessionId?.trim()
+      if (!normalizedExternalSessionId || !cliSessionProvider) {
+        return
+      }
+
+      registerPersistenceTask(
+        this.syncSessionExecutionBinding(sessionId, context.agent, {
+          cliSessionId: normalizedExternalSessionId,
+          cliSessionProvider
+        })
+      )
     }
 
     const now = () => globalThis.performance?.now() ?? Date.now()
@@ -632,6 +764,7 @@ export class ConversationService {
     try {
       await agentExecutor.execute(context, (event: StreamEvent) => {
         markMetric('firstEventAt')
+        registerCliSessionBinding(event.externalSessionId)
         this.handleStreamEvent(event, {
           aiMessage,
           sessionId,

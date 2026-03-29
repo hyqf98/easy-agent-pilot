@@ -314,11 +314,21 @@ function extractToolFileTarget(
 }
 
 async function safeReadProjectFile(projectPath: string, filePath: string): Promise<string | null> {
-  try {
-    return (await readProjectFile(projectPath, filePath)).content
-  } catch {
-    return null
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return (await readProjectFile(projectPath, filePath)).content
+    } catch {
+      if (attempt === 2) {
+        return null
+      }
+
+      await new Promise((resolve) => {
+        setTimeout(resolve, 120 * (attempt + 1))
+      })
+    }
   }
+
+  return null
 }
 
 function buildHunkHeader(relativePath: string, range: FileEditRange): string {
@@ -376,11 +386,15 @@ export class FileTraceCollector {
     const resultHint = toolResult?.toLowerCase() ?? ''
     const hintedCreate = resultHint.includes('created')
     const hintedDelete = resultHint.includes('deleted') || resultHint.includes('removed')
-    const changeType: FileEditChangeType = afterContent === null || hintedDelete
+    const changeType: FileEditChangeType = hintedDelete
       ? 'delete'
       : pending.changeType === 'create' && (beforeContent === null || hintedCreate)
         ? 'create'
         : 'modify'
+
+    if (changeType !== 'delete' && afterContent === null) {
+      return null
+    }
 
     if (changeType === 'delete') {
       return {

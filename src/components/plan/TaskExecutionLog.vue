@@ -141,7 +141,16 @@ const statusColor = computed(() => {
 })
 
 async function handleStop() {
-  await taskExecutionStore.stopTaskExecution(props.taskId)
+  const currentTask = task.value
+  const shouldPauseQueue = Boolean(
+    currentTask
+    && taskExecutionStore.getCurrentRunningTaskId(currentTask.planId) === props.taskId
+  )
+
+  await taskExecutionStore.stopTaskExecution(
+    props.taskId,
+    shouldPauseQueue ? { pauseQueue: true, autoAdvance: false } : undefined
+  )
 }
 
 async function handleResume() {

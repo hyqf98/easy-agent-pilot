@@ -3,7 +3,10 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
 use super::message::remove_session_uploads;
-use super::support::{now_rfc3339, open_db_connection, open_db_connection_with_foreign_keys};
+use super::support::{
+    now_rfc3339, open_db_connection, open_db_connection_with_foreign_keys,
+    repair_memory_search_indexes,
+};
 
 /// 会话数据结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -11,7 +14,10 @@ pub struct Session {
     pub id: String,
     pub project_id: String,
     pub name: String,
+    pub agent_id: Option<String>,
     pub agent_type: String,
+    pub cli_session_id: Option<String>,
+    pub cli_session_provider: Option<String>,
     pub status: String,
     pub pinned: bool,
     pub last_message: Option<String>,
@@ -26,6 +32,7 @@ pub struct Session {
 pub struct CreateSessionInput {
     pub project_id: String,
     pub name: Option<String>,
+    pub agent_id: Option<String>,
     pub agent_type: String,
     pub status: Option<String>,
 }
@@ -38,7 +45,10 @@ pub struct UpdateSessionInput {
     pub pinned: Option<bool>,
     pub last_message: Option<String>,
     pub error_message: Option<String>,
+    pub agent_id: Option<String>,
     pub agent_type: Option<String>,
+    pub cli_session_id: Option<String>,
+    pub cli_session_provider: Option<String>,
 }
 
 /// 生成默认会话名称（带时间戳）
@@ -80,7 +90,8 @@ pub fn list_sessions(project_id: String) -> Result<Vec<Session>, String> {
     let mut stmt = conn
         .prepare(
             r#"
-            SELECT s.id, s.project_id, s.name, s.agent_type, s.status,
+            SELECT s.id, s.project_id, s.name, s.agent_id, s.agent_type,
+                   s.cli_session_id, s.cli_session_provider, s.status,
                    COALESCE(s.pinned, 0) as pinned,
                    m.last_message, s.error_message, COALESCE(m.message_count, 0) as message_count,
                    s.created_at, s.updated_at
@@ -104,14 +115,17 @@ pub fn list_sessions(project_id: String) -> Result<Vec<Session>, String> {
                 id: row.get(0)?,
                 project_id: row.get(1)?,
                 name: row.get(2)?,
-                agent_type: row.get(3)?,
-                status: row.get(4)?,
-                pinned: row.get::<_, i32>(5)? != 0,
-                last_message: row.get(6)?,
-                error_message: row.get(7)?,
-                message_count: row.get(8)?,
-                created_at: row.get(9)?,
-                updated_at: row.get(10)?,
+                agent_id: row.get(3)?,
+                agent_type: row.get(4)?,
+                cli_session_id: row.get(5)?,
+                cli_session_provider: row.get(6)?,
+                status: row.get(7)?,
+                pinned: row.get::<_, i32>(8)? != 0,
+                last_message: row.get(9)?,
+                error_message: row.get(10)?,
+                message_count: row.get(11)?,
+                created_at: row.get(12)?,
+                updated_at: row.get(13)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -132,11 +146,12 @@ pub fn create_session(input: CreateSessionInput) -> Result<Session, String> {
     let status = input.status.unwrap_or_else(|| "idle".to_string());
 
     conn.execute(
-        "INSERT INTO sessions (id, project_id, name, agent_type, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO sessions (id, project_id, name, agent_id, agent_type, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         rusqlite::params![
             &id,
             &input.project_id,
             &name,
+            &input.agent_id,
             &input.agent_type,
             &status,
             &now,
@@ -156,7 +171,10 @@ pub fn create_session(input: CreateSessionInput) -> Result<Session, String> {
         id,
         project_id: input.project_id,
         name,
+        agent_id: input.agent_id,
         agent_type: input.agent_type,
+        cli_session_id: None,
+        cli_session_provider: None,
         status,
         pinned: false,
         last_message: None,
@@ -198,8 +216,20 @@ pub fn update_session(id: String, input: UpdateSessionInput) -> Result<Session, 
         updates.push(format!("error_message = ?{}", param_index));
         param_index += 1;
     }
+    if input.agent_id.is_some() {
+        updates.push(format!("agent_id = ?{}", param_index));
+        param_index += 1;
+    }
     if input.agent_type.is_some() {
         updates.push(format!("agent_type = ?{}", param_index));
+        param_index += 1;
+    }
+    if input.cli_session_id.is_some() {
+        updates.push(format!("cli_session_id = ?{}", param_index));
+        param_index += 1;
+    }
+    if input.cli_session_provider.is_some() {
+        updates.push(format!("cli_session_provider = ?{}", param_index));
         param_index += 1;
     }
 
@@ -242,8 +272,23 @@ pub fn update_session(id: String, input: UpdateSessionInput) -> Result<Session, 
             .map_err(|e| e.to_string())?;
         param_count += 1;
     }
+    if let Some(ref agent_id) = input.agent_id {
+        stmt.raw_bind_parameter(param_count, agent_id)
+            .map_err(|e| e.to_string())?;
+        param_count += 1;
+    }
     if let Some(ref agent_type) = input.agent_type {
         stmt.raw_bind_parameter(param_count, agent_type)
+            .map_err(|e| e.to_string())?;
+        param_count += 1;
+    }
+    if let Some(ref cli_session_id) = input.cli_session_id {
+        stmt.raw_bind_parameter(param_count, cli_session_id)
+            .map_err(|e| e.to_string())?;
+        param_count += 1;
+    }
+    if let Some(ref cli_session_provider) = input.cli_session_provider {
+        stmt.raw_bind_parameter(param_count, cli_session_provider)
             .map_err(|e| e.to_string())?;
         param_count += 1;
     }
@@ -264,7 +309,8 @@ fn get_session_by_id(conn: &Connection, id: &str) -> Result<Session, String> {
     let mut stmt = conn
         .prepare(
             r#"
-            SELECT s.id, s.project_id, s.name, s.agent_type, s.status,
+            SELECT s.id, s.project_id, s.name, s.agent_id, s.agent_type,
+                   s.cli_session_id, s.cli_session_provider, s.status,
                    COALESCE(s.pinned, 0) as pinned,
                    m.last_message, s.error_message, COALESCE(m.message_count, 0) as message_count,
                    s.created_at, s.updated_at
@@ -287,14 +333,17 @@ fn get_session_by_id(conn: &Connection, id: &str) -> Result<Session, String> {
                 id: row.get(0)?,
                 project_id: row.get(1)?,
                 name: row.get(2)?,
-                agent_type: row.get(3)?,
-                status: row.get(4)?,
-                pinned: row.get::<_, i32>(5)? != 0,
-                last_message: row.get(6)?,
-                error_message: row.get(7)?,
-                message_count: row.get(8)?,
-                created_at: row.get(9)?,
-                updated_at: row.get(10)?,
+                agent_id: row.get(3)?,
+                agent_type: row.get(4)?,
+                cli_session_id: row.get(5)?,
+                cli_session_provider: row.get(6)?,
+                status: row.get(7)?,
+                pinned: row.get::<_, i32>(8)? != 0,
+                last_message: row.get(9)?,
+                error_message: row.get(10)?,
+                message_count: row.get(11)?,
+                created_at: row.get(12)?,
+                updated_at: row.get(13)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -306,6 +355,7 @@ fn get_session_by_id(conn: &Connection, id: &str) -> Result<Session, String> {
 #[tauri::command]
 pub fn delete_session(id: String) -> Result<(), String> {
     let mut conn = open_db_connection_with_foreign_keys().map_err(|e| e.to_string())?;
+    repair_memory_search_indexes(&conn).map_err(|e| format!("修复记忆搜索索引失败: {}", e))?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
     delete_session_related_runtime_data(&tx, &id)?;

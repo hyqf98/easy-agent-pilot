@@ -179,7 +179,7 @@ const assistantVisibleEditTraces = computed(() => {
     return []
   }
 
-  const latestTraceByFile = messageStore.getLatestAssistantTraceIdsByFile(props.message.sessionId)
+const latestTraceByFile = messageStore.getLatestAssistantTraceIdsByFile(props.message.sessionId)
 
   const latestVisibleTraces = props.message.editTraces.filter(trace => {
     const latest = latestTraceByFile.get(trace.filePath)
@@ -256,6 +256,39 @@ const getTraceChangeIcon = (changeType: 'create' | 'modify' | 'delete') => {
 
 const toolCallCount = computed(() => props.message.toolCalls?.length ?? 0)
 const shouldClampToolCalls = computed(() => toolCallCount.value > 10)
+const areToolCallsExpanded = ref(false)
+const sortedToolCalls = computed(() => {
+  const toolCalls = props.message.toolCalls ?? []
+  return [...toolCalls].sort((left, right) => {
+    const leftRunning = left.status === 'running' ? 0 : 1
+    const rightRunning = right.status === 'running' ? 0 : 1
+    if (leftRunning !== rightRunning) {
+      return leftRunning - rightRunning
+    }
+
+    if (left.status !== right.status) {
+      const weight = (status: string) => {
+        switch (status) {
+          case 'pending':
+            return 0
+          case 'running':
+            return 1
+          case 'error':
+            return 2
+          default:
+            return 3
+        }
+      }
+      return weight(left.status) - weight(right.status)
+    }
+
+    return 0
+  })
+})
+
+const toggleToolCallsExpanded = () => {
+  areToolCallsExpanded.value = !areToolCallsExpanded.value
+}
 const isAssistantFormOnly = computed(() => {
   if (!isAssistant.value) {
     return false
@@ -368,17 +401,28 @@ const isAssistantFormOnly = computed(() => {
         class="message-bubble__tool-calls-shell"
         :class="{ 'message-bubble__tool-calls-shell--scrollable': shouldClampToolCalls }"
       >
-        <div class="message-bubble__tool-calls-head">
+        <button
+          type="button"
+          class="message-bubble__tool-calls-head"
+          :aria-expanded="areToolCallsExpanded"
+          @click="toggleToolCallsExpanded"
+        >
           <span class="message-bubble__tool-calls-title">工具调用</span>
-          <span class="message-bubble__tool-calls-count">{{ toolCallCount }}</span>
-        </div>
+          <span class="message-bubble__tool-calls-head-right">
+            <span class="message-bubble__tool-calls-count">{{ toolCallCount }}</span>
+            <span class="message-bubble__tool-calls-toggle">
+              {{ areToolCallsExpanded ? t('message.collapse') : t('message.expand') }}
+            </span>
+          </span>
+        </button>
         <TransitionGroup
+          v-if="areToolCallsExpanded"
           name="tool-call"
           tag="div"
           class="message-bubble__tool-calls"
         >
           <ToolCallDisplay
-            v-for="toolCall in message.toolCalls"
+            v-for="toolCall in sortedToolCalls"
             :key="getToolCallRenderKey(toolCall)"
             :tool-call="toolCall"
             :live="isStreaming || toolCall.status === 'running'"
@@ -801,7 +845,11 @@ const isAssistantFormOnly = computed(() => {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
+  width: 100%;
   padding: 0 0.1rem;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
 }
 
 .message-bubble__tool-calls-title {
@@ -824,6 +872,17 @@ const isAssistantFormOnly = computed(() => {
   color: var(--tool-call-shell-count-text);
   font-size: 0.72rem;
   font-weight: 700;
+}
+
+.message-bubble__tool-calls-head-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.message-bubble__tool-calls-toggle {
+  font-size: 0.74rem;
+  color: var(--color-text-secondary);
 }
 
 .message-bubble__tool-calls {

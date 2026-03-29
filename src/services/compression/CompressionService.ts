@@ -165,6 +165,10 @@ export class CompressionService {
 
       // 更新会话最后消息
       sessionStore.updateLastMessage(sessionId, summaryContent.slice(0, 50))
+      await sessionStore.updateSession(sessionId, {
+        cliSessionId: '',
+        cliSessionProvider: ''
+      })
 
       // 清除 token 缓存并重置实时 token 数据
       tokenStore.clearSessionTokenCache(sessionId)

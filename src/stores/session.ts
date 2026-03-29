@@ -16,8 +16,10 @@ export interface Session {
   id: string
   projectId: string
   name: string
-  agentId?: string  // 创建该会话的智能体 ID
+  agentId?: string
   agentType: string
+  cliSessionId?: string
+  cliSessionProvider?: string
   status: SessionStatus
   pinned: boolean
   lastMessage?: string
@@ -34,6 +36,8 @@ interface RustSession {
   name: string
   agent_id?: string
   agent_type: string
+  cli_session_id?: string
+  cli_session_provider?: string
   status: string
   pinned: boolean
   last_message?: string
@@ -51,6 +55,8 @@ function transformSession(rustSession: RustSession): Session {
     name: rustSession.name,
     agentId: rustSession.agent_id,
     agentType: rustSession.agent_type,
+    cliSessionId: rustSession.cli_session_id,
+    cliSessionProvider: rustSession.cli_session_provider,
     status: rustSession.status as SessionStatus,
     pinned: rustSession.pinned,
     lastMessage: rustSession.last_message,
@@ -261,6 +267,7 @@ export const useSessionStore = defineStore('session', () => {
     const input = {
       project_id: session.projectId,
       name: session.name || null, // 如果为空，后端会生成默认名称
+      agent_id: session.agentId ?? null,
       agent_type: session.agentType,
       status: session.status || null
     }
@@ -281,16 +288,22 @@ export const useSessionStore = defineStore('session', () => {
     }
   }
 
-  async function updateSession(id: string, updates: Partial<Pick<Session, 'name' | 'status' | 'pinned' | 'lastMessage' | 'errorMessage' | 'agentType'>>) {
+  async function updateSession(
+    id: string,
+    updates: Partial<Pick<Session, 'name' | 'status' | 'pinned' | 'lastMessage' | 'errorMessage' | 'agentType' | 'agentId' | 'cliSessionId' | 'cliSessionProvider'>>
+  ) {
     const notificationStore = useNotificationStore()
-    const input = {
-      name: updates.name ?? null,
-      status: updates.status ?? null,
-      pinned: updates.pinned ?? null,
-      last_message: updates.lastMessage ?? null,
-      error_message: updates.errorMessage ?? null,
-      agent_type: updates.agentType ?? null
-    }
+    const input: Record<string, unknown> = {}
+
+    if ('name' in updates) input.name = updates.name ?? null
+    if ('status' in updates) input.status = updates.status ?? null
+    if ('pinned' in updates) input.pinned = updates.pinned ?? null
+    if ('lastMessage' in updates) input.last_message = updates.lastMessage ?? null
+    if ('errorMessage' in updates) input.error_message = updates.errorMessage ?? null
+    if ('agentType' in updates) input.agent_type = updates.agentType ?? null
+    if ('agentId' in updates) input.agent_id = updates.agentId ?? null
+    if ('cliSessionId' in updates) input.cli_session_id = updates.cliSessionId ?? null
+    if ('cliSessionProvider' in updates) input.cli_session_provider = updates.cliSessionProvider ?? null
 
     try {
       const rustSession = await invoke<RustSession>('update_session', { id, input })

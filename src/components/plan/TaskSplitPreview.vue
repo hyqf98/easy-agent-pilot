@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AITaskItem, TaskPriority } from '@/types/plan'
 import { useConfirmDialog } from '@/composables'
+import EaModal from '@/components/common/EaModal.vue'
 import TaskSplitPreviewCard from './TaskSplitPreviewCard.vue'
 import TaskSplitPreviewEditor from './TaskSplitPreviewEditor.vue'
 
@@ -32,6 +33,13 @@ const priorityColors: Record<TaskPriority, string> = {
   medium: 'yellow',
   high: 'red'
 }
+
+const editingTask = computed(() => {
+  if (editingIndex.value === null) {
+    return null
+  }
+  return props.tasks[editingIndex.value] ?? null
+})
 
 function startEdit(index: number) {
   editingIndex.value = index
@@ -110,10 +118,8 @@ function addTask() {
         v-for="(task, index) in tasks"
         :key="index"
         class="task-item"
-        :class="{ editing: editingIndex === index }"
       >
         <TaskSplitPreviewCard
-          v-if="editingIndex !== index"
           :task="task"
           :index="index"
           :priority-colors="priorityColors"
@@ -121,18 +127,40 @@ function addTask() {
           @remove="removeTask(index)"
           @resplit="emit('resplit', index)"
         />
-
-        <TaskSplitPreviewEditor
-          v-else
-          :task="task"
-          :tasks="tasks"
-          :index="index"
-          :priority-options="priorityOptions"
-          @save="saveEdit(index, $event)"
-          @cancel="cancelEdit"
-        />
       </div>
     </div>
+
+    <EaModal
+      :visible="editingIndex !== null && !!editingTask"
+      content-class="task-split-preview-modal"
+      overlay-class="task-split-preview-modal-overlay"
+      @update:visible="value => !value && cancelEdit()"
+    >
+      <template #header>
+        <div class="editor-modal-header">
+          <div class="editor-modal-title">
+            {{ editingTask?.title?.trim() || t('taskSplit.newTask') }}
+          </div>
+          <button
+            type="button"
+            class="editor-modal-close"
+            @click="cancelEdit"
+          >
+            ×
+          </button>
+        </div>
+      </template>
+
+      <TaskSplitPreviewEditor
+        v-if="editingTask !== null && editingIndex !== null"
+        :task="editingTask"
+        :tasks="tasks"
+        :index="editingIndex"
+        :priority-options="priorityOptions"
+        @save="saveEdit(editingIndex, $event)"
+        @cancel="cancelEdit"
+      />
+    </EaModal>
   </div>
 </template>
 
@@ -212,8 +240,42 @@ function addTask() {
   transition: all var(--transition-fast, 150ms);
 }
 
-.task-item.editing {
+.editor-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-3, 0.75rem);
+}
+
+.editor-modal-title {
+  font-size: var(--font-size-base, 14px);
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--color-text-primary, #1e293b);
+}
+
+.editor-modal-close {
+  width: 28px;
+  height: 28px;
+  border: none;
   border-radius: var(--radius-md, 8px);
-  box-shadow: 0 0 0 3px var(--color-primary-light, #dbeafe);
+  background: transparent;
+  color: var(--color-text-secondary, #64748b);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.editor-modal-close:hover {
+  background: var(--color-bg-secondary, #f1f5f9);
+  color: var(--color-text-primary, #1e293b);
+}
+
+:global(.task-split-preview-modal-overlay) {
+  z-index: calc(var(--z-modal, 1050) + 10);
+}
+
+:global(.ea-modal.task-split-preview-modal) {
+  width: min(720px, calc(100vw - 2rem));
+  max-width: 720px;
 }
 </style>

@@ -218,6 +218,12 @@ impl AgentExecutionStrategy for CodexCliStrategy {
         let extra_cli_args = request.extra_cli_args.clone();
         let messages = request.messages.clone();
         let mcp_servers = request.mcp_servers.clone();
+        let resume_session_id = request
+            .resume_session_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
         let is_stream_json = cli_output_format == "stream-json";
         let enable_web_search = allowed_tools
             .as_ref()
@@ -240,6 +246,9 @@ impl AgentExecutionStrategy for CodexCliStrategy {
         let mut args = Vec::<String>::new();
         if use_exec_mode {
             args.push("exec".to_string());
+            if resume_session_id.is_some() {
+                args.push("resume".to_string());
+            }
             if is_json_output {
                 args.push("--json".to_string());
             }
@@ -249,7 +258,9 @@ impl AgentExecutionStrategy for CodexCliStrategy {
         }
 
         // 添加跳过权限循环参数
-        args.push("--dangerously-bypass-approvals-and-sandbox".to_string());
+        if resume_session_id.is_none() {
+            args.push("--dangerously-bypass-approvals-and-sandbox".to_string());
+        }
 
         // 添加模型参数
         if let Some(model_id) = &model_id {
@@ -306,8 +317,11 @@ impl AgentExecutionStrategy for CodexCliStrategy {
             messages.last().map(render_cli_message).unwrap_or_default()
         };
 
-        let should_pipe_prompt_via_stdin = use_exec_mode;
-        if should_pipe_prompt_via_stdin {
+        let should_pipe_prompt_via_stdin = use_exec_mode && resume_session_id.is_none();
+        if let Some(resume_session_id) = &resume_session_id {
+            args.push(resume_session_id.clone());
+            args.push(input_text.clone());
+        } else if should_pipe_prompt_via_stdin {
             args.push("-".to_string());
         } else {
             args.push(input_text.clone());
@@ -634,6 +648,7 @@ impl AgentExecutionStrategy for CodexCliStrategy {
                 input_tokens: None,
                 output_tokens: None,
                 model: None,
+                external_session_id: None,
             };
             emit_cli_event(&app, &event_name, plan_id.as_ref(), &done_event);
         }
@@ -683,6 +698,7 @@ fn build_thinking_event(session_id: &str, content: String) -> CliStreamEvent {
         input_tokens: None,
         output_tokens: None,
         model: None,
+        external_session_id: None,
     }
 }
 
@@ -699,6 +715,7 @@ fn build_thinking_start_event(session_id: &str) -> CliStreamEvent {
         input_tokens: None,
         output_tokens: None,
         model: None,
+        external_session_id: None,
     }
 }
 
@@ -719,6 +736,7 @@ fn build_tool_input_delta_event(
         input_tokens: None,
         output_tokens: None,
         model: None,
+        external_session_id: None,
     }
 }
 
@@ -739,7 +757,35 @@ fn build_usage_event(
         input_tokens,
         output_tokens,
         model: None,
+        external_session_id: None,
     }
+}
+
+fn extract_external_session_id(json: &serde_json::Value) -> Option<String> {
+    [
+        json.get("session_id"),
+        json.pointer("/session/id"),
+        json.pointer("/payload/id"),
+        json.pointer("/session_meta/payload/id"),
+        json.pointer("/item/session_id"),
+        json.pointer("/message/session_id"),
+    ]
+    .into_iter()
+    .flatten()
+    .find_map(|value| value.as_str())
+    .map(|value| value.trim().to_string())
+    .filter(|value| !value.is_empty())
+}
+
+fn attach_external_session_id(
+    mut event: CliStreamEvent,
+    json: &serde_json::Value,
+) -> CliStreamEvent {
+    if event.external_session_id.is_none() {
+        event.external_session_id = extract_external_session_id(json);
+    }
+
+    event
 }
 
 fn build_command_execution_tool_use_event(
@@ -765,6 +811,7 @@ fn build_command_execution_tool_use_event(
         input_tokens: None,
         output_tokens: None,
         model: None,
+        external_session_id: None,
     })
 }
 
@@ -819,6 +866,7 @@ fn build_command_execution_tool_result_event(
         input_tokens: None,
         output_tokens: None,
         model: None,
+        external_session_id: None,
     })
 }
 
@@ -836,7 +884,21 @@ fn parse_codex_json_output(session_id: &str, json: &serde_json::Value) -> Option
         .and_then(|value| value.as_str())
         .unwrap_or_default();
 
-    match event_type {
+    let event = match event_type {
+        "session_meta" => extract_external_session_id(json).map(|external_session_id| CliStreamEvent {
+            event_type: "message_start".to_string(),
+            session_id: session_id.to_string(),
+            content: None,
+            tool_name: None,
+            tool_call_id: None,
+            tool_input: None,
+            tool_result: None,
+            error: None,
+            input_tokens: None,
+            output_tokens: None,
+            model: None,
+            external_session_id: Some(external_session_id),
+        }),
         "system" => extract_runtime_system_notice(json)
             .map(|content| build_system_event(session_id, content)),
         // === Codex CLI 特有事件类型 ===
@@ -974,6 +1036,7 @@ fn parse_codex_json_output(session_id: &str, json: &serde_json::Value) -> Option
                         input_tokens: None,
                         output_tokens: None,
                         model: None,
+                        external_session_id: None,
                     })
                 }
                 "thinking" => {
@@ -1020,6 +1083,7 @@ fn parse_codex_json_output(session_id: &str, json: &serde_json::Value) -> Option
                     input_tokens,
                     output_tokens,
                     model,
+                    external_session_id: None,
                 })
             } else {
                 None
@@ -1055,6 +1119,7 @@ fn parse_codex_json_output(session_id: &str, json: &serde_json::Value) -> Option
             input_tokens: None,
             output_tokens: None,
             model: None,
+            external_session_id: None,
         }),
 
         // === 工具相关事件 ===
@@ -1080,6 +1145,7 @@ fn parse_codex_json_output(session_id: &str, json: &serde_json::Value) -> Option
                 input_tokens: None,
                 output_tokens: None,
                 model: None,
+                external_session_id: None,
             })
         }
         "tool_result" => {
@@ -1098,6 +1164,7 @@ fn parse_codex_json_output(session_id: &str, json: &serde_json::Value) -> Option
                 input_tokens: None,
                 output_tokens: None,
                 model: None,
+                external_session_id: None,
             })
         }
 
@@ -1144,6 +1211,7 @@ fn parse_codex_json_output(session_id: &str, json: &serde_json::Value) -> Option
                                 input_tokens: None,
                                 output_tokens: None,
                                 model: None,
+                                external_session_id: None,
                             });
                         }
                     }
@@ -1170,6 +1238,7 @@ fn parse_codex_json_output(session_id: &str, json: &serde_json::Value) -> Option
                             input_tokens: None,
                             output_tokens: None,
                             model: None,
+                            external_session_id: None,
                         });
                     }
                     _ => {
@@ -1217,6 +1286,7 @@ fn parse_codex_json_output(session_id: &str, json: &serde_json::Value) -> Option
                             input_tokens: None,
                             output_tokens: None,
                             model: None,
+                            external_session_id: None,
                         })
                     }
                     _ => {
@@ -1244,7 +1314,9 @@ fn parse_codex_json_output(session_id: &str, json: &serde_json::Value) -> Option
                 .or_else(|| extract_turn_output(json))
                 .map(|content| build_content_event(session_id, content))
         }
-    }
+    };
+
+    event.map(|event| attach_external_session_id(event, json))
 }
 
 fn extract_item_text(item: &serde_json::Value) -> Option<String> {
@@ -1351,7 +1423,10 @@ fn parse_codex_json_blob_output(session_id: &str, output: &str) -> Option<CliStr
     }
 
     if let Some(content) = extract_runtime_system_notice(&parsed) {
-        return Some(build_system_event(session_id, content));
+        return Some(attach_external_session_id(
+            build_system_event(session_id, content),
+            &parsed,
+        ));
     }
 
     // 尝试提取结构化输出
@@ -1360,13 +1435,19 @@ fn parse_codex_json_blob_output(session_id: &str, output: &str) -> Option<CliStr
             "[parse] 提取到 structured_output, 长度: {}",
             content.chars().count()
         );
-        return Some(build_content_event(session_id, content));
+        return Some(attach_external_session_id(
+            build_content_event(session_id, content),
+            &parsed,
+        ));
     }
 
     // 尝试提取错误
     if let Some(error) = extract_error_from_json_blob(&parsed) {
         log_info!("[parse] 提取到 error: {}", error);
-        return Some(build_error_event(session_id, error));
+        return Some(attach_external_session_id(
+            build_error_event(session_id, error),
+            &parsed,
+        ));
     }
 
     // 尝试提取结果内容
@@ -1375,13 +1456,19 @@ fn parse_codex_json_blob_output(session_id: &str, output: &str) -> Option<CliStr
             "[parse] 提取到 result.content, 长度: {}",
             content.chars().count()
         );
-        return Some(build_content_event(session_id, content));
+        return Some(attach_external_session_id(
+            build_content_event(session_id, content),
+            &parsed,
+        ));
     }
 
     // 返回原始 JSON
     if let Ok(raw_json) = serde_json::to_string(&parsed) {
         log_info!("[parse] 返回原始 JSON, 长度: {}", raw_json.chars().count());
-        return Some(build_content_event(session_id, raw_json));
+        return Some(attach_external_session_id(
+            build_content_event(session_id, raw_json),
+            &parsed,
+        ));
     }
 
     log_error!("[parse] 无法提取任何内容");

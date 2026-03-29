@@ -4,7 +4,7 @@ use rusqlite::{params, params_from_iter, OptionalExtension, ToSql};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-use super::support::{now_rfc3339, open_db_connection_with_foreign_keys};
+use super::support::{now_rfc3339, open_db_connection_with_foreign_keys, repair_memory_search_indexes};
 
 const REFERENCED_MEMORY_BLOCK_HEADER: &str = "[用户主动引用的历史记忆]";
 const CURRENT_INPUT_BLOCK_HEADER: &str = "[用户当前输入]";
@@ -1164,6 +1164,8 @@ pub fn update_raw_memory_record(
 #[tauri::command]
 pub fn delete_raw_memory_record(id: String) -> Result<(), String> {
     let conn = get_db_connection().map_err(|error| error.to_string())?;
+    repair_memory_search_indexes(&conn)
+        .map_err(|error| format!("修复记忆搜索索引失败: {}", error))?;
     conn.execute("DELETE FROM raw_memory_records WHERE id = ?1", [&id])
         .map_err(|error| error.to_string())?;
     Ok(())
@@ -1207,6 +1209,8 @@ pub fn batch_delete_raw_memory_records(
     };
 
     let conn = get_db_connection().map_err(|error| error.to_string())?;
+    repair_memory_search_indexes(&conn)
+        .map_err(|error| format!("修复记忆搜索索引失败: {}", error))?;
     let mut sql = String::from("SELECT r.id FROM raw_memory_records r WHERE 1 = 1");
     let mut bindings: Vec<Box<dyn ToSql>> = Vec::new();
     append_raw_record_filters(

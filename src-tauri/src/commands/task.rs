@@ -24,6 +24,7 @@ pub struct Task {
     /// 执行模型 ID */
     pub model_id: Option<String>,
     pub session_id: Option<String>,
+    pub cli_session_provider: Option<String>,
     pub progress_file: Option<String>,
     pub dependencies: Option<Vec<String>>,
     pub order: i32,
@@ -56,6 +57,7 @@ pub struct RustTask {
     /// 执行模型 ID */
     pub model_id: Option<String>,
     pub session_id: Option<String>,
+    pub cli_session_provider: Option<String>,
     pub progress_file: Option<String>,
     pub dependencies: Option<String>, // JSON 字符串
     pub task_order: i32,
@@ -121,6 +123,8 @@ pub struct UpdateTaskInput {
     pub model_id: UpdateField<String>,
     #[serde(default)]
     pub session_id: UpdateField<String>,
+    #[serde(default)]
+    pub cli_session_provider: UpdateField<String>,
     #[serde(default)]
     pub progress_file: UpdateField<String>,
     #[serde(default)]
@@ -203,7 +207,7 @@ fn bind_update_json<T: Serialize>(
 
 const TASK_SELECT_BY_ID_SQL: &str = r#"
     SELECT id, plan_id, parent_id, title, description, status, priority,
-           assignee, agent_id, model_id, session_id, progress_file, dependencies, task_order,
+           assignee, agent_id, model_id, session_id, cli_session_provider, progress_file, dependencies, task_order,
            retry_count, max_retries, error_message,
            implementation_steps, test_steps, acceptance_criteria,
            block_reason, input_request, input_response,
@@ -213,7 +217,7 @@ const TASK_SELECT_BY_ID_SQL: &str = r#"
 "#;
 const TASK_SELECT_BY_PLAN_SQL: &str = r#"
     SELECT id, plan_id, parent_id, title, description, status, priority,
-           assignee, agent_id, model_id, session_id, progress_file, dependencies, task_order,
+           assignee, agent_id, model_id, session_id, cli_session_provider, progress_file, dependencies, task_order,
            retry_count, max_retries, error_message,
            implementation_steps, test_steps, acceptance_criteria,
            block_reason, input_request, input_response,
@@ -224,7 +228,7 @@ const TASK_SELECT_BY_PLAN_SQL: &str = r#"
 "#;
 const TASK_SELECT_BY_PARENT_SQL: &str = r#"
     SELECT id, plan_id, parent_id, title, description, status, priority,
-           assignee, agent_id, model_id, session_id, progress_file, dependencies, task_order,
+           assignee, agent_id, model_id, session_id, cli_session_provider, progress_file, dependencies, task_order,
            retry_count, max_retries, error_message,
            implementation_steps, test_steps, acceptance_criteria,
            block_reason, input_request, input_response,
@@ -235,7 +239,7 @@ const TASK_SELECT_BY_PARENT_SQL: &str = r#"
 "#;
 const TASK_SELECT_BY_SESSION_SQL: &str = r#"
     SELECT id, plan_id, parent_id, title, description, status, priority,
-           assignee, agent_id, model_id, session_id, progress_file, dependencies, task_order,
+           assignee, agent_id, model_id, session_id, cli_session_provider, progress_file, dependencies, task_order,
            retry_count, max_retries, error_message,
            implementation_steps, test_steps, acceptance_criteria,
            block_reason, input_request, input_response,
@@ -258,20 +262,21 @@ fn map_rust_task_row(row: &Row<'_>) -> rusqlite::Result<RustTask> {
         agent_id: row.get(8)?,
         model_id: row.get(9)?,
         session_id: row.get(10)?,
-        progress_file: row.get(11)?,
-        dependencies: row.get(12)?,
-        task_order: row.get(13)?,
-        retry_count: row.get(14)?,
-        max_retries: row.get(15)?,
-        error_message: row.get(16)?,
-        implementation_steps: row.get(17)?,
-        test_steps: row.get(18)?,
-        acceptance_criteria: row.get(19)?,
-        block_reason: row.get(20)?,
-        input_request: row.get(21)?,
-        input_response: row.get(22)?,
-        created_at: row.get(23)?,
-        updated_at: row.get(24)?,
+        cli_session_provider: row.get(11)?,
+        progress_file: row.get(12)?,
+        dependencies: row.get(13)?,
+        task_order: row.get(14)?,
+        retry_count: row.get(15)?,
+        max_retries: row.get(16)?,
+        error_message: row.get(17)?,
+        implementation_steps: row.get(18)?,
+        test_steps: row.get(19)?,
+        acceptance_criteria: row.get(20)?,
+        block_reason: row.get(21)?,
+        input_request: row.get(22)?,
+        input_response: row.get(23)?,
+        created_at: row.get(24)?,
+        updated_at: row.get(25)?,
     })
 }
 
@@ -469,6 +474,7 @@ fn transform_task(rust_task: RustTask) -> Task {
         agent_id: rust_task.agent_id,
         model_id: rust_task.model_id,
         session_id: rust_task.session_id,
+        cli_session_provider: rust_task.cli_session_provider,
         progress_file: rust_task.progress_file,
         dependencies,
         order: rust_task.task_order,
@@ -535,11 +541,11 @@ pub fn create_task(input: CreateTaskInput) -> Result<Task, String> {
 
     conn.execute(
         "INSERT INTO tasks (id, plan_id, parent_id, title, description, status, priority,
-         assignee, agent_id, model_id, session_id, progress_file, dependencies, task_order,
+         assignee, agent_id, model_id, session_id, cli_session_provider, progress_file, dependencies, task_order,
          retry_count, max_retries, error_message,
          implementation_steps, test_steps, acceptance_criteria,
          created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
         rusqlite::params![
             &id,
             &input.plan_id,
@@ -552,6 +558,7 @@ pub fn create_task(input: CreateTaskInput) -> Result<Task, String> {
             &input.agent_id,
             &input.model_id,
             &None::<String>, // session_id
+            &None::<String>, // cli_session_provider
             &None::<String>, // progress_file
             &dependencies_json,
             &task_order,
@@ -586,6 +593,7 @@ pub fn create_task(input: CreateTaskInput) -> Result<Task, String> {
         agent_id: input.agent_id,
         model_id: input.model_id,
         session_id: None,
+        cli_session_provider: None,
         progress_file: None,
         dependencies: input.dependencies,
         order: task_order,
@@ -619,6 +627,7 @@ pub fn update_task(id: String, input: UpdateTaskInput) -> Result<Task, String> {
     push_update(&mut updates, "agent_id", &input.agent_id);
     push_update(&mut updates, "model_id", &input.model_id);
     push_update(&mut updates, "session_id", &input.session_id);
+    push_update(&mut updates, "cli_session_provider", &input.cli_session_provider);
     push_update(&mut updates, "progress_file", &input.progress_file);
     push_update(&mut updates, "dependencies", &input.dependencies);
     push_update(&mut updates, "task_order", &input.order);
@@ -655,6 +664,8 @@ pub fn update_task(id: String, input: UpdateTaskInput) -> Result<Task, String> {
     bind_update_field(&mut stmt, &mut param_count, &input.agent_id).map_err(|e| e.to_string())?;
     bind_update_field(&mut stmt, &mut param_count, &input.model_id).map_err(|e| e.to_string())?;
     bind_update_field(&mut stmt, &mut param_count, &input.session_id).map_err(|e| e.to_string())?;
+    bind_update_field(&mut stmt, &mut param_count, &input.cli_session_provider)
+        .map_err(|e| e.to_string())?;
     bind_update_field(&mut stmt, &mut param_count, &input.progress_file)
         .map_err(|e| e.to_string())?;
     bind_update_json(&mut stmt, &mut param_count, &input.dependencies, "[]")
@@ -863,11 +874,11 @@ pub fn batch_create_tasks(
 
         tx.execute(
             "INSERT INTO tasks (id, plan_id, parent_id, title, description, status, priority,
-             assignee, session_id, progress_file, dependencies, task_order,
+             assignee, agent_id, model_id, session_id, cli_session_provider, progress_file, dependencies, task_order,
              retry_count, max_retries, error_message,
              implementation_steps, test_steps, acceptance_criteria,
              created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
             rusqlite::params![
                 &id,
                 &plan_id,
@@ -877,7 +888,10 @@ pub fn batch_create_tasks(
                 &status,
                 &priority,
                 &task_input.assignee,
+                &task_input.agent_id,
+                &task_input.model_id,
                 &None::<String>, // session_id
+                &None::<String>, // cli_session_provider
                 &None::<String>, // progress_file
                 &dependencies_json,
                 &task_order,
@@ -905,6 +919,7 @@ pub fn batch_create_tasks(
             agent_id: task_input.agent_id,
             model_id: task_input.model_id,
             session_id: None,
+            cli_session_provider: None,
             progress_file: None,
             dependencies: task_input.dependencies,
             order: task_order,

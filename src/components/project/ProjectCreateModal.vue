@@ -130,15 +130,26 @@ const handleBrowse = async () => {
 
 // 从路径中提取文件夹名称
 const extractNameFromPath = (path: string): string => {
-  // 处理 ~ 开头的路径
-  let normalizedPath = path
-  if (path.startsWith('~')) {
-    normalizedPath = path.slice(1)
+  const trimmedPath = path.trim()
+  if (!trimmedPath) {
+    return ''
   }
-  // 移除末尾的斜杠
-  normalizedPath = normalizedPath.replace(/\/+$/, '')
-  // 获取最后一个路径段作为名称
-  const segments = normalizedPath.split('/')
+
+  let normalizedPath = trimmedPath
+  if (normalizedPath.startsWith('~')) {
+    normalizedPath = normalizedPath.slice(1)
+  }
+
+  // 统一兼容 Windows、macOS、Linux 的目录分隔符。
+  normalizedPath = normalizedPath
+    .replace(/[\\/]+$/, '')
+    .replace(/\\/g, '/')
+
+  if (!normalizedPath || /^[A-Za-z]:$/.test(normalizedPath)) {
+    return ''
+  }
+
+  const segments = normalizedPath.split('/').filter(Boolean)
   return segments[segments.length - 1] || ''
 }
 

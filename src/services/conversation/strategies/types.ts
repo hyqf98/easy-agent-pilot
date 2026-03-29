@@ -58,12 +58,24 @@ export interface ConversationContext {
   cliOutputFormat?: 'text' | 'json' | 'stream-json'
   jsonSchema?: string
   extraCliArgs?: string[]
+  resumeSessionId?: string
 }
 
 /**
  * 流式事件类型
  */
-export type StreamEventType = 'content' | 'tool_use' | 'tool_input_delta' | 'tool_result' | 'error' | 'done' | 'thinking' | 'thinking_start' | 'file_edit' | 'usage' | 'system'
+export type StreamEventType =
+  | 'content'
+  | 'tool_use'
+  | 'tool_input_delta'
+  | 'tool_result'
+  | 'error'
+  | 'done'
+  | 'thinking'
+  | 'thinking_start'
+  | 'file_edit'
+  | 'usage'
+  | 'system'
 
 /**
  * 流式事件
@@ -88,6 +100,7 @@ export interface StreamEvent {
   /** 模型名称 */
   model?: string
   fileEdit?: FileEditTrace
+  externalSessionId?: string
 }
 
 /**
@@ -186,6 +199,7 @@ export interface ExecutionRequest {
   mcpServers?: McpServerConfig[]
   executionMode?: 'chat' | 'task_split' | 'task_execution'
   responseMode?: 'stream_text' | 'json_once'
+  resumeSessionId?: string
 }
 
 export interface MessageInput {
@@ -220,6 +234,7 @@ export interface BackendStreamEvent {
   /** 模型名称 */
   model?: string
   fileEdit?: FileEditTrace
+  externalSessionId?: string
 }
 
 export type CliStreamEvent = BackendStreamEvent

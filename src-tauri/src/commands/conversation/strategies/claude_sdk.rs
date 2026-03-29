@@ -186,6 +186,7 @@ impl AgentExecutionStrategy for ClaudeSdkStrategy {
                             input_tokens: None,
                             output_tokens: None,
                             model: None,
+                            external_session_id: None,
                         };
                         emit_sdk_event(
                             &app_clone,
@@ -228,6 +229,7 @@ impl AgentExecutionStrategy for ClaudeSdkStrategy {
                 input_tokens: None,
                 output_tokens: None,
                 model: None,
+                external_session_id: None,
             };
             emit_sdk_event(
                 &app_clone,
@@ -261,6 +263,7 @@ fn parse_sse_event(session_id: &str, event_str: &str) -> Option<SdkStreamEvent> 
                     input_tokens: None,
                     output_tokens: None,
                     model: None,
+                    external_session_id: None,
                 });
             }
 
@@ -295,6 +298,7 @@ fn parse_anthropic_stream_event(
                     input_tokens: None,
                     output_tokens: None,
                     model: None,
+                    external_session_id: None,
                 })
             } else {
                 delta
@@ -312,6 +316,7 @@ fn parse_anthropic_stream_event(
                         input_tokens: None,
                         output_tokens: None,
                         model: None,
+                        external_session_id: None,
                     })
             }
         }
@@ -338,6 +343,7 @@ fn parse_anthropic_stream_event(
                     input_tokens: None,
                     output_tokens: None,
                     model: None,
+                    external_session_id: None,
                 }),
                 _ => None,
             }
@@ -356,6 +362,7 @@ fn parse_anthropic_stream_event(
             input_tokens: None,
             output_tokens: None,
             model: None,
+            external_session_id: None,
         }),
         "error" => Some(SdkStreamEvent {
             event_type: "error".to_string(),
@@ -373,6 +380,7 @@ fn parse_anthropic_stream_event(
             input_tokens: None,
             output_tokens: None,
             model: None,
+            external_session_id: None,
         }),
         _ => None,
     }

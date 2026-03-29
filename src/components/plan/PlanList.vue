@@ -6,6 +6,7 @@ import { useAgentConfigStore } from '@/stores/agentConfig'
 import { inferAgentProvider, useAgentStore } from '@/stores/agent'
 import { usePlanStore } from '@/stores/plan'
 import { useProjectStore } from '@/stores/project'
+import { useTaskStore } from '@/stores/task'
 import type { Plan, PlanStatus, TaskStatus, UpdatePlanInput } from '@/types/plan'
 import PlanCreateDialog from './PlanCreateDialog.vue'
 import PlanEditDialog from './PlanEditDialog.vue'
@@ -42,6 +43,7 @@ const planStore = usePlanStore()
 const projectStore = useProjectStore()
 const agentStore = useAgentStore()
 const agentConfigStore = useAgentConfigStore()
+const taskStore = useTaskStore()
 const confirmDialog = useConfirmDialog()
 const emit = defineEmits<{
   (e: 'plan-click', plan: Plan): void
@@ -719,6 +721,17 @@ watch(
     void loadPlanTaskStats(nextPlans)
   },
   { immediate: true }
+)
+
+watch(
+  () => taskStore.tasks.map(task => `${task.id}:${task.planId}:${task.status}:${task.updatedAt}`).join('|'),
+  () => {
+    if (plans.value.length === 0) {
+      return
+    }
+
+    void loadPlanTaskStats(plans.value)
+  }
 )
 
 watch(

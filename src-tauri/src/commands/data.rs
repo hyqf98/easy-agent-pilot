@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+use super::support::repair_memory_search_indexes;
+
 /// 导出的数据结构
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExportData {
@@ -859,6 +861,9 @@ pub fn validate_import_data(file_path: String) -> Result<ExportData, String> {
 pub fn clear_all_data() -> Result<(), String> {
     let db_path = get_db_path().map_err(|e| e.to_string())?;
     let mut conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+
+    repair_memory_search_indexes(&conn)
+        .map_err(|e| format!("修复记忆搜索索引失败: {}", e))?;
 
     // 开启事务
     let tx = conn.transaction().map_err(|e| e.to_string())?;

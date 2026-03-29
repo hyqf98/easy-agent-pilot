@@ -12,7 +12,10 @@ use std::time::{Duration, Instant};
 use std::process::Command;
 
 use super::message::remove_session_uploads;
-use super::support::{now_rfc3339, open_db_connection, open_db_connection_with_foreign_keys};
+use super::support::{
+    now_rfc3339, open_db_connection, open_db_connection_with_foreign_keys,
+    repair_memory_search_indexes,
+};
 
 /// 文件操作结果
 #[derive(Debug, Serialize)]
@@ -415,6 +418,7 @@ pub fn update_project(id: String, input: CreateProjectInput) -> Result<Project, 
 #[tauri::command]
 pub fn delete_project(id: String) -> Result<(), String> {
     let conn = open_db_connection_with_foreign_keys().map_err(|e| e.to_string())?;
+    repair_memory_search_indexes(&conn).map_err(|e| format!("修复记忆搜索索引失败: {}", e))?;
 
     conn.execute("DELETE FROM projects WHERE id = ?1", [&id])
         .map_err(|e| e.to_string())?;
@@ -427,6 +431,7 @@ pub fn clear_project_runtime_data(
     project_id: String,
 ) -> Result<ProjectRuntimeCleanupResult, String> {
     let mut conn = open_db_connection_with_foreign_keys().map_err(|e| e.to_string())?;
+    repair_memory_search_indexes(&conn).map_err(|e| format!("修复记忆搜索索引失败: {}", e))?;
 
     let session_ids = {
         let mut stmt = conn

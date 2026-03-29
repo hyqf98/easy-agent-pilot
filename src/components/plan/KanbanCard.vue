@@ -11,6 +11,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'click', task: Task): void
+  (e: 'start', task: Task): void
   (e: 'stop', task: Task): void
   (e: 'resume', task: Task): void
   (e: 'retry', task: Task): void
@@ -62,11 +63,15 @@ const executionStatusText = computed(() => {
 
 // 是否显示停止按钮
 const showStopButton = computed(() => {
-  return !isStopped.value && (isExecuting.value || props.task.status === 'in_progress')
+  return isRunning.value
 })
 
 const showResumeButton = computed(() => {
   return isStopped.value && props.task.status === 'in_progress'
+})
+
+const showStartButton = computed(() => {
+  return props.task.status === 'pending' && !isExecuting.value
 })
 
 const showRetryButton = computed(() => {
@@ -74,8 +79,7 @@ const showRetryButton = computed(() => {
 })
 
 const showDeleteButton = computed(() => {
-  if (props.task.status === 'completed') return true
-  return props.task.status === 'pending' && !isExecuting.value
+  return !isRunning.value
 })
 
 const showEditButton = computed(() => {
@@ -109,6 +113,11 @@ function handleClick() {
 function handleStop(event: Event) {
   event.stopPropagation()
   emit('stop', props.task)
+}
+
+function handleStart(event: Event) {
+  event.stopPropagation()
+  emit('start', props.task)
 }
 
 function handleResume(event: Event) {
@@ -176,7 +185,7 @@ function handleDelete(event: Event) {
     <div
       v-if="executionStatusText && !isWaitingInput"
       class="execution-status"
-      :class="{ 'is-running': isRunning }"
+      :class="{ 'is-running': isRunning, 'is-queued': queuePosition > 0 }"
     >
       <span class="status-indicator" />
       <span class="status-text">{{ executionStatusText }}</span>
@@ -220,6 +229,24 @@ function handleDelete(event: Event) {
 
       <div class="card-actions">
         <!-- 停止按钮 -->
+        <button
+          v-if="showStartButton"
+          class="btn-action btn-start"
+          :title="t('task.actions.start')"
+          @click="handleStart"
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <polygon points="5 3 19 12 5 21 5 3" />
+          </svg>
+        </button>
+
         <button
           v-if="showStopButton"
           class="btn-action btn-stop"
@@ -421,14 +448,18 @@ function handleDelete(event: Event) {
 }
 
 .execution-status.is-running {
-  color: var(--color-primary, #3b82f6);
+  color: #15803d;
+}
+
+.execution-status.is-queued {
+  color: #b45309;
 }
 
 .status-indicator {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background-color: var(--color-primary, #3b82f6);
+  background-color: currentColor;
 }
 
 .execution-status.is-running .status-indicator {
@@ -565,6 +596,15 @@ function handleDelete(event: Event) {
   color: var(--color-text-tertiary, #94a3b8);
   cursor: pointer;
   transition: all var(--transition-fast, 150ms);
+}
+
+.btn-start {
+  color: #2563eb;
+}
+
+.btn-start:hover {
+  background-color: rgba(37, 99, 235, 0.12);
+  color: #1d4ed8;
 }
 
 .btn-action:hover {

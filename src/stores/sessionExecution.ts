@@ -321,6 +321,24 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
     state.queuedMessages = [draft, ...state.queuedMessages]
   }
 
+  function updateQueuedMessage(
+    sessionId: string,
+    draftId: string,
+    updates: Partial<Pick<QueuedMessageDraft, 'content' | 'displayContent' | 'attachments' | 'agentId' | 'modelId' | 'memoryReferences' | 'status' | 'errorMessage'>>
+  ) {
+    const state = getExecutionState(sessionId)
+    state.queuedMessages = state.queuedMessages.map(draft => {
+      if (draft.id !== draftId) {
+        return draft
+      }
+
+      return {
+        ...draft,
+        ...updates
+      }
+    })
+  }
+
   function popNextQueuedMessage(sessionId: string): QueuedMessageDraft | null {
     const state = getExecutionState(sessionId)
     const index = state.queuedMessages.findIndex(draft => draft.status === 'queued')
@@ -536,6 +554,7 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
     queueMessage,
     removeQueuedMessage,
     restoreQueuedMessage,
+    updateQueuedMessage,
     popNextQueuedMessage,
     markQueuedMessageStatus,
     retryQueuedMessage,

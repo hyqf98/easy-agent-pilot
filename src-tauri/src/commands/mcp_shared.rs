@@ -4,6 +4,8 @@ use std::fs;
 use std::path::Path;
 use tokio::process::Command as TokioCommand;
 
+use crate::commands::cli_support::configure_windows_tokio_command;
+
 /// 在 Windows 上构建兼容的命令。
 /// 对于 npx、npm 等 Node.js 脚本命令，在 Windows 上需要使用 cmd.exe /C 来执行。
 pub fn build_platform_command(command: &str, args: &[String]) -> TokioCommand {
@@ -13,6 +15,7 @@ pub fn build_platform_command(command: &str, args: &[String]) -> TokioCommand {
 
         if script_commands.contains(&command) {
             let mut cmd = TokioCommand::new("cmd");
+            configure_windows_tokio_command(&mut cmd);
             cmd.arg("/C").arg(command);
             cmd.args(args);
             return cmd;
@@ -20,6 +23,7 @@ pub fn build_platform_command(command: &str, args: &[String]) -> TokioCommand {
     }
 
     let mut cmd = TokioCommand::new(command);
+    configure_windows_tokio_command(&mut cmd);
     cmd.args(args);
     cmd
 }
