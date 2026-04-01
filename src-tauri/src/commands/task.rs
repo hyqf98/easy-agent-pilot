@@ -19,6 +19,7 @@ pub struct Task {
     pub status: String,
     pub priority: String,
     pub assignee: Option<String>,
+    pub expert_id: Option<String>,
     /// 执行智能体 ID */
     pub agent_id: Option<String>,
     /// 执行模型 ID */
@@ -41,6 +42,17 @@ pub struct Task {
     pub updated_at: String,
 }
 
+/// 任务运行时绑定。
+/// 任务在不同 CLI 运行时下会产生各自独立的外部恢复游标，必须按 runtime_key 隔离存储。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskRuntimeBinding {
+    pub task_id: String,
+    pub runtime_key: String,
+    pub external_session_id: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 /// Rust 后端返回的结构（snake_case）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RustTask {
@@ -52,6 +64,7 @@ pub struct RustTask {
     pub status: String,
     pub priority: String,
     pub assignee: Option<String>,
+    pub expert_id: Option<String>,
     /// 执行智能体 ID */
     pub agent_id: Option<String>,
     /// 执行模型 ID */
@@ -92,6 +105,7 @@ pub struct CreateTaskInput {
     pub description: Option<String>,
     pub priority: Option<String>,
     pub assignee: Option<String>,
+    pub expert_id: Option<String>,
     /// 执行智能体 ID */
     pub agent_id: Option<String>,
     /// 执行模型 ID */
@@ -117,6 +131,8 @@ pub struct UpdateTaskInput {
     pub priority: UpdateField<String>,
     #[serde(default)]
     pub assignee: UpdateField<String>,
+    #[serde(default)]
+    pub expert_id: UpdateField<String>,
     #[serde(default)]
     pub agent_id: UpdateField<String>,
     #[serde(default)]
@@ -207,7 +223,7 @@ fn bind_update_json<T: Serialize>(
 
 const TASK_SELECT_BY_ID_SQL: &str = r#"
     SELECT id, plan_id, parent_id, title, description, status, priority,
-           assignee, agent_id, model_id, session_id, cli_session_provider, progress_file, dependencies, task_order,
+           assignee, expert_id, agent_id, model_id, session_id, cli_session_provider, progress_file, dependencies, task_order,
            retry_count, max_retries, error_message,
            implementation_steps, test_steps, acceptance_criteria,
            block_reason, input_request, input_response,
@@ -217,7 +233,7 @@ const TASK_SELECT_BY_ID_SQL: &str = r#"
 "#;
 const TASK_SELECT_BY_PLAN_SQL: &str = r#"
     SELECT id, plan_id, parent_id, title, description, status, priority,
-           assignee, agent_id, model_id, session_id, cli_session_provider, progress_file, dependencies, task_order,
+           assignee, expert_id, agent_id, model_id, session_id, cli_session_provider, progress_file, dependencies, task_order,
            retry_count, max_retries, error_message,
            implementation_steps, test_steps, acceptance_criteria,
            block_reason, input_request, input_response,
@@ -228,7 +244,7 @@ const TASK_SELECT_BY_PLAN_SQL: &str = r#"
 "#;
 const TASK_SELECT_BY_PARENT_SQL: &str = r#"
     SELECT id, plan_id, parent_id, title, description, status, priority,
-           assignee, agent_id, model_id, session_id, cli_session_provider, progress_file, dependencies, task_order,
+           assignee, expert_id, agent_id, model_id, session_id, cli_session_provider, progress_file, dependencies, task_order,
            retry_count, max_retries, error_message,
            implementation_steps, test_steps, acceptance_criteria,
            block_reason, input_request, input_response,
@@ -239,7 +255,7 @@ const TASK_SELECT_BY_PARENT_SQL: &str = r#"
 "#;
 const TASK_SELECT_BY_SESSION_SQL: &str = r#"
     SELECT id, plan_id, parent_id, title, description, status, priority,
-           assignee, agent_id, model_id, session_id, cli_session_provider, progress_file, dependencies, task_order,
+           assignee, expert_id, agent_id, model_id, session_id, cli_session_provider, progress_file, dependencies, task_order,
            retry_count, max_retries, error_message,
            implementation_steps, test_steps, acceptance_criteria,
            block_reason, input_request, input_response,
@@ -259,24 +275,25 @@ fn map_rust_task_row(row: &Row<'_>) -> rusqlite::Result<RustTask> {
         status: row.get(5)?,
         priority: row.get(6)?,
         assignee: row.get(7)?,
-        agent_id: row.get(8)?,
-        model_id: row.get(9)?,
-        session_id: row.get(10)?,
-        cli_session_provider: row.get(11)?,
-        progress_file: row.get(12)?,
-        dependencies: row.get(13)?,
-        task_order: row.get(14)?,
-        retry_count: row.get(15)?,
-        max_retries: row.get(16)?,
-        error_message: row.get(17)?,
-        implementation_steps: row.get(18)?,
-        test_steps: row.get(19)?,
-        acceptance_criteria: row.get(20)?,
-        block_reason: row.get(21)?,
-        input_request: row.get(22)?,
-        input_response: row.get(23)?,
-        created_at: row.get(24)?,
-        updated_at: row.get(25)?,
+        expert_id: row.get(8)?,
+        agent_id: row.get(9)?,
+        model_id: row.get(10)?,
+        session_id: row.get(11)?,
+        cli_session_provider: row.get(12)?,
+        progress_file: row.get(13)?,
+        dependencies: row.get(14)?,
+        task_order: row.get(15)?,
+        retry_count: row.get(16)?,
+        max_retries: row.get(17)?,
+        error_message: row.get(18)?,
+        implementation_steps: row.get(19)?,
+        test_steps: row.get(20)?,
+        acceptance_criteria: row.get(21)?,
+        block_reason: row.get(22)?,
+        input_request: row.get(23)?,
+        input_response: row.get(24)?,
+        created_at: row.get(25)?,
+        updated_at: row.get(26)?,
     })
 }
 
@@ -441,6 +458,38 @@ fn serialize_json_option<T: Serialize>(value: Option<&T>, fallback: &str) -> Opt
     value.map(|value| serde_json::to_string(value).unwrap_or_else(|_| fallback.to_string()))
 }
 
+fn map_task_runtime_binding_row(
+    row: &Row<'_>,
+) -> rusqlite::Result<TaskRuntimeBinding> {
+    Ok(TaskRuntimeBinding {
+        task_id: row.get(0)?,
+        runtime_key: row.get(1)?,
+        external_session_id: row.get(2)?,
+        created_at: row.get(3)?,
+        updated_at: row.get(4)?,
+    })
+}
+
+fn get_task_runtime_binding_internal(
+    conn: &Connection,
+    task_id: &str,
+    runtime_key: &str,
+) -> Result<Option<TaskRuntimeBinding>, String> {
+    match conn.query_row(
+        r#"
+        SELECT task_id, runtime_key, external_session_id, created_at, updated_at
+        FROM task_runtime_bindings
+        WHERE task_id = ?1 AND runtime_key = ?2
+        "#,
+        rusqlite::params![task_id, runtime_key],
+        map_task_runtime_binding_row,
+    ) {
+        Ok(binding) => Ok(Some(binding)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
 /// 将 RustTask 转换为 Task
 fn transform_task(rust_task: RustTask) -> Task {
     let dependencies = rust_task
@@ -471,6 +520,7 @@ fn transform_task(rust_task: RustTask) -> Task {
         status: rust_task.status,
         priority: rust_task.priority,
         assignee: rust_task.assignee,
+        expert_id: rust_task.expert_id,
         agent_id: rust_task.agent_id,
         model_id: rust_task.model_id,
         session_id: rust_task.session_id,
@@ -541,11 +591,11 @@ pub fn create_task(input: CreateTaskInput) -> Result<Task, String> {
 
     conn.execute(
         "INSERT INTO tasks (id, plan_id, parent_id, title, description, status, priority,
-         assignee, agent_id, model_id, session_id, cli_session_provider, progress_file, dependencies, task_order,
+         assignee, expert_id, agent_id, model_id, session_id, cli_session_provider, progress_file, dependencies, task_order,
          retry_count, max_retries, error_message,
          implementation_steps, test_steps, acceptance_criteria,
          created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
         rusqlite::params![
             &id,
             &input.plan_id,
@@ -555,6 +605,7 @@ pub fn create_task(input: CreateTaskInput) -> Result<Task, String> {
             &status,
             &priority,
             &input.assignee,
+            &input.expert_id,
             &input.agent_id,
             &input.model_id,
             &None::<String>, // session_id
@@ -590,6 +641,7 @@ pub fn create_task(input: CreateTaskInput) -> Result<Task, String> {
         status,
         priority,
         assignee: input.assignee,
+        expert_id: input.expert_id,
         agent_id: input.agent_id,
         model_id: input.model_id,
         session_id: None,
@@ -624,6 +676,7 @@ pub fn update_task(id: String, input: UpdateTaskInput) -> Result<Task, String> {
     push_update(&mut updates, "status", &input.status);
     push_update(&mut updates, "priority", &input.priority);
     push_update(&mut updates, "assignee", &input.assignee);
+    push_update(&mut updates, "expert_id", &input.expert_id);
     push_update(&mut updates, "agent_id", &input.agent_id);
     push_update(&mut updates, "model_id", &input.model_id);
     push_update(&mut updates, "session_id", &input.session_id);
@@ -661,6 +714,7 @@ pub fn update_task(id: String, input: UpdateTaskInput) -> Result<Task, String> {
     bind_update_field(&mut stmt, &mut param_count, &input.status).map_err(|e| e.to_string())?;
     bind_update_field(&mut stmt, &mut param_count, &input.priority).map_err(|e| e.to_string())?;
     bind_update_field(&mut stmt, &mut param_count, &input.assignee).map_err(|e| e.to_string())?;
+    bind_update_field(&mut stmt, &mut param_count, &input.expert_id).map_err(|e| e.to_string())?;
     bind_update_field(&mut stmt, &mut param_count, &input.agent_id).map_err(|e| e.to_string())?;
     bind_update_field(&mut stmt, &mut param_count, &input.model_id).map_err(|e| e.to_string())?;
     bind_update_field(&mut stmt, &mut param_count, &input.session_id).map_err(|e| e.to_string())?;
@@ -832,6 +886,62 @@ pub fn get_task_by_session_id(session_id: String) -> Result<Option<Task>, String
     fetch_optional_task(&conn, TASK_SELECT_BY_SESSION_SQL, [&session_id])
 }
 
+/// 获取指定任务在某个运行时下的恢复绑定。
+#[tauri::command]
+pub fn get_task_runtime_binding(
+    task_id: String,
+    runtime_key: String,
+) -> Result<Option<TaskRuntimeBinding>, String> {
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
+    get_task_runtime_binding_internal(&conn, &task_id, &runtime_key)
+}
+
+/// 创建或更新任务的运行时恢复绑定。
+#[tauri::command]
+pub fn upsert_task_runtime_binding(
+    task_id: String,
+    runtime_key: String,
+    external_session_id: String,
+) -> Result<TaskRuntimeBinding, String> {
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
+    let now = now_rfc3339();
+
+    conn.execute(
+        r#"
+        INSERT INTO task_runtime_bindings (
+            task_id,
+            runtime_key,
+            external_session_id,
+            created_at,
+            updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5)
+        ON CONFLICT(task_id, runtime_key) DO UPDATE SET
+            external_session_id = excluded.external_session_id,
+            updated_at = excluded.updated_at
+        "#,
+        rusqlite::params![&task_id, &runtime_key, &external_session_id, &now, &now],
+    )
+    .map_err(|e| e.to_string())?;
+
+    get_task_runtime_binding_internal(&conn, &task_id, &runtime_key)?
+        .ok_or_else(|| "任务运行时绑定写入后读取失败".to_string())
+}
+
+/// 删除任务在某个运行时下的恢复绑定。
+#[tauri::command]
+pub fn delete_task_runtime_binding(
+    task_id: String,
+    runtime_key: String,
+) -> Result<(), String> {
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
+    conn.execute(
+        "DELETE FROM task_runtime_bindings WHERE task_id = ?1 AND runtime_key = ?2",
+        rusqlite::params![&task_id, &runtime_key],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// 批量创建任务（从拆分结果）
 #[tauri::command]
 pub fn batch_create_tasks(
@@ -874,11 +984,11 @@ pub fn batch_create_tasks(
 
         tx.execute(
             "INSERT INTO tasks (id, plan_id, parent_id, title, description, status, priority,
-             assignee, agent_id, model_id, session_id, cli_session_provider, progress_file, dependencies, task_order,
+             assignee, expert_id, agent_id, model_id, session_id, cli_session_provider, progress_file, dependencies, task_order,
              retry_count, max_retries, error_message,
              implementation_steps, test_steps, acceptance_criteria,
              created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
             rusqlite::params![
                 &id,
                 &plan_id,
@@ -888,6 +998,7 @@ pub fn batch_create_tasks(
                 &status,
                 &priority,
                 &task_input.assignee,
+                &task_input.expert_id,
                 &task_input.agent_id,
                 &task_input.model_id,
                 &None::<String>, // session_id
@@ -916,6 +1027,7 @@ pub fn batch_create_tasks(
             status,
             priority,
             assignee: task_input.assignee,
+            expert_id: task_input.expert_id,
             agent_id: task_input.agent_id,
             model_id: task_input.model_id,
             session_id: None,

@@ -16,6 +16,7 @@ import { useTaskStore } from '@/stores/task'
 import { usePlanStore } from '@/stores/plan'
 import { useProjectStore } from '@/stores/project'
 import { useAgentStore, type AgentConfig, inferAgentProvider } from '@/stores/agent'
+import { useAgentTeamsStore } from '@/stores/agentTeams'
 import { agentExecutor } from '@/services/conversation/AgentExecutor'
 import type { ConversationContext } from '@/services/conversation/strategies/types'
 import { extractFirstFormRequest } from '@/utils/structuredContent'
@@ -63,7 +64,22 @@ import {
 import { loadAgentMcpServers } from '@/utils/mcpServerConfig'
 import { mergeToolInputArguments } from '@/utils/toolInput'
 import { getErrorMessage } from '@/utils/api'
+import {
+  buildContextStrategyNotice,
+  buildUsageNotice,
+  formatRuntimeNoticeAsSystemContent
+} from '@/utils/runtimeNotice'
 import { recordAgentCliUsageInBackground, resolveRecordedModelId } from '@/services/usage/agentCliUsageRecorder'
+import {
+  buildExpertSystemPrompt,
+  resolveExpertById,
+  resolveExpertRuntime
+} from '@/services/agentTeams/runtime'
+import {
+  getTaskRuntimeBinding,
+  resolveRuntimeBindingKey,
+  upsertTaskRuntimeBinding
+} from '@/services/conversation/runtimeBindings'
 
 function finalizeRunningToolCalls(toolCalls: ToolCall[]): void {
   for (const toolCall of toolCalls) {
@@ -492,6 +508,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
     const planStore = usePlanStore()
     const projectStore = useProjectStore()
     const agentStore = useAgentStore()
+    const agentTeamsStore = useAgentTeamsStore()
 
     const task = taskStore.tasks.find(t => t.id === taskId)
     if (!task) {
@@ -568,34 +585,60 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
     }
 
     try {
+      await agentTeamsStore.loadExperts()
+
+      const selectedExpert = resolveExpertById(task.expertId, agentTeamsStore.experts)
+        || resolveExpertById(plan.splitExpertId, agentTeamsStore.experts)
+        || agentTeamsStore.builtinDeveloperExpert
+        || agentTeamsStore.enabledExperts.find(expert => expert.category === 'developer')
+        || null
+
+      const runtime = resolveExpertRuntime(
+        selectedExpert,
+        agentStore.agents,
+        task.modelId || plan.splitModelId || undefined
+      )
+
       const selection = resolvePlanTaskAgentSelection(
         {
+          expert_id: task.expertId ?? null,
           agent_id: task.agentId ?? null,
           model_id: task.modelId ?? null
         },
         plan
       )
 
-      const baseAgent = (selection.agentId
-        ? agentStore.agents.find(agent => agent.id === selection.agentId)
-        : null)
+      const baseAgent = runtime?.agent
+        || (selection.agentId ? agentStore.agents.find(agent => agent.id === selection.agentId) : null)
         || (plan.splitAgentId ? agentStore.agents.find(agent => agent.id === plan.splitAgentId) : null)
         || agentStore.agents[0]
 
       if (!baseAgent) {
-        throw new Error('未找到可用智能体')
+        throw new Error('未找到可用执行运行时')
       }
 
       const agent = {
         ...baseAgent,
-        modelId: selection.modelId || baseAgent.modelId
+        modelId: runtime?.modelId || selection.modelId || baseAgent.modelId
       }
       currentAgentForUsage = agent
       const agentProvider = inferAgentProvider(agent)
+      const runtimeKey = resolveRuntimeBindingKey(agent)
+      const runtimeBinding = isResume && runtimeKey
+        ? await getTaskRuntimeBinding(taskId, runtimeKey).catch((error) => {
+            console.warn('[TaskExecution] Failed to load task runtime binding:', error)
+            return null
+          })
+        : null
       const resumableExternalSessionId = isResume
-        && agentProvider
-        && (!task.cliSessionProvider || task.cliSessionProvider === agentProvider)
-        ? task.sessionId?.trim() || undefined
+        ? runtimeBinding?.externalSessionId?.trim()
+          || (
+            agentProvider
+            && (!task.cliSessionProvider || task.cliSessionProvider === agentProvider)
+              ? task.sessionId?.trim()
+              : ''
+          )
+          || undefined
         : undefined
 
       if (!agentExecutor.isSupported(agent)) {
@@ -618,14 +661,26 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
       const context: ConversationContext = {
         sessionId: executionSessionId,
         agent,
-        messages: [{
-          id: `task-prompt-${taskId}`,
-          sessionId: executionSessionId,
-          role: 'user',
-          content: prompt,
-          status: 'completed',
-          createdAt: new Date().toISOString()
-        }],
+        messages: [
+          ...(!resumableExternalSessionId && selectedExpert?.prompt
+            ? [{
+                id: `task-system-${taskId}`,
+                sessionId: executionSessionId,
+                role: 'system' as const,
+                content: buildExpertSystemPrompt(selectedExpert.prompt),
+                status: 'completed' as const,
+                createdAt: new Date().toISOString()
+              }]
+            : []),
+          {
+            id: `task-prompt-${taskId}`,
+            sessionId: executionSessionId,
+            role: 'user',
+            content: prompt,
+            status: 'completed',
+            createdAt: new Date().toISOString()
+          }
+        ],
         workingDirectory,
         mcpServers: mcpServers.length > 0 ? mcpServers : undefined,
         executionMode: 'task_execution',
@@ -633,15 +688,61 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
         resumeSessionId: resumableExternalSessionId
       }
 
+      const contextNotice = buildContextStrategyNotice({
+        strategy: resumableExternalSessionId ? 'Task Resume Prompt' : 'Task Execution Prompt',
+        runtime: inferAgentProvider(agent)?.toUpperCase() || agent.type,
+        model: agent.modelId,
+        expert: selectedExpert?.name || task.expertId || plan.splitExpertId,
+        systemMessageCount: context.messages.filter(message => message.role === 'system').length,
+        userMessageCount: context.messages.filter(message => message.role === 'user').length,
+        assistantMessageCount: context.messages.filter(message => message.role === 'assistant').length,
+        historyMessageCount: isResume ? Math.min(state.logs.length, 50) : 0,
+        resumeSessionId: resumableExternalSessionId
+      })
+
+      if (contextNotice) {
+        await addExecutionLog({
+          taskId,
+          type: 'system',
+          content: formatRuntimeNoticeAsSystemContent(contextNotice),
+          metadata: {
+            strategy: resumableExternalSessionId ? 'task_resume' : 'task_execution',
+            runtime: inferAgentProvider(agent)?.toUpperCase() || agent.type,
+            model: agent.modelId,
+            expert: selectedExpert?.name || task.expertId || plan.splitExpertId,
+            externalSessionId: resumableExternalSessionId,
+            systemMessageCount: context.messages.filter(message => message.role === 'system').length,
+            userMessageCount: context.messages.filter(message => message.role === 'user').length,
+            assistantMessageCount: context.messages.filter(message => message.role === 'assistant').length,
+            historyMessageCount: isResume ? Math.min(state.logs.length, 50) : 0
+          }
+        })
+      }
+
+      if (selectedExpert && (task.expertId !== selectedExpert.id || task.agentId !== agent.id || task.modelId !== agent.modelId)) {
+        await updateTaskSafely(taskId, {
+          expertId: selectedExpert.id,
+          agentId: agent.id,
+          modelId: agent.modelId || undefined
+        })
+      }
+
       await agentExecutor.execute(context, (event: StreamEvent) => {
         const externalSessionId = event.externalSessionId?.trim()
         if (externalSessionId && agentProvider) {
-          void updateTaskSafely(taskId, {
-            sessionId: externalSessionId,
-            cliSessionProvider: agentProvider
-          }).catch((error) => {
-            console.warn('[TaskExecution] Failed to persist external session binding:', error)
-          })
+          void (async () => {
+            try {
+              if (runtimeKey) {
+                await upsertTaskRuntimeBinding(taskId, runtimeKey, externalSessionId)
+              }
+              await updateTaskSafely(taskId, {
+                sessionId: externalSessionId,
+                cliSessionProvider: agentProvider
+              })
+            } catch (error) {
+              console.warn('[TaskExecution] Failed to persist external session binding:', error)
+            }
+          })()
         }
         handleStreamEvent(taskId, event)
       })
@@ -664,11 +765,13 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
 
       const formRequest = parseFormRequest(state.accumulatedContent)
       if (formRequest) {
+        await appendExecutionUsageNotice(taskId)
         await blockTaskForInput(taskId, formRequest)
         recordTaskUsageOnce()
         return
       }
 
+      await appendExecutionUsageNotice(taskId)
       await addExecutionLog({
         taskId,
         type: 'system',
@@ -690,12 +793,14 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
       const wasStopped = isTaskStopRequested(taskId, stopRequestedTaskIds.value)
 
       if (wasStopped) {
+        await appendExecutionUsageNotice(taskId)
         await markTaskStopped(taskId)
         recordTaskUsageOnce()
       } else {
         const currentRetryCount = task.retryCount + 1
 
         if (currentRetryCount < maxRetries) {
+          await appendExecutionUsageNotice(taskId)
           await addExecutionLog({
             taskId,
             type: 'system',
@@ -731,6 +836,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
           state.status = 'failed'
           state.completedAt = new Date().toISOString()
 
+          await appendExecutionUsageNotice(taskId)
           await addExecutionLog({
             taskId,
             type: 'error',
@@ -907,6 +1013,37 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
       : createExecutionLogEntry(input)
 
     state.logs.push(entry)
+  }
+
+  async function appendExecutionUsageNotice(taskId: string): Promise<void> {
+    const state = executionStates.value.get(taskId)
+    if (!state) return
+
+    const usageNotice = buildUsageNotice({
+      model: state.tokenUsage.model,
+      inputTokens: state.tokenUsage.inputTokens,
+      outputTokens: state.tokenUsage.outputTokens
+    })
+    const content = formatRuntimeNoticeAsSystemContent(usageNotice)
+    if (!content) {
+      return
+    }
+
+    const lastLog = state.logs[state.logs.length - 1]
+    if (lastLog?.type === 'system' && lastLog.content === content) {
+      return
+    }
+
+    await addExecutionLog({
+      taskId,
+      type: 'system',
+      content,
+      metadata: {
+        model: state.tokenUsage.model,
+        inputTokens: state.tokenUsage.inputTokens,
+        outputTokens: state.tokenUsage.outputTokens
+      }
+    })
   }
 
   async function saveTaskExecutionResult(input: SaveTaskExecutionResultInput): Promise<void> {

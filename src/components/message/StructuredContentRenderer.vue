@@ -11,10 +11,12 @@ const props = withDefaults(defineProps<{
   interactiveForms?: boolean
   formDisabled?: boolean
   animate?: boolean
+  resolvedFormValues?: Record<string, unknown> | null
 }>(), {
   interactiveForms: false,
   formDisabled: false,
-  animate: false
+  animate: false,
+  resolvedFormValues: null
 })
 
 const emit = defineEmits<{
@@ -82,6 +84,8 @@ function handleFormCancel(formId: string) {
           :schema="block.formSchema"
           :question="isFormOnly ? block.question : undefined"
           :disabled="!interactiveForms || formDisabled"
+          :initial-values="resolvedFormValues ?? undefined"
+          :variant="resolvedFormValues ? 'submitted' : 'active'"
           @submit="handleFormSubmit(block.formSchema.formId, $event)"
           @cancel="handleFormCancel(block.formSchema.formId)"
         />

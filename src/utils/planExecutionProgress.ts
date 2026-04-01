@@ -34,19 +34,21 @@ export function sortPlanExecutionTasks(tasks: PlanExecutionTaskProgress[]): Plan
 }
 
 export function resolvePlanTaskAgentSelection(
-  task: Pick<PlanExecutionTaskProgress, 'agent_id' | 'model_id'>,
-  plan?: Pick<Plan, 'splitAgentId' | 'splitModelId'> | null
-): { agentId?: string, modelId?: string, source: 'task' | 'plan' | 'none' } {
-  if (task.agent_id || task.model_id) {
+  task: Pick<PlanExecutionTaskProgress, 'expert_id' | 'agent_id' | 'model_id'>,
+  plan?: Pick<Plan, 'splitExpertId' | 'splitAgentId' | 'splitModelId'> | null
+): { expertId?: string, agentId?: string, modelId?: string, source: 'task' | 'plan' | 'none' } {
+  if (task.expert_id || task.agent_id || task.model_id) {
     return {
+      expertId: task.expert_id ?? undefined,
       agentId: task.agent_id ?? undefined,
       modelId: task.model_id ?? undefined,
       source: 'task'
     }
   }
 
-  if (plan?.splitAgentId || plan?.splitModelId) {
+  if (plan?.splitExpertId || plan?.splitAgentId || plan?.splitModelId) {
     return {
+      expertId: plan.splitExpertId ?? undefined,
       agentId: plan.splitAgentId ?? undefined,
       modelId: plan.splitModelId ?? undefined,
       source: 'plan'

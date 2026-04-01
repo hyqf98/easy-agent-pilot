@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, watch } from 'vue'
 import { useLayoutStore, PANEL_LIMITS } from '@/stores/layout'
 import { useUIStore } from '@/stores/ui'
 import { useProjectStore } from '@/stores/project'
@@ -57,6 +57,15 @@ onUnmounted(() => {
     clearTimeout(resizeTimeout)
   }
 })
+
+watch(
+  () => projectStore.currentProjectId,
+  (nextProjectId, previousProjectId) => {
+    if (!previousProjectId && nextProjectId && uiStore.projectCreateModalVisible) {
+      uiStore.closeProjectCreateModal()
+    }
+  }
+)
 </script>
 
 <template>

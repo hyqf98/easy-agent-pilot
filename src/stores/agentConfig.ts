@@ -210,6 +210,7 @@ export const useAgentConfigStore = defineStore('agentConfig', () => {
   const pluginsConfigs = ref<Map<string, AgentPluginsConfig[]>>(new Map())
   const modelConfigs = ref<Map<string, AgentModelConfig[]>>(new Map())
   const isLoading = ref(false)
+  const pendingModelLoads = new Map<string, Promise<AgentModelConfig[]>>()
 
   // Actions - MCP Configs
 
@@ -552,38 +553,40 @@ export const useAgentConfigStore = defineStore('agentConfig', () => {
   // ============================================================================
 
   async function loadModelsConfigs(agentId: string) {
+    const existingRequest = pendingModelLoads.get(agentId)
+    if (existingRequest) {
+      return existingRequest
+    }
+
     isLoading.value = true
     const notificationStore = useNotificationStore()
-    try {
-      const rawConfigs = await invoke<RawAgentModelConfig[]>('list_agent_models', { agentId })
-      const configs = rawConfigs.map(transformModelConfig)
-      modelConfigs.value.set(agentId, configs)
-      return configs
-    } catch (error) {
-      console.error('Failed to load model configs:', error)
-      notificationStore.databaseError(
-        '加载模型配置失败',
-        getErrorMessage(error),
-        async () => { void await loadModelsConfigs(agentId) }
-      )
-      return []
-    } finally {
-      isLoading.value = false
-    }
+    const request = (async () => {
+      try {
+        const rawConfigs = await invoke<RawAgentModelConfig[]>('list_agent_models', { agentId })
+        const configs = rawConfigs.map(transformModelConfig)
+        modelConfigs.value.set(agentId, configs)
+        return configs
+      } catch (error) {
+        console.error('Failed to load model configs:', error)
+        notificationStore.databaseError(
+          '加载模型配置失败',
+          getErrorMessage(error),
+          async () => { void await loadModelsConfigs(agentId) }
+        )
+        return []
+      } finally {
+        pendingModelLoads.delete(agentId)
+        isLoading.value = false
+      }
+    })()
+
+    pendingModelLoads.set(agentId, request)
+    return request
   }
 
   async function ensureModelsConfigs(agentId: string, provider?: string) {
-    const configs = await loadModelsConfigs(agentId)
-    if (!provider) {
-      return configs
-    }
-
-    try {
-      return await initBuiltinModels(agentId, provider)
-    } catch (error) {
-      console.error('Failed to ensure model configs:', error)
-      return getModelsConfigs(agentId)
-    }
+    void provider
+    return loadModelsConfigs(agentId)
   }
 
   async function createModelConfig(config: Omit<AgentModelConfig, 'id' | 'createdAt' | 'updatedAt'>) {

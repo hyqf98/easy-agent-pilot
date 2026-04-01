@@ -16,7 +16,7 @@ use super::cli_common::{
     extract_structured_output_from_json_blob, parse_json_blob_with_fallback, preview_text,
     shell_escape, timeout_config_for_execution_mode, CliExecutionMonitor,
 };
-use crate::commands::cli_support::build_tokio_cli_command;
+use crate::commands::cli_support::{build_cli_launch_error_message, build_tokio_cli_command};
 use crate::commands::conversation::abort::{
     clear_abort_flag, register_session_pid, set_abort_flag, should_abort, unregister_session_pid,
 };
@@ -317,10 +317,15 @@ impl AgentExecutionStrategy for CodexCliStrategy {
             messages.last().map(render_cli_message).unwrap_or_default()
         };
 
-        let should_pipe_prompt_via_stdin = use_exec_mode && resume_session_id.is_none();
+        let should_pipe_prompt_via_stdin =
+            use_exec_mode && (resume_session_id.is_none() || cfg!(target_os = "windows"));
         if let Some(resume_session_id) = &resume_session_id {
             args.push(resume_session_id.clone());
-            args.push(input_text.clone());
+            if should_pipe_prompt_via_stdin {
+                args.push("-".to_string());
+            } else {
+                args.push(input_text.clone());
+            }
         } else if should_pipe_prompt_via_stdin {
             args.push("-".to_string());
         } else {
@@ -362,7 +367,17 @@ impl AgentExecutionStrategy for CodexCliStrategy {
             request.execution_mode.as_deref().unwrap_or("chat"),
             describe_timeout_config(timeout_config)
         );
-        let mut child = cmd.spawn()?;
+        let mut child = cmd.spawn().map_err(|error| {
+            anyhow::anyhow!(build_cli_launch_error_message(
+                "Codex",
+                &cli_path,
+                &error,
+                working_directory.as_deref(),
+                command_args.len(),
+                input_text.chars().count(),
+                should_pipe_prompt_via_stdin,
+            ))
+        })?;
 
         let stdin_write_handle = if should_pipe_prompt_via_stdin {
             let stdin_payload = input_text.clone();

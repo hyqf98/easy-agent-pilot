@@ -19,6 +19,7 @@ const INIT_SQL: &str = r#"
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL,
         name TEXT NOT NULL,
+        expert_id TEXT,
         agent_id TEXT,
         agent_type TEXT NOT NULL,
         cli_session_id TEXT,
@@ -29,6 +30,18 @@ const INIT_SQL: &str = r#"
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
+
+    CREATE TABLE IF NOT EXISTS session_runtime_bindings (
+        session_id TEXT NOT NULL,
+        runtime_key TEXT NOT NULL,
+        external_session_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (session_id, runtime_key),
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_session_runtime_bindings_runtime
+        ON session_runtime_bindings(runtime_key, updated_at DESC);
 
     -- 消息�?
     CREATE TABLE IF NOT EXISTS messages (
@@ -57,6 +70,28 @@ const INIT_SQL: &str = r#"
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     );
+
+    -- AgentTeams 专家表
+    CREATE TABLE IF NOT EXISTS agent_experts (
+        id TEXT PRIMARY KEY,
+        builtin_code TEXT UNIQUE,
+        name TEXT NOT NULL,
+        description TEXT,
+        prompt TEXT NOT NULL,
+        runtime_agent_id TEXT,
+        default_model_id TEXT,
+        category TEXT NOT NULL DEFAULT 'custom',
+        tags TEXT NOT NULL DEFAULT '[]',
+        recommended_scenes TEXT NOT NULL DEFAULT '[]',
+        is_builtin INTEGER NOT NULL DEFAULT 0,
+        is_enabled INTEGER NOT NULL DEFAULT 1,
+        sort_order INTEGER NOT NULL DEFAULT 100,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (runtime_agent_id) REFERENCES agents(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_experts_runtime ON agent_experts(runtime_agent_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_experts_enabled_order ON agent_experts(is_enabled, sort_order, updated_at DESC);
 
     -- MCP 服务器配置表
     CREATE TABLE IF NOT EXISTS mcp_servers (
@@ -251,6 +286,7 @@ const INIT_SQL: &str = r#"
         project_id TEXT NOT NULL,
         name TEXT NOT NULL,
         description TEXT,
+        split_expert_id TEXT,
         split_agent_id TEXT,
         split_model_id TEXT,
         status TEXT NOT NULL DEFAULT 'draft',
@@ -272,6 +308,9 @@ const INIT_SQL: &str = r#"
         status TEXT NOT NULL DEFAULT 'pending',
         priority TEXT NOT NULL DEFAULT 'medium',
         assignee TEXT,
+        expert_id TEXT,
+        agent_id TEXT,
+        model_id TEXT,
         session_id TEXT,
         cli_session_provider TEXT,
         progress_file TEXT,
@@ -290,6 +329,18 @@ const INIT_SQL: &str = r#"
     CREATE INDEX IF NOT EXISTS idx_tasks_plan ON tasks(plan_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+
+    CREATE TABLE IF NOT EXISTS task_runtime_bindings (
+        task_id TEXT NOT NULL,
+        runtime_key TEXT NOT NULL,
+        external_session_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (task_id, runtime_key),
+        FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_runtime_bindings_runtime
+        ON task_runtime_bindings(runtime_key, updated_at DESC);
 
     -- 智能体模型配置表
     CREATE TABLE IF NOT EXISTS agent_models (
@@ -620,6 +671,8 @@ pub fn init_database() -> Result<()> {
     // 打开数据库连�?
     let conn = Connection::open(&db_path)?;
 
+    // 启用 WAL 模式以支持并发读写，避免 "database is locked" 错误
+    conn.execute_batch("PRAGMA journal_mode = WAL")?;
     // 启用外键约束（SQLite 默认不启用）
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
@@ -641,6 +694,7 @@ pub fn init_database() -> Result<()> {
         "ALTER TABLE sessions ADD COLUMN pinned INTEGER DEFAULT 0",
         "ALTER TABLE sessions ADD COLUMN last_message TEXT",
         "ALTER TABLE sessions ADD COLUMN error_message TEXT",
+        "ALTER TABLE sessions ADD COLUMN expert_id TEXT",
         "ALTER TABLE sessions ADD COLUMN agent_id TEXT",
         "ALTER TABLE sessions ADD COLUMN cli_session_id TEXT",
         "ALTER TABLE sessions ADD COLUMN cli_session_provider TEXT",
@@ -823,6 +877,7 @@ pub fn init_database() -> Result<()> {
         "ALTER TABLE plans ADD COLUMN current_task_id TEXT",
         "ALTER TABLE plans ADD COLUMN split_agent_id TEXT",
         "ALTER TABLE plans ADD COLUMN split_model_id TEXT",
+        "ALTER TABLE plans ADD COLUMN split_expert_id TEXT",
         "ALTER TABLE plans ADD COLUMN scheduled_at TEXT",
         "ALTER TABLE plans ADD COLUMN schedule_status TEXT DEFAULT 'none'",
         "ALTER TABLE plans ADD COLUMN split_mode TEXT DEFAULT 'ai'",
@@ -841,6 +896,7 @@ pub fn init_database() -> Result<()> {
     let tasks_migrations = [
         "ALTER TABLE tasks ADD COLUMN agent_id TEXT",
         "ALTER TABLE tasks ADD COLUMN model_id TEXT",
+        "ALTER TABLE tasks ADD COLUMN expert_id TEXT",
         "ALTER TABLE tasks ADD COLUMN cli_session_provider TEXT",
         "ALTER TABLE tasks ADD COLUMN retry_count INTEGER DEFAULT 0",
         "ALTER TABLE tasks ADD COLUMN max_retries INTEGER DEFAULT 3",
@@ -864,6 +920,120 @@ pub fn init_database() -> Result<()> {
             if !err_str.contains("duplicate column name") {
                 println!("Tasks migration warning: {}", e);
             }
+        }
+    }
+
+    let runtime_binding_tables = [
+        r#"
+        CREATE TABLE IF NOT EXISTS session_runtime_bindings (
+            session_id TEXT NOT NULL,
+            runtime_key TEXT NOT NULL,
+            external_session_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (session_id, runtime_key),
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        )
+        "#,
+        "CREATE INDEX IF NOT EXISTS idx_session_runtime_bindings_runtime ON session_runtime_bindings(runtime_key, updated_at DESC)",
+        r#"
+        CREATE TABLE IF NOT EXISTS task_runtime_bindings (
+            task_id TEXT NOT NULL,
+            runtime_key TEXT NOT NULL,
+            external_session_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (task_id, runtime_key),
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+        )
+        "#,
+        "CREATE INDEX IF NOT EXISTS idx_task_runtime_bindings_runtime ON task_runtime_bindings(runtime_key, updated_at DESC)",
+    ];
+    for migration in runtime_binding_tables {
+        if let Err(e) = conn.execute(migration, []) {
+            println!("Runtime binding migration warning: {}", e);
+        }
+    }
+
+    let runtime_binding_backfills = [
+        r#"
+        INSERT OR IGNORE INTO session_runtime_bindings (
+            session_id,
+            runtime_key,
+            external_session_id,
+            created_at,
+            updated_at
+        )
+        SELECT
+            id,
+            cli_session_provider || '-cli',
+            cli_session_id,
+            updated_at,
+            updated_at
+        FROM sessions
+        WHERE cli_session_id IS NOT NULL
+          AND trim(cli_session_id) != ''
+          AND cli_session_provider IS NOT NULL
+          AND trim(cli_session_provider) != ''
+        "#,
+        r#"
+        INSERT OR IGNORE INTO task_runtime_bindings (
+            task_id,
+            runtime_key,
+            external_session_id,
+            created_at,
+            updated_at
+        )
+        SELECT
+            id,
+            cli_session_provider || '-cli',
+            session_id,
+            updated_at,
+            updated_at
+        FROM tasks
+        WHERE session_id IS NOT NULL
+          AND trim(session_id) != ''
+          AND cli_session_provider IS NOT NULL
+          AND trim(cli_session_provider) != ''
+        "#,
+    ];
+    for migration in runtime_binding_backfills {
+        if let Err(e) = conn.execute(migration, []) {
+            println!("Runtime binding backfill warning: {}", e);
+        }
+    }
+
+    let agent_experts_table_sql = r#"
+        CREATE TABLE IF NOT EXISTS agent_experts (
+            id TEXT PRIMARY KEY,
+            builtin_code TEXT UNIQUE,
+            name TEXT NOT NULL,
+            description TEXT,
+            prompt TEXT NOT NULL,
+            runtime_agent_id TEXT,
+            default_model_id TEXT,
+            category TEXT NOT NULL DEFAULT 'custom',
+            tags TEXT NOT NULL DEFAULT '[]',
+            recommended_scenes TEXT NOT NULL DEFAULT '[]',
+            is_builtin INTEGER NOT NULL DEFAULT 0,
+            is_enabled INTEGER NOT NULL DEFAULT 1,
+            sort_order INTEGER NOT NULL DEFAULT 100,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (runtime_agent_id) REFERENCES agents(id) ON DELETE SET NULL
+        )
+    "#;
+    if let Err(e) = conn.execute(agent_experts_table_sql, []) {
+        println!("Agent experts table migration warning: {}", e);
+    }
+
+    let agent_experts_index_migrations = [
+        "CREATE INDEX IF NOT EXISTS idx_agent_experts_runtime ON agent_experts(runtime_agent_id)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_experts_enabled_order ON agent_experts(is_enabled, sort_order, updated_at DESC)",
+    ];
+    for migration in agent_experts_index_migrations {
+        if let Err(e) = conn.execute(migration, []) {
+            println!("Agent experts index migration warning: {}", e);
         }
     }
 

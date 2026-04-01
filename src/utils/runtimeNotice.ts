@@ -14,6 +14,18 @@ export interface UsageNoticeSummary {
   output: string | null
 }
 
+export interface ContextStrategyNoticeOptions {
+  strategy: string
+  runtime?: string | null
+  model?: string | null
+  expert?: string | null
+  systemMessageCount?: number | null
+  userMessageCount?: number | null
+  assistantMessageCount?: number | null
+  historyMessageCount?: number | null
+  resumeSessionId?: string | null
+}
+
 interface RuntimeNoticeLine {
   label: string
   value: string
@@ -88,6 +100,17 @@ function isRuntimeNoticeLineLabel(label: string): boolean {
   return [
     '模型',
     'model',
+    '策略',
+    'strategy',
+    '运行时',
+    'runtime',
+    '专家',
+    'expert',
+    'system messages',
+    'user messages',
+    'assistant messages',
+    'history messages',
+    'resume session',
     '输入 Token',
     'input token',
     '输出 Token',
@@ -134,6 +157,35 @@ function extractListCount(value: string): number | null {
 
 const runtimeNoticeDescriptors: RuntimeNoticeDescriptor[] = [
   {
+    id: 'context',
+    matches: (notice) => notice.id === 'context' || /上下文策略|context strategy/i.test(notice.title),
+    summarize: (lines) => lines
+      .map((line) => {
+        const normalized = line.label.trim().toLowerCase()
+        if (normalized.includes('策略') || normalized.includes('strategy')) {
+          return line.value
+        }
+        if (normalized.includes('运行时') || normalized.includes('runtime')) {
+          return line.value
+        }
+        if (normalized.includes('resume session')) {
+          return `Resume ${line.value.slice(0, 8)}`
+        }
+        if (normalized.includes('system')) {
+          return `Sys ${line.value}`
+        }
+        if (normalized.includes('user')) {
+          return `User ${line.value}`
+        }
+        if (normalized.includes('history')) {
+          return `Hist ${line.value}`
+        }
+        return `${line.label} ${line.value}`.trim()
+      })
+      .filter(Boolean)
+      .slice(0, 4)
+  },
+  {
     id: 'environment',
     matches: (notice) => notice.id === 'environment' || notice.title.includes('运行扩展'),
     summarize: (lines) => lines
@@ -173,6 +225,12 @@ function resolveRuntimeNoticeDescriptor(
   notice: Pick<RuntimeNotice, 'id' | 'title'>
 ): RuntimeNoticeDescriptor | null {
   return runtimeNoticeDescriptors.find((descriptor) => descriptor.matches(notice)) ?? null
+}
+
+export function isContextRuntimeNotice(
+  notice: Pick<RuntimeNotice, 'id' | 'title'>
+): boolean {
+  return resolveRuntimeNoticeDescriptor(notice)?.id === 'context'
 }
 
 function inferRuntimeNoticeId(title: string): string {
@@ -277,6 +335,41 @@ export function buildRuntimeNoticeFromSystemContent(content?: string | null): Ru
     content: body,
     tone: 'info'
   }
+}
+
+export function buildContextStrategyNotice(
+  options: ContextStrategyNoticeOptions
+): RuntimeNotice | null {
+  const lines = [
+    options.strategy ? `- 策略: ${options.strategy}` : null,
+    options.runtime?.trim() ? `- 运行时: ${options.runtime.trim()}` : null,
+    options.model?.trim() ? `- 模型: ${options.model.trim()}` : null,
+    options.expert?.trim() ? `- 专家: ${options.expert.trim()}` : null,
+    typeof options.systemMessageCount === 'number' ? `- System Messages: ${options.systemMessageCount}` : null,
+    typeof options.userMessageCount === 'number' ? `- User Messages: ${options.userMessageCount}` : null,
+    typeof options.assistantMessageCount === 'number' ? `- Assistant Messages: ${options.assistantMessageCount}` : null,
+    typeof options.historyMessageCount === 'number' ? `- History Messages: ${options.historyMessageCount}` : null,
+    options.resumeSessionId?.trim() ? `- Resume Session: ${options.resumeSessionId.trim()}` : null
+  ].filter(Boolean) as string[]
+
+  if (lines.length === 0) {
+    return null
+  }
+
+  return {
+    id: 'context',
+    title: '上下文策略',
+    content: lines.join('\n'),
+    tone: 'info'
+  }
+}
+
+export function formatRuntimeNoticeAsSystemContent(notice: RuntimeNotice | null): string {
+  if (!notice) {
+    return ''
+  }
+
+  return `### ${notice.title}\n${notice.content}`.trim()
 }
 
 export function summarizeRuntimeNotice(notice: RuntimeNotice): string[] {

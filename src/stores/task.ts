@@ -23,6 +23,7 @@ interface RustTask {
   status: string
   priority: string
   assignee?: string
+  expert_id?: string
   agent_id?: string
   model_id?: string
   session_id?: string
@@ -99,6 +100,7 @@ function transformTask(rustTask: RustTask): Task {
     status: rustTask.status as TaskStatus,
     priority: rustTask.priority as TaskPriority,
     assignee: rustTask.assignee as AgentRole | undefined,
+    expertId: rustTask.expert_id,
     agentId: rustTask.agent_id,
     modelId: rustTask.model_id,
     sessionId: rustTask.session_id,
@@ -291,6 +293,7 @@ export const useTaskStore = defineStore('task', () => {
       description: input.description ?? null,
       priority: input.priority ?? null,
       assignee: input.assignee ?? null,
+      expert_id: input.expertId ?? null,
       agent_id: input.agentId ?? null,
       model_id: input.modelId ?? null,
       dependencies: input.dependencies ?? null,
@@ -326,6 +329,7 @@ export const useTaskStore = defineStore('task', () => {
     if ('status' in updates) input.status = updates.status ?? null
     if ('priority' in updates) input.priority = updates.priority ?? null
     if ('assignee' in updates) input.assignee = updates.assignee ?? null
+    if ('expertId' in updates) input.expert_id = updates.expertId ?? null
     if ('agentId' in updates) input.agent_id = updates.agentId ?? null
     if ('modelId' in updates) input.model_id = updates.modelId ?? null
     if ('sessionId' in updates) input.session_id = updates.sessionId ?? null
@@ -638,6 +642,7 @@ export const useTaskStore = defineStore('task', () => {
       description: input.description ?? null,
       priority: input.priority ?? null,
       assignee: input.assignee ?? null,
+      expert_id: input.expertId ?? null,
       agent_id: input.agentId ?? null,
       model_id: input.modelId ?? null,
       dependencies: null, // 先不设置依赖，创建后再更新

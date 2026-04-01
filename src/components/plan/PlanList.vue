@@ -3,7 +3,8 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useConfirmDialog } from '@/composables'
 import { useAgentConfigStore } from '@/stores/agentConfig'
-import { inferAgentProvider, useAgentStore } from '@/stores/agent'
+import { useAgentStore } from '@/stores/agent'
+import { useAgentTeamsStore } from '@/stores/agentTeams'
 import { usePlanStore } from '@/stores/plan'
 import { useProjectStore } from '@/stores/project'
 import { useTaskStore } from '@/stores/task'
@@ -28,6 +29,7 @@ import type {
   ProjectOption,
   PlanTaskStats
 } from './planListShared'
+import { resolveExpertById, resolveExpertRuntime } from '@/services/agentTeams/runtime'
 
 interface TaskStatusItem {
   status: TaskStatus
@@ -43,6 +45,7 @@ const EMPTY_PLAN_TASK_STATS: PlanTaskStats = {
 const planStore = usePlanStore()
 const projectStore = useProjectStore()
 const agentStore = useAgentStore()
+const agentTeamsStore = useAgentTeamsStore()
 const agentConfigStore = useAgentConfigStore()
 const taskStore = useTaskStore()
 const confirmDialog = useConfirmDialog()
@@ -139,11 +142,24 @@ const selectedListProject = computed(() => {
 })
 
 const agentOptions = computed<AgentOption[]>(() =>
-  agentStore.agents.map(agent => ({
-    label: `${agent.name} (${agent.type.toUpperCase()}${agent.provider ? ` / ${agent.provider}` : ''})`,
-    value: agent.id
-  }))
+  agentTeamsStore.enabledExperts.map(expert => {
+    const runtime = resolveExpertRuntime(expert, agentStore.agents)
+    const runtimeLabel = runtime?.agent.provider
+      ? `${runtime.agent.provider.toUpperCase()} CLI`
+      : runtime?.agent.name || '未绑定运行时'
+
+    return {
+      label: `${expert.name} (${runtimeLabel})`,
+      value: expert.id
+    }
+  })
 )
+
+function getDefaultSplitExpertId(): string | null {
+  return agentTeamsStore.builtinPlannerExpert?.id
+    || agentOptions.value[0]?.value
+    || null
+}
 
 const plans = computed(() => {
   if (!projectStore.currentProject) return []
@@ -205,8 +221,13 @@ const canStartSplitFromList = computed(() =>
 )
 
 async function loadEnabledModels(agentId: string): Promise<ModelOption[]> {
-  const provider = inferAgentProvider(agentStore.agents.find(agent => agent.id === agentId))
-  const configs = await agentConfigStore.ensureModelsConfigs(agentId, provider)
+  const expert = resolveExpertById(agentId, agentTeamsStore.experts)
+  const runtime = resolveExpertRuntime(expert, agentStore.agents)
+  if (!runtime) {
+    return []
+  }
+
+  const configs = await agentConfigStore.ensureModelsConfigs(runtime.agent.id, runtime.agent.provider)
   return configs
     .filter(model => model.enabled)
     .map(model => ({
@@ -224,12 +245,8 @@ function pickDefaultModel(models: ModelOption[]): string {
 
 function isModelSelectionValid(agentId: string | null, modelId: string): boolean {
   if (!agentId) return false
-  const agent = agentStore.agents.find(item => item.id === agentId)
-  if (!agent) return false
-  if (agent.type === 'sdk') {
-    return modelId.trim().length > 0
-  }
-  return true
+  const expert = resolveExpertById(agentId, agentTeamsStore.experts)
+  return Boolean(resolveExpertRuntime(expert, agentStore.agents, modelId))
 }
 
 function buildPlanTaskStats(tasks: TaskStatusItem[]): PlanTaskStats {
@@ -317,13 +334,20 @@ async function createPlan(startSplit: boolean) {
   }
 
   try {
+    const selectedExpert = createForm.splitMode === 'ai'
+      ? resolveExpertById(createForm.splitAgentId, agentTeamsStore.experts)
+      : null
+    const runtime = createForm.splitMode === 'ai'
+      ? resolveExpertRuntime(selectedExpert, agentStore.agents, createForm.splitModelId)
+      : null
     const plan = await planStore.createPlan({
       projectId: projectStore.currentProjectId,
       name: createForm.name.trim(),
       description: createForm.description.trim() || undefined,
       splitMode: createForm.splitMode,
-      splitAgentId: createForm.splitMode === 'ai' ? (createForm.splitAgentId ?? undefined) : undefined,
-      splitModelId: createForm.splitMode === 'ai' && createForm.splitAgentId !== null ? createForm.splitModelId : undefined,
+      splitExpertId: createForm.splitMode === 'ai' ? (selectedExpert?.id ?? undefined) : undefined,
+      splitAgentId: runtime?.agent.id,
+      splitModelId: runtime?.modelId,
       granularity: createForm.granularity,
       maxRetryCount: createForm.maxRetryCount,
       scheduledAt
@@ -331,12 +355,13 @@ async function createPlan(startSplit: boolean) {
 
     planStore.setCurrentPlan(plan.id)
 
-    if (startSplit && createForm.splitAgentId !== null && createForm.splitMode === 'ai') {
+    if (startSplit && createForm.splitAgentId !== null && createForm.splitMode === 'ai' && runtime) {
       await planStore.updatePlan(plan.id, { status: 'planning' })
       planStore.openSplitDialog({
         planId: plan.id,
-        agentId: createForm.splitAgentId,
-        modelId: createForm.splitModelId,
+        expertId: selectedExpert?.id,
+        agentId: runtime.agent.id,
+        modelId: runtime.modelId || '',
         entry: 'create_start_split'
       })
     }
@@ -382,10 +407,11 @@ function closeCreateDialog() {
 }
 
 async function openCreateDialog() {
-  if (agentStore.agents.length === 0) {
-    await agentStore.loadAgents()
-  }
-  updateCreateForm({ splitAgentId: agentOptions.value[0]?.value ?? null })
+  await Promise.all([
+    agentStore.loadAgents(),
+    agentTeamsStore.loadExperts(true)
+  ])
+  updateCreateForm({ splitAgentId: getDefaultSplitExpertId() })
   showCreateDialog.value = true
 }
 
@@ -416,7 +442,7 @@ function openEditDialog(plan: Plan) {
     splitMode: plan.splitMode,
     granularity: plan.granularity,
     maxRetryCount: plan.maxRetryCount,
-    splitAgentId: plan.splitAgentId ?? null,
+    splitAgentId: plan.splitExpertId ?? null,
     splitModelId: plan.splitModelId ?? '',
     executionMode: plan.scheduledAt ? 'scheduled' : 'immediate',
     scheduledDateTime: plan.scheduledAt ? new Date(plan.scheduledAt).toISOString().slice(0, 16) : ''
@@ -434,6 +460,12 @@ async function saveEdit() {
   if (!editingPlan.value || !editForm.name.trim()) return
 
   try {
+    const selectedExpert = editForm.splitMode === 'ai'
+      ? resolveExpertById(editForm.splitAgentId, agentTeamsStore.experts)
+      : null
+    const runtime = editForm.splitMode === 'ai'
+      ? resolveExpertRuntime(selectedExpert, agentStore.agents, editForm.splitModelId)
+      : null
     const updates: UpdatePlanInput = {
       name: editForm.name.trim(),
       description: editForm.description.trim() || undefined
@@ -443,12 +475,11 @@ async function saveEdit() {
       updates.splitMode = editForm.splitMode
       updates.granularity = editForm.granularity
       updates.maxRetryCount = editForm.maxRetryCount
-      updates.splitAgentId = editForm.splitMode === 'ai'
-        ? (editForm.splitAgentId ?? undefined)
+      updates.splitExpertId = editForm.splitMode === 'ai'
+        ? (selectedExpert?.id ?? undefined)
         : undefined
-      updates.splitModelId = editForm.splitMode === 'ai' && editForm.splitAgentId
-        ? (editForm.splitModelId || undefined)
-        : undefined
+      updates.splitAgentId = runtime?.agent.id
+      updates.splitModelId = runtime?.modelId
     }
 
     const canEditScheduleBeforeExecution = ['draft', 'planning', 'ready'].includes(editingPlan.value.status)
@@ -481,25 +512,28 @@ function resetSplitConfigForm() {
 }
 
 async function startSplitTasks(plan: Plan) {
-  if (agentStore.agents.length === 0) {
-    await agentStore.loadAgents()
-  }
+  await Promise.all([
+    agentStore.loadAgents(),
+    agentTeamsStore.loadExperts(true)
+  ])
 
-  const configuredAgent = plan.splitAgentId
-    ? agentStore.agents.find(agent => agent.id === plan.splitAgentId)
+  const configuredExpert = plan.splitExpertId
+    ? resolveExpertById(plan.splitExpertId, agentTeamsStore.experts)
     : null
+  const configuredRuntime = resolveExpertRuntime(configuredExpert, agentStore.agents, plan.splitModelId)
 
   const hasSplitConfig = Boolean(
-    plan.splitAgentId !== undefined &&
+    plan.splitExpertId !== undefined &&
     plan.splitModelId !== undefined &&
-    isModelSelectionValid(plan.splitAgentId, plan.splitModelId)
+    isModelSelectionValid(plan.splitExpertId ?? null, plan.splitModelId)
   )
 
-  if (hasSplitConfig && plan.splitAgentId && configuredAgent) {
+  if (hasSplitConfig && plan.splitExpertId && configuredRuntime) {
     await planStore.updatePlan(plan.id, { status: 'planning' })
     planStore.openSplitDialog({
       planId: plan.id,
-      agentId: plan.splitAgentId,
+      expertId: plan.splitExpertId,
+      agentId: configuredRuntime.agent.id,
       modelId: plan.splitModelId ?? '',
       entry: plan.status === 'planning' ? 'resume_split' : 'list_split'
     })
@@ -507,7 +541,7 @@ async function startSplitTasks(plan: Plan) {
   }
 
   splitConfigPlan.value = plan
-  updateSplitConfigForm({ agentId: plan.splitAgentId || agentOptions.value[0]?.value || null })
+  updateSplitConfigForm({ agentId: plan.splitExpertId || getDefaultSplitExpertId() })
   showSplitConfigDialog.value = true
 }
 
@@ -522,16 +556,24 @@ async function confirmSplitConfigAndStart() {
   if (splitConfigModelOptions.value.length === 0) return
 
   try {
+    const selectedExpert = resolveExpertById(splitConfigForm.agentId, agentTeamsStore.experts)
+    const runtime = resolveExpertRuntime(selectedExpert, agentStore.agents, splitConfigForm.modelId)
+    if (!runtime) {
+      throw new Error('未找到可用拆分专家运行时')
+    }
+
     const updatedPlan = await planStore.updatePlan(splitConfigPlan.value.id, {
-      splitAgentId: splitConfigForm.agentId,
-      splitModelId: splitConfigForm.modelId,
+      splitExpertId: selectedExpert?.id,
+      splitAgentId: runtime.agent.id,
+      splitModelId: runtime.modelId,
       status: 'planning'
     })
 
     planStore.openSplitDialog({
       planId: updatedPlan.id,
-      agentId: splitConfigForm.agentId,
-      modelId: splitConfigForm.modelId,
+      expertId: selectedExpert?.id,
+      agentId: runtime.agent.id,
+      modelId: runtime.modelId || '',
       entry: splitConfigPlan.value.status === 'planning' ? 'resume_split' : 'list_split'
     })
 
@@ -616,7 +658,10 @@ function getPreferredStatusTab(planList: Plan[], preferredPlanId: string | null)
 }
 
 onMounted(() => {
-  void agentStore.loadAgents()
+  void Promise.all([
+    agentStore.loadAgents(),
+    agentTeamsStore.loadExperts(true)
+  ])
 })
 
 watch(
@@ -655,7 +700,7 @@ watch(
     }
 
     splitConfigModelOptions.value = await loadEnabledModels(agentId)
-    const preferredModelId = splitConfigPlan.value?.splitAgentId === agentId
+    const preferredModelId = splitConfigPlan.value?.splitExpertId === agentId
       ? (splitConfigPlan.value.splitModelId ?? '')
       : ''
 
@@ -678,7 +723,7 @@ watch(
     }
 
     editDialogModelOptions.value = await loadEnabledModels(agentId)
-    const preferredModelId = editingPlan.value?.splitAgentId === agentId
+    const preferredModelId = editingPlan.value?.splitExpertId === agentId
       ? (editingPlan.value.splitModelId ?? '')
       : editForm.splitModelId
 

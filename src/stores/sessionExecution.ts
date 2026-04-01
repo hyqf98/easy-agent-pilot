@@ -35,6 +35,7 @@ export interface QueuedMessageDraft {
   content: string
   displayContent?: string
   attachments: MessageAttachment[]
+  expertId?: string
   agentId: string
   modelId?: string
   memoryReferences?: ComposerMemoryReference[]
@@ -325,7 +326,7 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
   function updateQueuedMessage(
     sessionId: string,
     draftId: string,
-    updates: Partial<Pick<QueuedMessageDraft, 'content' | 'displayContent' | 'attachments' | 'agentId' | 'modelId' | 'memoryReferences' | 'status' | 'errorMessage'>>
+    updates: Partial<Pick<QueuedMessageDraft, 'content' | 'displayContent' | 'attachments' | 'expertId' | 'agentId' | 'modelId' | 'memoryReferences' | 'status' | 'errorMessage'>>
   ) {
     const state = getExecutionState(sessionId)
     state.queuedMessages = state.queuedMessages.map(draft => {

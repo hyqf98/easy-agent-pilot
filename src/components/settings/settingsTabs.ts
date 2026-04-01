@@ -2,6 +2,7 @@ import { markRaw, type Component } from 'vue'
 import type { SettingsTab } from '@/stores/ui'
 import GeneralSettings from './tabs/GeneralSettings.vue'
 import AgentSettings from './tabs/AgentSettings.vue'
+import AgentTeamsSettings from './tabs/AgentTeamsSettings.vue'
 import SkillConfigPage from '@/components/skill-config/SkillConfigPage.vue'
 import ProviderSwitch from './tabs/ProviderSwitch.vue'
 import ThemeSettings from './tabs/ThemeSettings.vue'
@@ -36,6 +37,13 @@ export const SETTINGS_TAB_DESCRIPTORS: SettingsTabDescriptor[] = [
     icon: 'bot',
     component: markRaw(AgentSettings),
     layout: 'default'
+  },
+  {
+    id: 'agentTeams',
+    labelKey: 'settings.nav.agentTeams',
+    icon: 'users',
+    component: markRaw(AgentTeamsSettings),
+    layout: 'full'
   },
   {
     id: 'agentConfig',

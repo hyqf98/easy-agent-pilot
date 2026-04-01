@@ -316,6 +316,7 @@ const zhCN = {
     nav: {
       general: '通用设置',
       agents: 'Agent 配置',
+      agentTeams: 'Agent团队',
       agentConfig: '技能配置',
       integration: 'Agent 集成',
       mcp: 'MCP 服务器',
@@ -331,6 +332,55 @@ const zhCN = {
       data: '数据管理',
       logs: '日志管理',
       providerSwitch: '配置切换'
+    },
+    agentTeams: {
+      subtitle: '面向业务场景管理专家提示词与运行时绑定',
+      createExpert: '新建专家',
+      searchPlaceholder: '搜索专家 / 标签 / 场景',
+      builtinBadge: '内置',
+      enabled: '启用',
+      disabled: '停用',
+      emptyDescription: '暂无描述',
+      createTitle: '新建专家',
+      editTitle: '编辑专家',
+      copy: '复制',
+      delete: '删除',
+      save: '保存专家',
+      saving: '保存中...',
+      duplicateSuffix: '副本',
+      deleteBlocked: '该专家仍被引用：计划 {plans}、任务 {tasks}、会话 {sessions}',
+      deleteConfirm: '确认删除专家“{name}”吗？',
+      fields: {
+        name: '名称',
+        category: '分类',
+        description: '描述',
+        runtimeAgent: '绑定运行时 Agent',
+        defaultModel: '默认模型',
+        tags: '标签',
+        recommendedScenes: '推荐场景',
+        sortOrder: '排序',
+        enabled: '启用该专家',
+        prompt: '提示词'
+      },
+      placeholders: {
+        description: '说明这个专家适合什么任务',
+        unbound: '未绑定',
+        followAgentDefaultModel: '跟随 Agent 默认模型',
+        tags: 'frontend, tauri, debug',
+        recommendedScenes: '主会话, 任务拆分, Bug 排查'
+      },
+      categories: {
+        general: '通用',
+        planner: '规划',
+        architect: '架构',
+        developer: '开发',
+        tester: '测试',
+        writer: '文档',
+        designer: '设计',
+        reviewer: '评审',
+        ops: '运维',
+        custom: '自定义'
+      }
     },
     unattended: {
       heroEyebrow: '远程值守控制台',

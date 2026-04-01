@@ -33,6 +33,23 @@ export function hydrateTaskLogs(
 ): void {
   state.logs = rustLogs.map(mapRustExecutionLog)
   state.status = resolveTaskExecutionStatus(task, state.status)
+
+  const usageMetadata = [...state.logs]
+    .reverse()
+    .find((log) =>
+      typeof log.metadata?.inputTokens === 'number'
+      || typeof log.metadata?.outputTokens === 'number'
+      || typeof log.metadata?.model === 'string'
+    )
+    ?.metadata
+
+  state.tokenUsage = {
+    inputTokens: usageMetadata?.inputTokens ?? 0,
+    outputTokens: usageMetadata?.outputTokens ?? 0,
+    model: usageMetadata?.model,
+    resetCount: 0,
+    lastUpdatedAt: state.logs[state.logs.length - 1]?.timestamp ?? null
+  }
 }
 
 export function buildTaskInputRequest(

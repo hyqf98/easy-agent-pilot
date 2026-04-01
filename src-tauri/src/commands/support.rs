@@ -1,6 +1,7 @@
 use anyhow::Result;
 use rusqlite::{CachedStatement, Connection, ToSql};
 use std::path::PathBuf;
+use std::time::Duration;
 
 pub fn get_db_path() -> Result<PathBuf> {
     let persistence_dir = super::get_persistence_dir_path()?;
@@ -9,7 +10,13 @@ pub fn get_db_path() -> Result<PathBuf> {
 
 pub fn open_db_connection() -> Result<Connection> {
     let db_path = get_db_path()?;
-    Ok(Connection::open(&db_path)?)
+    let conn = Connection::open(&db_path)?;
+    conn.busy_timeout(Duration::from_secs(5))?;
+    // WAL 模式允许并发读写，避免 "database is locked" 错误
+    // execute_batch 不处理返回值，适合 PRAGMA journal_mode（该语句会返回结果行，execute 会报错）
+    conn.execute_batch("PRAGMA journal_mode = WAL")?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+    Ok(conn)
 }
 
 pub fn open_db_connection_with_foreign_keys() -> Result<Connection> {

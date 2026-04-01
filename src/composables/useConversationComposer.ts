@@ -26,8 +26,11 @@ import { useSessionStore } from '@/stores/session'
 import { useSettingsStore } from '@/stores/settings'
 import { useTokenStore, type CompressionStrategy, type TokenLevel } from '@/stores/token'
 import { useMemoryStore } from '@/stores/memory'
+import { useAgentTeamsStore } from '@/stores/agentTeams'
 import { compressionService } from '@/services/compression'
 import { conversationService } from '@/services/conversation'
+import { writeFrontendRuntimeLog } from '@/services/runtimeLog/client'
+import { getErrorMessage } from '@/utils/api'
 import {
   executeSlashCommand,
   parseSlashCommandInput,
@@ -42,6 +45,12 @@ import { createComposerFileMention, formatMentionLiteral } from '@/utils/compose
 import { resolveSessionAgent, resolveSessionAgentId } from '@/utils/sessionAgent'
 import { resolveAttachmentPreviewUrl } from '@/utils/attachmentPreview'
 import type { MemorySuggestion, MemorySuggestionSourceType } from '@/types/memory'
+import {
+  buildExpertSystemPrompt,
+  resolveExpertById,
+  resolveExpertRuntime,
+  resolveFallbackCliAgent
+} from '@/services/agentTeams/runtime'
 
 interface TextSegment {
   type: 'text' | 'file' | 'slash' | 'memory'
@@ -220,6 +229,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
   const sessionExecutionStore = useSessionExecutionStore()
   const tokenStore = useTokenStore()
   const memoryStore = useMemoryStore()
+  const agentTeamsStore = useAgentTeamsStore()
 
   const showCompressionDialog = ref(false)
   const isCompressing = ref(false)
@@ -272,33 +282,54 @@ export function useConversationComposer(options: UseConversationComposerOptions)
   const currentWorkingDirectory = computed(() => toValue(options.workingDirectory) || currentProjectPath.value)
 
   const agentOptions = computed(() =>
-    agentStore.agents.map(agent => ({
-      label: agent.name,
-      value: agent.id,
-      modelId: agent.modelId,
-      provider: agent.provider,
-      type: agent.type,
-      isCustom: agent.customModelEnabled || false
-    }))
+    agentTeamsStore.enabledExperts.map(expert => {
+      const runtime = resolveExpertRuntime(expert, agentStore.agents)
+      const runtimeAgent = runtime?.agent
+      const provider = runtimeAgent?.provider || inferAgentProvider(runtimeAgent)
+      return {
+        label: expert.name,
+        value: expert.id,
+        modelId: runtime?.modelId,
+        provider,
+        type: runtimeAgent?.type || 'cli',
+        isCustom: runtimeAgent?.customModelEnabled || false
+      }
+    })
   )
 
-  const currentAgentId = computed(() => {
-    return resolveSessionAgentId(currentSession.value, agentStore.agents)
-  })
+  const currentExpertId = computed(() =>
+    currentSession.value?.expertId
+    || agentTeamsStore.builtinGeneralExpert?.id
+    || agentTeamsStore.enabledExperts[0]?.id
+    || null
+  )
+
+  const currentExpert = computed(() =>
+    resolveExpertById(currentExpertId.value, agentTeamsStore.experts)
+  )
+
+  const currentAgentId = computed(() => currentExpertId.value)
 
   const currentAgent = computed(() => {
-    return resolveSessionAgent(currentSession.value, agentStore.agents)
+    const expertRuntime = resolveExpertRuntime(currentExpert.value, agentStore.agents)
+    if (expertRuntime) {
+      return expertRuntime.agent
+    }
+    return resolveSessionAgent(currentSession.value, agentStore.agents) || resolveFallbackCliAgent(agentStore.agents)
   })
 
   const currentAgentName = computed(() => {
-    if (!currentAgent.value) {
-      return t('settings.agentConfig.selectAgent')
+    if (currentExpert.value) {
+      return currentExpert.value.name
     }
-    return currentAgent.value.name
+    if (currentAgent.value) {
+      return currentAgent.value.name
+    }
+    return '选择专家'
   })
 
   const modelOptions = computed(() => {
-    const agentId = currentAgentId.value
+    const agentId = currentAgent.value?.id
     if (!agentId) return []
 
     return agentConfigStore.getModelsConfigs(agentId)
@@ -869,19 +900,22 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     searchSlashCommands(options.panelType, slashCommandQuery.value)
   )
 
-  watch(currentAgentId, async (agentId) => {
+  watch(() => currentAgent.value?.id, async (agentId) => {
     if (agentId) {
       const provider = inferAgentProvider(agentStore.agents.find(agent => agent.id === agentId))
       await agentConfigStore.ensureModelsConfigs(agentId, provider)
     }
   }, { immediate: true })
 
-  watch(currentAgent, async (agent) => {
-    if (agent && currentAgentId.value) {
-      await agentConfigStore.ensureModelsConfigs(currentAgentId.value, inferAgentProvider(agent))
-      const configs = agentConfigStore.getModelsConfigs(currentAgentId.value)
-      const defaultModel = configs.find(config => config.isDefault && config.enabled)
-      selectedModelId.value = defaultModel?.modelId || ''
+  watch([currentExpert, currentAgent], async ([expert, agent]) => {
+    if (agent?.id) {
+      await agentConfigStore.ensureModelsConfigs(agent.id, inferAgentProvider(agent))
+      const configs = agentConfigStore.getModelsConfigs(agent.id)
+      const preferredModel = expert?.defaultModelId
+      const defaultModel = configs.find(config => config.enabled && config.modelId === preferredModel)
+        || configs.find(config => config.isDefault && config.enabled)
+        || configs.find(config => config.enabled)
+      selectedModelId.value = defaultModel?.modelId || expert?.defaultModelId || ''
     } else {
       selectedModelId.value = ''
     }
@@ -957,13 +991,16 @@ export function useConversationComposer(options: UseConversationComposerOptions)
 
   onMounted(async () => {
     try {
-      await agentStore.loadAgents()
-      if (currentAgentId.value) {
-        const provider = inferAgentProvider(agentStore.agents.find(agent => agent.id === currentAgentId.value))
-        await agentConfigStore.ensureModelsConfigs(currentAgentId.value, provider)
+      await Promise.all([
+        agentStore.loadAgents(),
+        agentTeamsStore.loadExperts(true)
+      ])
+      if (currentAgent.value?.id) {
+        const provider = inferAgentProvider(agentStore.agents.find(agent => agent.id === currentAgent.value?.id))
+        await agentConfigStore.ensureModelsConfigs(currentAgent.value.id, provider)
       }
     } catch (error) {
-      console.error('Failed to load agents:', error)
+      console.error('Failed to load experts or agents:', error)
     }
   })
 
@@ -993,7 +1030,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     }
   }
 
-  const selectAgent = async (agentId: string) => {
+  const selectAgent = async (expertId: string) => {
     const sessionId = currentSessionId.value
     if (!sessionId) {
       isAgentDropdownOpen.value = false
@@ -1001,17 +1038,20 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     }
 
     try {
-      const agent = agentStore.agents.find(item => item.id === agentId)
+      const expert = resolveExpertById(expertId, agentTeamsStore.experts)
+      const runtime = resolveExpertRuntime(expert, agentStore.agents)
+      const agent = runtime?.agent
       await sessionStore.updateSession(sessionId, {
-        agentId,
+        expertId,
+        agentId: agent?.id,
         agentType: agent?.provider || agent?.type || 'claude',
         cliSessionId: '',
         cliSessionProvider: ''
       })
-      selectedModelId.value = agent?.modelId || ''
+      selectedModelId.value = runtime?.modelId || agent?.modelId || ''
       isAgentDropdownOpen.value = false
     } catch (error) {
-      console.error('Failed to update session agent:', error)
+      console.error('Failed to update session expert:', error)
     }
   }
 
@@ -1023,21 +1063,25 @@ export function useConversationComposer(options: UseConversationComposerOptions)
   }
 
   const selectModel = async (modelId: string) => {
-    if (!currentAgent.value || !currentAgentId.value) return
+    if (!currentAgent.value) return
 
     selectedModelId.value = modelId
     isModelDropdownOpen.value = false
 
     try {
-      const configs = agentConfigStore.getModelsConfigs(currentAgentId.value)
+      const runtimeAgentId = currentAgent.value.id
+      const configs = agentConfigStore.getModelsConfigs(runtimeAgentId)
       const selectedConfig = configs.find(config => config.modelId === modelId)
       if (selectedConfig) {
-        await agentConfigStore.updateModelConfig(selectedConfig.id, currentAgentId.value, {
+        await agentConfigStore.updateModelConfig(selectedConfig.id, runtimeAgentId, {
           isDefault: true
         })
       }
+      if (currentExpert.value?.id) {
+        await agentTeamsStore.updateExpert(currentExpert.value.id, { defaultModelId: modelId || undefined })
+      }
     } catch (error) {
-      console.error('Failed to update agent model:', error)
+      console.error('Failed to update expert model:', error)
     }
   }
 
@@ -1056,7 +1100,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     const agentId = resolveSessionAgentId(currentSession.value, agentStore.agents) || currentAgent.value?.id
 
     if (!agentId) {
-      notificationStore.smartError('压缩失败', new Error('未找到可用智能体'))
+      notificationStore.smartError('压缩失败', new Error('未找到可用专家运行时'))
       showCompressionDialog.value = false
       return
     }
@@ -1564,7 +1608,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
 
   const updateQueuedMessage = (
     draftId: string,
-    updates: Partial<Pick<QueuedMessageDraft, 'content' | 'displayContent' | 'attachments' | 'agentId' | 'modelId' | 'memoryReferences' | 'status' | 'errorMessage'>>
+    updates: Partial<Pick<QueuedMessageDraft, 'content' | 'displayContent' | 'attachments' | 'expertId' | 'agentId' | 'modelId' | 'memoryReferences' | 'status' | 'errorMessage'>>
   ) => {
     if (!currentSessionId.value) {
       return
@@ -1603,13 +1647,13 @@ export function useConversationComposer(options: UseConversationComposerOptions)
   const validateCurrentAgentAvailability = () => {
     const executionAgent = getExecutionAgentConfig()
     if (!executionAgent) {
-      notificationStore.smartError('发送失败', new Error('未找到可用智能体'))
+      notificationStore.smartError('发送失败', new Error('未找到可用专家运行时'))
       return false
     }
 
     const availability = conversationService.isAgentAvailable(executionAgent)
     if (!availability.available) {
-      notificationStore.smartError('发送失败', new Error(availability.reason || '当前智能体不可用'))
+      notificationStore.smartError('发送失败', new Error(availability.reason || '当前专家运行时不可用'))
       return false
     }
 
@@ -1644,19 +1688,30 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     const sessionId = currentSessionId.value
     if ((!userInput.trim() && attachments.length === 0) || !sessionId || isSending.value) return false
 
+    const expert = currentExpert.value
     const executionAgent = getExecutionAgentConfig()
-    if (!executionAgent) {
-      notificationStore.smartError('发送失败', new Error('未找到可用智能体'))
+    if (!expert || !executionAgent) {
+      notificationStore.smartError('发送失败', new Error('未找到可用专家'))
       return false
     }
 
     const availability = conversationService.isAgentAvailable(executionAgent)
     if (!availability.available) {
-      notificationStore.smartError('发送失败', new Error(availability.reason || '当前智能体不可用'))
+      notificationStore.smartError('发送失败', new Error(availability.reason || '当前专家运行时不可用'))
       return false
     }
 
     try {
+      if (currentSession.value?.expertId !== expert.id || currentSession.value?.agentId !== executionAgent.id) {
+        await sessionStore.updateSession(sessionId, {
+          expertId: expert.id,
+          agentId: executionAgent.id,
+          agentType: executionAgent.provider || executionAgent.type || 'claude',
+          cliSessionId: '',
+          cliSessionProvider: ''
+        })
+      }
+
       await conversationService.sendMessage(
         sessionId,
         userInput,
@@ -1666,6 +1721,9 @@ export function useConversationComposer(options: UseConversationComposerOptions)
         {
           workingDirectory: currentWorkingDirectory.value || undefined,
           modelId: selectedModelId.value.trim() || undefined,
+          injectedSystemMessages: [
+            buildExpertSystemPrompt(expert.prompt)
+          ],
           previewContent: options?.displayPreviewContent,
           memoryReferencesToPersist: options?.memoryReferences ?? []
         }
@@ -1673,7 +1731,16 @@ export function useConversationComposer(options: UseConversationComposerOptions)
       return true
     } catch (error) {
       console.error('Failed to send message:', error)
-      notificationStore.smartError('发送失败', error instanceof Error ? error : new Error(String(error)))
+      const normalizedError = error instanceof Error
+        ? error
+        : new Error(getErrorMessage(error, '发送失败'))
+      void writeFrontendRuntimeLog(
+        'ERROR',
+        'conversation-composer',
+        `sendWithCurrentAgent failed | sessionId=${sessionId} | projectId=${currentSession.value?.projectId || ''} | agentId=${executionAgent.id} | expertId=${expert.id} | error=${normalizedError.message}`,
+        error
+      )
+      notificationStore.smartError('发送失败', normalizedError)
       sessionExecutionStore.endSending(sessionId)
       return false
     }
@@ -1754,8 +1821,9 @@ export function useConversationComposer(options: UseConversationComposerOptions)
         return
       }
 
+      const queuedExpert = currentExpert.value
       const queuedAgent = currentAgent.value
-      if (!queuedAgent) {
+      if (!queuedExpert || !queuedAgent) {
         return
       }
 
@@ -1763,6 +1831,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
         content: userInput,
         displayContent: annotatedMessage.previewContent || rawInput,
         attachments,
+        expertId: queuedExpert.id,
         agentId: queuedAgent.id,
         modelId: selectedModelId.value.trim() || undefined,
         memoryReferences: orderedMemoryReferences
@@ -1826,6 +1895,10 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     isDispatchingMessage.value = true
 
     try {
+      const expert = currentExpert.value
+      if (!expert) {
+        throw new Error('未找到可用专家')
+      }
       await conversationService.sendMessage(
         sessionId,
         normalizedContent,
@@ -1835,6 +1908,9 @@ export function useConversationComposer(options: UseConversationComposerOptions)
         {
           workingDirectory: currentWorkingDirectory.value || undefined,
           modelId: selectedModelId.value.trim() || undefined,
+          injectedSystemMessages: [
+            buildExpertSystemPrompt(expert.prompt)
+          ],
           existingUserMessageId: messageId
         }
       )

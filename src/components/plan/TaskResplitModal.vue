@@ -1,17 +1,19 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useAgentStore, useAgentConfigStore } from '@/stores'
+import { useAgentTeamsStore } from '@/stores/agentTeams'
 import { inferAgentProvider } from '@/stores/agent'
 import type { AgentModelConfig } from '@/stores/agentConfig'
 import type { AITaskItem, TaskResplitConfig } from '@/types/plan'
 import { useOverlayDismiss } from '@/composables/useOverlayDismiss'
 import { DEFAULT_SPLIT_GRANULARITY } from '@/constants/plan'
+import { resolveExpertById, resolveExpertRuntime } from '@/services/agentTeams/runtime'
 
 const props = defineProps<{
   visible: boolean
   task: AITaskItem | null
   defaultGranularity: number
-  defaultAgentId?: string
+  defaultExpertId?: string
   defaultModelId?: string
 }>()
 
@@ -22,23 +24,16 @@ const emit = defineEmits<{
 
 const agentStore = useAgentStore()
 const agentConfigStore = useAgentConfigStore()
+const agentTeamsStore = useAgentTeamsStore()
 
 // 表单状态
 const customPrompt = ref('')
 const granularity = ref(DEFAULT_SPLIT_GRANULARITY)
+const selectedExpertId = ref<string | undefined>(undefined)
 const selectedAgentId = ref<string | undefined>(undefined)
 const selectedModelId = ref<string | undefined>(undefined)
 
-const availableAgents = computed(() => {
-  return [...agentStore.agents].sort((left, right) => {
-    const leftOnline = left.status === 'online' ? 1 : 0
-    const rightOnline = right.status === 'online' ? 1 : 0
-    if (leftOnline !== rightOnline) {
-      return rightOnline - leftOnline
-    }
-    return left.name.localeCompare(right.name)
-  })
-})
+const availableExperts = computed(() => agentTeamsStore.enabledExperts)
 
 const availableModels = computed(() => {
   if (!selectedAgentId.value) return []
@@ -49,7 +44,7 @@ const availableModels = computed(() => {
 function resetForm() {
   customPrompt.value = ''
   granularity.value = props.defaultGranularity || DEFAULT_SPLIT_GRANULARITY
-  selectedAgentId.value = props.defaultAgentId
+  selectedExpertId.value = props.defaultExpertId
   selectedModelId.value = props.defaultModelId
 }
 
@@ -65,6 +60,7 @@ function handleConfirm() {
     taskIndex: 0, // taskIndex 由父组件设置
     customPrompt: customPrompt.value.trim() || undefined,
     granularity: granularity.value,
+    expertId: selectedExpertId.value,
     agentId: selectedAgentId.value,
     modelId: selectedModelId.value
   })
@@ -74,19 +70,24 @@ function handleConfirm() {
 watch(() => props.visible, (newVisible) => {
   if (newVisible) {
     resetForm()
-    // 加载选中 agent 的模型列表
-    if (selectedAgentId.value) {
-      const provider = inferAgentProvider(agentStore.agents.find(agent => agent.id === selectedAgentId.value))
-      void agentConfigStore.ensureModelsConfigs(selectedAgentId.value, provider)
-    }
+    void Promise.all([
+      agentStore.loadAgents(),
+      agentTeamsStore.loadExperts(true)
+    ]).then(() => {
+      selectedExpertId.value = props.defaultExpertId
+    })
   }
 })
 
-watch(selectedAgentId, async (newAgentId) => {
-  if (newAgentId) {
-    const provider = inferAgentProvider(agentStore.agents.find(agent => agent.id === newAgentId))
-    await agentConfigStore.ensureModelsConfigs(newAgentId, provider)
-    const models = agentConfigStore.getModelsConfigs(newAgentId)
+watch(selectedExpertId, async (newExpertId) => {
+  const expert = resolveExpertById(newExpertId, agentTeamsStore.experts)
+  const runtime = resolveExpertRuntime(expert, agentStore.agents, selectedModelId.value)
+  selectedAgentId.value = runtime?.agent.id
+
+  if (runtime?.agent.id) {
+    const provider = inferAgentProvider(agentStore.agents.find(agent => agent.id === runtime.agent.id))
+    await agentConfigStore.ensureModelsConfigs(runtime.agent.id, provider)
+    const models = agentConfigStore.getModelsConfigs(runtime.agent.id)
     const hasSelectedModel = models.some((model: AgentModelConfig) => model.modelId === selectedModelId.value)
     if (!hasSelectedModel) {
       const preferredModel = models.find((model: AgentModelConfig) => model.modelId === props.defaultModelId)
@@ -94,6 +95,7 @@ watch(selectedAgentId, async (newAgentId) => {
       selectedModelId.value = preferredModel?.modelId || defaultModel?.modelId || models[0]?.modelId
     }
   } else {
+    selectedAgentId.value = undefined
     selectedModelId.value = undefined
   }
 })
@@ -199,18 +201,18 @@ watch(selectedAgentId, async (newAgentId) => {
             </div>
 
             <div class="form-row">
-              <label>拆分智能体</label>
+              <label>拆分专家</label>
               <div class="select-wrap">
-                <select v-model="selectedAgentId">
+                <select v-model="selectedExpertId">
                   <option :value="undefined">
                     跟随当前
                   </option>
                   <option
-                    v-for="agent in availableAgents"
-                    :key="agent.id"
-                    :value="agent.id"
+                    v-for="expert in availableExperts"
+                    :key="expert.id"
+                    :value="expert.id"
                   >
-                    {{ agent.name }}
+                    {{ expert.name }}
                   </option>
                 </select>
                 <svg

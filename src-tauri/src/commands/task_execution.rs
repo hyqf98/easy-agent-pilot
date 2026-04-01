@@ -47,6 +47,7 @@ pub struct PlanExecutionTaskProgress {
     pub title: String,
     pub status: String,
     pub task_order: i32,
+    pub expert_id: Option<String>,
     pub agent_id: Option<String>,
     pub model_id: Option<String>,
     pub last_result_status: Option<String>,
@@ -303,7 +304,7 @@ pub fn list_plan_execution_progress(plan_id: String) -> Result<PlanExecutionProg
     let mut stmt = conn
         .prepare(
             "SELECT id, title, status, task_order,
-                    agent_id, model_id,
+                    expert_id, agent_id, model_id,
                     last_result_status, last_result_summary, last_result_files,
                     last_fail_reason, last_result_at, updated_at
              FROM tasks
@@ -314,20 +315,21 @@ pub fn list_plan_execution_progress(plan_id: String) -> Result<PlanExecutionProg
 
     let tasks = stmt
         .query_map([&plan_id], |row| {
-            let files_raw: Option<String> = row.get(8)?;
+            let files_raw: Option<String> = row.get(9)?;
             Ok(PlanExecutionTaskProgress {
                 task_id: row.get(0)?,
                 title: row.get(1)?,
                 status: row.get(2)?,
                 task_order: row.get(3)?,
-                agent_id: row.get(4)?,
-                model_id: row.get(5)?,
-                last_result_status: row.get(6)?,
-                last_result_summary: row.get(7)?,
+                expert_id: row.get(4)?,
+                agent_id: row.get(5)?,
+                model_id: row.get(6)?,
+                last_result_status: row.get(7)?,
+                last_result_summary: row.get(8)?,
                 last_result_files: parse_json_string_array(files_raw),
-                last_fail_reason: row.get(9)?,
-                last_result_at: row.get(10)?,
-                updated_at: row.get(11)?,
+                last_fail_reason: row.get(10)?,
+                last_result_at: row.get(11)?,
+                updated_at: row.get(12)?,
             })
         })
         .map_err(|e| e.to_string())?

@@ -6,6 +6,7 @@ import { useAgentStore, type AgentConfig, inferAgentProvider } from '@/stores/ag
 import { useNotificationStore } from '@/stores/notification'
 import { useTokenStore } from '@/stores/token'
 import { useMemoryStore } from '@/stores/memory'
+import { useAgentTeamsStore } from '@/stores/agentTeams'
 import type { MemoryLibrary } from '@/types/memory'
 import { agentExecutor } from './AgentExecutor'
 import type { ConversationContext, StreamEvent } from './strategies/types'
@@ -18,13 +19,24 @@ import { buildMainConversationFormRequestPrompt } from './prompts'
 import { resolveUsageModelHint } from './usageModelHint'
 import {
   buildCliEnvironmentNotice,
+  buildContextStrategyNotice,
   buildRuntimeNoticeFromSystemContent,
   buildUsageNotice,
   upsertRuntimeNotice
 } from '@/utils/runtimeNotice'
 import { loadAgentMcpServers } from '@/utils/mcpServerConfig'
 import { mergeToolInputArguments } from '@/utils/toolInput'
+import { getErrorMessage } from '@/utils/api'
 import { recordAgentCliUsageInBackground, resolveRecordedModelId } from '@/services/usage/agentCliUsageRecorder'
+import { buildExpertSystemPrompt, resolveExpertById } from '@/services/agentTeams/runtime'
+import { writeFrontendRuntimeLog } from '@/services/runtimeLog/client'
+import {
+  deleteSessionRuntimeBinding,
+  getSessionRuntimeBinding,
+  isInvalidCliResumeError,
+  resolveRuntimeBindingKey,
+  upsertSessionRuntimeBinding
+} from './runtimeBindings'
 
 interface StreamTimingMetrics {
   startedAt: number
@@ -286,8 +298,8 @@ export class ConversationService {
         : rawInjectedSystemMessages
 
       const injectedSystemMessages = [
-        buildMainConversationFormRequestPrompt(),
         ...sessionScopedInjectedSystemMessages,
+        buildMainConversationFormRequestPrompt(),
         ...(projectMemoryPrompt ? [projectMemoryPrompt] : [])
       ]
 
@@ -297,10 +309,17 @@ export class ConversationService {
         ? this.sliceMessagesForRetry(sessionMessages, targetUserMessage.id)
         : sessionMessages
       const hasCompressionMessage = sessionMessages.some(message => message.role === 'compression')
-      const reusableCliSessionId = this.resolveReusableCliSessionId(
+      const reusableCliSessionId = await this.resolveReusableCliSessionId(
         session,
         executionAgent,
         hasCompressionMessage
+      )
+      const fullMessages = this.buildExecutionMessages(
+        executionMessages,
+        targetUserMessage,
+        sessionId,
+        injectedSystemMessages,
+        content
       )
 
       // 构建对话上下文
@@ -314,16 +333,39 @@ export class ConversationService {
       )
       const userMessages = messages.filter(message => message.role === 'user')
       const systemMessages = messages.filter(message => message.role === 'system')
+      const assistantMessages = messages.filter(message => message.role === 'assistant')
+      const selectedExpert = resolveExpertById(session?.expertId, useAgentTeamsStore().experts)
+      const contextStrategyNotice = buildContextStrategyNotice({
+        strategy: reusableCliSessionId ? 'CLI Resume + Delta Prompt' : 'Full Conversation Context',
+        runtime: inferAgentProvider(executionAgent)?.toUpperCase() || executionAgent.type,
+        model: executionAgent.modelId || usageModelHint || undefined,
+        expert: selectedExpert?.name || session?.expertId || undefined,
+        systemMessageCount: systemMessages.length,
+        userMessageCount: userMessages.length,
+        assistantMessageCount: assistantMessages.length,
+        historyMessageCount: Math.max(0, fullMessages.length - 1),
+        resumeSessionId: reusableCliSessionId ?? undefined
+      })
 
       console.info('[ConversationService] assembled context messages', {
         sessionId,
         messageCount: messages.length,
         systemMessageCount: systemMessages.length,
+        assistantMessageCount: assistantMessages.length,
+        historyMessageCount: Math.max(0, fullMessages.length - 1),
         resumeSessionId: reusableCliSessionId ?? null,
         lastUserMessageLength: userMessages.length > 0
           ? userMessages[userMessages.length - 1].content.length
           : 0
       })
+
+      if (contextStrategyNotice) {
+        const currentMessage = messageStore.messagesBySession(sessionId)
+          .find(message => message.id === aiMessage.id)
+        messageStore.updateMessageBuffered(aiMessage.id, {
+          runtimeNotices: upsertRuntimeNotice(currentMessage?.runtimeNotices, contextStrategyNotice)
+        })
+      }
 
       const context: ConversationContext = {
         sessionId,
@@ -335,11 +377,18 @@ export class ConversationService {
         responseMode: 'stream_text',
         resumeSessionId: reusableCliSessionId
       }
+      const fallbackContext = reusableCliSessionId
+        ? {
+            ...context,
+            messages: fullMessages,
+            resumeSessionId: undefined
+          }
+        : undefined
 
       await this.syncSessionExecutionBinding(sessionId, executionAgent)
 
       // 执行对话
-      await this.executeConversation(context, aiMessage, sessionId, targetProject?.id)
+      await this.executeConversation(context, aiMessage, sessionId, targetProject?.id, fallbackContext)
       if (options?.dedupeInjectedSystemMessagesBySession) {
         this.markInjectedSystemMessages(sessionId, sessionScopedInjectedSystemMessages)
       }
@@ -379,7 +428,9 @@ export class ConversationService {
 
     try {
       const sessionStore = useSessionStore()
+      const agentTeamsStore = useAgentTeamsStore()
       const projectId = sessionStore.sessions.find(session => session.id === sessionId)?.projectId
+      const expert = resolveExpertById(nextDraft.expertId, agentTeamsStore.experts)
       await this.sendMessage(
         sessionId,
         nextDraft.content,
@@ -388,13 +439,22 @@ export class ConversationService {
         nextDraft.attachments,
         {
           modelId: nextDraft.modelId,
+          injectedSystemMessages: expert
+            ? [buildExpertSystemPrompt(expert.prompt)]
+            : undefined,
           previewContent: nextDraft.displayContent,
           memoryReferencesToPersist: nextDraft.memoryReferences ?? []
         }
       )
     } catch (error) {
       const notificationStore = useNotificationStore()
-      const errorMessage = error instanceof Error ? error.message : String(error)
+      const errorMessage = getErrorMessage(error, '发送待发送消息失败')
+      void writeFrontendRuntimeLog(
+        'ERROR',
+        'conversation-queue',
+        `drainQueue failed | sessionId=${sessionId} | draftId=${nextDraft.id} | agentId=${nextDraft.agentId} | expertId=${nextDraft.expertId} | error=${errorMessage}`,
+        error
+      )
       sessionExecutionStore.restoreQueuedMessage(sessionId, {
         ...nextDraft,
         status: 'failed',
@@ -449,13 +509,26 @@ export class ConversationService {
     return provider?.trim() || undefined
   }
 
-  private resolveReusableCliSessionId(
+  private async resolveReusableCliSessionId(
     session: Session | undefined,
     agent: AgentConfig,
     hasCompressionMessage: boolean
-  ): string | undefined {
+  ): Promise<string | undefined> {
     if (!session || agent.type !== 'cli' || hasCompressionMessage) {
       return undefined
+    }
+
+    const runtimeKey = resolveRuntimeBindingKey(agent)
+    if (runtimeKey) {
+      try {
+        const binding = await getSessionRuntimeBinding(session.id, runtimeKey)
+        const externalSessionId = binding?.externalSessionId?.trim()
+        if (externalSessionId) {
+          return externalSessionId
+        }
+      } catch (error) {
+        console.warn('[ConversationService] Failed to read session runtime binding:', error)
+      }
     }
 
     const cliSessionId = session.cliSessionId?.trim()
@@ -514,8 +587,12 @@ export class ConversationService {
     const provider = this.resolveCliSessionProvider(agent)
     const nextAgentType = provider || agent.type
     const shouldRetainCliBinding = Boolean(provider)
+    const currentCliSessionProvider = currentSession.cliSessionProvider?.trim()
+    const shouldReuseCurrentCliSessionId = shouldRetainCliBinding
+      && provider
+      && currentCliSessionProvider === provider
     const nextCliSessionId = shouldRetainCliBinding
-      ? (overrides.cliSessionId ?? currentSession.cliSessionId)
+      ? (overrides.cliSessionId ?? (shouldReuseCurrentCliSessionId ? currentSession.cliSessionId : ''))
       : ''
     const nextCliSessionProvider = shouldRetainCliBinding
       ? (overrides.cliSessionProvider ?? provider ?? currentSession.cliSessionProvider)
@@ -545,7 +622,8 @@ export class ConversationService {
     context: ConversationContext,
     aiMessage: Message,
     sessionId: string,
-    projectId?: string
+    projectId?: string,
+    fallbackContext?: ConversationContext
   ): Promise<void> {
     const messageStore = useMessageStore()
     const sessionStore = useSessionStore()
@@ -573,6 +651,7 @@ export class ConversationService {
     const pendingTraceTasks = new Set<Promise<void>>()
     const pendingPersistenceTasks = new Set<Promise<void>>()
     const cliSessionProvider = this.resolveCliSessionProvider(context.agent)
+    const runtimeKey = resolveRuntimeBindingKey(context.agent)
     const streamMetrics: StreamTimingMetrics = {
       startedAt: globalThis.performance?.now() ?? Date.now()
     }
@@ -598,10 +677,20 @@ export class ConversationService {
       }
 
       registerPersistenceTask(
-        this.syncSessionExecutionBinding(sessionId, context.agent, {
-          cliSessionId: normalizedExternalSessionId,
-          cliSessionProvider
-        })
+        (async () => {
+          if (runtimeKey) {
+            await upsertSessionRuntimeBinding(
+              sessionId,
+              runtimeKey,
+              normalizedExternalSessionId
+            )
+          }
+
+          await this.syncSessionExecutionBinding(sessionId, context.agent, {
+            cliSessionId: normalizedExternalSessionId,
+            cliSessionProvider
+          })
+        })()
       )
     }
 
@@ -999,7 +1088,50 @@ export class ConversationService {
       }
     } catch (error) {
       hasError = true
-      const errorMessage = error instanceof Error ? error.message : String(error)
+      const errorMessage = getErrorMessage(error, '对话执行失败')
+      void writeFrontendRuntimeLog(
+        'ERROR',
+        'conversation-service',
+        `executeConversation failed | sessionId=${sessionId} | agentId=${context.agent.id} | provider=${context.agent.provider || context.agent.type} | error=${errorMessage}`,
+        error
+      )
+      const shouldRetryWithoutResume = Boolean(
+        fallbackContext
+        && context.resumeSessionId
+        && isInvalidCliResumeError(errorMessage, runtimeKey)
+      )
+
+      if (shouldRetryWithoutResume) {
+        clearScheduledUiFlush()
+        pendingUiUpdate = null
+        await Promise.allSettled(Array.from(pendingTraceTasks))
+        await Promise.allSettled(Array.from(pendingPersistenceTasks))
+
+        if (runtimeKey) {
+          try {
+            await deleteSessionRuntimeBinding(sessionId, runtimeKey)
+          } catch (bindingError) {
+            console.warn('[ConversationService] Failed to clear invalid runtime binding:', bindingError)
+          }
+        }
+
+        await this.syncSessionExecutionBinding(sessionId, context.agent, {
+          cliSessionId: '',
+          cliSessionProvider: ''
+        })
+        await messageStore.updateMessage(aiMessage.id, {
+          content: '',
+          thinking: '',
+          thinkingActive: false,
+          toolCalls: [],
+          editTraces: [],
+          errorMessage: '',
+          status: 'pending'
+        })
+
+        return this.executeConversation(fallbackContext!, aiMessage, sessionId, projectId)
+      }
+
       if (isAiMessageInterrupted()) {
         syncFinalUsageNotice()
         bufferMessageUpdate({

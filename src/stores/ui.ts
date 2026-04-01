@@ -4,6 +4,7 @@ import { ref } from 'vue'
 export type SettingsTab =
   | 'general'
   | 'agents'
+  | 'agentTeams'
   | 'agentConfig'
   | 'integration'
   | 'appUpdate'

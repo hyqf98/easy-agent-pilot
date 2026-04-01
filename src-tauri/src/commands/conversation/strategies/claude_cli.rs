@@ -16,7 +16,7 @@ use super::cli_common::{
     extract_structured_output_from_json_blob, parse_json_blob_with_fallback, preview_text,
     shell_escape, timeout_config_for_execution_mode, CliExecutionMonitor,
 };
-use crate::commands::cli_support::build_tokio_cli_command;
+use crate::commands::cli_support::{build_cli_launch_error_message, build_tokio_cli_command};
 use crate::commands::conversation::abort::{
     clear_abort_flag, register_session_pid, set_abort_flag, should_abort, unregister_session_pid,
 };
@@ -472,7 +472,17 @@ impl AgentExecutionStrategy for ClaudeCliStrategy {
             request.execution_mode.as_deref().unwrap_or("chat"),
             describe_timeout_config(timeout_config)
         );
-        let mut child = cmd.spawn()?;
+        let mut child = cmd.spawn().map_err(|error| {
+            anyhow::anyhow!(build_cli_launch_error_message(
+                "Claude",
+                &cli_path,
+                &error,
+                resolved_working_dir.as_deref(),
+                command_args.len(),
+                input_text.chars().count(),
+                true,
+            ))
+        })?;
 
         let stdin_write_handle = {
             let stdin_payload = input_text.clone();

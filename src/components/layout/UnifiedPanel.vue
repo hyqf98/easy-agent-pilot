@@ -7,6 +7,8 @@ import { useProjectStore, type Project, type FileTreeNode } from '@/stores/proje
 import { useSessionStore, type Session } from '@/stores/session'
 import { useLayoutStore, type ProjectTabType } from '@/stores/layout'
 import { useUIStore } from '@/stores/ui'
+import { useAgentStore } from '@/stores/agent'
+import { useAgentTeamsStore } from '@/stores/agentTeams'
 import { useSessionView } from '@/composables'
 import { useFileEditorStore } from '@/modules/file-editor'
 import { resolveFileIcon } from '@/utils/fileIcon'
@@ -15,6 +17,7 @@ import { EaIcon, EaButton, EaSkeleton } from '@/components/common'
 import { ProjectCreateModal } from '@/components/project'
 import UnifiedPanelConfirmDialog from './UnifiedPanelConfirmDialog.vue'
 import UnifiedPanelProjectEntry from './UnifiedPanelProjectEntry.vue'
+import { resolveExpertRuntime } from '@/services/agentTeams/runtime'
 
 // 定义 TreeRenderProps 类型
 interface TreeRenderProps {
@@ -40,6 +43,8 @@ const projectStore = useProjectStore()
 const sessionStore = useSessionStore()
 const layoutStore = useLayoutStore()
 const uiStore = useUIStore()
+const agentStore = useAgentStore()
+const agentTeamsStore = useAgentTeamsStore()
 const fileEditorStore = useFileEditorStore()
 const {
   openSessionTarget,
@@ -230,10 +235,18 @@ const confirmDeleteProject = () => {
 const handleAddSession = async (projectId: string) => {
   try {
     projectStore.setCurrentProject(projectId)
+    await Promise.all([
+      agentStore.loadAgents(),
+      agentTeamsStore.loadExperts(true)
+    ])
+    const expert = agentTeamsStore.builtinGeneralExpert || agentTeamsStore.enabledExperts[0] || null
+    const runtime = resolveExpertRuntime(expert, agentStore.agents)
     const newSession = await sessionStore.createSession({
       projectId,
       name: t('session.unnamedSession'),
-      agentType: 'claude',
+      expertId: expert?.id,
+      agentId: runtime?.agent.id,
+      agentType: runtime?.agent.provider || runtime?.agent.type || 'claude',
       status: 'idle'
     })
     projectStore.incrementSessionCount(projectId)

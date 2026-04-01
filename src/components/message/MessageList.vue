@@ -19,9 +19,13 @@ const messageStore = useMessageStore()
 const sessionStore = useSessionStore()
 const sessionExecutionStore = useSessionExecutionStore()
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   sessionId?: string
-}>()
+  hideContextStrategyNotice?: boolean
+}>(), {
+  sessionId: undefined,
+  hideContextStrategyNotice: false
+})
 
 const emit = defineEmits<{
   retry: [message: Message]
@@ -396,6 +400,7 @@ const handleOpenEditTrace = (messageId: string, traceId: string) => {
           :key="message.id"
           :message="message"
           :session-id="props.sessionId || sessionStore.currentSessionId || undefined"
+          :hide-context-strategy-notice="props.hideContextStrategyNotice"
           @retry="handleRetry"
           @form-submit="handleFormSubmit"
           @open-edit-trace="handleOpenEditTrace"
@@ -422,6 +427,7 @@ const handleOpenEditTrace = (messageId: string, traceId: string) => {
         <MessageBubble
           :message="item.message"
           :session-id="props.sessionId || sessionStore.currentSessionId || undefined"
+          :hide-context-strategy-notice="props.hideContextStrategyNotice"
           @retry="handleRetry"
           @form-submit="handleFormSubmit"
           @open-edit-trace="handleOpenEditTrace"

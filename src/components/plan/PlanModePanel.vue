@@ -2,6 +2,7 @@
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { usePlanStore } from '@/stores/plan'
 import { useTaskStore } from '@/stores/task'
+import { useProjectStore } from '@/stores/project'
 import { useAgentSchedulerStore } from '@/stores/agentScheduler'
 import { useTaskExecutionStore } from '@/stores/taskExecution'
 import PlanList from './PlanList.vue'
@@ -14,6 +15,7 @@ import type { Plan, Task } from '@/types/plan'
 
 const planStore = usePlanStore()
 const taskStore = useTaskStore()
+const projectStore = useProjectStore()
 const agentSchedulerStore = useAgentSchedulerStore()
 const taskExecutionStore = useTaskExecutionStore()
 
@@ -40,6 +42,17 @@ watch(
     if (planId) {
       void taskStore.loadTasks(planId)
     }
+  }
+)
+
+// 监听项目切换，清除选中状态
+watch(
+  () => projectStore.currentProjectId,
+  () => {
+    planStore.setCurrentPlan(null)
+    selectedPlanId.value = null
+    selectedTaskId.value = null
+    rightPanelOpen.value = false
   }
 )
 

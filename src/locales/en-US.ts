@@ -404,6 +404,7 @@ export default {
     nav: {
       general: 'General',
       agents: 'Agent Config',
+      agentTeams: 'Agent Teams',
       agentConfig: 'Skills Config',
       integration: 'Agent Integration',
       mcp: 'MCP Servers',
@@ -419,6 +420,55 @@ export default {
       data: 'Data Management',
       logs: 'Log Management',
       providerSwitch: 'Config Switch'
+    },
+    agentTeams: {
+      subtitle: 'Manage expert prompts and runtime bindings for different business scenarios',
+      createExpert: 'New Expert',
+      searchPlaceholder: 'Search experts / tags / scenarios',
+      builtinBadge: 'Built-in',
+      enabled: 'Enabled',
+      disabled: 'Disabled',
+      emptyDescription: 'No description',
+      createTitle: 'Create Expert',
+      editTitle: 'Edit Expert',
+      copy: 'Duplicate',
+      delete: 'Delete',
+      save: 'Save Expert',
+      saving: 'Saving...',
+      duplicateSuffix: 'Copy',
+      deleteBlocked: 'This expert is still referenced: plans {plans}, tasks {tasks}, sessions {sessions}',
+      deleteConfirm: 'Delete expert "{name}"?',
+      fields: {
+        name: 'Name',
+        category: 'Category',
+        description: 'Description',
+        runtimeAgent: 'Runtime Agent',
+        defaultModel: 'Default Model',
+        tags: 'Tags',
+        recommendedScenes: 'Recommended Scenarios',
+        sortOrder: 'Sort Order',
+        enabled: 'Enable this expert',
+        prompt: 'Prompt'
+      },
+      placeholders: {
+        description: 'Describe which tasks this expert is best suited for',
+        unbound: 'Unbound',
+        followAgentDefaultModel: 'Follow agent default model',
+        tags: 'frontend, tauri, debug',
+        recommendedScenes: 'main chat, task split, bug fixing'
+      },
+      categories: {
+        general: 'General',
+        planner: 'Planner',
+        architect: 'Architect',
+        developer: 'Developer',
+        tester: 'Tester',
+        writer: 'Writer',
+        designer: 'Designer',
+        reviewer: 'Reviewer',
+        ops: 'Ops',
+        custom: 'Custom'
+      }
     },
     unattended: {
       heroEyebrow: 'Remote Mission Control',

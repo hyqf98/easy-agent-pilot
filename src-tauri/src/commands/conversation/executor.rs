@@ -123,8 +123,20 @@ pub async fn execute_agent(app: AppHandle, request: ExecutionRequest) -> Result<
     let registry = get_registry().await;
     let registry = registry.read().await;
 
-    registry
-        .execute(app, request)
-        .await
-        .map_err(|e| e.to_string())
+    let session_id = request.session_id.clone();
+    let provider = request.provider.clone();
+    let agent_type = request.agent_type.clone();
+
+    registry.execute(app, request).await.map_err(|error| {
+        let message = error.to_string();
+        crate::logging::write_log(
+            "ERROR",
+            "conversation-executor",
+            &format!(
+                "execute_agent failed | session_id={} | provider={} | agent_type={} | {}",
+                session_id, provider, agent_type, message
+            ),
+        );
+        message
+    })
 }

@@ -6,11 +6,14 @@ import { useProjectStore } from '@/stores/project'
 import { useUIStore } from '@/stores/ui'
 import { useMessageStore } from '@/stores/message'
 import { useNotificationStore } from '@/stores/notification'
+import { useAgentStore } from '@/stores/agent'
+import { useAgentTeamsStore } from '@/stores/agentTeams'
 import { useSessionView } from '@/composables'
 import { EaIcon, EaButton, EaSkeleton, EaStateBlock } from '@/components/common'
 import PanelHeader from './PanelHeader.vue'
 import SessionPanelDialogs from './SessionPanelDialogs.vue'
 import SessionPanelItem from './SessionPanelItem.vue'
+import { resolveExpertRuntime } from '@/services/agentTeams/runtime'
 
 const { t } = useI18n()
 
@@ -38,6 +41,8 @@ const projectStore = useProjectStore()
 const uiStore = useUIStore()
 const messageStore = useMessageStore()
 const notificationStore = useNotificationStore()
+const agentStore = useAgentStore()
+const agentTeamsStore = useAgentTeamsStore()
 const { openSessionTarget } = useSessionView()
 
 const showDeleteConfirm = ref(false)
@@ -184,11 +189,20 @@ const handleAdd = async () => {
   if (!projectStore.currentProjectId) return
 
   try {
+    await Promise.all([
+      agentStore.loadAgents(),
+      agentTeamsStore.loadExperts(true)
+    ])
+    const expert = agentTeamsStore.builtinGeneralExpert || agentTeamsStore.enabledExperts[0] || null
+    const runtime = resolveExpertRuntime(expert, agentStore.agents)
+
     // 直接创建未命名会话，不需要弹框
     const newSession = await sessionStore.createSession({
       projectId: projectStore.currentProjectId,
       name: '未命名会话',
-      agentType: 'claude',
+      expertId: expert?.id,
+      agentId: runtime?.agent.id,
+      agentType: runtime?.agent.provider || runtime?.agent.type || 'claude',
       status: 'idle'
     })
     projectStore.incrementSessionCount(projectStore.currentProjectId)
@@ -233,10 +247,19 @@ const handleCreateSession = async (name: string) => {
   if (!projectStore.currentProjectId) return
 
   try {
+    await Promise.all([
+      agentStore.loadAgents(),
+      agentTeamsStore.loadExperts(true)
+    ])
+    const expert = agentTeamsStore.builtinGeneralExpert || agentTeamsStore.enabledExperts[0] || null
+    const runtime = resolveExpertRuntime(expert, agentStore.agents)
+
     const newSession = await sessionStore.createSession({
       projectId: projectStore.currentProjectId,
       name,
-      agentType: 'claude',
+      expertId: expert?.id,
+      agentId: runtime?.agent.id,
+      agentType: runtime?.agent.provider || runtime?.agent.type || 'claude',
       status: 'idle'
     })
     projectStore.incrementSessionCount(projectStore.currentProjectId)

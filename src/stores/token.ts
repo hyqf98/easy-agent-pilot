@@ -56,7 +56,7 @@ function resolvePreferredTokenTotal(options: {
   const { estimatedTokens, persistedTotal, realtimeTotal } = options
 
   if (realtimeTotal > 0) {
-    return realtimeTotal
+    return Math.max(realtimeTotal, persistedTotal, estimatedTokens)
   }
 
   if (persistedTotal > 0) {

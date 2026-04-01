@@ -66,7 +66,18 @@ interface TimelineRenderBlockToolGroup {
   entries: TimelineEntry[]
 }
 
-type TimelineRenderBlock = TimelineRenderBlockEntry | TimelineRenderBlockToolGroup
+interface TimelineRenderBlockAssistantTurn {
+  kind: 'assistant-turn'
+  key: string
+  thinkingEntries: TimelineEntry[]
+  toolEntries: TimelineEntry[]
+  contentEntry: TimelineEntry | null
+}
+
+type TimelineRenderBlock =
+  | TimelineRenderBlockEntry
+  | TimelineRenderBlockToolGroup
+  | TimelineRenderBlockAssistantTurn
 
 function getToolGroupKey(entries: TimelineEntry[]) {
   const firstId = entries[0]?.id ?? 'start'
@@ -76,6 +87,35 @@ function getToolGroupKey(entries: TimelineEntry[]) {
 
 function shouldClampToolGroup(entries: TimelineEntry[]) {
   return entries.length > 10
+}
+
+function isAssistantContentEntry(entry: TimelineEntry) {
+  return entry.type === 'content'
+    || (entry.type === 'message' && entry.role !== 'user')
+}
+
+function buildMergedAssistantContentEntry(entries: TimelineEntry[]): TimelineEntry | null {
+  const contentEntries = entries.filter(isAssistantContentEntry)
+  if (contentEntries.length === 0) {
+    return null
+  }
+
+  const lastEntry = contentEntries[contentEntries.length - 1]
+  return {
+    ...lastEntry,
+    type: 'content',
+    role: 'assistant',
+    content: contentEntries
+      .map(entry => entry.content || '')
+      .join(''),
+    animate: contentEntries.some(entry => entry.animate)
+  }
+}
+
+function getAssistantTurnKey(entries: TimelineEntry[]) {
+  const firstId = entries[0]?.id ?? 'start'
+  const lastId = entries[entries.length - 1]?.id ?? 'end'
+  return `assistant-turn:${firstId}:${lastId}:${entries.length}`
 }
 
 function toTimestampMs(value?: string) {
@@ -160,28 +200,40 @@ const renderBlocks = computed<TimelineRenderBlock[]>(() => {
   }
 
   const blocks: TimelineRenderBlock[] = []
-  let pendingToolEntries: TimelineEntry[] = []
+  let pendingAssistantEntries: TimelineEntry[] = []
 
-  const flushPendingTools = () => {
-    if (pendingToolEntries.length === 0) {
+  const flushPendingAssistantTurn = () => {
+    if (pendingAssistantEntries.length === 0) {
       return
     }
 
+    const thinkingEntries = pendingAssistantEntries.filter(entry => entry.type === 'thinking')
+    const toolEntries = sortToolEntries(
+      pendingAssistantEntries.filter(entry => entry.type === 'tool' && entry.toolCall)
+    )
+    const contentEntry = buildMergedAssistantContentEntry(pendingAssistantEntries)
+
     blocks.push({
-      kind: 'tool-group',
-      key: getToolGroupKey(pendingToolEntries),
-      entries: sortToolEntries(pendingToolEntries)
+      kind: 'assistant-turn',
+      key: getAssistantTurnKey(pendingAssistantEntries),
+      thinkingEntries,
+      toolEntries,
+      contentEntry
     })
-    pendingToolEntries = []
+    pendingAssistantEntries = []
   }
 
   for (const entry of props.entries) {
-    if (entry.type === 'tool' && entry.toolCall) {
-      pendingToolEntries.push(entry)
+    if (
+      entry.type === 'thinking'
+      || (entry.type === 'tool' && entry.toolCall)
+      || isAssistantContentEntry(entry)
+    ) {
+      pendingAssistantEntries.push(entry)
       continue
     }
 
-    flushPendingTools()
+    flushPendingAssistantTurn()
     blocks.push({
       kind: 'entry',
       key: entry.id,
@@ -189,7 +241,7 @@ const renderBlocks = computed<TimelineRenderBlock[]>(() => {
     })
   }
 
-  flushPendingTools()
+  flushPendingAssistantTurn()
   return blocks
 })
 
@@ -264,6 +316,69 @@ function getEntryElapsedLabel(entry: TimelineEntry) {
           />
         </div>
       </div>
+
+      <template v-else-if="block.kind === 'assistant-turn'">
+        <ThinkingDisplay
+          v-for="thinkingEntry in block.thinkingEntries"
+          :key="thinkingEntry.id"
+          :thinking="thinkingEntry.content || ''"
+          :live="thinkingEntry.animate"
+          :default-expanded="false"
+        />
+
+        <div
+          v-if="block.toolEntries.length > 0"
+          class="execution-timeline__tool-calls-shell"
+          :class="{ 'execution-timeline__tool-calls-shell--scrollable': shouldClampToolGroup(block.toolEntries) }"
+        >
+          <button
+            type="button"
+            class="execution-timeline__tool-calls-head"
+            :aria-expanded="isToolGroupExpanded(getToolGroupKey(block.toolEntries))"
+            @click="toggleToolGroup(getToolGroupKey(block.toolEntries))"
+          >
+            <span class="execution-timeline__tool-calls-title">工具调用</span>
+            <span class="execution-timeline__tool-calls-head-right">
+              <span class="execution-timeline__tool-calls-count">{{ block.toolEntries.length }}</span>
+              <span class="execution-timeline__tool-calls-toggle">
+                {{ isToolGroupExpanded(getToolGroupKey(block.toolEntries)) ? t('message.collapse') : t('message.expand') }}
+              </span>
+            </span>
+          </button>
+          <div
+            v-if="isToolGroupExpanded(getToolGroupKey(block.toolEntries))"
+            class="execution-timeline__tool-calls"
+          >
+            <ToolCallDisplay
+              v-for="toolEntry in block.toolEntries"
+              :key="getToolCallRenderKey(toolEntry.toolCall!)"
+              :tool-call="toolEntry.toolCall!"
+              :live="toolEntry.animate"
+              :compact="toolEntry.toolCompact"
+              :default-expanded="toolEntry.toolDefaultExpanded ?? false"
+              :default-result-expanded="toolEntry.toolDefaultResultExpanded ?? false"
+            />
+          </div>
+        </div>
+
+        <div
+          v-if="block.contentEntry?.content"
+          class="timeline-message timeline-message--assistant"
+        >
+          <div class="timeline-message__content">
+            <div
+              v-if="getEntryElapsedLabel(block.contentEntry)"
+              class="timeline-entry__meta"
+            >
+              用时 {{ getEntryElapsedLabel(block.contentEntry) }}
+            </div>
+            <MarkdownRenderer
+              :content="block.contentEntry.content"
+              :animate="block.contentEntry.animate"
+            />
+          </div>
+        </div>
+      </template>
 
       <template v-else>
         <div

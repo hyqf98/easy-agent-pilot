@@ -11,6 +11,7 @@ pub struct Plan {
     pub name: String,
     pub description: Option<String>,
     pub split_mode: String,
+    pub split_expert_id: Option<String>,
     pub split_agent_id: Option<String>,
     pub split_model_id: Option<String>,
     pub status: String,
@@ -33,6 +34,7 @@ pub struct RustPlan {
     pub name: String,
     pub description: Option<String>,
     pub split_mode: String,
+    pub split_expert_id: Option<String>,
     pub split_agent_id: Option<String>,
     pub split_model_id: Option<String>,
     pub status: String,
@@ -63,6 +65,7 @@ pub struct CreatePlanInput {
     pub name: String,
     pub description: Option<String>,
     pub split_mode: Option<String>,
+    pub split_expert_id: Option<String>,
     pub split_agent_id: Option<String>,
     pub split_model_id: Option<String>,
     pub agent_team: Option<Vec<String>>,
@@ -80,6 +83,8 @@ pub struct UpdatePlanInput {
     pub description: UpdateField<String>,
     #[serde(default)]
     pub split_mode: UpdateField<String>,
+    #[serde(default)]
+    pub split_expert_id: UpdateField<String>,
     #[serde(default)]
     pub split_agent_id: UpdateField<String>,
     #[serde(default)]
@@ -114,6 +119,7 @@ fn transform_plan(rust_plan: RustPlan) -> Plan {
         name: rust_plan.name,
         description: rust_plan.description,
         split_mode: rust_plan.split_mode,
+        split_expert_id: rust_plan.split_expert_id,
         split_agent_id: rust_plan.split_agent_id,
         split_model_id: rust_plan.split_model_id,
         status: rust_plan.status,
@@ -150,7 +156,7 @@ pub fn list_plans(project_id: String) -> Result<Vec<Plan>, String> {
         .prepare(
             r#"
             SELECT id, project_id, name, description, split_mode, status, agent_team,
-                   split_agent_id, split_model_id,
+                   split_expert_id, split_agent_id, split_model_id,
                    granularity, max_retry_count, execution_status, current_task_id,
                    scheduled_at, schedule_status,
                    created_at, updated_at
@@ -171,16 +177,17 @@ pub fn list_plans(project_id: String) -> Result<Vec<Plan>, String> {
                 split_mode: row.get(4)?,
                 status: row.get(5)?,
                 agent_team: row.get(6)?,
-                split_agent_id: row.get(7)?,
-                split_model_id: row.get(8)?,
-                granularity: row.get(9)?,
-                max_retry_count: row.get(10)?,
-                execution_status: row.get(11)?,
-                current_task_id: row.get(12)?,
-                scheduled_at: row.get(13)?,
-                schedule_status: row.get(14)?,
-                created_at: row.get(15)?,
-                updated_at: row.get(16)?,
+                split_expert_id: row.get(7)?,
+                split_agent_id: row.get(8)?,
+                split_model_id: row.get(9)?,
+                granularity: row.get(10)?,
+                max_retry_count: row.get(11)?,
+                execution_status: row.get(12)?,
+                current_task_id: row.get(13)?,
+                scheduled_at: row.get(14)?,
+                schedule_status: row.get(15)?,
+                created_at: row.get(16)?,
+                updated_at: row.get(17)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -202,7 +209,7 @@ pub fn get_plan(id: String) -> Result<Plan, String> {
         .query_row(
             r#"
             SELECT id, project_id, name, description, split_mode, status, agent_team,
-                   split_agent_id, split_model_id,
+                   split_expert_id, split_agent_id, split_model_id,
                    granularity, max_retry_count, execution_status, current_task_id,
                    scheduled_at, schedule_status,
                    created_at, updated_at
@@ -219,16 +226,17 @@ pub fn get_plan(id: String) -> Result<Plan, String> {
                     split_mode: row.get(4)?,
                     status: row.get(5)?,
                     agent_team: row.get(6)?,
-                    split_agent_id: row.get(7)?,
-                    split_model_id: row.get(8)?,
-                    granularity: row.get(9)?,
-                    max_retry_count: row.get(10)?,
-                    execution_status: row.get(11)?,
-                    current_task_id: row.get(12)?,
-                    scheduled_at: row.get(13)?,
-                    schedule_status: row.get(14)?,
-                    created_at: row.get(15)?,
-                    updated_at: row.get(16)?,
+                    split_expert_id: row.get(7)?,
+                    split_agent_id: row.get(8)?,
+                    split_model_id: row.get(9)?,
+                    granularity: row.get(10)?,
+                    max_retry_count: row.get(11)?,
+                    execution_status: row.get(12)?,
+                    current_task_id: row.get(13)?,
+                    scheduled_at: row.get(14)?,
+                    schedule_status: row.get(15)?,
+                    created_at: row.get(16)?,
+                    updated_at: row.get(17)?,
                 })
             },
         )
@@ -262,15 +270,16 @@ pub fn create_plan(input: CreatePlanInput) -> Result<Plan, String> {
     };
 
     conn.execute(
-        "INSERT INTO plans (id, project_id, name, description, split_mode, split_agent_id, split_model_id, status, agent_team,
+        "INSERT INTO plans (id, project_id, name, description, split_mode, split_expert_id, split_agent_id, split_model_id, status, agent_team,
          granularity, max_retry_count, execution_status, current_task_id, scheduled_at, schedule_status, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
         rusqlite::params![
             &id,
             &input.project_id,
             &input.name,
             &input.description,
             &split_mode,
+            &input.split_expert_id,
             &input.split_agent_id,
             &input.split_model_id,
             &status,
@@ -300,6 +309,7 @@ pub fn create_plan(input: CreatePlanInput) -> Result<Plan, String> {
         name: input.name,
         description: input.description,
         split_mode,
+        split_expert_id: input.split_expert_id,
         split_agent_id: input.split_agent_id,
         split_model_id: input.split_model_id,
         status,
@@ -336,6 +346,10 @@ pub fn update_plan(id: String, input: UpdatePlanInput) -> Result<Plan, String> {
     }
     if !matches!(input.split_mode, UpdateField::Missing) {
         updates.push(format!("split_mode = ?{}", param_index));
+        param_index += 1;
+    }
+    if !matches!(input.split_expert_id, UpdateField::Missing) {
+        updates.push(format!("split_expert_id = ?{}", param_index));
         param_index += 1;
     }
     if !matches!(input.split_agent_id, UpdateField::Missing) {
@@ -413,6 +427,18 @@ pub fn update_plan(id: String, input: UpdatePlanInput) -> Result<Plan, String> {
     if let UpdateField::Value(ref split_mode) = input.split_mode {
         stmt.raw_bind_parameter(param_count, split_mode)
             .map_err(|e| e.to_string())?;
+        param_count += 1;
+    }
+    if !matches!(input.split_expert_id, UpdateField::Missing) {
+        match input.split_expert_id {
+            UpdateField::Value(ref split_expert_id) => stmt
+                .raw_bind_parameter(param_count, split_expert_id)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Null => stmt
+                .raw_bind_parameter(param_count, rusqlite::types::Null)
+                .map_err(|e| e.to_string())?,
+            UpdateField::Missing => {}
+        }
         param_count += 1;
     }
     if !matches!(input.split_agent_id, UpdateField::Missing) {
@@ -518,7 +544,7 @@ pub fn update_plan(id: String, input: UpdatePlanInput) -> Result<Plan, String> {
         .query_row(
             r#"
             SELECT id, project_id, name, description, split_mode, status, agent_team,
-                   split_agent_id, split_model_id,
+                   split_expert_id, split_agent_id, split_model_id,
                    granularity, max_retry_count, execution_status, current_task_id,
                    scheduled_at, schedule_status,
                    created_at, updated_at
@@ -535,16 +561,17 @@ pub fn update_plan(id: String, input: UpdatePlanInput) -> Result<Plan, String> {
                     split_mode: row.get(4)?,
                     status: row.get(5)?,
                     agent_team: row.get(6)?,
-                    split_agent_id: row.get(7)?,
-                    split_model_id: row.get(8)?,
-                    granularity: row.get(9)?,
-                    max_retry_count: row.get(10)?,
-                    execution_status: row.get(11)?,
-                    current_task_id: row.get(12)?,
-                    scheduled_at: row.get(13)?,
-                    schedule_status: row.get(14)?,
-                    created_at: row.get(15)?,
-                    updated_at: row.get(16)?,
+                    split_expert_id: row.get(7)?,
+                    split_agent_id: row.get(8)?,
+                    split_model_id: row.get(9)?,
+                    granularity: row.get(10)?,
+                    max_retry_count: row.get(11)?,
+                    execution_status: row.get(12)?,
+                    current_task_id: row.get(13)?,
+                    scheduled_at: row.get(14)?,
+                    schedule_status: row.get(15)?,
+                    created_at: row.get(16)?,
+                    updated_at: row.get(17)?,
                 })
             },
         )
@@ -612,7 +639,7 @@ pub fn list_scheduled_plans() -> Result<Vec<Plan>, String> {
         .prepare(
             r#"
             SELECT id, project_id, name, description, split_mode, status, agent_team,
-                   split_agent_id, split_model_id,
+                   split_expert_id, split_agent_id, split_model_id,
                    granularity, max_retry_count, execution_status, current_task_id,
                    scheduled_at, schedule_status,
                    created_at, updated_at
@@ -633,16 +660,17 @@ pub fn list_scheduled_plans() -> Result<Vec<Plan>, String> {
                 split_mode: row.get(4)?,
                 status: row.get(5)?,
                 agent_team: row.get(6)?,
-                split_agent_id: row.get(7)?,
-                split_model_id: row.get(8)?,
-                granularity: row.get(9)?,
-                max_retry_count: row.get(10)?,
-                execution_status: row.get(11)?,
-                current_task_id: row.get(12)?,
-                scheduled_at: row.get(13)?,
-                schedule_status: row.get(14)?,
-                created_at: row.get(15)?,
-                updated_at: row.get(16)?,
+                split_expert_id: row.get(7)?,
+                split_agent_id: row.get(8)?,
+                split_model_id: row.get(9)?,
+                granularity: row.get(10)?,
+                max_retry_count: row.get(11)?,
+                execution_status: row.get(12)?,
+                current_task_id: row.get(13)?,
+                scheduled_at: row.get(14)?,
+                schedule_status: row.get(15)?,
+                created_at: row.get(16)?,
+                updated_at: row.get(17)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -673,7 +701,7 @@ pub fn cancel_plan_schedule(id: String) -> Result<Plan, String> {
         .query_row(
             r#"
             SELECT id, project_id, name, description, split_mode, status, agent_team,
-                   split_agent_id, split_model_id,
+                   split_expert_id, split_agent_id, split_model_id,
                    granularity, max_retry_count, execution_status, current_task_id,
                    scheduled_at, schedule_status,
                    created_at, updated_at
@@ -690,16 +718,17 @@ pub fn cancel_plan_schedule(id: String) -> Result<Plan, String> {
                     split_mode: row.get(4)?,
                     status: row.get(5)?,
                     agent_team: row.get(6)?,
-                    split_agent_id: row.get(7)?,
-                    split_model_id: row.get(8)?,
-                    granularity: row.get(9)?,
-                    max_retry_count: row.get(10)?,
-                    execution_status: row.get(11)?,
-                    current_task_id: row.get(12)?,
-                    scheduled_at: row.get(13)?,
-                    schedule_status: row.get(14)?,
-                    created_at: row.get(15)?,
-                    updated_at: row.get(16)?,
+                    split_expert_id: row.get(7)?,
+                    split_agent_id: row.get(8)?,
+                    split_model_id: row.get(9)?,
+                    granularity: row.get(10)?,
+                    max_retry_count: row.get(11)?,
+                    execution_status: row.get(12)?,
+                    current_task_id: row.get(13)?,
+                    scheduled_at: row.get(14)?,
+                    schedule_status: row.get(15)?,
+                    created_at: row.get(16)?,
+                    updated_at: row.get(17)?,
                 })
             },
         )

@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useAgentTeamsStore } from '@/stores/agentTeams'
 import type { AITaskItem, TaskPriority } from '@/types/plan'
 
 defineProps<{
@@ -15,9 +17,23 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const agentTeamsStore = useAgentTeamsStore()
+
+onMounted(() => {
+  if (agentTeamsStore.experts.length === 0) {
+    void agentTeamsStore.loadExperts()
+  }
+})
 
 function getPriorityLabel(priority: TaskPriority) {
   return t(`taskSplit.priority.${priority}`)
+}
+
+function getExpertLabel(expertId?: string): string {
+  if (!expertId) {
+    return '未分配专家'
+  }
+  return agentTeamsStore.getExpertById(expertId)?.name || expertId
 }
 </script>
 
@@ -95,6 +111,11 @@ function getPriorityLabel(priority: TaskPriority) {
     >
       {{ task.description }}
     </p>
+
+    <div class="task-expert">
+      <span class="deps-label">执行专家:</span>
+      <span class="deps-list">{{ getExpertLabel(task.expertId) }}</span>
+    </div>
 
     <div
       v-if="task.implementationSteps?.length"

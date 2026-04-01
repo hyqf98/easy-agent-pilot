@@ -123,7 +123,7 @@ impl CliTimeoutConfig {
 impl Default for CliTimeoutConfig {
     fn default() -> Self {
         // 主会话需要允许长时间编码/测试，但仍保留启动与空闲保护。
-        Self::from_secs(300, 1_800, 14_400)
+        Self::from_secs(600, 1_800, 14_400)
     }
 }
 
@@ -826,7 +826,7 @@ mod tests {
     fn chat_mode_uses_longer_hard_timeout_budget() {
         let config = timeout_config_for_execution_mode(Some("chat"));
 
-        assert_eq!(config.startup, Duration::from_secs(300));
+        assert_eq!(config.startup, Duration::from_secs(600));
         assert_eq!(config.idle, Duration::from_secs(1_800));
         assert_eq!(config.hard, Duration::from_secs(14_400));
     }

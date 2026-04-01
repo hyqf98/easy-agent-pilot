@@ -411,6 +411,12 @@ fn normalize_task(task: &Value) -> Result<Value, String> {
         .ok_or_else(|| "任务缺少 description。".to_string())?;
     let priority = as_non_empty_string(task_obj.get("priority"))
         .ok_or_else(|| "任务缺少 priority。".to_string())?;
+    let expert_id = as_non_empty_string(
+        task_obj
+            .get("expertId")
+            .or_else(|| task_obj.get("expert_id")),
+    )
+    .ok_or_else(|| "任务缺少 expertId。".to_string())?;
     let implementation_steps = as_string_array(
         task_obj
             .get("implementationSteps")
@@ -440,6 +446,7 @@ fn normalize_task(task: &Value) -> Result<Value, String> {
     normalized.insert("title".to_string(), Value::String(title));
     normalized.insert("description".to_string(), Value::String(description));
     normalized.insert("priority".to_string(), Value::String(priority));
+    normalized.insert("expertId".to_string(), Value::String(expert_id));
     normalized.insert(
         "implementationSteps".to_string(),
         Value::Array(
@@ -457,6 +464,20 @@ fn normalize_task(task: &Value) -> Result<Value, String> {
         "acceptanceCriteria".to_string(),
         Value::Array(acceptance_criteria.into_iter().map(Value::String).collect()),
     );
+    if let Some(agent_id) = as_non_empty_string(
+        task_obj
+            .get("agentId")
+            .or_else(|| task_obj.get("agent_id")),
+    ) {
+        normalized.insert("agentId".to_string(), Value::String(agent_id));
+    }
+    if let Some(model_id) = as_non_empty_string(
+        task_obj
+            .get("modelId")
+            .or_else(|| task_obj.get("model_id")),
+    ) {
+        normalized.insert("modelId".to_string(), Value::String(model_id));
+    }
     if let Some(depends_on) = task_obj
         .get("dependsOn")
         .or_else(|| task_obj.get("depends_on"))

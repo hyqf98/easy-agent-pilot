@@ -57,10 +57,10 @@ const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(() =>
         </div>
         <div class="dialog-body">
           <p class="split-config-desc">
-            计划「{{ props.plan?.name }}」尚未配置拆分智能体和模型，请先选择后继续。
+            计划「{{ props.plan?.name }}」尚未配置拆分专家和模型，请先选择后继续。
           </p>
           <div class="form-field">
-            <label>拆分智能体 <span class="required">*</span></label>
+            <label>拆分专家 <span class="required">*</span></label>
             <select
               :value="props.form.agentId ?? ''"
               class="project-select"

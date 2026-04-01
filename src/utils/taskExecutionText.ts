@@ -17,6 +17,24 @@ function t(key: string, params?: Record<string, unknown>): string {
   return params ? i18n.global.t(key, params) as string : i18n.global.t(key) as string
 }
 
+function getCurrentLocale(): string {
+  return i18n.mode === 'legacy'
+    ? String((i18n.global as any).locale)
+    : String((i18n.global.locale as any).value)
+}
+
+function buildFormRequestExample(): string {
+  return getCurrentLocale() === 'en-US'
+    ? '{"type":"form_request","question":"Describe the missing information","formSchema":{"formId":"id","title":"Title","fields":[{"name":"field","label":"Label","type":"text"}]}}'
+    : '{"type":"form_request","question":"问题描述","formSchema":{"formId":"id","title":"标题","fields":[{"name":"字段","label":"标签","type":"text"}]}}'
+}
+
+function buildResultExample(): string {
+  return getCurrentLocale() === 'en-US'
+    ? '{"result_summary":"Summarize the execution result in 1-3 sentences","generated_files":[],"modified_files":[],"deleted_files":[]}'
+    : '{"result_summary":"1-3句总结本次执行结果","generated_files":[],"modified_files":[],"deleted_files":[]}'
+}
+
 export function parseExecutionResult(content: string): { summary: string; files: string[] } {
   const trimmed = content.trim()
   if (!trimmed) {
@@ -117,11 +135,11 @@ export function buildExecutionPrompt(
   parts.push(t('prompts.taskExecution.continueFromContext'))
   parts.push(t('prompts.taskExecution.formRequestJsonOnly'))
   parts.push('```json')
-  parts.push(t('prompts.taskExecution.formRequestExample'))
+  parts.push(buildFormRequestExample())
   parts.push('```')
   parts.push(t('prompts.taskExecution.resultJsonOnly'))
   parts.push('```json')
-  parts.push(t('prompts.taskExecution.resultExample'))
+  parts.push(buildResultExample())
   parts.push('```')
   parts.push(t('prompts.taskExecution.resultSummaryRule'))
 

@@ -35,12 +35,17 @@ const activeTabDescriptor = computed(() => getSettingsTabDescriptor(uiStore.acti
   padding: var(--spacing-6);
   display: flex;
   justify-content: center;
+  min-height: 0;
   min-width: 0;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
 
 .settings-content--full {
   justify-content: stretch;
   padding: var(--spacing-4);
+  overflow: hidden;
 }
 
 .settings-content__inner {
@@ -51,9 +56,10 @@ const activeTabDescriptor = computed(() => getSettingsTabDescriptor(uiStore.acti
 .settings-content__full {
   flex: 1;
   width: 100%;
-  height: auto;
-  min-height: max-content;
+  height: 100%;
+  min-height: 0;
   min-width: 0;
+  overflow: hidden;
 }
 
 /* 自定义滚动条 */
@@ -63,6 +69,7 @@ const activeTabDescriptor = computed(() => getSettingsTabDescriptor(uiStore.acti
 
 .settings-content::-webkit-scrollbar-track {
   background: var(--scrollbar-track, transparent);
+  border-radius: var(--radius-full);
 }
 
 .settings-content::-webkit-scrollbar-thumb {
@@ -74,5 +81,9 @@ const activeTabDescriptor = computed(() => getSettingsTabDescriptor(uiStore.acti
 
 .settings-content::-webkit-scrollbar-thumb:hover {
   background-color: var(--scrollbar-thumb-hover, var(--color-border-dark));
+}
+
+.settings-content::-webkit-scrollbar-thumb:active {
+  background-color: var(--scrollbar-thumb-active, var(--color-text-secondary));
 }
 </style>

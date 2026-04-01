@@ -139,6 +139,16 @@ export const useNotificationStore = defineStore('notification', () => {
     )
   }
 
+  function cliExecutionError(operation: string, err: unknown, retryAction?: () => Promise<void> | void): string {
+    const errorMessage = getErrorMessage(err)
+    return error(
+      operation,
+      errorMessage,
+      retryAction,
+      '重试'
+    )
+  }
+
   // 网络超时错误
   function timeoutError(operation: string, retryAction?: () => Promise<void> | void): string {
     return error(
@@ -177,8 +187,9 @@ export const useNotificationStore = defineStore('notification', () => {
     switch (errorType) {
       case ErrorType.CLI_PATH_NOT_FOUND:
       case ErrorType.CLI_PATH_INVALID:
-      case ErrorType.CLI_EXECUTION_FAILED:
         return cliPathError(operation, err, retryAction)
+      case ErrorType.CLI_EXECUTION_FAILED:
+        return cliExecutionError(operation, err, retryAction)
 
       case ErrorType.API_AUTH_INVALID:
       case ErrorType.API_KEY_MISSING:
@@ -220,6 +231,7 @@ export const useNotificationStore = defineStore('notification', () => {
     databaseError,
     // Specialized error methods
     cliPathError,
+    cliExecutionError,
     apiAuthError,
     timeoutError,
     mcpConnectionError,

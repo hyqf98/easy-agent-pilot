@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useAgentTeamsStore } from '@/stores/agentTeams'
 import type { AITaskItem, TaskPriority } from '@/types/plan'
 import { useSafeOutsideClick } from '@/composables/useSafeOutsideClick'
 
@@ -17,16 +18,20 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const agentTeamsStore = useAgentTeamsStore()
 
 const draft = ref<AITaskItem>({
   title: '',
   description: '',
   priority: 'medium',
+  expertId: undefined,
   implementationSteps: [],
   testSteps: [],
   acceptanceCriteria: [],
   dependsOn: []
 })
+
+const expertOptions = computed(() => agentTeamsStore.enabledExperts)
 
 const isDepDropdownOpen = ref(false)
 const depDropdownRef = ref<HTMLElement | null>(null)
@@ -50,6 +55,7 @@ function resetDraft() {
     title: props.task.title || '',
     description: props.task.description || '',
     priority: props.task.priority || 'medium',
+    expertId: props.task.expertId,
     implementationSteps: [...(props.task.implementationSteps || [])],
     testSteps: [...(props.task.testSteps || [])],
     acceptanceCriteria: [...(props.task.acceptanceCriteria || [])],
@@ -150,6 +156,27 @@ useSafeOutsideClick(
         >
           <path d="M6 9l6 6 6-6" />
         </svg>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <label>执行专家</label>
+      <div class="priority-select-wrap">
+        <select
+          v-model="draft.expertId"
+          class="priority-select"
+        >
+          <option value="">
+            请选择专家
+          </option>
+          <option
+            v-for="expert in expertOptions"
+            :key="expert.id"
+            :value="expert.id"
+          >
+            {{ expert.name }}
+          </option>
+        </select>
       </div>
     </div>
 

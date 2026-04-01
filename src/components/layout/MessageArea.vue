@@ -498,6 +498,7 @@ onUnmounted(() => {
 
           <MessageList
             class="message-area__list"
+            :hide-context-strategy-notice="true"
             @retry="handleRetry"
             @form-submit="handleMessageFormSubmit"
             @open-edit-trace="handleOpenEditTrace"

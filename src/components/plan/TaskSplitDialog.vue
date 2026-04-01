@@ -5,6 +5,8 @@ import { useTaskSplitStore } from '@/stores/taskSplit'
 import { useTaskStore } from '@/stores/task'
 import { useProjectStore } from '@/stores/project'
 import { useThemeStore } from '@/stores/theme'
+import { useAgentStore } from '@/stores/agent'
+import { useAgentTeamsStore } from '@/stores/agentTeams'
 import TaskSplitPreview from './TaskSplitPreview.vue'
 import TaskResplitModal from './TaskResplitModal.vue'
 import ExecutionTimeline from '@/components/message/ExecutionTimeline.vue'
@@ -15,12 +17,15 @@ import { buildToolCallMapFromLogs, extractDynamicFormSchemas } from '@/utils/too
 import { buildUsageNotice } from '@/utils/runtimeNotice'
 import { DEFAULT_SPLIT_GRANULARITY } from '@/constants/plan'
 import { logger } from '@/utils/logger'
+import { resolveExpertById, resolveExpertRuntime } from '@/services/agentTeams/runtime'
 
 const planStore = usePlanStore()
 const taskSplitStore = useTaskSplitStore()
 const taskStore = useTaskStore()
 const projectStore = useProjectStore()
 const themeStore = useThemeStore()
+const agentStore = useAgentStore()
+const agentTeamsStore = useAgentTeamsStore()
 const isDarkTheme = computed(() => themeStore.isDark)
 
 const isConfirming = ref(false)
@@ -799,6 +804,7 @@ async function initializeDialogSession() {
   if (!dialogContext) return
 
   try {
+    await agentTeamsStore.loadExperts()
     const existingPlan = planStore.plans.find(p => p.id === dialogContext.planId)
     const plan = existingPlan || await planStore.getPlan(dialogContext.planId)
     if (!plan) return
@@ -809,6 +815,7 @@ async function initializeDialogSession() {
       planName: plan.name,
       planDescription: plan.description,
       granularity: plan.granularity,
+      expertId: dialogContext.expertId || plan.splitExpertId,
       agentId: dialogContext.agentId,
       modelId: dialogContext.modelId,
       workingDirectory: project?.path
@@ -858,9 +865,6 @@ function handleResplit(index: number) {
 async function handleResplitConfirm(config: TaskResplitConfig) {
   if (resplitTargetIndex.value === null) return
 
-  const dialogContext = planStore.splitDialogContext
-  if (!dialogContext) return
-
   config.taskIndex = resplitTargetIndex.value
 
   // 关闭弹框
@@ -884,19 +888,35 @@ async function confirmSplit() {
   isConfirming.value = true
 
   try {
-    const taskInputs = taskSplitStore.splitResult.map((task, index) => ({
-      planId,
-      title: task.title,
-      description: task.description,
-      priority: task.priority,
-      agentId: task.agentId,
-      modelId: task.modelId,
-      implementationSteps: task.implementationSteps,
-      testSteps: task.testSteps,
-      acceptanceCriteria: task.acceptanceCriteria,
-      dependsOn: task.dependsOn, // 传递依赖关系（任务标题列表）
-      order: index
-    }))
+    await Promise.all([
+      agentStore.loadAgents(),
+      agentTeamsStore.loadExperts()
+    ])
+
+    const fallbackExpert = agentTeamsStore.builtinDeveloperExpert
+      || agentTeamsStore.enabledExperts.find(expert => expert.category === 'developer')
+      || agentTeamsStore.enabledExperts[0]
+      || null
+
+    const taskInputs = taskSplitStore.splitResult.map((task, index) => {
+      const selectedExpert = resolveExpertById(task.expertId, agentTeamsStore.experts) || fallbackExpert
+      const runtime = resolveExpertRuntime(selectedExpert, agentStore.agents, task.modelId)
+
+      return {
+        planId,
+        title: task.title,
+        description: task.description,
+        priority: task.priority,
+        expertId: selectedExpert?.id,
+        agentId: runtime?.agent.id || task.agentId,
+        modelId: runtime?.modelId || task.modelId,
+        implementationSteps: task.implementationSteps,
+        testSteps: task.testSteps,
+        acceptanceCriteria: task.acceptanceCriteria,
+        dependsOn: task.dependsOn, // 传递依赖关系（任务标题列表）
+        order: index
+      }
+    })
 
     await taskStore.createTasksFromSplit(planId, taskInputs)
 
@@ -1119,7 +1139,7 @@ const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(close
       v-model:visible="resplitModalVisible"
       :task="resplitTargetTask"
       :default-granularity="taskSplitStore.context?.granularity || DEFAULT_SPLIT_GRANULARITY"
-      :default-agent-id="taskSplitStore.context?.agentId"
+      :default-expert-id="taskSplitStore.context?.expertId"
       :default-model-id="taskSplitStore.context?.modelId"
       @confirm="handleResplitConfirm"
     />

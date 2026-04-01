@@ -7,6 +7,25 @@ export type ExecutionLogType = 'content' | 'thinking' | 'thinking_start' | 'tool
 
 export type ExecutionStatus = 'idle' | 'queued' | 'running' | 'waiting_input' | 'completed' | 'failed' | 'stopped'
 
+export interface ExecutionLogMetadata {
+  toolName?: string
+  toolCallId?: string
+  toolInput?: string
+  toolResult?: string
+  isError?: boolean
+  model?: string
+  inputTokens?: number
+  outputTokens?: number
+  strategy?: string
+  runtime?: string
+  expert?: string
+  externalSessionId?: string
+  systemMessageCount?: number
+  userMessageCount?: number
+  assistantMessageCount?: number
+  historyMessageCount?: number
+}
+
 export interface TaskTokenUsageWindow {
   inputTokens: number
   outputTokens: number
@@ -21,13 +40,7 @@ export interface ExecutionLogEntry {
   type: ExecutionLogType
   content: string
   timestamp: string
-  metadata?: {
-    toolName?: string
-    toolCallId?: string
-    toolInput?: string
-    toolResult?: string
-    isError?: boolean
-  }
+  metadata?: ExecutionLogMetadata
 }
 
 export interface TaskExecutionState {
@@ -56,13 +69,7 @@ export interface CreateExecutionLogInput {
   taskId: string
   type: ExecutionLogType
   content: string
-  metadata?: {
-    toolName?: string
-    toolCallId?: string
-    toolInput?: string
-    toolResult?: string
-    isError?: boolean
-  }
+  metadata?: ExecutionLogMetadata
 }
 
 // 鍚庣杩斿洖鐨勬墽琛屾棩蹇楃粨鏋?
@@ -110,6 +117,7 @@ export interface PlanExecutionTaskProgress {
   title: string
   status: string
   task_order: number
+  expert_id?: string | null
   agent_id?: string | null
   model_id?: string | null
   last_result_status: TaskExecutionResultStatus | null

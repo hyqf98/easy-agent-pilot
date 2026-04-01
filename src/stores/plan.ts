@@ -13,6 +13,7 @@ interface RustPlan {
   name: string
   description?: string
   split_mode: string
+  split_expert_id?: string
   split_agent_id?: string
   split_model_id?: string
   status: string
@@ -29,6 +30,7 @@ interface RustPlan {
 
 export interface PlanSplitDialogContext {
   planId: string
+  expertId?: string
   agentId: string
   modelId: string
   entry: 'create_start_split' | 'list_split' | 'resume_split'
@@ -51,6 +53,7 @@ function transformPlan(rustPlan: RustPlan): Plan {
     name: rustPlan.name,
     description: rustPlan.description,
     splitMode: (rustPlan.split_mode || 'ai') as PlanSplitMode,
+    splitExpertId: rustPlan.split_expert_id,
     splitAgentId: rustPlan.split_agent_id,
     splitModelId: rustPlan.split_model_id,
     status: rustPlan.status as PlanStatus,
@@ -148,6 +151,7 @@ export const usePlanStore = defineStore('plan', () => {
       name: input.name,
       description: input.description ?? null,
       split_mode: input.splitMode ?? 'ai',
+      split_expert_id: input.splitExpertId ?? null,
       split_agent_id: input.splitAgentId ?? null,
       split_model_id: input.splitModelId ?? null,
       agent_team: input.agentTeam ?? null,
@@ -179,6 +183,7 @@ export const usePlanStore = defineStore('plan', () => {
     if ('name' in updates) input.name = updates.name ?? null
     if ('description' in updates) input.description = updates.description ?? null
     if ('splitMode' in updates) input.split_mode = updates.splitMode ?? null
+    if ('splitExpertId' in updates) input.split_expert_id = updates.splitExpertId ?? null
     if ('splitAgentId' in updates) input.split_agent_id = updates.splitAgentId ?? null
     if ('splitModelId' in updates) input.split_model_id = updates.splitModelId ?? null
     if ('status' in updates) input.status = updates.status ?? null

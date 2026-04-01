@@ -118,7 +118,7 @@ const isAiMode = () => props.form.splitMode === 'ai'
           <template v-if="isAiMode()">
             <div class="form-row">
               <div class="form-field">
-                <label>拆分智能体 <span class="required">*</span></label>
+                <label>拆分专家 <span class="required">*</span></label>
                 <select
                   :value="props.form.splitAgentId ?? ''"
                   class="project-select"
@@ -152,7 +152,7 @@ const isAiMode = () => props.form.splitMode === 'ai'
                 <span
                   v-if="props.modelOptions.length === 0"
                   class="field-hint"
-                >当前智能体暂无可用模型，请先在设置中配置模型</span>
+                >当前专家绑定的运行时暂无可用模型，请先在 AgentTeams 或 Agent 设置中配置模型</span>
               </div>
             </div>
             <div class="form-row">
@@ -197,7 +197,7 @@ const isAiMode = () => props.form.splitMode === 'ai'
                 />
                 <path d="M12 16v-4M12 8h.01" />
               </svg>
-              <span>配置完成后将由 AI 自动拆分任务，并生成可继续执行的任务清单</span>
+              <span>配置完成后将由 AI 自动拆分任务，并根据 AgentTeams 专家团队自动为每个任务分配合适专家</span>
             </div>
           </template>
 

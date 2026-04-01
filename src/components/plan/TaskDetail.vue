@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAgentStore } from '@/stores/agent'
+import { useAgentTeamsStore } from '@/stores/agentTeams'
 import { usePlanStore } from '@/stores/plan'
 import { useTaskStore } from '@/stores/task'
 import { useTaskExecutionStore } from '@/stores/taskExecution'
@@ -11,6 +12,7 @@ import AgentRoleBadge from './AgentRoleBadge.vue'
 import TaskEditModal from './TaskEditModal.vue'
 
 const agentStore = useAgentStore()
+const agentTeamsStore = useAgentTeamsStore()
 const planStore = usePlanStore()
 const taskStore = useTaskStore()
 const taskExecutionStore = useTaskExecutionStore()
@@ -102,6 +104,7 @@ const executionConfig = computed(() => {
 
   const selection = resolvePlanTaskAgentSelection(
     {
+      expert_id: currentTask.value.expertId ?? null,
       agent_id: currentTask.value.agentId ?? null,
       model_id: currentTask.value.modelId ?? null
     },
@@ -111,9 +114,12 @@ const executionConfig = computed(() => {
   const agent = selection.agentId
     ? agentStore.agents.find(item => item.id === selection.agentId)
     : null
+  const expert = selection.expertId
+    ? agentTeamsStore.getExpertById(selection.expertId)
+    : null
 
   return {
-    agentLabel: agent?.name || selection.agentId || t('taskDetail.unspecified'),
+    agentLabel: expert?.name || agent?.name || selection.agentId || t('taskDetail.unspecified'),
     modelLabel: selection.modelId || t('taskDetail.useDefaultModel'),
     sourceLabel: selection.source === 'plan' ? t('taskDetail.executionConfigFromPlan') : ''
   }

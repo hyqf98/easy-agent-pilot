@@ -1,6 +1,7 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import type { AgentConfig } from '@/stores/agent'
+import { getErrorMessage } from '@/utils/api'
 import {
   buildAgentExecutionRequest,
   getAgentRuntimeProfile,
@@ -9,6 +10,7 @@ import {
   type AbortCommand,
   type AgentRuntimeKey
 } from '../runtimeProfiles'
+import { writeFrontendRuntimeLog } from '@/services/runtimeLog/client'
 import type {
   AgentStrategy,
   BackendStreamEvent,
@@ -122,12 +124,18 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
 
       const eventState = this.getSafeEventState()
 
-      const errorMessage = error instanceof Error ? error.message : String(error)
+      const errorMessage = getErrorMessage(error, '智能体执行失败')
       console.error('[AI Execute] failed', {
         provider: this.name,
         sessionId: this.currentSessionId,
         error: errorMessage
       })
+      void writeFrontendRuntimeLog(
+        'ERROR',
+        'conversation-frontend',
+        `[AI Execute] failed | provider=${this.name} | sessionId=${this.currentSessionId || ''} | error=${errorMessage}`,
+        error
+      )
 
       if (eventState.sawDone || eventState.sawError) {
         return

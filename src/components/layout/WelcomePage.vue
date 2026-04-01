@@ -171,6 +171,7 @@ const features: WelcomeFeature[] = [
  * 统一收敛导入成功和手动选择项目后的 UI 状态，避免继承上一次停留的特殊模式。
  */
 function openProjectWorkspace(projectId: string) {
+  uiStore.closeProjectCreateModal()
   uiStore.setAppMode('chat')
   uiStore.setMainContentMode('chat')
   projectStore.setCurrentProject(projectId)

@@ -52,6 +52,56 @@ export class InvokeError extends Error {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function formatPrimitiveError(value: unknown): string | null {
+  if (typeof value === 'number') {
+    return `错误代码 ${value}`
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'true' : 'false'
+  }
+  return null
+}
+
+function extractObjectErrorMessage(value: Record<string, unknown>): string | null {
+  const candidateKeys = ['message', 'error', 'reason', 'details', 'detail', 'cause']
+
+  for (const key of candidateKeys) {
+    const candidate = value[key]
+    const primitive = formatPrimitiveError(candidate)
+    if (primitive) {
+      return primitive
+    }
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim()
+    }
+    if (isRecord(candidate)) {
+      const nested = extractObjectErrorMessage(candidate)
+      if (nested) {
+        return nested
+      }
+    }
+  }
+
+  if (typeof value.code === 'number') {
+    return `错误代码 ${value.code}`
+  }
+
+  if (typeof value.code === 'string' && value.code.trim()) {
+    return `错误代码 ${value.code.trim()}`
+  }
+
+  try {
+    const serialized = JSON.stringify(value)
+    return serialized === '{}' ? null : serialized
+  } catch {
+    return null
+  }
+}
+
 /**
  * Parse error from Tauri invoke result
  */
@@ -65,6 +115,27 @@ function parseError(error: unknown): ApiError {
 
   if (typeof error === 'string') {
     return { message: error }
+  }
+
+  const primitive = formatPrimitiveError(error)
+  if (primitive) {
+    return { message: primitive, details: error }
+  }
+
+  if (Array.isArray(error)) {
+    const messages = error
+      .map(item => parseError(item).message)
+      .filter(Boolean)
+    if (messages.length > 0) {
+      return { message: messages.join('; '), details: error }
+    }
+  }
+
+  if (isRecord(error)) {
+    const message = extractObjectErrorMessage(error)
+    if (message) {
+      return { message, details: error }
+    }
   }
 
   return { message: 'Unknown error', details: error }
@@ -112,16 +183,8 @@ export function createRetryableApi<T>(
  * Get user-friendly error message from an error
  */
 export function getErrorMessage(error: unknown, fallback = 'Unknown error'): string {
-  if (error instanceof InvokeError) {
-    return error.message
-  }
-  if (error instanceof Error) {
-    return error.message
-  }
-  if (typeof error === 'string') {
-    return error
-  }
-  return fallback
+  const parsed = parseError(error)
+  return parsed.message || fallback
 }
 
 /// 从错误消息中分类错误类型
@@ -140,6 +203,9 @@ export function classifyError(error: unknown): ErrorType {
   }
   if (message.includes('路径未配置') || message.includes('path not configured')) {
     return ErrorType.CLI_PATH_NOT_FOUND
+  }
+  if (message.includes('os error 206') || message.includes('文件名或扩展名太长')) {
+    return ErrorType.CLI_EXECUTION_FAILED
   }
 
   // API 认证相关错误

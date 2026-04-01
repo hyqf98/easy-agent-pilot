@@ -125,14 +125,14 @@ const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(() =>
             <template v-if="props.form.splitMode === 'ai'">
               <div class="form-row">
                 <div class="form-field">
-                  <label>拆分智能体</label>
+                  <label>拆分专家</label>
                   <select
                     :value="props.form.splitAgentId ?? ''"
                     class="project-select"
                     @change="updateField('splitAgentId', (($event.target as HTMLSelectElement).value || null))"
                   >
                     <option value="">
-                      请选择智能体
+                      请选择专家
                     </option>
                     <option
                       v-for="option in props.agentOptions"
@@ -165,7 +165,7 @@ const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(() =>
                   <span
                     v-if="props.modelOptions.length === 0"
                     class="field-hint"
-                  >当前智能体暂无可用模型，请先在设置中配置模型</span>
+                  >当前专家绑定的运行时暂无可用模型，请先在 AgentTeams 或 Agent 设置中配置模型</span>
                 </div>
               </div>
 

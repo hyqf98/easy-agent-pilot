@@ -40,6 +40,7 @@ export interface Plan {
   name: string
   description?: string
   splitMode: PlanSplitMode    // 拆分模式: ai | manual
+  splitExpertId?: string
   splitAgentId?: string
   splitModelId?: string
   status: PlanStatus
@@ -64,6 +65,8 @@ export interface Task {
   status: TaskStatus
   priority: TaskPriority
   assignee?: AgentRole
+  /** 执行专家 ID */
+  expertId?: string
   /** 执行智能体 ID */
   agentId?: string
   /** 执行模型 ID */
@@ -92,6 +95,7 @@ export interface CreatePlanInput {
   name: string
   description?: string
   splitMode?: PlanSplitMode    // 拆分模式: ai | manual
+  splitExpertId?: string
   splitAgentId?: string
   splitModelId?: string
   agentTeam?: AgentRole[]
@@ -105,6 +109,7 @@ export interface UpdatePlanInput {
   name?: string
   description?: string
   splitMode?: PlanSplitMode    // 拆分模式: ai | manual
+  splitExpertId?: string
   splitAgentId?: string
   splitModelId?: string
   status?: PlanStatus
@@ -125,6 +130,8 @@ export interface CreateTaskInput {
   description?: string
   priority?: TaskPriority
   assignee?: AgentRole
+  /** 执行专家 ID */
+  expertId?: string
   /** 执行智能体 ID */
   agentId?: string
   /** 执行模型 ID */
@@ -144,6 +151,8 @@ export interface UpdateTaskInput {
   status?: TaskStatus
   priority?: TaskPriority
   assignee?: AgentRole
+  /** 执行专家 ID */
+  expertId?: string
   /** 执行智能体 ID */
   agentId?: string
   /** 执行模型 ID */
@@ -337,6 +346,8 @@ export interface AITaskItem {
   title: string
   description: string
   priority: TaskPriority
+  /** 执行专家 ID */
+  expertId?: string
   /** 执行智能体 ID */
   agentId?: string
   /** 执行模型 ID */
@@ -438,6 +449,7 @@ export interface TaskResplitConfig {
   taskIndex: number
   customPrompt?: string
   granularity: number
+  expertId?: string
   agentId?: string
   modelId?: string
 }

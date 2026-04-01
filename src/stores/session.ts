@@ -16,6 +16,7 @@ export interface Session {
   id: string
   projectId: string
   name: string
+  expertId?: string
   agentId?: string
   agentType: string
   cliSessionId?: string
@@ -34,6 +35,7 @@ interface RustSession {
   id: string
   project_id: string
   name: string
+  expert_id?: string
   agent_id?: string
   agent_type: string
   cli_session_id?: string
@@ -53,6 +55,7 @@ function transformSession(rustSession: RustSession): Session {
     id: rustSession.id,
     projectId: rustSession.project_id,
     name: rustSession.name,
+    expertId: rustSession.expert_id,
     agentId: rustSession.agent_id,
     agentType: rustSession.agent_type,
     cliSessionId: rustSession.cli_session_id,
@@ -267,6 +270,7 @@ export const useSessionStore = defineStore('session', () => {
     const input = {
       project_id: session.projectId,
       name: session.name || null, // 如果为空，后端会生成默认名称
+      expert_id: session.expertId ?? null,
       agent_id: session.agentId ?? null,
       agent_type: session.agentType,
       status: session.status || null
@@ -290,7 +294,7 @@ export const useSessionStore = defineStore('session', () => {
 
   async function updateSession(
     id: string,
-    updates: Partial<Pick<Session, 'name' | 'status' | 'pinned' | 'lastMessage' | 'errorMessage' | 'agentType' | 'agentId' | 'cliSessionId' | 'cliSessionProvider'>>
+    updates: Partial<Pick<Session, 'name' | 'status' | 'pinned' | 'lastMessage' | 'errorMessage' | 'agentType' | 'expertId' | 'agentId' | 'cliSessionId' | 'cliSessionProvider'>>
   ) {
     const notificationStore = useNotificationStore()
     const input: Record<string, unknown> = {}
@@ -301,6 +305,7 @@ export const useSessionStore = defineStore('session', () => {
     if ('lastMessage' in updates) input.last_message = updates.lastMessage ?? null
     if ('errorMessage' in updates) input.error_message = updates.errorMessage ?? null
     if ('agentType' in updates) input.agent_type = updates.agentType ?? null
+    if ('expertId' in updates) input.expert_id = updates.expertId ?? null
     if ('agentId' in updates) input.agent_id = updates.agentId ?? null
     if ('cliSessionId' in updates) input.cli_session_id = updates.cliSessionId ?? null
     if ('cliSessionProvider' in updates) input.cli_session_provider = updates.cliSessionProvider ?? null

@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useTaskStore } from '@/stores/task'
 import { inferAgentProvider, useAgentStore } from '@/stores/agent'
 import { useAgentConfigStore } from '@/stores/agentConfig'
+import { useAgentTeamsStore } from '@/stores/agentTeams'
 import { usePlanStore } from '@/stores/plan'
 import { useNotificationStore } from '@/stores/notification'
 import { getErrorMessage } from '@/utils/api'
@@ -11,6 +12,7 @@ import { checkCircularDependency, getAvailableDependencies } from '@/composables
 import { useSafeOutsideClick } from '@/composables/useSafeOutsideClick'
 import type { Task, TaskPriority } from '@/types/plan'
 import EaModal from '@/components/common/EaModal.vue'
+import { resolveExpertById, resolveExpertRuntime } from '@/services/agentTeams/runtime'
 
 const props = defineProps<{
   visible: boolean
@@ -28,6 +30,7 @@ const isCreateMode = computed(() => props.mode === 'create')
 const taskStore = useTaskStore()
 const agentStore = useAgentStore()
 const agentConfigStore = useAgentConfigStore()
+const agentTeamsStore = useAgentTeamsStore()
 const planStore = usePlanStore()
 const notificationStore = useNotificationStore()
 const { t } = useI18n()
@@ -37,6 +40,7 @@ const form = ref({
   title: props.task.title,
   description: props.task.description || '',
   priority: props.task.priority,
+  expertId: props.task.expertId || undefined,
   agentId: props.task.agentId || undefined,
   modelId: props.task.modelId || undefined,
   implementationSteps: [...(props.task.implementationSteps || [])],
@@ -72,9 +76,7 @@ const priorityOptions: Array<{ label: string; value: TaskPriority }> = [
 ]
 
 // 智能体选项
-const agentOptions = computed(() => {
-  return agentStore.agents
-})
+const expertOptions = computed(() => agentTeamsStore.enabledExperts)
 
 const currentPlan = computed(() =>
   planStore.plans.find(plan => plan.id === props.task.planId) || null
@@ -99,6 +101,7 @@ function buildFormState(task: Task) {
     title: sanitizeText(task.title),
     description: sanitizeText(task.description),
     priority: task.priority,
+    expertId: task.expertId || relatedPlan?.splitExpertId || undefined,
     agentId: task.agentId || relatedPlan?.splitAgentId || undefined,
     modelId: task.modelId ?? relatedPlan?.splitModelId ?? '',
     implementationSteps: sanitizeTextList(task.implementationSteps),
@@ -109,12 +112,14 @@ function buildFormState(task: Task) {
   }
 }
 
-// 模型选项 - 根据选择的智能体动态获取
+// 模型选项 - 根据选择的专家绑定运行时动态获取
 const modelOptions = computed(() => {
-  if (!form.value.agentId) return []
+  const expert = resolveExpertById(form.value.expertId, agentTeamsStore.experts)
+  const runtime = resolveExpertRuntime(expert, agentStore.agents, form.value.modelId)
+  if (!runtime?.agent.id) return []
 
   const configs = agentConfigStore
-    .getModelsConfigs(form.value.agentId)
+    .getModelsConfigs(runtime.agent.id)
     .filter(config => config.enabled)
   return configs.map(c => ({
     value: c.modelId,
@@ -122,20 +127,14 @@ const modelOptions = computed(() => {
   }))
 })
 
-// 获取智能体名称
-function getAgentName(agentId: string): string {
-  const agent = agentStore.agents.find(a => a.id === agentId)
-  return agent?.name || agentId
-}
-
 const executionConfigHint = computed(() => {
-  if (!currentPlan.value?.splitAgentId) {
-    return '当前计划未配置默认执行智能体，可直接为任务单独选择。'
+  if (!currentPlan.value?.splitExpertId) {
+    return '当前计划未配置默认执行专家，可直接为任务单独选择。'
   }
 
-  const agentName = getAgentName(currentPlan.value.splitAgentId)
+  const expertName = agentTeamsStore.getExpertById(currentPlan.value.splitExpertId)?.name || currentPlan.value.splitExpertId
   const modelLabel = currentPlan.value.splitModelId ? ` / ${currentPlan.value.splitModelId}` : ''
-  return `默认来源于计划配置：${agentName}${modelLabel}`
+  return `默认来源于计划配置：${expertName}${modelLabel}`
 })
 
 // 监听 task 变化，更新表单
@@ -147,8 +146,8 @@ watch(
   () => currentPlan.value,
   (plan) => {
     if (!plan) return
-    if (!form.value.agentId && plan.splitAgentId) {
-      form.value.agentId = plan.splitAgentId
+    if (!form.value.expertId && plan.splitExpertId) {
+      form.value.expertId = plan.splitExpertId
     }
     if ((form.value.modelId === undefined || form.value.modelId === null) && plan.splitModelId) {
       form.value.modelId = plan.splitModelId
@@ -158,15 +157,19 @@ watch(
 )
 
 watch(
-  () => form.value.agentId,
-  async (agentId) => {
-    if (!agentId) {
+  () => [form.value.expertId, agentTeamsStore.experts.length] as const,
+  async ([expertId]) => {
+    const expert = resolveExpertById(expertId, agentTeamsStore.experts)
+    const runtime = resolveExpertRuntime(expert, agentStore.agents, form.value.modelId)
+    if (!runtime) {
+      form.value.agentId = undefined
       form.value.modelId = ''
       return
     }
 
-    const provider = inferAgentProvider(agentStore.agents.find(agent => agent.id === agentId))
-    const modelConfigs = await agentConfigStore.ensureModelsConfigs(agentId, provider)
+    form.value.agentId = runtime.agent.id
+    const provider = inferAgentProvider(agentStore.agents.find(agent => agent.id === runtime.agent.id))
+    const modelConfigs = await agentConfigStore.ensureModelsConfigs(runtime.agent.id, provider)
     const availableModels = modelConfigs.filter(config => config.enabled)
 
     if (availableModels.length === 0) {
@@ -174,7 +177,7 @@ watch(
       return
     }
 
-    const preferredModelId = form.value.modelId ?? ''
+    const preferredModelId = form.value.modelId ?? runtime.modelId ?? ''
 
     if (preferredModelId === '') {
       form.value.modelId = ''
@@ -279,9 +282,10 @@ useSafeOutsideClick(
 )
 
 onMounted(() => {
-  if (agentStore.agents.length === 0) {
-    void agentStore.loadAgents()
-  }
+  void Promise.all([
+    agentStore.agents.length === 0 ? agentStore.loadAgents() : Promise.resolve(agentStore.agents),
+    agentTeamsStore.experts.length === 0 ? agentTeamsStore.loadExperts(true) : Promise.resolve(agentTeamsStore.experts)
+  ])
   window.addEventListener('resize', updateDependencyDropdownLayout)
 })
 
@@ -310,8 +314,17 @@ async function handleSave() {
     title: sanitizeText(form.value.title),
     description: sanitizeText(form.value.description),
     priority: form.value.priority,
-    agentId: form.value.agentId,
-    modelId: form.value.modelId || undefined,
+    expertId: form.value.expertId,
+    agentId: resolveExpertRuntime(
+      resolveExpertById(form.value.expertId, agentTeamsStore.experts),
+      agentStore.agents,
+      form.value.modelId
+    )?.agent.id || form.value.agentId,
+    modelId: resolveExpertRuntime(
+      resolveExpertById(form.value.expertId, agentTeamsStore.experts),
+      agentStore.agents,
+      form.value.modelId
+    )?.modelId || undefined,
     implementationSteps: form.value.implementationSteps.map(sanitizeText).filter(s => s.trim()),
     testSteps: form.value.testSteps.map(sanitizeText).filter(s => s.trim()),
     acceptanceCriteria: form.value.acceptanceCriteria.map(sanitizeText).filter(s => s.trim()),
@@ -457,7 +470,7 @@ function close() {
           </div>
         </div>
 
-        <!-- 智能体配置 -->
+        <!-- 专家配置 -->
         <div class="form-section">
           <div class="section-title">
             <svg
@@ -482,20 +495,20 @@ function close() {
 
           <div class="form-grid">
             <div class="form-field full-width">
-              <label>{{ t('task.selectAgent') }}</label>
+              <label>执行专家</label>
               <select
-                v-model="form.agentId"
+                v-model="form.expertId"
                 class="execution-select"
               >
                 <option value="">
-                  {{ t('task.selectAgentPlaceholder') }}
+                  请选择执行专家
                 </option>
                 <option
-                  v-for="agent in agentOptions"
-                  :key="agent.id"
-                  :value="agent.id"
+                  v-for="expert in expertOptions"
+                  :key="expert.id"
+                  :value="expert.id"
                 >
-                  {{ agent.name }} ({{ agent.type === 'cli' ? 'CLI' : 'SDK' }})
+                  {{ expert.name }}
                 </option>
               </select>
               <span class="field-hint">{{ executionConfigHint }}</span>
@@ -512,7 +525,7 @@ function close() {
                   v-if="modelOptions.length === 0"
                   value=""
                 >
-                  当前智能体暂无可用模型
+                  当前专家绑定运行时暂无可用模型
                 </option>
                 <option
                   v-for="opt in modelOptions"
@@ -1041,11 +1054,15 @@ function close() {
 
 .task-edit-modal {
   --task-edit-accent: #0f766e;
-  --task-edit-accent-soft: color-mix(in srgb, var(--task-edit-accent) 10%, #ffffff);
+  --task-edit-surface: var(--color-surface, #ffffff);
+  --task-edit-surface-soft: color-mix(in srgb, var(--task-edit-accent) 6%, var(--color-bg-secondary, #f8fafc));
+  --task-edit-surface-muted: color-mix(in srgb, var(--task-edit-accent) 4%, var(--color-bg-tertiary, #f1f5f9));
+  --task-edit-accent-soft: color-mix(in srgb, var(--task-edit-accent) 12%, var(--task-edit-surface));
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
+  background: var(--task-edit-surface);
 }
 
 .modal-header {
@@ -1054,8 +1071,8 @@ function close() {
   justify-content: space-between;
   padding: 1.25rem 1.5rem;
   background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--task-edit-accent) 7%, transparent), transparent 38%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(245, 247, 249, 0.96));
+    radial-gradient(circle at top right, color-mix(in srgb, var(--task-edit-accent) 10%, transparent), transparent 38%),
+    linear-gradient(180deg, var(--task-edit-surface) 0%, var(--task-edit-surface-soft) 100%);
   border-bottom: 1px solid var(--color-border, #e2e8f0);
 }
 
@@ -1072,7 +1089,11 @@ function close() {
   width: 36px;
   height: 36px;
   border-radius: var(--radius-lg, 10px);
-  background: linear-gradient(135deg, color-mix(in srgb, var(--task-edit-accent) 14%, #ffffff), color-mix(in srgb, var(--task-edit-accent) 8%, #f8fafc));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--task-edit-accent) 18%, var(--task-edit-surface)),
+    color-mix(in srgb, var(--task-edit-accent) 10%, var(--task-edit-surface-soft))
+  );
   color: var(--task-edit-accent);
   border: 1px solid color-mix(in srgb, var(--task-edit-accent) 18%, rgba(148, 163, 184, 0.28));
 }
@@ -1099,7 +1120,7 @@ function close() {
 }
 
 .btn-close:hover {
-  background-color: color-mix(in srgb, var(--task-edit-accent) 8%, #f1f5f9);
+  background-color: color-mix(in srgb, var(--task-edit-accent) 8%, var(--task-edit-surface-soft));
   color: var(--color-text-primary, #1e293b);
 }
 
@@ -1109,6 +1130,7 @@ function close() {
   overflow-y: auto;
   padding: 1.25rem 1.5rem;
   overscroll-behavior: contain;
+  background: var(--task-edit-surface);
 }
 
 .task-edit-modal--dropdown-active .modal-body {
@@ -1148,14 +1170,18 @@ function close() {
   justify-content: space-between;
   padding: 0.75rem 1rem;
   margin: 0 -1rem;
-  background: linear-gradient(180deg, rgba(249, 250, 251, 0.96), rgba(244, 247, 250, 0.94));
+  background: linear-gradient(180deg, var(--task-edit-surface-soft), var(--task-edit-surface-muted));
   border-radius: var(--radius-md, 8px);
   cursor: pointer;
   transition: background-color 150ms ease;
 }
 
 .section-header:hover {
-  background: linear-gradient(180deg, rgba(247, 249, 251, 0.98), rgba(241, 245, 249, 0.96));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--task-edit-accent) 8%, var(--task-edit-surface)),
+    color-mix(in srgb, var(--task-edit-accent) 6%, var(--task-edit-surface-muted))
+  );
 }
 
 .section-chevron {
@@ -1216,9 +1242,14 @@ function close() {
   border: 1px solid var(--color-border, #e2e8f0);
   border-radius: var(--radius-md, 8px);
   font-size: 0.875rem;
-  background-color: color-mix(in srgb, var(--task-edit-accent) 2%, #ffffff);
+  background-color: color-mix(in srgb, var(--task-edit-accent) 3%, var(--task-edit-surface));
   color: var(--color-text-primary, #1e293b);
   transition: all 150ms ease;
+}
+
+.form-field input::placeholder,
+.form-field textarea::placeholder {
+  color: var(--color-text-tertiary, #94a3b8);
 }
 
 .form-field textarea {
@@ -1229,8 +1260,9 @@ function close() {
 }
 
 .form-field input:hover,
-.form-field textarea:hover {
-  border-color: #cbd5e1;
+.form-field textarea:hover,
+.form-field select:hover {
+  border-color: color-mix(in srgb, var(--color-border, #e2e8f0) 52%, var(--color-text-secondary, #64748b));
 }
 
 .form-field input:focus,
@@ -1262,7 +1294,7 @@ function close() {
   padding: 0.5rem 1rem;
   border: 1.5px solid var(--color-border, #e2e8f0);
   border-radius: var(--radius-md, 8px);
-  background: var(--color-surface, #fff);
+  background: var(--task-edit-surface);
   color: var(--color-text-secondary, #64748b);
   font-size: 0.8125rem;
   font-weight: 500;
@@ -1287,7 +1319,7 @@ function close() {
 
 .priority-btn.low.active {
   border-color: #22c55e;
-  background: rgba(240, 253, 244, 0.78);
+  background: color-mix(in srgb, #22c55e 16%, var(--task-edit-surface));
 }
 
 .priority-btn.medium {
@@ -1296,7 +1328,7 @@ function close() {
 
 .priority-btn.medium.active {
   border-color: #f59e0b;
-  background: rgba(255, 251, 235, 0.8);
+  background: color-mix(in srgb, #f59e0b 16%, var(--task-edit-surface));
 }
 
 .priority-btn.high {
@@ -1305,7 +1337,7 @@ function close() {
 
 .priority-btn.high.active {
   border-color: #ef4444;
-  background: rgba(254, 242, 242, 0.8);
+  background: color-mix(in srgb, #ef4444 14%, var(--task-edit-surface));
 }
 
 .form-field .execution-select {
@@ -1327,7 +1359,7 @@ function close() {
 .form-field .execution-select:disabled {
   cursor: not-allowed;
   color: var(--color-text-tertiary, #94a3b8);
-  background: var(--color-bg-secondary, #f8fafc);
+  background: var(--task-edit-surface-soft);
   background-image:
     linear-gradient(135deg, transparent 50%, var(--color-text-tertiary, #94a3b8) 50%),
     linear-gradient(45deg, var(--color-text-tertiary, #94a3b8) 50%, transparent 50%);
@@ -1347,7 +1379,7 @@ function close() {
   align-items: flex-start;
   gap: 0.75rem;
   padding: 0.75rem 0.875rem;
-  background: linear-gradient(180deg, rgba(249, 250, 251, 0.98), rgba(244, 247, 250, 0.96));
+  background: linear-gradient(180deg, var(--task-edit-surface-soft), var(--task-edit-surface-muted));
   border: 1px solid var(--color-border, #e2e8f0);
   border-radius: var(--radius-md, 8px);
   transition: all 150ms ease;
@@ -1355,7 +1387,11 @@ function close() {
 
 .step-card:hover,
 .criteria-card:hover {
-  background: linear-gradient(180deg, rgba(247, 249, 251, 0.98), rgba(241, 245, 249, 0.96));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--task-edit-accent) 7%, var(--task-edit-surface)),
+    color-mix(in srgb, var(--task-edit-accent) 5%, var(--task-edit-surface-muted))
+  );
 }
 
 .step-card.test {
@@ -1485,7 +1521,7 @@ function close() {
 
 .add-step-btn.test:hover {
   border-color: #22c55e;
-  background: #f0fdf4;
+  background: color-mix(in srgb, #22c55e 12%, var(--task-edit-surface));
   color: #22c55e;
 }
 
@@ -1503,7 +1539,7 @@ function close() {
   padding: 0.625rem 1rem;
   border: 1px solid var(--color-border, #e2e8f0);
   border-radius: var(--radius-md, 8px);
-  background: var(--color-surface, #fff);
+  background: var(--task-edit-surface);
   cursor: pointer;
   transition: all 150ms ease;
 }
@@ -1573,7 +1609,7 @@ function close() {
   left: 0;
   right: 0;
   overflow-y: auto;
-  background: var(--color-surface, #fff);
+  background: var(--color-surface-elevated, #fff);
   border: 1px solid var(--color-border, #e2e8f0);
   border-radius: var(--radius-lg, 12px);
   box-shadow:
@@ -1598,7 +1634,7 @@ function close() {
 }
 
 .dep-option:hover {
-  background: var(--color-bg-secondary, #f8fafc);
+  background: var(--task-edit-surface-soft);
 }
 
 .dep-option.selected {
@@ -1617,7 +1653,7 @@ function close() {
   height: 18px;
   border: 1.5px solid var(--color-border, #e2e8f0);
   border-radius: 4px;
-  background: var(--color-surface, #fff);
+  background: var(--task-edit-surface);
   color: white;
   transition: all 150ms ease;
 }
@@ -1648,7 +1684,7 @@ function close() {
   justify-content: flex-end;
   gap: 0.75rem;
   padding: 1rem 1.5rem;
-  background: linear-gradient(180deg, rgba(249, 250, 251, 0.98), rgba(244, 247, 250, 0.96));
+  background: linear-gradient(180deg, var(--task-edit-surface), var(--task-edit-surface-soft));
   border-top: 1px solid var(--color-border, #e2e8f0);
   box-shadow: 0 -10px 24px rgb(15 23 42 / 4%);
 }
@@ -1657,7 +1693,7 @@ function close() {
   padding: 0.625rem 1.25rem;
   border: 1px solid var(--color-border, #e2e8f0);
   border-radius: var(--radius-md, 8px);
-  background: var(--color-surface, #fff);
+  background: var(--task-edit-surface);
   color: var(--color-text-primary, #1e293b);
   font-size: 0.875rem;
   font-weight: 500;
@@ -1666,7 +1702,7 @@ function close() {
 }
 
 .btn-cancel:hover {
-  background: color-mix(in srgb, var(--color-surface, #fff) 94%, rgba(241, 245, 249, 0.9));
+  background: color-mix(in srgb, var(--task-edit-accent) 4%, var(--task-edit-surface));
   border-color: color-mix(in srgb, var(--color-border, #e2e8f0) 70%, var(--task-edit-accent));
 }
 

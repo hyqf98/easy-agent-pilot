@@ -7,8 +7,9 @@ import { conversationService } from '@/services/conversation'
 import { useTokenStore } from '@/stores/token'
 import { EaIcon } from '@/components/common'
 import { FILE_MENTION_PATTERN, getMentionDisplayText } from '@/utils/fileMention'
-import { parseStructuredContent } from '@/utils/structuredContent'
+import { extractFormResponse, parseStructuredContent } from '@/utils/structuredContent'
 import { getAttachmentPreviewUrl, resolveAttachmentPreviewUrl } from '@/utils/attachmentPreview'
+import { isContextRuntimeNotice } from '@/utils/runtimeNotice'
 import StructuredContentRenderer from './StructuredContentRenderer.vue'
 import ToolCallDisplay from './ToolCallDisplay.vue'
 import ThinkingDisplay from './ThinkingDisplay.vue'
@@ -16,7 +17,14 @@ import CompressionMessageBubble from './CompressionMessageBubble.vue'
 import RuntimeNoticeList from './RuntimeNoticeList.vue'
 
 const { t, locale } = useI18n()
-const props = defineProps<{ message: Message; sessionId?: string }>()
+const props = withDefaults(defineProps<{
+  message: Message
+  sessionId?: string
+  hideContextStrategyNotice?: boolean
+}>(), {
+  sessionId: undefined,
+  hideContextStrategyNotice: false
+})
 const emit = defineEmits<{
   retry: [message: Message]
   formSubmit: [formId: string, values: Record<string, unknown>]
@@ -115,10 +123,68 @@ interface MessagePart {
   content: string
 }
 
+const userFormResponse = computed(() => {
+  if (!isUser.value || !props.sessionId) return null
+  return extractFormResponse(props.message.content)
+})
+
+const userFormResponseDisplay = computed(() => {
+  const formResponse = userFormResponse.value
+  if (!formResponse || !props.sessionId) return null
+
+  const sessionMessages = messageStore.messagesBySession(props.sessionId)
+  const currentIndex = sessionMessages.findIndex(message => message.id === props.message.id)
+  if (currentIndex < 0) return null
+
+  // 从前面的 assistant 消息中查找表单 schema，获取字段 label
+  const fieldLabelMap = new Map<string, string>()
+  const fieldOptionsMap = new Map<string, Array<{ label: string; value: unknown }>>()
+
+  for (let index = currentIndex - 1; index >= 0; index -= 1) {
+    const candidate = sessionMessages[index]
+    if (candidate.role !== 'assistant') continue
+
+    const blocks = parseStructuredContent(candidate.content)
+    for (const block of blocks) {
+      if (block.type !== 'form' || block.formSchema.formId !== formResponse.formId) continue
+      for (const field of block.formSchema.fields) {
+        fieldLabelMap.set(field.name, field.label)
+        if (field.options) {
+          fieldOptionsMap.set(field.name, field.options)
+        }
+      }
+    }
+    if (fieldLabelMap.size > 0) break
+  }
+
+  const lines: string[] = []
+  for (const [key, rawValue] of Object.entries(formResponse.values)) {
+    const label = fieldLabelMap.get(key) || key
+    const options = fieldOptionsMap.get(key)
+    let displayValue = String(rawValue ?? '')
+
+    if (options && options.length > 0) {
+      const optionLabels = (Array.isArray(rawValue) ? rawValue : [rawValue])
+        .map((val: unknown) => options.find(opt => String(opt.value) === String(val))?.label || String(val))
+      displayValue = optionLabels.join(', ')
+    }
+
+    lines.push(`${label}: ${displayValue}`)
+  }
+
+  return lines.length > 0 ? lines : null
+})
+
 const processedUserMessage = computed(() => {
   if (!isUser.value) return []
 
   const content = props.message.content
+
+  // 如果是表单响应，已在 userFormResponseDisplay 中单独渲染
+  if (userFormResponseDisplay.value) {
+    return []
+  }
+
   const parts: MessagePart[] = []
 
   // 支持 @path 和 @"path with spaces" 两种文件引用格式
@@ -238,6 +304,11 @@ const runtimeUsageFallback = computed(() => {
     inputTokens: realtimeUsage.inputTokens,
     outputTokens: realtimeUsage.outputTokens
   }
+})
+
+const visibleRuntimeNotices = computed(() => {
+  const notices = props.message.runtimeNotices ?? []
+  return notices.filter(notice => !isContextRuntimeNotice(notice))
 })
 
 const assistantVisibleEditTraces = computed(() => {
@@ -363,6 +434,44 @@ const isAssistantFormOnly = computed(() => {
   const blocks = parseStructuredContent(props.message.content)
   return blocks.length > 0 && blocks.every(block => block.type === 'form')
 })
+
+const assistantFormIds = computed(() => {
+  if (!isAssistantFormOnly.value) {
+    return []
+  }
+
+  return parseStructuredContent(props.message.content)
+    .filter(block => block.type === 'form')
+    .map(block => block.formSchema.formId)
+})
+
+const resolvedFormResponse = computed(() => {
+  if (!props.sessionId || assistantFormIds.value.length === 0) {
+    return null
+  }
+
+  const sessionMessages = messageStore.messagesBySession(props.sessionId)
+  const currentIndex = sessionMessages.findIndex(message => message.id === props.message.id)
+  if (currentIndex < 0) {
+    return null
+  }
+
+  for (let index = currentIndex + 1; index < sessionMessages.length; index += 1) {
+    const candidate = sessionMessages[index]
+    if (candidate.role !== 'user') {
+      continue
+    }
+
+    const formResponse = extractFormResponse(candidate.content)
+    if (formResponse && assistantFormIds.value.includes(formResponse.formId)) {
+      return formResponse
+    }
+  }
+
+  return null
+})
+
+
 </script>
 
 <template>
@@ -413,10 +522,25 @@ const isAssistantFormOnly = computed(() => {
         <StructuredContentRenderer
           v-if="!isUser"
           :content="message.content"
-          :interactive-forms="isAssistant"
+          :interactive-forms="isAssistant && !resolvedFormResponse"
+          :form-disabled="Boolean(resolvedFormResponse)"
           :animate="isAssistant && isStreaming"
+          :resolved-form-values="resolvedFormResponse?.values ?? null"
           @form-submit="handleFormSubmit"
         />
+        <div
+          v-else-if="userFormResponseDisplay"
+          class="message-bubble__form-response"
+        >
+          <div
+            v-for="(line, index) in userFormResponseDisplay"
+            :key="index"
+            class="message-bubble__form-response-item"
+          >
+            <span class="message-bubble__form-response-label">{{ line.split(': ')[0] }}</span>
+            <span class="message-bubble__form-response-value">{{ line.split(': ').slice(1).join(': ') }}</span>
+          </div>
+        </div>
         <div
           v-else-if="hasUserText"
           class="message-bubble__text"
@@ -455,11 +579,11 @@ const isAssistantFormOnly = computed(() => {
       </div>
 
       <div
-        v-if="isAssistant && message.runtimeNotices && message.runtimeNotices.length > 0"
+        v-if="isAssistant && visibleRuntimeNotices.length > 0"
         class="message-bubble__runtime"
       >
         <RuntimeNoticeList
-          :notices="message.runtimeNotices"
+          :notices="visibleRuntimeNotices"
           :fallback-usage="runtimeUsageFallback"
         />
       </div>
@@ -642,10 +766,10 @@ const isAssistantFormOnly = computed(() => {
       </div>
       <!-- 错误消息提示 -->
       <div
-        v-if="isError && message.errorMessage"
+        v-if="isError"
         class="message-bubble__error"
       >
-        {{ message.errorMessage }}
+        {{ errorMessage }}
       </div>
     </div>
     <div
@@ -662,7 +786,6 @@ const isAssistantFormOnly = computed(() => {
   --message-fixed-width: 36rem;
   --message-min-width: var(--message-fixed-width);
   --message-max-width: 50rem;
-  --message-max-height: 42rem;
   --message-compact-max-width: var(--message-fixed-width);
   --message-compact-max-height: 20rem;
   --message-trace-max-width: 46rem;
@@ -761,10 +884,9 @@ const isAssistantFormOnly = computed(() => {
   width: fit-content;
   min-width: min(100%, var(--message-fixed-width));
   max-width: min(100%, var(--message-max-width));
-  max-height: var(--message-max-height);
   box-sizing: border-box;
   animation: fadeIn 0.2s ease-out;
-  overflow: auto;
+  overflow: visible;
 }
 
 /* AI 消息样式 */
@@ -812,6 +934,31 @@ const isAssistantFormOnly = computed(() => {
   white-space: break-spaces;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.message-bubble__form-response {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.message-bubble__form-response-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0;
+  line-height: 1.4;
+}
+
+.message-bubble__form-response-label {
+  font-size: 0.78em;
+  color: color-mix(in srgb, currentColor 60%, transparent);
+  font-weight: 500;
+}
+
+.message-bubble__form-response-value {
+  font-size: 0.92em;
+  font-weight: 600;
 }
 
 .message-bubble__content ::selection {
@@ -1429,7 +1576,6 @@ const isAssistantFormOnly = computed(() => {
     --message-fixed-width: min(calc(100vw - 104px), 18.5rem);
     --message-min-width: var(--message-fixed-width);
     --message-max-width: min(calc(100vw - 104px), 24.5rem);
-    --message-max-height: 24rem;
     --message-compact-max-width: var(--message-fixed-width);
     --message-compact-max-height: 16rem;
     --message-trace-max-width: min(calc(100vw - 104px), 24rem);

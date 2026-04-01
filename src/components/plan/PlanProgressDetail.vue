@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useConfirmDialog } from '@/composables'
 import { useAgentStore } from '@/stores/agent'
+import { useAgentTeamsStore } from '@/stores/agentTeams'
 import { usePlanStore } from '@/stores/plan'
 import { useTaskExecutionStore } from '@/stores/taskExecution'
 import { useTaskStore } from '@/stores/task'
@@ -23,6 +24,7 @@ const taskExecutionStore = useTaskExecutionStore()
 const taskStore = useTaskStore()
 const planStore = usePlanStore()
 const agentStore = useAgentStore()
+const agentTeamsStore = useAgentTeamsStore()
 const confirmDialog = useConfirmDialog()
 
 const isLoading = ref(false)
@@ -128,6 +130,12 @@ function compactText(content: string | null | undefined, fallback: string = '暂
 
 function resolveAgentLabel(task: PlanExecutionTaskProgress): string {
   const selection = resolvePlanTaskAgentSelection(task, plan.value)
+  const expert = selection.expertId
+    ? agentTeamsStore.getExpertById(selection.expertId)
+    : null
+  if (expert) {
+    return selection.modelId ? `${expert.name} / ${selection.modelId}` : expert.name
+  }
   if (!selection.agentId) {
     return '未指定'
   }
@@ -202,6 +210,9 @@ watch(
 onMounted(async () => {
   if (agentStore.agents.length === 0) {
     await agentStore.loadAgents()
+  }
+  if (agentTeamsStore.experts.length === 0) {
+    await agentTeamsStore.loadExperts()
   }
   await loadProgress()
 })

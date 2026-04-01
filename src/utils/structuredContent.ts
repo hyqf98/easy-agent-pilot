@@ -9,6 +9,11 @@ export interface StructuredExecutionResult {
   deletedFiles: string[]
 }
 
+export interface StructuredFormResponse {
+  formId: string
+  values: Record<string, unknown>
+}
+
 export type StructuredContentBlock =
   | {
     type: 'markdown'
@@ -283,6 +288,25 @@ function parseStructuredJsonValue(value: unknown): StructuredContentBlock[] | nu
   return null
 }
 
+function toFormResponse(value: unknown): StructuredFormResponse | null {
+  if (!isRecord(value) || value.type !== 'form_response' || typeof value.formId !== 'string') {
+    return null
+  }
+
+  return {
+    formId: value.formId,
+    values: isRecord(value.values) ? value.values : {}
+  }
+}
+
+function tryParseFormResponse(rawJson: string): StructuredFormResponse | null {
+  try {
+    return toFormResponse(JSON.parse(rawJson) as unknown)
+  } catch {
+    return null
+  }
+}
+
 function pushMarkdownBlock(blocks: StructuredContentBlock[], content: string): void {
   if (!content.trim()) {
     return
@@ -519,4 +543,25 @@ export function containsFormSchema(content: string, formId?: string): boolean {
   return parseStructuredContent(content).some(block =>
     block.type === 'form' && block.formSchema.formId === formId
   )
+}
+
+export function extractFormResponse(content: string): StructuredFormResponse | null {
+  const trimmed = content.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  const fullResponse = tryParseFormResponse(trimmed)
+  if (fullResponse) {
+    return fullResponse
+  }
+
+  for (const { start, end } of extractBalancedJsonRanges(content)) {
+    const nestedResponse = tryParseFormResponse(content.slice(start, end))
+    if (nestedResponse) {
+      return nestedResponse
+    }
+  }
+
+  return null
 }

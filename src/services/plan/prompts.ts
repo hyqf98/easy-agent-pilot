@@ -175,11 +175,12 @@ function buildPlanSplitFormSchema() {
 function buildPlanSplitTaskSchema() {
   return {
     type: 'object',
-    required: ['title', 'description', 'priority', 'implementationSteps', 'testSteps', 'acceptanceCriteria'],
+    required: ['title', 'description', 'priority', 'expertId', 'implementationSteps', 'testSteps', 'acceptanceCriteria'],
     properties: {
       title: { type: 'string', minLength: 1 },
       description: { type: 'string', minLength: 1 },
       priority: { type: 'string', enum: ['high', 'medium', 'low'] },
+      expertId: { type: 'string', minLength: 1 },
       implementationSteps: {
         type: 'array',
         minItems: 1,
@@ -299,11 +300,12 @@ function buildCodexPlanSplitFormSchema() {
 function buildCodexPlanSplitTaskSchema() {
   return {
     type: 'object',
-    required: ['title', 'description', 'priority', 'implementationSteps', 'testSteps', 'acceptanceCriteria', 'dependsOn'],
+    required: ['title', 'description', 'priority', 'expertId', 'implementationSteps', 'testSteps', 'acceptanceCriteria', 'dependsOn'],
     properties: {
       title: { type: 'string', minLength: 1 },
       description: { type: 'string', minLength: 1 },
       priority: { type: 'string', enum: ['high', 'medium', 'low'] },
+      expertId: { type: 'string', minLength: 1 },
       implementationSteps: {
         type: 'array',
         minItems: 1,

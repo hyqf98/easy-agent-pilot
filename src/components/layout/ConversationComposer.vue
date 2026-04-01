@@ -336,7 +336,7 @@ defineExpose({
                   :size="12"
                 />
                 <span>{{ option.label }}</span>
-                <span class="composer-chip__tag">{{ option.type === 'cli' ? 'CLI' : 'SDK' }}</span>
+                <span class="composer-chip__tag">{{ option.provider ? option.provider.toUpperCase() + ' CLI' : option.type === 'cli' ? 'CLI' : 'SDK' }}</span>
               </div>
             </div>
           </Transition>
@@ -471,7 +471,7 @@ defineExpose({
                     :size="12"
                   />
                   <span>{{ option.label }}</span>
-                  <span class="composer-chip__tag">{{ option.type === 'cli' ? 'CLI' : 'SDK' }}</span>
+                  <span class="composer-chip__tag">{{ option.provider ? option.provider.toUpperCase() + ' CLI' : option.type === 'cli' ? 'CLI' : 'SDK' }}</span>
                 </div>
               </div>
             </Transition>
@@ -745,265 +745,267 @@ defineExpose({
         <pre class="conversation-composer__memory-preview-content">{{ currentMemoryPreview.fullContent }}</pre>
       </div>
 
-      <div
-        v-if="isMainPanel && shouldShowMemorySuggestions"
-        class="conversation-composer__memory-panel"
-      >
-        <div class="conversation-composer__memory-panel-header">
-          <div>
-            <div class="conversation-composer__memory-eyebrow">
-              {{ t('message.memorySuggestionEyebrow') }}
-            </div>
-            <div class="conversation-composer__memory-title">
-              {{ hasVisibleMemorySuggestions ? t('message.memorySuggestionTitle') : t('message.memorySearchingActive') }}
+      <div class="conversation-composer__editor-stack">
+        <div
+          v-if="isMainPanel && shouldShowMemorySuggestions"
+          class="conversation-composer__memory-panel conversation-composer__memory-panel--floating"
+        >
+          <div class="conversation-composer__memory-panel-header">
+            <div>
+              <div class="conversation-composer__memory-eyebrow">
+                {{ t('message.memorySuggestionEyebrow') }}
+              </div>
+              <div class="conversation-composer__memory-title">
+                {{ hasVisibleMemorySuggestions ? t('message.memorySuggestionTitle') : t('message.memorySearchingActive') }}
+              </div>
+              <div
+                v-if="hasVisibleMemorySuggestions"
+                class="conversation-composer__memory-keyboard-hint"
+              >
+                {{ t('message.memoryKeyboardHint') }}
+              </div>
             </div>
             <div
-              v-if="hasVisibleMemorySuggestions"
-              class="conversation-composer__memory-keyboard-hint"
+              v-if="isMemorySuggestionLoading"
+              class="conversation-composer__memory-loading"
             >
-              {{ t('message.memoryKeyboardHint') }}
+              <span class="conversation-composer__memory-spinner" />
+              <span>{{ t('message.memorySearchingActive') }}</span>
             </div>
           </div>
+
           <div
-            v-if="isMemorySuggestionLoading"
-            class="conversation-composer__memory-loading"
+            v-if="currentMemoryPreview"
+            class="conversation-composer__memory-preview"
+            :class="{
+              'conversation-composer__memory-preview--library': currentMemoryPreview.sourceType === 'library_chunk',
+              'conversation-composer__memory-preview--raw': currentMemoryPreview.sourceType === 'raw_record'
+            }"
           >
-            <span class="conversation-composer__memory-spinner" />
-            <span>{{ t('message.memorySearchingActive') }}</span>
+            <div class="conversation-composer__memory-preview-header">
+              <span class="conversation-composer__memory-preview-label">
+                {{ t('message.memoryPreviewTitle') }}
+              </span>
+              <span class="conversation-composer__memory-preview-source">
+                {{ currentMemoryPreview.sourceLabel }}
+              </span>
+            </div>
+            <div class="conversation-composer__memory-preview-name">
+              {{ currentMemoryPreview.title }}
+            </div>
+            <pre class="conversation-composer__memory-preview-content">{{ currentMemoryPreview.fullContent }}</pre>
           </div>
-        </div>
 
-        <div
-          v-if="currentMemoryPreview"
-          class="conversation-composer__memory-preview"
-          :class="{
-            'conversation-composer__memory-preview--library': currentMemoryPreview.sourceType === 'library_chunk',
-            'conversation-composer__memory-preview--raw': currentMemoryPreview.sourceType === 'raw_record'
-          }"
-        >
-          <div class="conversation-composer__memory-preview-header">
-            <span class="conversation-composer__memory-preview-label">
-              {{ t('message.memoryPreviewTitle') }}
-            </span>
-            <span class="conversation-composer__memory-preview-source">
-              {{ currentMemoryPreview.sourceLabel }}
-            </span>
+          <div
+            v-if="shouldShowMemorySuggestionEmptyState"
+            class="conversation-composer__memory-empty"
+          >
+            <div class="conversation-composer__memory-empty-title">
+              {{ t('message.memoryNoMatches') }}
+            </div>
+            <div class="conversation-composer__memory-empty-hint">
+              {{ t('message.memoryKeepTypingHint') }}
+            </div>
           </div>
-          <div class="conversation-composer__memory-preview-name">
-            {{ currentMemoryPreview.title }}
-          </div>
-          <pre class="conversation-composer__memory-preview-content">{{ currentMemoryPreview.fullContent }}</pre>
-        </div>
 
-        <div
-          v-if="shouldShowMemorySuggestionEmptyState"
-          class="conversation-composer__memory-empty"
-        >
-          <div class="conversation-composer__memory-empty-title">
-            {{ t('message.memoryNoMatches') }}
+          <div
+            v-else-if="shouldShowMemorySuggestionIdleHint"
+            class="conversation-composer__memory-empty conversation-composer__memory-empty--subtle"
+          >
+            <div class="conversation-composer__memory-empty-hint">
+              {{ t('message.memorySearchSettling') }}
+            </div>
           </div>
-          <div class="conversation-composer__memory-empty-hint">
-            {{ t('message.memoryKeepTypingHint') }}
-          </div>
-        </div>
 
-        <div
-          v-else-if="shouldShowMemorySuggestionIdleHint"
-          class="conversation-composer__memory-empty conversation-composer__memory-empty--subtle"
-        >
-          <div class="conversation-composer__memory-empty-hint">
-            {{ t('message.memorySearchSettling') }}
-          </div>
-        </div>
-
-        <div
-          v-if="hasVisibleMemorySuggestions && visibleMemorySuggestions.librarySuggestions.length > 0"
-          class="conversation-composer__memory-group"
-        >
-          <div class="conversation-composer__memory-group-title">
-            {{ t('message.memorySourceLibrary') }}
-          </div>
-          <div class="conversation-composer__memory-list">
-            <article
-              v-for="suggestion in visibleMemorySuggestions.librarySuggestions"
-              :key="`${suggestion.sourceType}:${suggestion.sourceId}`"
-              class="conversation-composer__memory-card conversation-composer__memory-card--library"
-              :class="{
-                'conversation-composer__memory-card--active': isActiveMemorySuggestion(suggestion)
-              }"
-              role="option"
-              :aria-selected="isActiveMemorySuggestion(suggestion)"
-              :title="suggestion.fullContent"
-              @mouseenter="previewMemorySuggestion(suggestion)"
-              @mouseleave="clearMemoryPreview"
-            >
-              <div class="conversation-composer__memory-card-body">
-                <div class="conversation-composer__memory-card-top">
-                  <span class="conversation-composer__memory-badge">
-                    {{ t('message.memorySourceLibrary') }}
-                  </span>
-                  <span class="conversation-composer__memory-card-title">{{ suggestion.title }}</span>
+          <div
+            v-if="hasVisibleMemorySuggestions && visibleMemorySuggestions.librarySuggestions.length > 0"
+            class="conversation-composer__memory-group"
+          >
+            <div class="conversation-composer__memory-group-title">
+              {{ t('message.memorySourceLibrary') }}
+            </div>
+            <div class="conversation-composer__memory-list">
+              <article
+                v-for="suggestion in visibleMemorySuggestions.librarySuggestions"
+                :key="`${suggestion.sourceType}:${suggestion.sourceId}`"
+                class="conversation-composer__memory-card conversation-composer__memory-card--library"
+                :class="{
+                  'conversation-composer__memory-card--active': isActiveMemorySuggestion(suggestion)
+                }"
+                role="option"
+                :aria-selected="isActiveMemorySuggestion(suggestion)"
+                :title="suggestion.fullContent"
+                @mouseenter="previewMemorySuggestion(suggestion)"
+                @mouseleave="clearMemoryPreview"
+              >
+                <div class="conversation-composer__memory-card-body">
+                  <div class="conversation-composer__memory-card-top">
+                    <span class="conversation-composer__memory-badge">
+                      {{ t('message.memorySourceLibrary') }}
+                    </span>
+                    <span class="conversation-composer__memory-card-title">{{ suggestion.title }}</span>
+                  </div>
+                  <p class="conversation-composer__memory-card-snippet">
+                    {{ suggestion.snippet || suggestion.fullContent }}
+                  </p>
                 </div>
-                <p class="conversation-composer__memory-card-snippet">
-                  {{ suggestion.snippet || suggestion.fullContent }}
-                </p>
-              </div>
-              <div class="conversation-composer__memory-card-actions">
-                <button
-                  class="conversation-composer__memory-action conversation-composer__memory-action--ghost"
-                  type="button"
-                  @click="dismissMemorySuggestion(suggestion)"
-                >
-                  {{ t('message.memoryDismiss') }}
-                </button>
-                <button
-                  class="conversation-composer__memory-action conversation-composer__memory-action--primary"
-                  type="button"
-                  @click="insertMemoryReference(suggestion)"
-                >
-                  {{ t('message.memoryInsert') }}
-                </button>
-              </div>
-            </article>
-          </div>
-        </div>
-
-        <div
-          v-if="hasVisibleMemorySuggestions && visibleMemorySuggestions.rawSuggestions.length > 0"
-          class="conversation-composer__memory-group"
-        >
-          <div class="conversation-composer__memory-group-title">
-            {{ t('message.memorySourceRaw') }}
-          </div>
-          <div class="conversation-composer__memory-list">
-            <article
-              v-for="suggestion in visibleMemorySuggestions.rawSuggestions"
-              :key="`${suggestion.sourceType}:${suggestion.sourceId}`"
-              class="conversation-composer__memory-card conversation-composer__memory-card--raw"
-              :class="{
-                'conversation-composer__memory-card--active': isActiveMemorySuggestion(suggestion)
-              }"
-              role="option"
-              :aria-selected="isActiveMemorySuggestion(suggestion)"
-              :title="suggestion.fullContent"
-              @mouseenter="previewMemorySuggestion(suggestion)"
-              @mouseleave="clearMemoryPreview"
-            >
-              <div class="conversation-composer__memory-card-body">
-                <div class="conversation-composer__memory-card-top">
-                  <span class="conversation-composer__memory-badge conversation-composer__memory-badge--raw">
-                    {{ t('message.memorySourceRaw') }}
-                  </span>
-                  <span class="conversation-composer__memory-card-title">{{ suggestion.title }}</span>
+                <div class="conversation-composer__memory-card-actions">
+                  <button
+                    class="conversation-composer__memory-action conversation-composer__memory-action--ghost"
+                    type="button"
+                    @click="dismissMemorySuggestion(suggestion)"
+                  >
+                    {{ t('message.memoryDismiss') }}
+                  </button>
+                  <button
+                    class="conversation-composer__memory-action conversation-composer__memory-action--primary"
+                    type="button"
+                    @click="insertMemoryReference(suggestion)"
+                  >
+                    {{ t('message.memoryInsert') }}
+                  </button>
                 </div>
-                <p class="conversation-composer__memory-card-snippet">
-                  {{ suggestion.snippet || suggestion.fullContent }}
-                </p>
-              </div>
-              <div class="conversation-composer__memory-card-actions">
-                <button
-                  class="conversation-composer__memory-action conversation-composer__memory-action--ghost"
-                  type="button"
-                  @click="dismissMemorySuggestion(suggestion)"
-                >
-                  {{ t('message.memoryDismiss') }}
-                </button>
-                <button
-                  class="conversation-composer__memory-action conversation-composer__memory-action--primary"
-                  type="button"
-                  @click="insertMemoryReference(suggestion)"
-                >
-                  {{ t('message.memoryInsert') }}
-                </button>
-              </div>
-            </article>
+              </article>
+            </div>
+          </div>
+
+          <div
+            v-if="hasVisibleMemorySuggestions && visibleMemorySuggestions.rawSuggestions.length > 0"
+            class="conversation-composer__memory-group"
+          >
+            <div class="conversation-composer__memory-group-title">
+              {{ t('message.memorySourceRaw') }}
+            </div>
+            <div class="conversation-composer__memory-list">
+              <article
+                v-for="suggestion in visibleMemorySuggestions.rawSuggestions"
+                :key="`${suggestion.sourceType}:${suggestion.sourceId}`"
+                class="conversation-composer__memory-card conversation-composer__memory-card--raw"
+                :class="{
+                  'conversation-composer__memory-card--active': isActiveMemorySuggestion(suggestion)
+                }"
+                role="option"
+                :aria-selected="isActiveMemorySuggestion(suggestion)"
+                :title="suggestion.fullContent"
+                @mouseenter="previewMemorySuggestion(suggestion)"
+                @mouseleave="clearMemoryPreview"
+              >
+                <div class="conversation-composer__memory-card-body">
+                  <div class="conversation-composer__memory-card-top">
+                    <span class="conversation-composer__memory-badge conversation-composer__memory-badge--raw">
+                      {{ t('message.memorySourceRaw') }}
+                    </span>
+                    <span class="conversation-composer__memory-card-title">{{ suggestion.title }}</span>
+                  </div>
+                  <p class="conversation-composer__memory-card-snippet">
+                    {{ suggestion.snippet || suggestion.fullContent }}
+                  </p>
+                </div>
+                <div class="conversation-composer__memory-card-actions">
+                  <button
+                    class="conversation-composer__memory-action conversation-composer__memory-action--ghost"
+                    type="button"
+                    @click="dismissMemorySuggestion(suggestion)"
+                  >
+                    {{ t('message.memoryDismiss') }}
+                  </button>
+                  <button
+                    class="conversation-composer__memory-action conversation-composer__memory-action--primary"
+                    type="button"
+                    @click="insertMemoryReference(suggestion)"
+                  >
+                    {{ t('message.memoryInsert') }}
+                  </button>
+                </div>
+              </article>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div
-        class="conversation-composer__editor-shell"
-        @contextmenu.prevent
-      >
         <div
-          ref="renderLayerRef"
-          class="conversation-composer__render"
-          :class="{
-            'conversation-composer__render--hidden': !shouldUseRichTextOverlay
-          }"
+          class="conversation-composer__editor-shell"
+          @contextmenu.prevent
         >
-          <template v-if="parsedInputText.length > 0">
-            <template
-              v-for="(segment, index) in parsedInputText"
-              :key="index"
-            >
-              <span
-                v-if="segment.type === 'text'"
-                class="conversation-composer__text"
-              >{{ segment.content }}</span>
-              <span
-                v-else-if="segment.type === 'file'"
-                class="conversation-composer__file-tag"
-                :title="segment.titleContent"
-              >{{ segment.displayContent || segment.content }}</span>
-              <span
-                v-else-if="segment.type === 'memory'"
-                class="conversation-composer__memory-tag"
-                :title="segment.titleContent"
-              >{{ segment.displayContent || segment.content }}</span>
-              <span
-                v-else
-                class="conversation-composer__slash-tag"
-              >{{ segment.content }}</span>
+          <div
+            ref="renderLayerRef"
+            class="conversation-composer__render"
+            :class="{
+              'conversation-composer__render--hidden': !shouldUseRichTextOverlay
+            }"
+          >
+            <template v-if="parsedInputText.length > 0">
+              <template
+                v-for="(segment, index) in parsedInputText"
+                :key="index"
+              >
+                <span
+                  v-if="segment.type === 'text'"
+                  class="conversation-composer__text"
+                >{{ segment.content }}</span>
+                <span
+                  v-else-if="segment.type === 'file'"
+                  class="conversation-composer__file-tag"
+                  :title="segment.titleContent"
+                >{{ segment.displayContent || segment.content }}</span>
+                <span
+                  v-else-if="segment.type === 'memory'"
+                  class="conversation-composer__memory-tag"
+                  :title="segment.titleContent"
+                >{{ segment.displayContent || segment.content }}</span>
+                <span
+                  v-else
+                  class="conversation-composer__slash-tag"
+                >{{ segment.content }}</span>
+              </template>
             </template>
-          </template>
-        </div>
+          </div>
 
-        <div
-          v-if="isMainPanel && !inputText"
-          class="conversation-composer__ghost-hints"
-        >
-          <span class="conversation-composer__ghost-hint-pill">
-            <EaIcon
-              name="image-up"
-              :size="11"
-            />
-            <span>{{ t('message.ghostHintImages') }}</span>
-          </span>
-          <span class="conversation-composer__ghost-hint-pill">
-            <EaIcon
-              name="at-sign"
-              :size="11"
-            />
-            <span>{{ t('message.ghostHintFiles') }}</span>
-          </span>
-          <span class="conversation-composer__ghost-hint-pill">
-            <EaIcon
-              name="corner-down-left"
-              :size="11"
-            />
-            <span>{{ t('message.ghostHintSend', { shortcut: composerSendShortcutHint }) }}</span>
-          </span>
-        </div>
+          <div
+            v-if="isMainPanel && !inputText"
+            class="conversation-composer__ghost-hints"
+          >
+            <span class="conversation-composer__ghost-hint-pill">
+              <EaIcon
+                name="image-up"
+                :size="11"
+              />
+              <span>{{ t('message.ghostHintImages') }}</span>
+            </span>
+            <span class="conversation-composer__ghost-hint-pill">
+              <EaIcon
+                name="at-sign"
+                :size="11"
+              />
+              <span>{{ t('message.ghostHintFiles') }}</span>
+            </span>
+            <span class="conversation-composer__ghost-hint-pill">
+              <EaIcon
+                name="corner-down-left"
+                :size="11"
+              />
+              <span>{{ t('message.ghostHintSend', { shortcut: composerSendShortcutHint }) }}</span>
+            </span>
+          </div>
 
-        <textarea
-          ref="textareaRef"
-          v-model="inputText"
-          class="conversation-composer__textarea"
-          :class="{
-            'conversation-composer__textarea--overlay': shouldUseRichTextOverlay
-          }"
-          rows="4"
-          :disabled="!sessionId"
-          :placeholder="shouldUseRichTextOverlay ? '' : (inputPlaceholder || t('message.inputPlaceholder', { shortcut: t('message.shortcutEnter') }))"
-          @compositionstart="handleCompositionStart"
-          @compositionend="handleCompositionEnd"
-          @input="handleInput"
-          @keydown="handleKeyDown"
-          @paste="handlePaste"
-          @scroll="syncScroll"
-          @focus="emit('focus')"
-        />
+          <textarea
+            ref="textareaRef"
+            v-model="inputText"
+            class="conversation-composer__textarea"
+            :class="{
+              'conversation-composer__textarea--overlay': shouldUseRichTextOverlay
+            }"
+            rows="4"
+            :disabled="!sessionId"
+            :placeholder="shouldUseRichTextOverlay ? '' : (inputPlaceholder || t('message.inputPlaceholder', { shortcut: t('message.shortcutEnter') }))"
+            @compositionstart="handleCompositionStart"
+            @compositionend="handleCompositionEnd"
+            @input="handleInput"
+            @keydown="handleKeyDown"
+            @paste="handlePaste"
+            @scroll="syncScroll"
+            @focus="emit('focus')"
+          />
+        </div>
       </div>
     </div>
 
@@ -1504,6 +1506,11 @@ defineExpose({
   background: rgba(241, 245, 249, 0.96);
 }
 
+.conversation-composer__editor-stack {
+  position: relative;
+  isolation: isolate;
+}
+
 .conversation-composer__editor-shell {
   position: relative;
   min-height: 122px;
@@ -1757,6 +1764,17 @@ defineExpose({
     radial-gradient(circle at top left, rgba(14, 165, 233, 0.08), transparent 36%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.98));
   box-shadow: 0 16px 38px rgba(15, 23, 42, 0.08);
+}
+
+.conversation-composer__memory-panel--floating {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 4;
+  max-height: min(48vh, 520px);
+  overflow: hidden;
+  backdrop-filter: blur(12px);
 }
 
 .conversation-composer__memory-panel-header,
@@ -2069,6 +2087,11 @@ defineExpose({
 
   .conversation-composer__memory-preview-content {
     max-height: min(16vh, 140px);
+  }
+
+  .conversation-composer__memory-panel--floating {
+    bottom: calc(100% + 8px);
+    max-height: min(42vh, 420px);
   }
 
   .conversation-composer--main .conversation-composer__render,

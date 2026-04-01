@@ -14,6 +14,7 @@ pub struct Session {
     pub id: String,
     pub project_id: String,
     pub name: String,
+    pub expert_id: Option<String>,
     pub agent_id: Option<String>,
     pub agent_type: String,
     pub cli_session_id: Option<String>,
@@ -27,11 +28,23 @@ pub struct Session {
     pub updated_at: String,
 }
 
+/// 会话运行时绑定。
+/// 用于按 runtime_key 持久化不同 CLI/SDK 的外部恢复游标，避免不同运行时之间互相污染。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionRuntimeBinding {
+    pub session_id: String,
+    pub runtime_key: String,
+    pub external_session_id: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 /// 创建会话输入
 #[derive(Debug, Deserialize)]
 pub struct CreateSessionInput {
     pub project_id: String,
     pub name: Option<String>,
+    pub expert_id: Option<String>,
     pub agent_id: Option<String>,
     pub agent_type: String,
     pub status: Option<String>,
@@ -45,6 +58,7 @@ pub struct UpdateSessionInput {
     pub pinned: Option<bool>,
     pub last_message: Option<String>,
     pub error_message: Option<String>,
+    pub expert_id: Option<String>,
     pub agent_id: Option<String>,
     pub agent_type: Option<String>,
     pub cli_session_id: Option<String>,
@@ -82,6 +96,38 @@ fn delete_session_related_runtime_data(
     Ok(())
 }
 
+fn map_session_runtime_binding_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<SessionRuntimeBinding> {
+    Ok(SessionRuntimeBinding {
+        session_id: row.get(0)?,
+        runtime_key: row.get(1)?,
+        external_session_id: row.get(2)?,
+        created_at: row.get(3)?,
+        updated_at: row.get(4)?,
+    })
+}
+
+fn get_session_runtime_binding_internal(
+    conn: &Connection,
+    session_id: &str,
+    runtime_key: &str,
+) -> Result<Option<SessionRuntimeBinding>, String> {
+    match conn.query_row(
+        r#"
+        SELECT session_id, runtime_key, external_session_id, created_at, updated_at
+        FROM session_runtime_bindings
+        WHERE session_id = ?1 AND runtime_key = ?2
+        "#,
+        rusqlite::params![session_id, runtime_key],
+        map_session_runtime_binding_row,
+    ) {
+        Ok(binding) => Ok(Some(binding)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
 /// 获取指定项目的所有会话
 #[tauri::command]
 pub fn list_sessions(project_id: String) -> Result<Vec<Session>, String> {
@@ -90,7 +136,7 @@ pub fn list_sessions(project_id: String) -> Result<Vec<Session>, String> {
     let mut stmt = conn
         .prepare(
             r#"
-            SELECT s.id, s.project_id, s.name, s.agent_id, s.agent_type,
+            SELECT s.id, s.project_id, s.name, s.expert_id, s.agent_id, s.agent_type,
                    s.cli_session_id, s.cli_session_provider, s.status,
                    COALESCE(s.pinned, 0) as pinned,
                    m.last_message, s.error_message, COALESCE(m.message_count, 0) as message_count,
@@ -115,17 +161,18 @@ pub fn list_sessions(project_id: String) -> Result<Vec<Session>, String> {
                 id: row.get(0)?,
                 project_id: row.get(1)?,
                 name: row.get(2)?,
-                agent_id: row.get(3)?,
-                agent_type: row.get(4)?,
-                cli_session_id: row.get(5)?,
-                cli_session_provider: row.get(6)?,
-                status: row.get(7)?,
-                pinned: row.get::<_, i32>(8)? != 0,
-                last_message: row.get(9)?,
-                error_message: row.get(10)?,
-                message_count: row.get(11)?,
-                created_at: row.get(12)?,
-                updated_at: row.get(13)?,
+                expert_id: row.get(3)?,
+                agent_id: row.get(4)?,
+                agent_type: row.get(5)?,
+                cli_session_id: row.get(6)?,
+                cli_session_provider: row.get(7)?,
+                status: row.get(8)?,
+                pinned: row.get::<_, i32>(9)? != 0,
+                last_message: row.get(10)?,
+                error_message: row.get(11)?,
+                message_count: row.get(12)?,
+                created_at: row.get(13)?,
+                updated_at: row.get(14)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -146,11 +193,12 @@ pub fn create_session(input: CreateSessionInput) -> Result<Session, String> {
     let status = input.status.unwrap_or_else(|| "idle".to_string());
 
     conn.execute(
-        "INSERT INTO sessions (id, project_id, name, agent_id, agent_type, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        "INSERT INTO sessions (id, project_id, name, expert_id, agent_id, agent_type, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         rusqlite::params![
             &id,
             &input.project_id,
             &name,
+            &input.expert_id,
             &input.agent_id,
             &input.agent_type,
             &status,
@@ -171,6 +219,7 @@ pub fn create_session(input: CreateSessionInput) -> Result<Session, String> {
         id,
         project_id: input.project_id,
         name,
+        expert_id: input.expert_id,
         agent_id: input.agent_id,
         agent_type: input.agent_type,
         cli_session_id: None,
@@ -214,6 +263,10 @@ pub fn update_session(id: String, input: UpdateSessionInput) -> Result<Session, 
     }
     if input.error_message.is_some() {
         updates.push(format!("error_message = ?{}", param_index));
+        param_index += 1;
+    }
+    if input.expert_id.is_some() {
+        updates.push(format!("expert_id = ?{}", param_index));
         param_index += 1;
     }
     if input.agent_id.is_some() {
@@ -272,6 +325,11 @@ pub fn update_session(id: String, input: UpdateSessionInput) -> Result<Session, 
             .map_err(|e| e.to_string())?;
         param_count += 1;
     }
+    if let Some(ref expert_id) = input.expert_id {
+        stmt.raw_bind_parameter(param_count, expert_id)
+            .map_err(|e| e.to_string())?;
+        param_count += 1;
+    }
     if let Some(ref agent_id) = input.agent_id {
         stmt.raw_bind_parameter(param_count, agent_id)
             .map_err(|e| e.to_string())?;
@@ -309,7 +367,7 @@ fn get_session_by_id(conn: &Connection, id: &str) -> Result<Session, String> {
     let mut stmt = conn
         .prepare(
             r#"
-            SELECT s.id, s.project_id, s.name, s.agent_id, s.agent_type,
+            SELECT s.id, s.project_id, s.name, s.expert_id, s.agent_id, s.agent_type,
                    s.cli_session_id, s.cli_session_provider, s.status,
                    COALESCE(s.pinned, 0) as pinned,
                    m.last_message, s.error_message, COALESCE(m.message_count, 0) as message_count,
@@ -333,17 +391,18 @@ fn get_session_by_id(conn: &Connection, id: &str) -> Result<Session, String> {
                 id: row.get(0)?,
                 project_id: row.get(1)?,
                 name: row.get(2)?,
-                agent_id: row.get(3)?,
-                agent_type: row.get(4)?,
-                cli_session_id: row.get(5)?,
-                cli_session_provider: row.get(6)?,
-                status: row.get(7)?,
-                pinned: row.get::<_, i32>(8)? != 0,
-                last_message: row.get(9)?,
-                error_message: row.get(10)?,
-                message_count: row.get(11)?,
-                created_at: row.get(12)?,
-                updated_at: row.get(13)?,
+                expert_id: row.get(3)?,
+                agent_id: row.get(4)?,
+                agent_type: row.get(5)?,
+                cli_session_id: row.get(6)?,
+                cli_session_provider: row.get(7)?,
+                status: row.get(8)?,
+                pinned: row.get::<_, i32>(9)? != 0,
+                last_message: row.get(10)?,
+                error_message: row.get(11)?,
+                message_count: row.get(12)?,
+                created_at: row.get(13)?,
+                updated_at: row.get(14)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -394,4 +453,60 @@ pub fn toggle_session_pin(id: String) -> Result<Session, String> {
     let session = get_session_by_id(&conn, &id)?;
 
     Ok(session)
+}
+
+/// 获取指定会话在某个运行时下的恢复绑定。
+#[tauri::command]
+pub fn get_session_runtime_binding(
+    session_id: String,
+    runtime_key: String,
+) -> Result<Option<SessionRuntimeBinding>, String> {
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
+    get_session_runtime_binding_internal(&conn, &session_id, &runtime_key)
+}
+
+/// 创建或更新会话的运行时恢复绑定。
+#[tauri::command]
+pub fn upsert_session_runtime_binding(
+    session_id: String,
+    runtime_key: String,
+    external_session_id: String,
+) -> Result<SessionRuntimeBinding, String> {
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
+    let now = now_rfc3339();
+
+    conn.execute(
+        r#"
+        INSERT INTO session_runtime_bindings (
+            session_id,
+            runtime_key,
+            external_session_id,
+            created_at,
+            updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5)
+        ON CONFLICT(session_id, runtime_key) DO UPDATE SET
+            external_session_id = excluded.external_session_id,
+            updated_at = excluded.updated_at
+        "#,
+        rusqlite::params![&session_id, &runtime_key, &external_session_id, &now, &now],
+    )
+    .map_err(|e| e.to_string())?;
+
+    get_session_runtime_binding_internal(&conn, &session_id, &runtime_key)?
+        .ok_or_else(|| "会话运行时绑定写入后读取失败".to_string())
+}
+
+/// 删除会话在某个运行时下的恢复绑定。
+#[tauri::command]
+pub fn delete_session_runtime_binding(
+    session_id: String,
+    runtime_key: String,
+) -> Result<(), String> {
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
+    conn.execute(
+        "DELETE FROM session_runtime_bindings WHERE session_id = ?1 AND runtime_key = ?2",
+        rusqlite::params![&session_id, &runtime_key],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }

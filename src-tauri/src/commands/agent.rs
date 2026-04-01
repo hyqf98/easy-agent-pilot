@@ -6,6 +6,7 @@ use super::support::{
     bind_optional, bind_optional_mapped, bind_value, bool_from_int, now_rfc3339,
     open_db_connection, UpdateSqlBuilder,
 };
+use super::agent_team::ensure_builtin_agent_experts;
 
 /// 智能体配置数据结构
 /// 统一支持 CLI 和 SDK 两种类型的智能体
@@ -203,6 +204,8 @@ pub fn create_agent(input: CreateAgentInput) -> Result<Agent, String> {
     )
     .map_err(|e| e.to_string())?;
 
+    ensure_builtin_agent_experts(&conn)?;
+
     Ok(Agent {
         id,
         name: input.name,
@@ -270,6 +273,8 @@ pub fn update_agent(id: String, input: UpdateAgentInput) -> Result<Agent, String
 
     stmt.raw_execute().map_err(|e| e.to_string())?;
 
+    ensure_builtin_agent_experts(&conn)?;
+
     // 获取更新后的智能体
     let agent = get_agent_by_id(&conn, &id)?;
 
@@ -303,6 +308,8 @@ pub fn delete_agent(id: String) -> Result<(), String> {
 
     conn.execute("DELETE FROM agents WHERE id = ?1", [&id])
         .map_err(|e| e.to_string())?;
+
+    ensure_builtin_agent_experts(&conn)?;
 
     Ok(())
 }

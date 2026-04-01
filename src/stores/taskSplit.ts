@@ -2,10 +2,16 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import { useAgentStore, type AgentConfig } from './agent'
+import { inferAgentProvider, useAgentStore, type AgentConfig } from './agent'
+import { useAgentTeamsStore } from './agentTeams'
 import { usePlanStore } from './plan'
 import { logger } from '@/utils/logger'
 import { normalizeFormSchemaForRendering, normalizeFormSchemasForRendering } from '@/utils/formSchema'
+import {
+  buildExpertCatalogPrompt,
+  buildExpertSystemPrompt,
+  resolveExpertById
+} from '@/services/agentTeams/runtime'
 import {
   buildPlanSplitJsonSchema,
   buildPlanSplitKickoffPrompt,
@@ -16,7 +22,7 @@ import { resolveUsageModelHint } from '@/services/conversation/usageModelHint'
 import type { ExecutionRequest, MessageInput } from '@/services/conversation/strategies/types'
 import { buildAgentExecutionRequest } from '@/services/conversation/runtimeProfiles'
 import type { RuntimeNotice } from '@/utils/runtimeNotice'
-import { buildCliEnvironmentNotice } from '@/utils/runtimeNotice'
+import { buildCliEnvironmentNotice, buildContextStrategyNotice } from '@/utils/runtimeNotice'
 import { loadAgentMcpServers } from '@/utils/mcpServerConfig'
 import {
   findLatestUsageSnapshot,
@@ -38,6 +44,7 @@ interface TaskSplitContext {
   planName: string
   planDescription?: string
   granularity: number
+  expertId?: string
   agentId: string
   modelId: string
   workingDirectory?: string
@@ -185,6 +192,22 @@ function toPlanSplitLogs(logs: PlanSplitLogRecord[]): PlanSplitLogRecord[] {
     ...log,
     type: log.type
   }))
+}
+
+async function buildSplitSystemPrompt(expertId?: string): Promise<string> {
+  const agentStore = useAgentStore()
+  const agentTeamsStore = useAgentTeamsStore()
+  await agentTeamsStore.loadExperts()
+
+  const expert = resolveExpertById(expertId, agentTeamsStore.experts)
+    || agentTeamsStore.builtinPlannerExpert
+    || agentTeamsStore.enabledExperts[0]
+    || null
+
+  return buildExpertSystemPrompt(expert?.prompt, [
+    buildPlanSplitSystemPrompt(),
+    buildExpertCatalogPrompt(agentTeamsStore.enabledExperts, agentStore.agents)
+  ])
 }
 
 export const useTaskSplitStore = defineStore('taskSplit', () => {
@@ -500,9 +523,18 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
         buildCliEnvironmentNotice(selectedAgent).catch(() => null),
         resolveUsageModelHint(selectedAgent).catch(() => undefined)
       ])
-      if (environmentNotice) {
-        runtimeNotices.value = [environmentNotice]
-      }
+      const selectedExpert = resolveExpertById(nextContext.expertId, useAgentTeamsStore().experts)
+      const contextNotice = buildContextStrategyNotice({
+        strategy: 'Plan Split Prompt Context',
+        runtime: inferAgentProvider(selectedAgent)?.toUpperCase() || selectedAgent.type,
+        model: modelHint ?? nextContext.modelId ?? selectedAgent.modelId,
+        expert: selectedExpert?.name || nextContext.expertId,
+        systemMessageCount: 1,
+        userMessageCount: 1,
+        assistantMessageCount: 0,
+        historyMessageCount: 0
+      })
+      runtimeNotices.value = [environmentNotice, contextNotice].filter((notice): notice is RuntimeNotice => Boolean(notice))
       usageModelHint.value = modelHint ?? null
     }
     await subscribeToPlan(nextContext.planId)
@@ -516,7 +548,7 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     const llmMessages: MessageInput[] = [
       {
         role: 'system',
-        content: buildPlanSplitSystemPrompt()
+        content: await buildSplitSystemPrompt(nextContext.expertId)
       },
       {
         role: 'user',
@@ -637,10 +669,15 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
   }
 
   function addSplitTask() {
+    const agentTeamsStore = useAgentTeamsStore()
+    const defaultExpertId = agentTeamsStore.builtinDeveloperExpert?.id
+      || agentTeamsStore.enabledExperts.find(expert => expert.category === 'developer')?.id
+      || undefined
     const nextTask: AITaskItem = {
       title: '',
       description: '',
       priority: 'medium',
+      expertId: defaultExpertId,
       implementationSteps: [''],
       testSteps: [''],
       acceptanceCriteria: ['']
@@ -664,6 +701,7 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     const nextContext: TaskSplitContext = {
       ...context.value,
       granularity: config.granularity,
+      expertId: config.expertId || context.value.expertId,
       agentId: config.agentId || context.value.agentId,
       modelId: config.modelId || context.value.modelId
     }
@@ -672,7 +710,7 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     const llmMessages: MessageInput[] = [
       {
         role: 'system',
-        content: buildPlanSplitSystemPrompt()
+        content: await buildSplitSystemPrompt(nextContext.expertId)
       },
       {
         role: 'user',
@@ -701,6 +739,24 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
       ].filter(Boolean).join('\n'),
       timestamp: new Date().toISOString()
     }]
+
+    const selectedAgent = useAgentStore().agents.find(agent => agent.id === nextContext.agentId)
+    if (selectedAgent) {
+      const contextNotice = buildContextStrategyNotice({
+        strategy: 'Subtask Resplit Context',
+        runtime: inferAgentProvider(selectedAgent)?.toUpperCase() || selectedAgent.type,
+        model: nextContext.modelId || usageModelHint.value || selectedAgent.modelId,
+        expert: resolveExpertById(nextContext.expertId, useAgentTeamsStore().experts)?.name || nextContext.expertId,
+        systemMessageCount: llmMessages.filter(message => message.role === 'system').length,
+        userMessageCount: llmMessages.filter(message => message.role === 'user').length,
+        assistantMessageCount: 0,
+        historyMessageCount: uiMessages.length
+      })
+      runtimeNotices.value = [
+        ...runtimeNotices.value.filter(notice => notice.id !== 'context'),
+        ...(contextNotice ? [contextNotice] : [])
+      ]
+    }
 
     await startBackgroundSession(nextContext, llmMessages, uiMessages)
   }

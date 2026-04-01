@@ -52,8 +52,8 @@
   --color-border-light: #f1f5f9;
   --color-border-dark: #cbd5e1;
   --color-border-focus: #60a5fa;
-  --scrollbar-size: 6px;
-  --scrollbar-size-thin: 4px;
+  --scrollbar-size: 8px;
+  --scrollbar-size-thin: 6px;
   --scrollbar-track: transparent;
   --scrollbar-thumb: color-mix(in srgb, var(--color-border-dark) 58%, transparent);
   --scrollbar-thumb-hover: color-mix(in srgb, var(--color-text-secondary) 52%, transparent);
@@ -258,6 +258,8 @@
 /* ========== 暗色主题 ========== */
 [data-theme='dark'],
 .dark {
+  color-scheme: dark;
+
   /* 主色调 - 暗色模式下使用更浅的蓝色 */
   --color-primary: #93c5fd;
   --color-primary-hover: #60a5fa;
@@ -310,10 +312,10 @@
   --color-border-light: #1e293b;
   --color-border-dark: #475569;
   --color-border-focus: #60a5fa;
-  --scrollbar-track: transparent;
-  --scrollbar-thumb: color-mix(in srgb, var(--color-border-dark) 72%, transparent);
-  --scrollbar-thumb-hover: color-mix(in srgb, var(--color-text-secondary) 68%, transparent);
-  --scrollbar-thumb-active: color-mix(in srgb, var(--color-text-secondary) 82%, transparent);
+  --scrollbar-track: rgba(15, 23, 42, 0.42);
+  --scrollbar-thumb: rgba(100, 116, 139, 0.9);
+  --scrollbar-thumb-hover: rgba(148, 163, 184, 0.96);
+  --scrollbar-thumb-active: rgba(203, 213, 225, 0.98);
 
   /* 状态色 - 暗色模式 */
   --color-success: #4ade80;
