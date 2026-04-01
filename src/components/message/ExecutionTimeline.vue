@@ -69,7 +69,7 @@ interface TimelineRenderBlockToolGroup {
 interface TimelineRenderBlockAssistantTurn {
   kind: 'assistant-turn'
   key: string
-  thinkingEntries: TimelineEntry[]
+  thinkingEntry: TimelineEntry | null
   toolEntries: TimelineEntry[]
   contentEntry: TimelineEntry | null
 }
@@ -109,6 +109,24 @@ function buildMergedAssistantContentEntry(entries: TimelineEntry[]): TimelineEnt
       .map(entry => entry.content || '')
       .join(''),
     animate: contentEntries.some(entry => entry.animate)
+  }
+}
+
+function buildMergedThinkingEntry(entries: TimelineEntry[]): TimelineEntry | null {
+  const thinkingEntries = entries.filter(entry => entry.type === 'thinking')
+  if (thinkingEntries.length === 0) {
+    return null
+  }
+
+  const lastEntry = thinkingEntries[thinkingEntries.length - 1]
+  return {
+    ...lastEntry,
+    type: 'thinking',
+    content: thinkingEntries
+      .map(entry => entry.content || '')
+      .filter(Boolean)
+      .join('\n\n'),
+    animate: thinkingEntries.some(entry => entry.animate)
   }
 }
 
@@ -207,7 +225,7 @@ const renderBlocks = computed<TimelineRenderBlock[]>(() => {
       return
     }
 
-    const thinkingEntries = pendingAssistantEntries.filter(entry => entry.type === 'thinking')
+    const thinkingEntry = buildMergedThinkingEntry(pendingAssistantEntries)
     const toolEntries = sortToolEntries(
       pendingAssistantEntries.filter(entry => entry.type === 'tool' && entry.toolCall)
     )
@@ -216,7 +234,7 @@ const renderBlocks = computed<TimelineRenderBlock[]>(() => {
     blocks.push({
       kind: 'assistant-turn',
       key: getAssistantTurnKey(pendingAssistantEntries),
-      thinkingEntries,
+      thinkingEntry,
       toolEntries,
       contentEntry
     })
@@ -319,10 +337,10 @@ function getEntryElapsedLabel(entry: TimelineEntry) {
 
       <template v-else-if="block.kind === 'assistant-turn'">
         <ThinkingDisplay
-          v-for="thinkingEntry in block.thinkingEntries"
-          :key="thinkingEntry.id"
-          :thinking="thinkingEntry.content || ''"
-          :live="thinkingEntry.animate"
+          v-if="block.thinkingEntry?.content"
+          :key="block.thinkingEntry.id"
+          :thinking="block.thinkingEntry.content || ''"
+          :live="block.thinkingEntry.animate"
           :default-expanded="false"
         />
 

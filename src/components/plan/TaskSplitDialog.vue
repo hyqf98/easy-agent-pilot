@@ -14,7 +14,11 @@ import { useOverlayDismiss } from '@/composables/useOverlayDismiss'
 import type { AITaskItem, DynamicFormSchema, PlanSplitLogRecord, TaskResplitConfig } from '@/types/plan'
 import type { TimelineEntry } from '@/types/timeline'
 import { buildToolCallMapFromLogs, extractDynamicFormSchemas } from '@/utils/toolCallLog'
-import { buildUsageNotice } from '@/utils/runtimeNotice'
+import {
+  buildRuntimeNoticeFromSystemContent,
+  buildUsageNotice,
+  isContextRuntimeNotice
+} from '@/utils/runtimeNotice'
 import { DEFAULT_SPLIT_GRANULARITY } from '@/constants/plan'
 import { logger } from '@/utils/logger'
 import { resolveExpertById, resolveExpertRuntime } from '@/services/agentTeams/runtime'
@@ -435,8 +439,25 @@ const suppressAssistantContentLogs = computed(() =>
   formRequestTurns.value.length > 0 || showPreview.value
 )
 
+function isContextSystemLog(log: PlanSplitLogRecord) {
+  if (log.type !== 'system' || !log.content.trim()) {
+    return false
+  }
+
+  const notice = buildRuntimeNoticeFromSystemContent(log.content)
+  return notice ? isContextRuntimeNotice(notice) : false
+}
+
+const visibleRuntimeNotices = computed(() =>
+  taskSplitStore.runtimeNotices.filter(notice => !isContextRuntimeNotice(notice))
+)
+
 const hasRuntimeSystemLog = computed(() =>
-  taskSplitStore.logs.some(log => log.type === 'system' && log.content.trim())
+  taskSplitStore.logs.some(log =>
+    log.type === 'system'
+    && log.content.trim()
+    && !isContextSystemLog(log)
+  )
 )
 
 const usageNoticeEntry = computed<TimelineEntry | null>(() => {
@@ -566,7 +587,7 @@ const timelineEntries = computed<TimelineEntry[]>(() => {
   }
 
   if (!hasRuntimeSystemLog.value) {
-    for (const notice of taskSplitStore.runtimeNotices) {
+    for (const notice of visibleRuntimeNotices.value) {
       entries.push({
         id: `runtime-notice-${notice.id}`,
         type: 'system',
@@ -655,6 +676,10 @@ const timelineEntries = computed<TimelineEntry[]>(() => {
     lastAssistantContentEntry = null
 
     if (log.type === 'system') {
+      if (isContextSystemLog(log)) {
+        continue
+      }
+
       entries.push({
         id: `system-${log.id}`,
         type: 'system',
