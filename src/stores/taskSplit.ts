@@ -16,6 +16,7 @@ import {
   buildPlanSplitJsonSchema,
   buildPlanSplitKickoffPrompt,
   buildPlanSplitSystemPrompt,
+  buildTaskListOptimizeKickoffPrompt,
   buildTaskResplitKickoffPrompt
 } from '@/services/plan'
 import { resolveUsageModelHint } from '@/services/conversation/usageModelHint'
@@ -36,6 +37,9 @@ import type {
   PlanSplitSessionRecord,
   PlanSplitStreamPayload,
   SplitMessage,
+  TaskCountMode,
+  TaskListOptimizeConfig,
+  TaskSplitRefinementMode,
   TaskResplitConfig
 } from '@/types/plan'
 
@@ -47,7 +51,15 @@ interface TaskSplitContext {
   expertId?: string
   agentId: string
   modelId: string
+  taskCountMode?: TaskCountMode
   workingDirectory?: string
+}
+
+interface TaskSplitRefinementState {
+  mode: TaskSplitRefinementMode
+  originalTasks: AITaskItem[]
+  targetIndex: number | null
+  config: TaskResplitConfig | TaskListOptimizeConfig
 }
 
 interface SubmittedFormSnapshot {
@@ -159,7 +171,7 @@ function buildExecutionRequest(
     mcpServers,
     cliOutputFormat: 'stream-json',
     jsonSchema: agent.type === 'cli'
-      ? buildPlanSplitJsonSchema(context.granularity, provider)
+      ? buildPlanSplitJsonSchema(context.granularity, provider, context.taskCountMode ?? 'min')
       : undefined,
     executionMode: 'task_split',
     responseMode: 'stream_text'
@@ -226,11 +238,17 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
   const usageModelHint = ref<string | null>(null)
   const runtimeMetrics = ref<PlanSplitRuntimeMetrics | null>(null)
   const recordedUsageSessionIds = ref<Set<string>>(new Set())
+  const refinementState = ref<TaskSplitRefinementState | null>(null)
 
-  const subSplitMode = ref(false)
-  const subSplitTargetIndex = ref<number | null>(null)
-  const subSplitOriginalTasks = ref<AITaskItem[]>([])
-  const subSplitConfig = ref<TaskResplitConfig | null>(null)
+  const subSplitMode = computed(() => refinementState.value?.mode === 'task_resplit')
+  const subSplitTargetIndex = computed(() => refinementState.value?.targetIndex ?? null)
+  const subSplitOriginalTasks = computed(() => refinementState.value?.originalTasks ?? [])
+  const subSplitConfig = computed(() =>
+    refinementState.value?.mode === 'task_resplit'
+      ? refinementState.value.config as TaskResplitConfig
+      : null
+  )
+  const refinementMode = computed(() => refinementState.value?.mode ?? null)
 
   const activeFormSchema = computed(() => {
     if (!formQueue.value.length) return null
@@ -259,10 +277,7 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     usageModelHint.value = null
     runtimeMetrics.value = null
     recordedUsageSessionIds.value = new Set()
-    subSplitMode.value = false
-    subSplitTargetIndex.value = null
-    subSplitOriginalTasks.value = []
-    subSplitConfig.value = null
+    refinementState.value = null
   }
 
   function applySessionSnapshot(snapshot: PlanSplitSessionRecord | null, preserveLogs: boolean = true) {
@@ -281,7 +296,12 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     }
 
     messages.value = toSplitMessages(snapshot.messagesJson)
-    splitResult.value = toSplitResult(snapshot.resultJson)
+    const parsedResult = toSplitResult(snapshot.resultJson)
+    if (parsedResult) {
+      splitResult.value = parsedResult
+    } else if (!refinementState.value) {
+      splitResult.value = null
+    }
     formQueue.value = toFormQueue(snapshot.formQueueJson)
     currentFormIndex.value = snapshot.currentFormIndex ?? 0
     currentFormId.value = formQueue.value[currentFormIndex.value]?.formId ?? null
@@ -479,12 +499,32 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
       input: {
         planId: nextContext.planId,
         granularity: nextContext.granularity,
+        taskCountMode: nextContext.taskCountMode ?? 'min',
         executionRequest,
         llmMessages,
         messages: uiMessages
       }
     })
     applySessionSnapshot(snapshot, true)
+  }
+
+  /**
+   * 将当前预览任务列表同步回拆分会话，避免后续会话刷新覆盖已应用的结果。
+   */
+  async function syncSplitResultToSession(nextTasks: AITaskItem[]) {
+    if (!context.value) {
+      return
+    }
+
+    try {
+      const snapshot = await invoke<PlanSplitSessionRecord>('update_plan_split_result', {
+        planId: context.value.planId,
+        result: nextTasks
+      })
+      applySessionSnapshot(snapshot, true)
+    } catch (error) {
+      logger.warn('[TaskSplit] Failed to sync split result to session:', error)
+    }
   }
 
   function rememberSubmittedForm(
@@ -510,8 +550,17 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
   }
 
   async function initSession(nextContext: TaskSplitContext) {
-    if (context.value?.planId !== nextContext.planId) {
+    const previousPlanId = context.value?.planId
+    if (previousPlanId !== nextContext.planId) {
       submittedForms.value = []
+      messages.value = []
+      logs.value = []
+      splitResult.value = null
+      formQueue.value = []
+      currentFormIndex.value = 0
+      currentFormId.value = null
+      session.value = null
+      refinementState.value = null
     }
 
     context.value = nextContext
@@ -542,6 +591,10 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     await recoverStaleRunningSession(nextContext.planId)
 
     if (session.value) {
+      return
+    }
+
+    if (splitResult.value && previousPlanId === nextContext.planId) {
       return
     }
 
@@ -661,11 +714,13 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
   function updateSplitTask(index: number, updates: Partial<AITaskItem>) {
     if (!splitResult.value || !splitResult.value[index]) return
     splitResult.value[index] = { ...splitResult.value[index], ...updates }
+    void syncSplitResultToSession(splitResult.value)
   }
 
   function removeSplitTask(index: number) {
     if (!splitResult.value) return
     splitResult.value.splice(index, 1)
+    void syncSplitResultToSession(splitResult.value)
   }
 
   function addSplitTask() {
@@ -687,26 +742,29 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
       return
     }
     splitResult.value.push(nextTask)
+    void syncSplitResultToSession(splitResult.value)
   }
 
   async function startSubSplit(index: number, config: TaskResplitConfig) {
     if (!context.value || !splitResult.value || !splitResult.value[index]) return
 
     const targetTask = splitResult.value[index]
-    subSplitMode.value = true
-    subSplitTargetIndex.value = index
-    subSplitOriginalTasks.value = JSON.parse(JSON.stringify(splitResult.value))
-    subSplitConfig.value = config
 
     const nextContext: TaskSplitContext = {
       ...context.value,
       granularity: config.granularity,
       expertId: config.expertId || context.value.expertId,
       agentId: config.agentId || context.value.agentId,
-      modelId: config.modelId || context.value.modelId
+      modelId: config.modelId || context.value.modelId,
+      taskCountMode: 'min'
     }
     context.value = nextContext
-
+    refinementState.value = {
+      mode: 'task_resplit',
+      targetIndex: index,
+      originalTasks: JSON.parse(JSON.stringify(splitResult.value)) as AITaskItem[],
+      config
+    }
     const llmMessages: MessageInput[] = [
       {
         role: 'system',
@@ -761,27 +819,127 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     await startBackgroundSession(nextContext, llmMessages, uiMessages)
   }
 
-  function completeSubSplit(newTasks: AITaskItem[]) {
-    if (!subSplitMode.value || subSplitTargetIndex.value === null) {
+  /**
+   * 对当前整份任务列表发起整体优化，保留任务数量不变。
+   */
+  async function startListOptimize(config: TaskListOptimizeConfig) {
+    if (!context.value || !splitResult.value || splitResult.value.length === 0) return
+
+    const originalTasks = JSON.parse(JSON.stringify(splitResult.value)) as AITaskItem[]
+    refinementState.value = {
+      mode: 'list_optimize',
+      targetIndex: null,
+      originalTasks,
+      config
+    }
+
+    const nextContext: TaskSplitContext = {
+      ...context.value,
+      granularity: originalTasks.length,
+      expertId: config.expertId || context.value.expertId,
+      agentId: config.agentId || context.value.agentId,
+      modelId: config.modelId || context.value.modelId,
+      taskCountMode: 'exact'
+    }
+    context.value = nextContext
+
+    const llmMessages: MessageInput[] = [
+      {
+        role: 'system',
+        content: await buildSplitSystemPrompt(nextContext.expertId)
+      },
+      {
+        role: 'user',
+        content: buildTaskListOptimizeKickoffPrompt({
+          planName: nextContext.planName,
+          planDescription: nextContext.planDescription,
+          tasks: originalTasks,
+          userPrompt: config.customPrompt
+        })
+      }
+    ]
+
+    const uiMessages: SplitMessage[] = [{
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: [
+        `整体优化任务列表：共 ${originalTasks.length} 个任务`,
+        '约束：保持任务数量不变，可重排顺序并修正依赖关系',
+        config.customPrompt ? `额外要求：${config.customPrompt}` : ''
+      ].filter(Boolean).join('\n'),
+      timestamp: new Date().toISOString()
+    }]
+
+    const selectedAgent = useAgentStore().agents.find(agent => agent.id === nextContext.agentId)
+    if (selectedAgent) {
+      const contextNotice = buildContextStrategyNotice({
+        strategy: 'Task List Optimize Context',
+        runtime: inferAgentProvider(selectedAgent)?.toUpperCase() || selectedAgent.type,
+        model: nextContext.modelId || usageModelHint.value || selectedAgent.modelId,
+        expert: resolveExpertById(nextContext.expertId, useAgentTeamsStore().experts)?.name || nextContext.expertId,
+        systemMessageCount: llmMessages.filter(message => message.role === 'system').length,
+        userMessageCount: llmMessages.filter(message => message.role === 'user').length,
+        assistantMessageCount: 0,
+        historyMessageCount: uiMessages.length
+      })
+      runtimeNotices.value = [
+        ...runtimeNotices.value.filter(notice => notice.id !== 'context'),
+        ...(contextNotice ? [contextNotice] : [])
+      ]
+    }
+
+    await startBackgroundSession(nextContext, llmMessages, uiMessages)
+  }
+
+  function clearRefinementState() {
+    refinementState.value = null
+  }
+
+  async function completeSubSplit(newTasks: AITaskItem[]) {
+    if (!subSplitMode.value || subSplitTargetIndex.value === null || !refinementState.value) {
       return
     }
 
-    const originalTasks = [...subSplitOriginalTasks.value]
-    originalTasks.splice(subSplitTargetIndex.value, 1)
-    splitResult.value = [...originalTasks, ...newTasks]
-    subSplitMode.value = false
-    subSplitTargetIndex.value = null
-    subSplitOriginalTasks.value = []
-    subSplitConfig.value = null
+    const mergedTasks = [...refinementState.value.originalTasks]
+    mergedTasks.splice(subSplitTargetIndex.value, 1, ...newTasks)
+    splitResult.value = mergedTasks
+    clearRefinementState()
+    await syncSplitResultToSession(mergedTasks)
   }
 
-  function cancelSubSplit() {
-    if (!subSplitMode.value) return
-    splitResult.value = [...subSplitOriginalTasks.value]
-    subSplitMode.value = false
-    subSplitTargetIndex.value = null
-    subSplitOriginalTasks.value = []
-    subSplitConfig.value = null
+  async function completeListOptimize(newTasks: AITaskItem[]) {
+    if (refinementState.value?.mode !== 'list_optimize') {
+      return
+    }
+
+    splitResult.value = [...newTasks]
+    clearRefinementState()
+    await syncSplitResultToSession(newTasks)
+  }
+
+  /**
+   * 取消未确认的继续拆分/整体优化结果，并恢复到原始任务列表。
+   */
+  async function cancelRefinement(options: { discardSession?: boolean } = {}) {
+    if (!refinementState.value || !context.value) return
+
+    splitResult.value = [...refinementState.value.originalTasks]
+    clearRefinementState()
+
+    if (!options.discardSession) {
+      return
+    }
+
+    await invoke('clear_plan_split_session', { planId: context.value.planId })
+    session.value = null
+    messages.value = []
+    logs.value = []
+    submittedForms.value = []
+    currentFormId.value = null
+    formQueue.value = []
+    currentFormIndex.value = 0
+    isProcessing.value = false
+    runtimeMetrics.value = null
   }
 
   function reset() {
@@ -809,6 +967,8 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     runtimeNotices,
     usageModelHint,
     runtimeMetrics,
+    refinementMode,
+    refinementState,
     subSplitMode,
     subSplitTargetIndex,
     subSplitOriginalTasks,
@@ -822,8 +982,10 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     removeSplitTask,
     addSplitTask,
     startSubSplit,
+    startListOptimize,
     completeSubSplit,
-    cancelSubSplit,
+    completeListOptimize,
+    cancelRefinement,
     clearAllSplitData,
     clearPlanSplitSessions: clearAllSplitData,
     clearProjectSplitState,

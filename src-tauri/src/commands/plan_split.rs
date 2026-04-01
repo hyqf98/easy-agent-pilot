@@ -30,6 +30,7 @@ pub struct PlanSplitSession {
     pub parse_error: Option<String>,
     pub error_message: Option<String>,
     pub granularity: i32,
+    pub task_count_mode: String,
     pub llm_messages_json: Option<String>,
     pub messages_json: Option<String>,
     pub execution_request_json: Option<String>,
@@ -60,6 +61,7 @@ pub struct PlanSplitLog {
 pub struct StartPlanSplitInput {
     pub plan_id: String,
     pub granularity: i32,
+    pub task_count_mode: Option<String>,
     pub execution_request: ExecutionRequest,
     pub llm_messages: Vec<MessageInput>,
     pub messages: Vec<PlanSplitMessage>,
@@ -129,16 +131,17 @@ fn map_plan_split_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<PlanSplit
         parse_error: row.get(6)?,
         error_message: row.get(7)?,
         granularity: row.get(8)?,
-        llm_messages_json: row.get(9)?,
-        messages_json: row.get(10)?,
-        execution_request_json: row.get(11)?,
-        form_queue_json: row.get(12)?,
-        current_form_index: row.get(13)?,
-        created_at: row.get(14)?,
-        updated_at: row.get(15)?,
-        started_at: row.get(16)?,
-        completed_at: row.get(17)?,
-        stopped_at: row.get(18)?,
+        task_count_mode: row.get(9)?,
+        llm_messages_json: row.get(10)?,
+        messages_json: row.get(11)?,
+        execution_request_json: row.get(12)?,
+        form_queue_json: row.get(13)?,
+        current_form_index: row.get(14)?,
+        created_at: row.get(15)?,
+        updated_at: row.get(16)?,
+        started_at: row.get(17)?,
+        completed_at: row.get(18)?,
+        stopped_at: row.get(19)?,
     })
 }
 
@@ -153,7 +156,7 @@ fn read_session(
 ) -> Result<Option<PlanSplitSession>, String> {
     let result = conn.query_row(
         "SELECT id, plan_id, status, execution_session_id, raw_content, parsed_output,
-                parse_error, error_message, granularity, llm_messages_json, messages_json,
+                parse_error, error_message, granularity, task_count_mode, llm_messages_json, messages_json,
                 execution_request_json, form_queue_json, current_form_index,
                 created_at, updated_at, started_at, completed_at, stopped_at
          FROM task_split_sessions WHERE plan_id = ?1",
@@ -190,16 +193,17 @@ fn insert_or_update_session(
                  parse_error = ?5,
                  error_message = ?6,
                  granularity = ?7,
-                 llm_messages_json = ?8,
-                 messages_json = ?9,
-                 execution_request_json = ?10,
-                 form_queue_json = ?11,
-                 current_form_index = ?12,
-                 updated_at = ?13,
-                 started_at = ?14,
-                 completed_at = ?15,
-                 stopped_at = ?16
-             WHERE id = ?17",
+                 task_count_mode = ?8,
+                 llm_messages_json = ?9,
+                 messages_json = ?10,
+                 execution_request_json = ?11,
+                 form_queue_json = ?12,
+                 current_form_index = ?13,
+                 updated_at = ?14,
+                 started_at = ?15,
+                 completed_at = ?16,
+                 stopped_at = ?17
+             WHERE id = ?18",
             rusqlite::params![
                 &session.status,
                 &session.execution_session_id,
@@ -208,6 +212,7 @@ fn insert_or_update_session(
                 &session.parse_error,
                 &session.error_message,
                 &session.granularity,
+                &session.task_count_mode,
                 &session.llm_messages_json,
                 &session.messages_json,
                 &session.execution_request_json,
@@ -225,9 +230,9 @@ fn insert_or_update_session(
         conn.execute(
             "INSERT INTO task_split_sessions
              (id, plan_id, status, execution_session_id, raw_content, parsed_output, parse_error,
-              error_message, granularity, llm_messages_json, messages_json, execution_request_json,
+              error_message, granularity, task_count_mode, llm_messages_json, messages_json, execution_request_json,
               form_queue_json, current_form_index, created_at, updated_at, started_at, completed_at, stopped_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
             rusqlite::params![
                 &session.id,
                 &session.plan_id,
@@ -238,6 +243,7 @@ fn insert_or_update_session(
                 &session.parse_error,
                 &session.error_message,
                 &session.granularity,
+                &session.task_count_mode,
                 &session.llm_messages_json,
                 &session.messages_json,
                 &session.execution_request_json,
@@ -254,6 +260,17 @@ fn insert_or_update_session(
     }
 
     Ok(())
+}
+
+fn normalize_task_count_mode(value: Option<&str>) -> String {
+    match value.map(str::trim).filter(|mode| !mode.is_empty()) {
+        Some(mode) if mode.eq_ignore_ascii_case("exact") => "exact".to_string(),
+        _ => "min".to_string(),
+    }
+}
+
+fn task_count_mode_is_exact(value: &str) -> bool {
+    value.eq_ignore_ascii_case("exact")
 }
 
 fn load_messages_json(raw: Option<&String>) -> Vec<PlanSplitMessage> {
@@ -527,14 +544,18 @@ fn normalize_form_schema(schema: &Value) -> Option<Value> {
     Some(Value::Object(normalized))
 }
 
-fn parse_split_output(raw_content: &str, min_task_count: i32) -> Result<ParsedSplitOutput, String> {
+fn parse_split_output(
+    raw_content: &str,
+    min_task_count: i32,
+    task_count_mode: &str,
+) -> Result<ParsedSplitOutput, String> {
     for candidate in extract_json_candidates(raw_content) {
         let parsed: Value = match serde_json::from_str(&candidate) {
             Ok(value) => value,
             Err(_) => continue,
         };
         if let Some(result_string) = parsed.get("result").and_then(|value| value.as_str()) {
-            if let Ok(output) = parse_split_output(result_string, min_task_count) {
+            if let Ok(output) = parse_split_output(result_string, min_task_count, task_count_mode) {
                 return Ok(output);
             }
         }
@@ -598,10 +619,18 @@ fn parse_split_output(raw_content: &str, min_task_count: i32) -> Result<ParsedSp
                 .get("tasks")
                 .and_then(|value| value.as_array())
                 .ok_or_else(|| "task_split 缺少 tasks 数组。".to_string())?;
-            if tasks_raw.len() < min_task_count.max(1) as usize {
+            let expected_count = min_task_count.max(1) as usize;
+            if task_count_mode_is_exact(task_count_mode) {
+                if tasks_raw.len() != expected_count {
+                    return Err(format!(
+                        "拆分任务数量不匹配，必须严格返回 {} 个。",
+                        expected_count
+                    ));
+                }
+            } else if tasks_raw.len() < expected_count {
                 return Err(format!(
                     "拆分任务数量不足，至少需要 {} 个。",
-                    min_task_count.max(1)
+                    expected_count
                 ));
             }
             let mut tasks = Vec::with_capacity(tasks_raw.len());
@@ -787,7 +816,7 @@ fn finalize_session_from_structured_output(
         return Ok(false);
     }
 
-    let output = match parse_split_output(raw_output, session.granularity) {
+    let output = match parse_split_output(raw_output, session.granularity, &session.task_count_mode) {
         Ok(output) => output,
         Err(_) => return Ok(false),
     };
@@ -818,12 +847,12 @@ fn refresh_session_after_turn(
     }
 
     let raw_content = load_content_logs(&conn, session_id)?;
-    let parsed = match parse_split_output(&raw_content, session.granularity) {
+    let parsed = match parse_split_output(&raw_content, session.granularity, &session.task_count_mode) {
         Ok(output) => Ok((output, raw_content.clone())),
         Err(content_error) => {
             let structured_outputs = load_structured_output_logs(&conn, session_id)?;
             let parsed_from_tool = structured_outputs.iter().rev().find_map(|candidate| {
-                parse_split_output(candidate, session.granularity)
+                parse_split_output(candidate, session.granularity, &session.task_count_mode)
                     .ok()
                     .map(|output| (output, candidate.clone()))
             });
@@ -1019,6 +1048,7 @@ fn build_running_session(input: &StartPlanSplitInput) -> Result<PlanSplitSession
         parse_error: None,
         error_message: None,
         granularity: input.granularity,
+        task_count_mode: normalize_task_count_mode(input.task_count_mode.as_deref()),
         llm_messages_json: Some(serialize_json(&input.llm_messages)?),
         messages_json: Some(serialize_json(&input.messages)?),
         execution_request_json: Some(serialize_json(&input.execution_request)?),
@@ -1098,6 +1128,43 @@ pub fn start_plan_split(
 #[tauri::command]
 pub fn resume_plan_split(plan_id: String) -> Result<Option<PlanSplitSession>, String> {
     get_plan_split_session(plan_id)
+}
+
+/// 覆盖当前计划拆分会话的任务预览结果。
+///
+/// 用途：在用户手动编辑预览列表、应用整体优化或应用单任务继续拆分后，
+/// 将当前前端确认中的任务列表同步回会话快照，避免后续会话刷新把结果回退为旧的拆分输出。
+///
+/// 参数：
+/// - `plan_id`: 计划 ID
+/// - `result`: 当前确认中的任务列表数组
+///
+/// 返回：
+/// - 更新后的计划拆分会话快照
+#[tauri::command]
+pub fn update_plan_split_result(
+    app: AppHandle,
+    plan_id: String,
+    result: Value,
+) -> Result<PlanSplitSession, String> {
+    if !result.is_array() {
+        return Err("任务拆分结果必须是任务数组。".to_string());
+    }
+
+    let conn = open_db_connection().map_err(|error| error.to_string())?;
+    let mut session =
+        read_session(&conn, &plan_id)?.ok_or_else(|| "计划拆分会话不存在".to_string())?;
+
+    session.result_json = Some(serialize_json(&serde_json::json!({
+        "tasks": result
+    }))?);
+    session.parse_error = None;
+    session.error_message = None;
+    session.updated_at = now_rfc3339();
+
+    insert_or_update_session(&conn, &session)?;
+    emit_session_updated(&app, &session);
+    Ok(session)
 }
 
 #[tauri::command]

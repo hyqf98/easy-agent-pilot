@@ -211,6 +211,7 @@ export const useAgentConfigStore = defineStore('agentConfig', () => {
   const modelConfigs = ref<Map<string, AgentModelConfig[]>>(new Map())
   const isLoading = ref(false)
   const pendingModelLoads = new Map<string, Promise<AgentModelConfig[]>>()
+  const pendingBuiltinModelInits = new Map<string, Promise<AgentModelConfig[]>>()
 
   // Actions - MCP Configs
 
@@ -585,8 +586,17 @@ export const useAgentConfigStore = defineStore('agentConfig', () => {
   }
 
   async function ensureModelsConfigs(agentId: string, provider?: string) {
-    void provider
-    return loadModelsConfigs(agentId)
+    const cachedConfigs = modelConfigs.value.get(agentId)
+    if (cachedConfigs && cachedConfigs.length > 0) {
+      return cachedConfigs
+    }
+
+    const loadedConfigs = await loadModelsConfigs(agentId)
+    if (loadedConfigs.length > 0 || !provider) {
+      return loadedConfigs
+    }
+
+    return initBuiltinModels(agentId, provider)
   }
 
   async function createModelConfig(config: Omit<AgentModelConfig, 'id' | 'createdAt' | 'updatedAt'>) {
@@ -626,26 +636,39 @@ export const useAgentConfigStore = defineStore('agentConfig', () => {
   }
 
   async function initBuiltinModels(agentId: string, provider: string) {
-    const notificationStore = useNotificationStore()
-    try {
-      const rawConfigs = await invoke<RawAgentModelConfig[]>('create_builtin_models', {
-        input: {
-          agent_id: agentId,
-          provider
-        }
-      })
-      const configs = rawConfigs.map(transformModelConfig)
-      modelConfigs.value.set(agentId, configs)
-      return configs
-    } catch (error) {
-      console.error('Failed to init builtin models:', error)
-      notificationStore.databaseError(
-        '初始化内置模型失败',
-        getErrorMessage(error),
-        async () => { await initBuiltinModels(agentId, provider) }
-      )
-      throw error
+    const requestKey = `${agentId}:${provider}`
+    const existingRequest = pendingBuiltinModelInits.get(requestKey)
+    if (existingRequest) {
+      return existingRequest
     }
+
+    const notificationStore = useNotificationStore()
+    const request = (async () => {
+      try {
+        const rawConfigs = await invoke<RawAgentModelConfig[]>('create_builtin_models', {
+          input: {
+            agent_id: agentId,
+            provider
+          }
+        })
+        const configs = rawConfigs.map(transformModelConfig)
+        modelConfigs.value.set(agentId, configs)
+        return configs
+      } catch (error) {
+        console.error('Failed to init builtin models:', error)
+        notificationStore.databaseError(
+          '初始化内置模型失败',
+          getErrorMessage(error),
+          async () => { await initBuiltinModels(agentId, provider) }
+        )
+        throw error
+      } finally {
+        pendingBuiltinModelInits.delete(requestKey)
+      }
+    })()
+
+    pendingBuiltinModelInits.set(requestKey, request)
+    return request
   }
 
   async function updateModelConfig(id: string, agentId: string, updates: Partial<AgentModelConfig>) {

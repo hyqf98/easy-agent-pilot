@@ -2040,6 +2040,8 @@ Rules:
     dialogTitle: 'Task Split',
     taskList: 'Task List',
     taskCount: '{count} tasks',
+    optimizeList: 'Optimize Task List',
+    optimizingList: 'Optimizing...',
     addTask: 'Add Task',
     newTask: 'New Task',
     confirmCreate: 'Confirm & Create Tasks',
@@ -2083,6 +2085,19 @@ Rules:
       useDefault: 'Use Default',
       defaultModel: '(Default)',
       startSplit: 'Start Split',
+      cancel: 'Cancel'
+    },
+    optimizeModal: {
+      title: 'Optimize Task List',
+      description: 'The AI will keep the current task count unchanged while refining task descriptions, steps, acceptance criteria, order, and dependencies.',
+      keepTaskCount: 'Keep the current {count} tasks',
+      customPrompt: 'Optimization Notes',
+      customPromptPlaceholder: 'Add what the AI should improve, constraints to follow, or any extra guidance...',
+      expert: 'Optimization Expert',
+      model: 'Optimization Model',
+      followCurrent: 'Follow Current',
+      defaultModel: ' (Default)',
+      start: 'Start Optimization',
       cancel: 'Cancel'
     }
   },

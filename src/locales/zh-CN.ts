@@ -1585,6 +1585,8 @@ const zhCN = {
     dialogTitle: '任务拆分',
     taskList: '任务列表',
     taskCount: '{count} 个任务',
+    optimizeList: '整体优化任务列表',
+    optimizingList: '整体优化中...',
     addTask: '添加任务',
     newTask: '新任务',
     confirmCreate: '确认并创建任务',
@@ -1628,6 +1630,19 @@ const zhCN = {
       useDefault: '使用默认',
       defaultModel: '（默认）',
       startSplit: '开始拆分',
+      cancel: '取消'
+    },
+    optimizeModal: {
+      title: '整体优化任务列表',
+      description: 'AI 会保留当前任务数量不变，并整体优化任务描述、步骤、验收标准，同时允许调整顺序和修正依赖关系。',
+      keepTaskCount: '保持当前 {count} 个任务不变',
+      customPrompt: '补充优化要求',
+      customPromptPlaceholder: '输入想让 AI 重点优化的方向、约束或补充说明...',
+      expert: '优化专家',
+      model: '优化模型',
+      followCurrent: '跟随当前',
+      defaultModel: '（默认）',
+      start: '开始优化',
       cancel: '取消'
     }
   },

@@ -22,9 +22,11 @@ const sessionExecutionStore = useSessionExecutionStore()
 const props = withDefaults(defineProps<{
   sessionId?: string
   hideContextStrategyNotice?: boolean
+  topSafeInset?: number
 }>(), {
   sessionId: undefined,
-  hideContextStrategyNotice: false
+  hideContextStrategyNotice: false,
+  topSafeInset: 0
 })
 
 const emit = defineEmits<{
@@ -44,6 +46,16 @@ const DEFAULT_MESSAGE_HEIGHT = 220
 const VIRTUALIZE_THRESHOLD = 40
 const VIRTUAL_OVERSCAN_PX = 1200
 const BOTTOM_SCROLL_BUFFER = 160
+
+function detectWindowsRuntime(): boolean {
+  const platform = (navigator as Navigator & {
+    userAgentData?: { platform?: string }
+  }).userAgentData?.platform || navigator.platform || navigator.userAgent
+
+  return /win/i.test(platform)
+}
+
+const isWindowsRuntime = detectWindowsRuntime()
 
 const isUserAtBottom = ref(true)
 // 距离底部的阈值（像素），小于此值视为在底部
@@ -67,7 +79,9 @@ const currentIsSending = computed(() => {
   return sessionExecutionStore.getIsSending(targetSessionId)
 })
 
-const shouldVirtualize = computed(() => currentMessages.value.length > VIRTUALIZE_THRESHOLD)
+const shouldVirtualize = computed(() =>
+  !isWindowsRuntime && currentMessages.value.length > VIRTUALIZE_THRESHOLD
+)
 
 const latestMessageActivity = computed(() => {
   const messages = currentMessages.value
@@ -366,12 +380,17 @@ const handleFormSubmit = (formId: string, values: Record<string, unknown>) => {
 const handleOpenEditTrace = (messageId: string, traceId: string) => {
   emit('openEditTrace', messageId, traceId)
 }
+
+const listStyle = computed(() => ({
+  '--message-list-top-safe-space': `${Math.max(0, props.topSafeInset)}px`
+}))
 </script>
 
 <template>
   <div
     ref="listRef"
     class="message-list"
+    :style="listStyle"
   >
     <!-- 加载更多历史消息提示 -->
     <div
@@ -494,13 +513,16 @@ const handleOpenEditTrace = (messageId: string, traceId: string) => {
 
 <style scoped>
 .message-list {
+  --message-list-top-safe-space: 0px;
   --message-list-bottom-safe-space: clamp(72px, 9vh, 112px);
   --message-list-scroll-btn-gap: clamp(10px, 1.8vh, 18px);
   --message-list-scroll-btn-size: clamp(28px, 2.8vw, 34px);
   flex: 1;
   overflow-y: auto;
   padding: var(--spacing-3);
+  padding-top: calc(var(--spacing-3) + var(--message-list-top-safe-space));
   padding-bottom: calc(var(--message-list-bottom-safe-space) + env(safe-area-inset-bottom, 0px));
+  scroll-padding-top: calc(var(--message-list-top-safe-space) + var(--spacing-3));
   scroll-padding-bottom: var(--message-list-bottom-safe-space);
   display: flex;
   flex-direction: column;

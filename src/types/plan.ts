@@ -373,6 +373,8 @@ export interface SplitMessage {
   timestamp: string
 }
 
+export type TaskCountMode = 'min' | 'exact'
+
 export type PlanSplitSessionStatus =
   | 'running'
   | 'waiting_input'
@@ -402,6 +404,7 @@ export interface PlanSplitSessionRecord {
   parseError?: string | null
   errorMessage?: string | null
   granularity: number
+  taskCountMode?: TaskCountMode | null
   llmMessagesJson?: string | null
   messagesJson?: string | null
   executionRequestJson?: string | null
@@ -454,6 +457,15 @@ export interface TaskResplitConfig {
   modelId?: string
 }
 
+export interface TaskListOptimizeConfig {
+  customPrompt?: string
+  expertId?: string
+  agentId?: string
+  modelId?: string
+}
+
+export type TaskSplitRefinementMode = 'task_resplit' | 'list_optimize'
+
 // 继续拆分 prompt 上下文
 export interface TaskResplitPromptContext {
   planName: string
@@ -465,4 +477,11 @@ export interface TaskResplitPromptContext {
   acceptanceCriteria?: string[]
   userPrompt?: string
   minTaskCount: number
+}
+
+export interface TaskListOptimizePromptContext {
+  planName: string
+  planDescription?: string
+  tasks: AITaskItem[]
+  userPrompt?: string
 }

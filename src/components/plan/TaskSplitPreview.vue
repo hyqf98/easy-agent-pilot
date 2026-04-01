@@ -9,6 +9,8 @@ import TaskSplitPreviewEditor from './TaskSplitPreviewEditor.vue'
 
 const props = defineProps<{
   tasks: AITaskItem[]
+  disableActions?: boolean
+  isOptimizingList?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -16,6 +18,7 @@ const emit = defineEmits<{
   (e: 'remove', index: number): void
   (e: 'add', task: AITaskItem): void
   (e: 'resplit', index: number): void
+  (e: 'optimize-list'): void
 }>()
 
 const editingIndex = ref<number | null>(null)
@@ -42,6 +45,9 @@ const editingTask = computed(() => {
 })
 
 function startEdit(index: number) {
+  if (props.disableActions) {
+    return
+  }
   editingIndex.value = index
 }
 
@@ -55,6 +61,9 @@ function saveEdit(index: number, updates: Partial<AITaskItem>) {
 }
 
 async function removeTask(index: number) {
+  if (props.disableActions) {
+    return
+  }
   const task = props.tasks[index]
   const taskName = task?.title?.trim() || `${t('taskSplit.newTask')} ${index + 1}`
   const confirmed = await confirmDialog.danger(
@@ -71,6 +80,10 @@ async function removeTask(index: number) {
 }
 
 function addTask() {
+  if (props.disableActions) {
+    return
+  }
+
   const newTask: AITaskItem = {
     title: t('taskSplit.newTask'),
     description: '',
@@ -95,22 +108,42 @@ function addTask() {
         {{ t('taskSplit.taskList') }}
         <span class="task-count">{{ t('taskSplit.taskCount', { count: tasks.length }) }}</span>
       </h4>
-      <button
-        class="btn-add"
-        @click="addTask"
-      >
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
+      <div class="preview-actions">
+        <button
+          class="btn-optimize"
+          :disabled="disableActions || tasks.length === 0"
+          @click="emit('optimize-list')"
         >
-          <path d="M12 5v14M5 12h14" />
-        </svg>
-        {{ t('taskSplit.addTask') }}
-      </button>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path d="M3 6h18M7 12h10M10 18h4" />
+          </svg>
+          {{ isOptimizingList ? t('taskSplit.optimizingList') : t('taskSplit.optimizeList') }}
+        </button>
+        <button
+          class="btn-add"
+          :disabled="disableActions"
+          @click="addTask"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          {{ t('taskSplit.addTask') }}
+        </button>
+      </div>
     </div>
 
     <div class="task-list">
@@ -123,6 +156,7 @@ function addTask() {
           :task="task"
           :index="index"
           :priority-colors="priorityColors"
+          :disable-actions="disableActions"
           @edit="startEdit(index)"
           @remove="removeTask(index)"
           @resplit="emit('resplit', index)"
@@ -184,6 +218,12 @@ function addTask() {
   border-bottom: 1px solid var(--color-border, #e2e8f0);
 }
 
+.preview-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2, 0.5rem);
+}
+
 .preview-header h4 {
   margin: 0;
   font-size: var(--font-size-sm, 13px);
@@ -221,10 +261,36 @@ function addTask() {
   transition: all var(--transition-fast, 150ms);
 }
 
-.btn-add:hover {
+.btn-add:hover:not(:disabled) {
   background-color: var(--color-primary-light, #dbeafe);
   border-color: var(--color-primary, #60a5fa);
   color: var(--color-primary, #3b82f6);
+}
+
+.btn-optimize {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1, 0.25rem);
+  padding: var(--spacing-1, 0.25rem) var(--spacing-3, 0.75rem);
+  border: 1px solid rgba(15, 118, 110, 0.2);
+  border-radius: var(--radius-md, 8px);
+  background: linear-gradient(180deg, rgba(240, 253, 250, 0.98), rgba(236, 253, 245, 0.94));
+  color: #0f766e;
+  font-size: var(--font-size-xs, 12px);
+  cursor: pointer;
+  transition: all var(--transition-fast, 150ms);
+}
+
+.btn-optimize:hover:not(:disabled) {
+  border-color: rgba(13, 148, 136, 0.34);
+  background: linear-gradient(180deg, rgba(236, 253, 245, 1), rgba(204, 251, 241, 0.92));
+  color: #0f766e;
+}
+
+.btn-add:disabled,
+.btn-optimize:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .task-list {

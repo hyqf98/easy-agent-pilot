@@ -1,4 +1,5 @@
 import i18n from '@/i18n'
+import type { AITaskItem, TaskCountMode } from '@/types/plan'
 
 export interface PlanSplitPromptContext {
   planName: string
@@ -16,6 +17,13 @@ export interface TaskResplitPromptContext {
   acceptanceCriteria?: string[]
   userPrompt?: string
   minTaskCount: number
+}
+
+export interface TaskListOptimizePromptContext {
+  planName: string
+  planDescription?: string
+  tasks: AITaskItem[]
+  userPrompt?: string
 }
 
 function t(key: string, params?: Record<string, unknown>): string {
@@ -69,6 +77,52 @@ ${t('prompts.plan.acceptanceCriteria')}:
 ${criteriaList}${userPromptSection}
 
 ${t('prompts.plan.directTaskSplitDone')}`.trim()
+}
+
+function formatTaskList(tasks: AITaskItem[]): string {
+  if (tasks.length === 0) {
+    return t('prompts.plan.none')
+  }
+
+  return tasks.map((task, index) => [
+    `${index + 1}. ${task.title}`,
+    `   ${t('prompts.plan.description')}: ${task.description?.trim() || t('prompts.plan.none')}`,
+    `   ${t('prompts.plan.implementationSteps')}:`,
+    ...(task.implementationSteps.length > 0
+      ? task.implementationSteps.map((step, stepIndex) => `     ${stepIndex + 1}. ${step}`)
+      : [`     ${t('prompts.plan.none')}`]),
+    `   ${t('prompts.plan.testSteps')}:`,
+    ...(task.testSteps.length > 0
+      ? task.testSteps.map((step, stepIndex) => `     ${stepIndex + 1}. ${step}`)
+      : [`     ${t('prompts.plan.none')}`]),
+    `   ${t('prompts.plan.acceptanceCriteria')}:`,
+    ...(task.acceptanceCriteria.length > 0
+      ? task.acceptanceCriteria.map((criteria, criteriaIndex) => `     ${criteriaIndex + 1}. ${criteria}`)
+      : [`     ${t('prompts.plan.none')}`]),
+    `   ${t('prompts.plan.dependsOnDescription')}: ${task.dependsOn?.join('、') || t('prompts.plan.none')}`
+  ].join('\n')).join('\n\n')
+}
+
+export function buildTaskListOptimizeKickoffPrompt(context: TaskListOptimizePromptContext): string {
+  const userPromptSection = context.userPrompt
+    ? `\n\n${t('prompts.plan.extraRequirements')}:\n${context.userPrompt}`
+    : ''
+
+  return [
+    '你将对当前整份任务列表进行整体优化。',
+    `要求：必须保留任务数量不变，当前任务数为 ${context.tasks.length}。`,
+    '允许：重写任务描述、实现步骤、测试步骤、验收标准；调整任务顺序；修正 dependsOn 依赖关系。',
+    '禁止：新增任务、删除任务，或返回与当前任务数不一致的结果。',
+    '',
+    `${t('prompts.plan.plan')}: ${context.planName}`,
+    `${t('prompts.plan.description')}: ${context.planDescription?.trim() || t('prompts.plan.none')}`,
+    '',
+    '当前任务列表：',
+    formatTaskList(context.tasks),
+    userPromptSection,
+    '',
+    `输出 task_split（status=DONE），并保证 tasks 数量必须严格等于 ${context.tasks.length}。`
+  ].join('\n').trim()
 }
 
 export function buildFormResponsePrompt(formId: string, values: Record<string, unknown>): string {
@@ -330,8 +384,9 @@ function buildCodexPlanSplitTaskSchema() {
   }
 }
 
-function buildCodexPlanSplitJsonSchema(minTaskCount: number) {
+function buildCodexPlanSplitJsonSchema(minTaskCount: number, taskCountMode: TaskCountMode) {
   const normalizedMinTaskCount = Math.max(1, Math.floor(minTaskCount || 1))
+  const exactTaskCount = taskCountMode === 'exact' ? normalizedMinTaskCount : undefined
 
   // Codex 的 response_format schema 不支持 allOf/if/then，使用扁平结构，
   // 同时把可选字段显式列出为 null，减少模型漏字段导致前端表单渲染不稳定。
@@ -360,6 +415,7 @@ function buildCodexPlanSplitJsonSchema(minTaskCount: number) {
       tasks: {
         type: ['array', 'null'],
         minItems: normalizedMinTaskCount,
+        ...(exactTaskCount ? { maxItems: exactTaskCount } : {}),
         items: buildCodexPlanSplitTaskSchema()
       }
     },
@@ -367,8 +423,9 @@ function buildCodexPlanSplitJsonSchema(minTaskCount: number) {
   }
 }
 
-function buildClaudePlanSplitJsonSchema(minTaskCount: number) {
+function buildClaudePlanSplitJsonSchema(minTaskCount: number, taskCountMode: TaskCountMode) {
   const normalizedMinTaskCount = Math.max(1, Math.floor(minTaskCount || 1))
+  const exactTaskCount = taskCountMode === 'exact' ? normalizedMinTaskCount : undefined
 
   return {
     type: 'object',
@@ -423,6 +480,7 @@ function buildClaudePlanSplitJsonSchema(minTaskCount: number) {
             tasks: {
               type: 'array',
               minItems: normalizedMinTaskCount,
+              ...(exactTaskCount ? { maxItems: exactTaskCount } : {}),
               items: buildPlanSplitTaskSchema()
             }
           }
@@ -434,12 +492,13 @@ function buildClaudePlanSplitJsonSchema(minTaskCount: number) {
 
 export function buildPlanSplitJsonSchema(
   minTaskCount: number,
-  provider: PlanSplitSchemaProvider = 'generic'
+  provider: PlanSplitSchemaProvider = 'generic',
+  taskCountMode: TaskCountMode = 'min'
 ): string {
   const normalizedProvider = provider.toLowerCase() as PlanSplitSchemaProvider
   const schema = normalizedProvider === 'codex'
-    ? buildCodexPlanSplitJsonSchema(minTaskCount)
-    : buildClaudePlanSplitJsonSchema(minTaskCount)
+    ? buildCodexPlanSplitJsonSchema(minTaskCount, taskCountMode)
+    : buildClaudePlanSplitJsonSchema(minTaskCount, taskCountMode)
 
   return JSON.stringify(schema)
 }

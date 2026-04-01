@@ -976,14 +976,7 @@ pub struct CreateBuiltinModelsInput {
 
 #[tauri::command]
 pub fn list_agent_models(agent_id: String) -> Result<Vec<AgentModelConfig>, String> {
-    let mut conn = open_conn()?;
-    if let Some(provider) = get_agent_provider(&conn, &agent_id)? {
-        let now = now_rfc3339();
-        let tx = conn.transaction().map_err(|e| e.to_string())?;
-        sync_builtin_models(&tx, &agent_id, &now, builtin_models_for_provider(&provider))?;
-        tx.commit().map_err(|e| e.to_string())?;
-    }
-
+    let conn = open_conn()?;
     list_models_for_agent(&conn, &agent_id)
 }
 

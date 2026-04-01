@@ -8,10 +8,17 @@ import { useThemeStore } from '@/stores/theme'
 import { useAgentStore } from '@/stores/agent'
 import { useAgentTeamsStore } from '@/stores/agentTeams'
 import TaskSplitPreview from './TaskSplitPreview.vue'
+import TaskListOptimizeModal from './TaskListOptimizeModal.vue'
 import TaskResplitModal from './TaskResplitModal.vue'
 import ExecutionTimeline from '@/components/message/ExecutionTimeline.vue'
 import { useOverlayDismiss } from '@/composables/useOverlayDismiss'
-import type { AITaskItem, DynamicFormSchema, PlanSplitLogRecord, TaskResplitConfig } from '@/types/plan'
+import type {
+  AITaskItem,
+  DynamicFormSchema,
+  PlanSplitLogRecord,
+  TaskListOptimizeConfig,
+  TaskResplitConfig
+} from '@/types/plan'
 import type { TimelineEntry } from '@/types/timeline'
 import { buildToolCallMapFromLogs, extractDynamicFormSchemas } from '@/utils/toolCallLog'
 import {
@@ -39,9 +46,19 @@ const messagesContainerRef = ref<HTMLElement | null>(null)
 const resplitModalVisible = ref(false)
 const resplitTargetIndex = ref<number | null>(null)
 const resplitTargetTask = ref<AITaskItem | null>(null)
+const optimizeListModalVisible = ref(false)
 
 // 是否显示预览
 const showPreview = computed(() => taskSplitStore.splitResult !== null)
+const refinementMode = computed(() => taskSplitStore.refinementMode)
+const hasPendingRefinement = computed(() => Boolean(refinementMode.value))
+const isListOptimizePending = computed(() => refinementMode.value === 'list_optimize')
+const previewActionsDisabled = computed(() =>
+  isSessionRunning.value || isConfirming.value || hasPendingRefinement.value
+)
+const canApplyRefinement = computed(() =>
+  hasPendingRefinement.value && taskSplitStore.session?.status === 'completed'
+)
 
 const activeFormSchema = computed(() => taskSplitStore.activeFormSchema)
 const isSessionRunning = computed(() => taskSplitStore.session?.status === 'running')
@@ -51,7 +68,7 @@ const canRetrySplit = computed(() => taskSplitStore.session?.status === 'failed'
 const canContinueSplit = computed(() =>
   taskSplitStore.session?.status === 'stopped'
   && !activeFormSchema.value
-  && !showPreview.value
+  && (!showPreview.value || hasPendingRefinement.value)
 )
 const retryActionLabel = computed(() => {
   const hasUserMessage = taskSplitStore.messages.some(message =>
@@ -64,6 +81,15 @@ const splitErrorMessage = computed(() =>
   || taskSplitStore.session?.parseError?.trim()
   || ''
 )
+const primaryActionLabel = computed(() => {
+  if (refinementMode.value === 'list_optimize') {
+    return canApplyRefinement.value ? '应用优化结果' : '等待优化结果'
+  }
+  if (refinementMode.value === 'task_resplit') {
+    return canApplyRefinement.value ? '应用拆分结果' : '等待拆分结果'
+  }
+  return isConfirming.value ? '创建中...' : '确认并创建任务'
+})
 const footerHint = computed(() => {
   if (canRetrySplit.value) {
     return splitErrorMessage.value || 'AI 响应失败，可点击重试重新发起请求。'
@@ -789,7 +815,7 @@ const timelineEntries = computed<TimelineEntry[]>(() => {
     })
   }
 
-  if (activeFormSchema.value && !showPreview.value) {
+  if (activeFormSchema.value && (!showPreview.value || hasPendingRefinement.value)) {
     entries.push({
       id: `form-${activeFormSchema.value.formId}`,
       type: 'form',
@@ -887,6 +913,10 @@ function handleResplit(index: number) {
   resplitModalVisible.value = true
 }
 
+function handleOptimizeList() {
+  optimizeListModalVisible.value = true
+}
+
 async function handleResplitConfirm(config: TaskResplitConfig) {
   if (resplitTargetIndex.value === null) return
 
@@ -898,15 +928,24 @@ async function handleResplitConfirm(config: TaskResplitConfig) {
   await taskSplitStore.startSubSplit(resplitTargetIndex.value, config)
 }
 
+async function handleOptimizeListConfirm(config: TaskListOptimizeConfig) {
+  optimizeListModalVisible.value = false
+  await taskSplitStore.startListOptimize(config)
+}
+
 // 确认拆分结果
 async function confirmSplit() {
   const splitContext = planStore.splitDialogContext
   if (!taskSplitStore.splitResult || !splitContext || isConfirming.value) return
 
   // 如果是子拆分模式，先合并结果
-  if (taskSplitStore.subSplitMode) {
-    taskSplitStore.completeSubSplit(taskSplitStore.splitResult)
+  if (refinementMode.value === 'task_resplit') {
+    await taskSplitStore.completeSubSplit(taskSplitStore.splitResult)
     return // 合并后继续显示更新后的任务列表，不关闭弹框
+  }
+  if (refinementMode.value === 'list_optimize') {
+    await taskSplitStore.completeListOptimize(taskSplitStore.splitResult)
+    return
   }
 
   const planId = splitContext.planId
@@ -963,6 +1002,12 @@ async function confirmSplit() {
 }
 
 async function closeDialog() {
+  if (hasPendingRefinement.value) {
+    if (showStopButton.value) {
+      await taskSplitStore.stop()
+    }
+    await taskSplitStore.cancelRefinement({ discardSession: true })
+  }
   taskSplitStore.detach()
   planStore.closeSplitDialog()
 }
@@ -1072,10 +1117,13 @@ const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(close
             >
               <TaskSplitPreview
                 :tasks="taskSplitStore.splitResult!"
+                :disable-actions="previewActionsDisabled"
+                :is-optimizing-list="isListOptimizePending && isSessionRunning"
                 @update="taskSplitStore.updateSplitTask"
                 @remove="taskSplitStore.removeSplitTask"
                 @add="taskSplitStore.addSplitTask"
                 @resplit="handleResplit"
+                @optimize-list="handleOptimizeList"
               />
             </div>
           </div>
@@ -1129,6 +1177,13 @@ const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(close
             class="footer-actions footer-actions--confirm"
           >
             <button
+              v-if="hasPendingRefinement"
+              class="btn btn-secondary"
+              @click="closeDialog"
+            >
+              放弃本次{{ refinementMode === 'list_optimize' ? '优化' : '拆分' }}
+            </button>
+            <button
               v-if="showStopButton"
               class="btn btn-danger"
               @click="stopSplitTask"
@@ -1136,24 +1191,39 @@ const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(close
               停止任务
             </button>
             <button
+              v-if="canRetrySplit"
+              class="btn btn-secondary btn-retry"
+              @click="retrySplitTask"
+            >
+              {{ retryActionLabel }}
+            </button>
+            <button
+              v-if="canContinueSplit"
+              class="btn btn-secondary btn-continue"
+              @click="continueSplitTask"
+            >
+              继续拆分
+            </button>
+            <button
               class="btn btn-secondary"
-              :disabled="isConfirming"
+              :disabled="isConfirming || isSessionRunning"
               @click="closeDialog"
             >
               关闭
             </button>
             <button
               class="btn btn-secondary"
+              :disabled="isSessionRunning"
               @click="restartSplit"
             >
               重新拆分
             </button>
             <button
               class="btn btn-primary"
-              :disabled="isConfirming"
+              :disabled="isConfirming || isSessionRunning || (hasPendingRefinement && !canApplyRefinement)"
               @click="confirmSplit"
             >
-              {{ isConfirming ? '创建中...' : '确认并创建任务' }}
+              {{ primaryActionLabel }}
             </button>
           </div>
         </div>
@@ -1167,6 +1237,14 @@ const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(close
       :default-expert-id="taskSplitStore.context?.expertId"
       :default-model-id="taskSplitStore.context?.modelId"
       @confirm="handleResplitConfirm"
+    />
+
+    <TaskListOptimizeModal
+      v-model:visible="optimizeListModalVisible"
+      :task-count="taskSplitStore.splitResult?.length || 0"
+      :default-expert-id="taskSplitStore.context?.expertId"
+      :default-model-id="taskSplitStore.context?.modelId"
+      @confirm="handleOptimizeListConfirm"
     />
   </Teleport>
 </template>

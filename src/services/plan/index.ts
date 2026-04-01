@@ -8,5 +8,6 @@ export {
   buildFormResponsePrompt,
   buildOutputCorrectionPrompt,
   buildPlanSplitJsonSchema,
-  buildTaskResplitKickoffPrompt
+  buildTaskResplitKickoffPrompt,
+  buildTaskListOptimizeKickoffPrompt
 } from './prompts'

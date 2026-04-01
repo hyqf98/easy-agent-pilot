@@ -8,6 +8,7 @@ defineProps<{
   task: AITaskItem
   index: number
   priorityColors: Record<TaskPriority, string>
+  disableActions?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -56,6 +57,7 @@ function getExpertLabel(expertId?: string): string {
         <button
           class="btn-icon"
           :title="t('taskSplit.resplit')"
+          :disabled="disableActions"
           @click="emit('resplit')"
         >
           <svg
@@ -73,6 +75,7 @@ function getExpertLabel(expertId?: string): string {
         <button
           class="btn-icon"
           :title="t('taskSplit.edit')"
+          :disabled="disableActions"
           @click="emit('edit')"
         >
           <svg
@@ -89,6 +92,7 @@ function getExpertLabel(expertId?: string): string {
         <button
           class="btn-icon btn-danger"
           :title="t('taskSplit.delete')"
+          :disabled="disableActions"
           @click="emit('remove')"
         >
           <svg
@@ -232,6 +236,16 @@ function getExpertLabel(expertId?: string): string {
 .btn-icon:hover {
   background-color: var(--color-bg-secondary, #f1f5f9);
   color: var(--color-text-primary, #1e293b);
+}
+
+.btn-icon:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-icon:disabled:hover {
+  background: transparent;
+  color: var(--color-text-tertiary, #94a3b8);
 }
 
 .btn-icon.btn-danger:hover {

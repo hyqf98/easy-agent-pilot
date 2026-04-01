@@ -391,6 +391,7 @@ const INIT_SQL: &str = r#"
         parsed_output TEXT,
         parse_error TEXT,
         granularity INTEGER DEFAULT 20,
+        task_count_mode TEXT NOT NULL DEFAULT 'min',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
@@ -1047,6 +1048,7 @@ pub fn init_database() -> Result<()> {
             parsed_output TEXT,
             parse_error TEXT,
             granularity INTEGER DEFAULT 20,
+            task_count_mode TEXT NOT NULL DEFAULT 'min',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
@@ -1074,6 +1076,7 @@ pub fn init_database() -> Result<()> {
         "ALTER TABLE task_split_sessions ADD COLUMN started_at TEXT",
         "ALTER TABLE task_split_sessions ADD COLUMN completed_at TEXT",
         "ALTER TABLE task_split_sessions ADD COLUMN stopped_at TEXT",
+        "ALTER TABLE task_split_sessions ADD COLUMN task_count_mode TEXT NOT NULL DEFAULT 'min'",
     ];
     for migration in task_split_sessions_migrations {
         if let Err(e) = conn.execute(migration, []) {

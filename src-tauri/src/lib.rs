@@ -335,6 +335,7 @@ pub fn run() {
             commands::plan_split::list_plan_split_logs,
             commands::plan_split::start_plan_split,
             commands::plan_split::resume_plan_split,
+            commands::plan_split::update_plan_split_result,
             commands::plan_split::submit_plan_split_form,
             commands::plan_split::stop_plan_split,
             commands::plan_split::clear_plan_split_session,
