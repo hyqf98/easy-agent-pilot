@@ -100,12 +100,15 @@ const currentEditTraces = computed(() => {
     return []
   }
 
-  return messageStore.messagesBySession(sessionStore.currentSessionId)
-    .filter(message => message.role === 'assistant' && (message.editTraces?.length ?? 0) > 0)
-    .flatMap(message => (message.editTraces ?? []).map(trace => ({
-      ...trace,
-      messageId: message.id
-    })))
+  return messageStore.getAssistantEditTraces(sessionStore.currentSessionId)
+})
+
+const currentTraceDigest = computed(() => {
+  if (!sessionStore.currentSessionId) {
+    return '0::'
+  }
+
+  return messageStore.getAssistantTraceDigest(sessionStore.currentSessionId)
 })
 
 const currentTracePagination = computed(() => {
@@ -125,9 +128,7 @@ const ensureTraceHistoryLoaded = async (sessionId: string) => {
       return
     }
 
-    const traces = messageStore.messagesBySession(sessionId)
-      .filter(message => message.role === 'assistant' && (message.editTraces?.length ?? 0) > 0)
-      .flatMap(message => message.editTraces ?? [])
+    const traces = messageStore.getAssistantEditTraces(sessionId)
 
     if (traces.length > 0) {
       return
@@ -315,12 +316,7 @@ watch(() => sessionStore.currentSessionId, (sessionId) => {
     return
   }
 
-  const traces = messageStore.messagesBySession(sessionId)
-    .filter(message => message.role === 'assistant' && (message.editTraces?.length ?? 0) > 0)
-    .flatMap(message => (message.editTraces ?? []).map(trace => ({
-      ...trace,
-      messageId: message.id
-    })))
+  const traces = messageStore.getAssistantEditTraces(sessionId)
 
   const latestTrace = traces[traces.length - 1]
   lastObservedTraceId.value = latestTrace?.id ?? null
@@ -337,8 +333,9 @@ watch(() => sessionStore.currentSessionId, (sessionId) => {
   }
 }, { immediate: true })
 
-watch(currentEditTraces, (traces) => {
+watch(currentTraceDigest, () => {
   const sessionId = sessionStore.currentSessionId
+  const traces = currentEditTraces.value
   if (!sessionId || traces.length === 0) {
     return
   }
@@ -372,17 +369,18 @@ watch(currentEditTraces, (traces) => {
     isDesktop: !isMobileViewport.value
   })
   lastObservedTraceId.value = latestTrace.id
-}, { deep: true })
+})
 
 watch(
   () => [
     sessionStore.currentSessionId,
-    currentEditTraces.value.length,
+    currentTraceDigest.value,
     currentTracePagination.value?.hasMore ?? false,
     currentTracePagination.value?.isLoadingMore ?? false,
     currentTracePagination.value?.oldestMessageCreatedAt ?? null
   ] as const,
-  ([sessionId, traceCount, hasMore, isLoadingMore, oldestMessageCreatedAt]) => {
+  ([sessionId, traceDigest, hasMore, isLoadingMore, oldestMessageCreatedAt]) => {
+    const traceCount = Number(traceDigest.split(':', 1)[0] ?? '0')
     if (!sessionId || traceCount > 0 || !hasMore || isLoadingMore || !oldestMessageCreatedAt) {
       return
     }

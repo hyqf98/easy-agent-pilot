@@ -285,6 +285,26 @@ fn load_form_queue(raw: Option<&String>) -> Vec<Value> {
     parse_json_vec(raw)
 }
 
+fn trim_messages_after_last_user<T, F>(messages: &mut Vec<T>, get_role: F)
+where
+    F: Fn(&T) -> &str,
+{
+    let Some(last_user_index) = messages.iter().rposition(|message| get_role(message) == "user") else {
+        return;
+    };
+
+    while messages.len() > last_user_index + 1 {
+        let should_remove = messages
+            .last()
+            .map(|message| get_role(message) == "assistant")
+            .unwrap_or(false);
+        if !should_remove {
+            break;
+        }
+        messages.pop();
+    }
+}
+
 fn emit_session_updated(app: &AppHandle, session: &PlanSplitSession) {
     let event_name = format!("plan-split-stream-{}", session.plan_id);
     let payload = serde_json::json!({
@@ -1273,6 +1293,55 @@ pub async fn stop_plan_split(
 
     emit_session_updated(&app, &session);
     Ok(Some(session))
+}
+
+/// 删除当前拆分轮次的渲染痕迹，用于失败/停止后重新生成。
+///
+/// 主要行为：
+/// - 中止当前 execution_session_id 对应的后台执行；
+/// - 删除该轮次写入的 `plan_split_logs`；
+/// - 裁掉 `messages_json` / `llm_messages_json` 中最后一个用户消息之后追加的 assistant 响应；
+/// - 清空本轮的错误、结果和表单状态，保留此前已确认的用户上下文。
+#[tauri::command]
+pub async fn reset_plan_split_turn_for_restart(
+    app: AppHandle,
+    plan_id: String,
+) -> Result<PlanSplitSession, String> {
+    let conn = open_db_connection().map_err(|error| error.to_string())?;
+    let Some(mut session) = read_session(&conn, &plan_id)? else {
+        return Err("计划拆分会话不存在".to_string());
+    };
+
+    if let Some(execution_session_id) = session.execution_session_id.clone() {
+        set_abort_flag(&execution_session_id, true).await;
+        conn.execute(
+            "DELETE FROM plan_split_logs WHERE plan_id = ?1 AND session_id = ?2",
+            rusqlite::params![&plan_id, &execution_session_id],
+        )
+        .map_err(|error| error.to_string())?;
+    }
+
+    let mut messages = load_messages_json(session.messages_json.as_ref());
+    trim_messages_after_last_user(&mut messages, |message| message.role.as_str());
+
+    let mut llm_messages = load_llm_messages_json(session.llm_messages_json.as_ref());
+    trim_messages_after_last_user(&mut llm_messages, |message| message.role.as_str());
+
+    session.messages_json = Some(serialize_json(&messages)?);
+    session.llm_messages_json = Some(serialize_json(&llm_messages)?);
+    session.raw_content = None;
+    session.result_json = None;
+    session.parse_error = None;
+    session.error_message = None;
+    session.form_queue_json = None;
+    session.current_form_index = None;
+    session.completed_at = None;
+    session.stopped_at = None;
+    session.updated_at = now_rfc3339();
+
+    insert_or_update_session(&conn, &session)?;
+    emit_session_updated(&app, &session);
+    Ok(session)
 }
 
 #[tauri::command]

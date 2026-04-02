@@ -128,6 +128,42 @@ fn create_pty_size(cols: u16, rows: u16) -> PtySize {
     }
 }
 
+/// 将 PTY 字节流按 UTF-8 边界增量解码，避免多字节字符跨 read 边界时被直接替换成乱码。
+fn decode_terminal_output(pending: &mut Vec<u8>, chunk: &[u8]) -> String {
+    pending.extend_from_slice(chunk);
+
+    let mut decoded = String::new();
+
+    loop {
+        match std::str::from_utf8(pending) {
+            Ok(text) => {
+                decoded.push_str(text);
+                pending.clear();
+                break;
+            }
+            Err(error) => {
+                let valid_up_to = error.valid_up_to();
+                if valid_up_to > 0 {
+                    let valid_prefix = pending[..valid_up_to].to_vec();
+                    decoded.push_str(String::from_utf8_lossy(&valid_prefix).as_ref());
+                    pending.drain(..valid_up_to);
+                    continue;
+                }
+
+                let Some(invalid_len) = error.error_len() else {
+                    break;
+                };
+
+                let invalid_bytes = pending[..invalid_len].to_vec();
+                decoded.push_str(String::from_utf8_lossy(&invalid_bytes).as_ref());
+                pending.drain(..invalid_len);
+            }
+        }
+    }
+
+    decoded
+}
+
 /// 创建一个新的终端 PTY 会话，并开始向前端推送输出事件。
 #[tauri::command]
 pub fn create_terminal_session(
@@ -190,15 +226,25 @@ pub fn create_terminal_session(
     let read_session_id = session_id.clone();
     std::thread::spawn(move || {
         let mut buffer = [0_u8; 8192];
+        let mut pending_utf8 = Vec::new();
 
         loop {
             match reader.read(&mut buffer) {
                 Ok(0) => break,
                 Ok(size) => {
-                    let chunk = String::from_utf8_lossy(&buffer[..size]).to_string();
-                    emit_terminal_data(&app_handle, &read_session_id, chunk);
+                    let chunk = decode_terminal_output(&mut pending_utf8, &buffer[..size]);
+                    if !chunk.is_empty() {
+                        emit_terminal_data(&app_handle, &read_session_id, chunk);
+                    }
                 }
                 Err(_) => break,
+            }
+        }
+
+        if !pending_utf8.is_empty() {
+            let remaining = String::from_utf8_lossy(&pending_utf8).to_string();
+            if !remaining.is_empty() {
+                emit_terminal_data(&app_handle, &read_session_id, remaining);
             }
         }
 

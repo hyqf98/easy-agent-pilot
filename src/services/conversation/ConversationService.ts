@@ -20,6 +20,7 @@ import { resolveUsageModelHint } from './usageModelHint'
 import {
   buildCliEnvironmentNotice,
   buildContextStrategyNotice,
+  buildProcessingTimeNotice,
   buildRuntimeNoticeFromSystemContent,
   buildUsageNotice,
   upsertRuntimeNotice
@@ -179,7 +180,6 @@ export class ConversationService {
 
     // 开始发送状态
     sessionExecutionStore.startSending(sessionId)
-    tokenStore.clearRealtimeTokens(sessionId)
 
     try {
       const existingUserMessageId = options?.existingUserMessageId?.trim()
@@ -878,6 +878,20 @@ export class ConversationService {
       })
     }
 
+    const syncProcessingTimeNotice = () => {
+      const finishedAt = streamMetrics.doneAt ?? now()
+      const durationMs = Math.max(0, finishedAt - streamMetrics.startedAt)
+      const processingTimeNotice = buildProcessingTimeNotice(durationMs)
+      if (!processingTimeNotice) {
+        return
+      }
+
+      runtimeNoticesState = upsertRuntimeNotice(runtimeNoticesState, processingTimeNotice)
+      bufferMessageUpdate({
+        runtimeNotices: runtimeNoticesState
+      })
+    }
+
     try {
       await agentExecutor.execute(context, (event: StreamEvent) => {
         markMetric('firstEventAt')
@@ -1029,6 +1043,7 @@ export class ConversationService {
               toolCalls.splice(0, toolCalls.length, ...finalizedToolCalls)
             }
             syncFinalUsageNotice()
+            syncProcessingTimeNotice()
             // 更新消息状态
             if (!hasError && !isAiMessageInterrupted()) {
               bufferMessageUpdate({
@@ -1064,11 +1079,13 @@ export class ConversationService {
 
       // 兜底：部分后端/CLI 场景可能不会显式发出 done 事件，避免状态长期卡在“生成中”
       if (sessionExecutionStore.getIsSending(sessionId)) {
+        markMetric('doneAt')
         const finalizedToolCalls = finalizePendingToolCalls(toolCalls)
         if (finalizedToolCalls !== toolCalls) {
           toolCalls.splice(0, toolCalls.length, ...finalizedToolCalls)
         }
         syncFinalUsageNotice()
+        syncProcessingTimeNotice()
         if (!hasError) {
           bufferMessageUpdate({
             status: 'completed',
@@ -1133,7 +1150,9 @@ export class ConversationService {
       }
 
       if (isAiMessageInterrupted()) {
+        markMetric('doneAt')
         syncFinalUsageNotice()
+        syncProcessingTimeNotice()
         bufferMessageUpdate({
           thinkingActive: false
         }, { immediate: true })
@@ -1146,6 +1165,8 @@ export class ConversationService {
       }
 
       syncFinalUsageNotice()
+      markMetric('doneAt')
+      syncProcessingTimeNotice()
       bufferMessageUpdate({
         status: 'error',
         errorMessage,

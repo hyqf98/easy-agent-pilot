@@ -414,16 +414,19 @@ const listStyle = computed(() => ({
 
     <template v-if="!shouldVirtualize">
       <TransitionGroup name="message">
-        <MessageBubble
+        <template
           v-for="message in currentMessages"
           :key="message.id"
-          :message="message"
-          :session-id="props.sessionId || sessionStore.currentSessionId || undefined"
-          :hide-context-strategy-notice="props.hideContextStrategyNotice"
-          @retry="handleRetry"
-          @form-submit="handleFormSubmit"
-          @open-edit-trace="handleOpenEditTrace"
-        />
+        >
+          <MessageBubble
+            :message="message"
+            :session-id="props.sessionId || sessionStore.currentSessionId || undefined"
+            :hide-context-strategy-notice="props.hideContextStrategyNotice"
+            @retry="handleRetry"
+            @form-submit="handleFormSubmit"
+            @open-edit-trace="handleOpenEditTrace"
+          />
+        </template>
       </TransitionGroup>
     </template>
 
@@ -437,21 +440,24 @@ const listStyle = computed(() => ({
         :style="{ height: `${virtualWindow.topSpacer}px` }"
       />
 
-      <div
+      <template
         v-for="item in visibleMessages"
         :key="item.message.id"
-        :ref="(element) => bindMessageElement(item.message.id, element as Element | null)"
-        class="message-list__virtual-item"
       >
-        <MessageBubble
-          :message="item.message"
-          :session-id="props.sessionId || sessionStore.currentSessionId || undefined"
-          :hide-context-strategy-notice="props.hideContextStrategyNotice"
-          @retry="handleRetry"
-          @form-submit="handleFormSubmit"
-          @open-edit-trace="handleOpenEditTrace"
-        />
-      </div>
+        <div
+          :ref="(element) => bindMessageElement(item.message.id, element as Element | null)"
+          class="message-list__virtual-item"
+        >
+          <MessageBubble
+            :message="item.message"
+            :session-id="props.sessionId || sessionStore.currentSessionId || undefined"
+            :hide-context-strategy-notice="props.hideContextStrategyNotice"
+            @retry="handleRetry"
+            @form-submit="handleFormSubmit"
+            @open-edit-trace="handleOpenEditTrace"
+          />
+        </div>
+      </template>
 
       <div
         class="message-list__virtual-spacer"

@@ -338,6 +338,7 @@ pub fn run() {
             commands::plan_split::update_plan_split_result,
             commands::plan_split::submit_plan_split_form,
             commands::plan_split::stop_plan_split,
+            commands::plan_split::reset_plan_split_turn_for_restart,
             commands::plan_split::clear_plan_split_session,
             // Task commands
             commands::task::list_tasks,

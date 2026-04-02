@@ -14,6 +14,10 @@ export interface UsageNoticeSummary {
   output: string | null
 }
 
+export interface ProcessingTimeNoticeSummary {
+  label: string | null
+}
+
 export interface ContextStrategyNoticeOptions {
   strategy: string
   runtime?: string | null
@@ -117,6 +121,10 @@ function isRuntimeNoticeLineLabel(label: string): boolean {
     'output token',
     '输入',
     '输出',
+    '用时',
+    '耗时',
+    'elapsed',
+    'duration',
     'Skills',
     'Plugins',
     'MCP',
@@ -138,6 +146,14 @@ function isInputLabel(label: string): boolean {
 function isOutputLabel(label: string): boolean {
   const normalized = label.trim().toLowerCase()
   return normalized.includes('输出') || normalized.includes('output')
+}
+
+function isElapsedLabel(label: string): boolean {
+  const normalized = label.trim().toLowerCase()
+  return normalized.includes('用时')
+    || normalized.includes('耗时')
+    || normalized.includes('elapsed')
+    || normalized.includes('duration')
 }
 
 function formatCompactNumber(value: number): string {
@@ -218,6 +234,16 @@ const runtimeNoticeDescriptors: RuntimeNoticeDescriptor[] = [
         return `${line.label} ${line.value}`.trim()
       })
       .slice(0, 3)
+  },
+  {
+    id: 'processing-time',
+    matches: (notice) =>
+      notice.id === 'processing-time'
+      || /处理用时|processing time/i.test(notice.title),
+    summarize: (lines) => lines
+      .map((line) => line.value || `${line.label}`.trim())
+      .filter(Boolean)
+      .slice(0, 1)
   }
 ]
 
@@ -231,6 +257,12 @@ export function isContextRuntimeNotice(
   notice: Pick<RuntimeNotice, 'id' | 'title'>
 ): boolean {
   return resolveRuntimeNoticeDescriptor(notice)?.id === 'context'
+}
+
+export function isProcessingTimeRuntimeNotice(
+  notice: Pick<RuntimeNotice, 'id' | 'title'>
+): boolean {
+  return resolveRuntimeNoticeDescriptor(notice)?.id === 'processing-time'
 }
 
 function inferRuntimeNoticeId(title: string): string {
@@ -442,6 +474,43 @@ export function buildUsageNotice(usage: UsageSnapshot): RuntimeNotice | null {
   }
 }
 
+export function formatProcessingDuration(durationMs: number | null | undefined): string | null {
+  if (durationMs === null || durationMs === undefined || !Number.isFinite(durationMs)) {
+    return null
+  }
+
+  const normalizedDurationMs = Math.max(0, durationMs)
+  if (normalizedDurationMs < 250) {
+    return null
+  }
+
+  if (normalizedDurationMs < 1_000) {
+    return `${Math.round(normalizedDurationMs)}ms`
+  }
+
+  if (normalizedDurationMs < 60_000) {
+    return `${(normalizedDurationMs / 1_000).toFixed(normalizedDurationMs >= 10_000 ? 0 : 1)}s`
+  }
+
+  const minutes = Math.floor(normalizedDurationMs / 60_000)
+  const seconds = Math.round((normalizedDurationMs % 60_000) / 1_000)
+  return `${minutes}m ${seconds}s`
+}
+
+export function buildProcessingTimeNotice(durationMs: number | null | undefined): RuntimeNotice | null {
+  const label = formatProcessingDuration(durationMs)
+  if (!label) {
+    return null
+  }
+
+  return {
+    id: 'processing-time',
+    title: '处理用时',
+    content: `- 用时: ${label}`,
+    tone: 'info'
+  }
+}
+
 export function upsertRuntimeNotice(
   notices: RuntimeNotice[] | undefined,
   nextNotice: RuntimeNotice | null
@@ -460,4 +529,21 @@ export function upsertRuntimeNotice(
   }
 
   return current
+}
+
+export function getProcessingTimeNoticeSummary(
+  notice: RuntimeNotice
+): ProcessingTimeNoticeSummary | null {
+  if (!isProcessingTimeRuntimeNotice(notice)) {
+    return null
+  }
+
+  const lines = parseRuntimeNoticeLines(notice.content)
+  for (const line of lines) {
+    if (isElapsedLabel(line.label)) {
+      return { label: line.value || null }
+    }
+  }
+
+  return { label: notice.content.trim() || null }
 }

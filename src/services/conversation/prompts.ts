@@ -17,7 +17,8 @@ When you cannot continue the current task and must collect explicit parameters, 
 6. select, radio, and multiselect must provide options in the shape [{label, value}].
 7. Output form_request only when you truly need more user input to continue. Otherwise reply normally.
 8. If the user sends a JSON object with type="form_response", treat it as the form answer and continue.
-9. When outputting form_request, do not add explanations, headings, lists, or any extra text before or after the JSON.`
+9. When outputting form_request, do not add explanations, headings, lists, or any extra text before or after the JSON.
+10. Even if you would normally use brainstorming, questionnaires, or A/B/C/D follow-up questions, in this app you must still output a form_request JSON instead of plain text questions.`
   }
 
   return `你正在桌面应用的主会话中与用户协作。
@@ -31,5 +32,6 @@ When you cannot continue the current task and must collect explicit parameters, 
 6. select、radio、multiselect 必须提供 options，结构为 [{label, value}]。
 7. 只有在确实需要用户补充信息才能继续时，才输出 form_request；其余场景正常回答。
 8. 如果用户发送一个 type="form_response" 的 JSON 对象，把它视为表单回答并继续处理。
-9. 输出 form_request 时，JSON 前后不要再附加解释、标题、列表或其他文本。`
+9. 输出 form_request 时，JSON 前后不要再附加解释、标题、列表或其他文本。
+10. 即使你原本会采用 brainstorming、问卷式追问、A/B/C/D 选项提问，也必须改为输出 form_request JSON，不能输出普通文本问题。`
 }

@@ -9,7 +9,7 @@ import { EaIcon } from '@/components/common'
 import { FILE_MENTION_PATTERN, getMentionDisplayText } from '@/utils/fileMention'
 import { extractFormResponse, parseStructuredContent } from '@/utils/structuredContent'
 import { getAttachmentPreviewUrl, resolveAttachmentPreviewUrl } from '@/utils/attachmentPreview'
-import { isContextRuntimeNotice } from '@/utils/runtimeNotice'
+import { getProcessingTimeNoticeSummary, isContextRuntimeNotice, isProcessingTimeRuntimeNotice } from '@/utils/runtimeNotice'
 import StructuredContentRenderer from './StructuredContentRenderer.vue'
 import ToolCallDisplay from './ToolCallDisplay.vue'
 import ThinkingDisplay from './ThinkingDisplay.vue'
@@ -269,8 +269,16 @@ const assistantStatusInfo = computed(() => {
 })
 
 const assistantElapsedLabel = computed(() => {
-  if (!isAssistant.value || !isStreaming.value) {
+  if (!isAssistant.value) {
     return ''
+  }
+
+  if (!isStreaming.value) {
+    const processingTimeNotice = (props.message.runtimeNotices ?? [])
+      .find(notice => isProcessingTimeRuntimeNotice(notice))
+    return processingTimeNotice
+      ? (getProcessingTimeNoticeSummary(processingTimeNotice)?.label || '')
+      : ''
   }
 
   const startedAt = new Date(props.message.createdAt).getTime()
@@ -308,7 +316,9 @@ const runtimeUsageFallback = computed(() => {
 
 const visibleRuntimeNotices = computed(() => {
   const notices = props.message.runtimeNotices ?? []
-  return notices.filter(notice => !isContextRuntimeNotice(notice))
+  return notices.filter(notice =>
+    !isContextRuntimeNotice(notice) && !isProcessingTimeRuntimeNotice(notice)
+  )
 })
 
 const assistantVisibleEditTraces = computed(() => {
@@ -316,14 +326,7 @@ const assistantVisibleEditTraces = computed(() => {
     return []
   }
 
-const latestTraceByFile = messageStore.getLatestAssistantTraceIdsByFile(props.message.sessionId)
-
-  const latestVisibleTraces = props.message.editTraces.filter(trace => {
-    const latest = latestTraceByFile.get(trace.filePath)
-    return latest?.traceId === trace.id && latest.messageId === props.message.id
-  })
-
-  return latestVisibleTraces.sort((left, right) => right.timestamp.localeCompare(left.timestamp))
+  return messageStore.getVisibleAssistantEditTracesForMessage(props.message.sessionId, props.message.id)
 })
 
 // 失败原因
@@ -623,6 +626,16 @@ const resolvedFormResponse = computed(() => {
             :default-result-expanded="false"
           />
         </TransitionGroup>
+        <button
+          v-if="areToolCallsExpanded"
+          type="button"
+          class="message-bubble__tool-calls-footer"
+          @click="toggleToolCallsExpanded"
+        >
+          <span class="message-bubble__tool-calls-toggle">
+            {{ t('message.collapse') }}
+          </span>
+        </button>
       </div>
 
       <div
@@ -1123,6 +1136,24 @@ const resolvedFormResponse = computed(() => {
   gap: var(--spacing-2);
   min-height: 0;
   overflow: visible;
+}
+
+.message-bubble__tool-calls-footer {
+  align-self: flex-end;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0;
+  margin-top: 0.15rem;
+  background: transparent;
+  color: inherit;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.message-bubble__tool-calls-footer:hover {
+  transform: translateY(-1px);
+  opacity: 0.9;
 }
 
 .message-bubble__tool-calls-shell--scrollable .message-bubble__tool-calls {

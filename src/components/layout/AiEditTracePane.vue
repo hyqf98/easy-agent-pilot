@@ -40,12 +40,7 @@ const isRollingBack = ref(false)
 const sessionState = computed(() => aiEditTraceStore.getSessionState(props.sessionId))
 
 const flattenedTraces = computed(() => {
-  return messageStore.messagesBySession(props.sessionId)
-    .filter(message => message.role === 'assistant' && (message.editTraces?.length ?? 0) > 0)
-    .flatMap(message => (message.editTraces ?? []).map(trace => ({
-      ...trace,
-      messageId: message.id
-    })))
+  return messageStore.getAssistantEditTraces(props.sessionId)
 })
 
 const groupedFiles = computed<FileTraceGroup[]>(() => {

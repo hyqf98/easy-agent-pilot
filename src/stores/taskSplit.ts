@@ -206,6 +206,20 @@ function toPlanSplitLogs(logs: PlanSplitLogRecord[]): PlanSplitLogRecord[] {
   }))
 }
 
+function trimTrailingAssistantMessages<T extends { role: string }>(items: T[]): T[] {
+  const lastUserIndex = [...items].map(item => item.role).lastIndexOf('user')
+  if (lastUserIndex < 0) {
+    return [...items]
+  }
+
+  let endIndex = items.length
+  while (endIndex > lastUserIndex + 1 && items[endIndex - 1]?.role === 'assistant') {
+    endIndex -= 1
+  }
+
+  return items.slice(0, endIndex)
+}
+
 async function buildSplitSystemPrompt(expertId?: string): Promise<string> {
   const agentStore = useAgentStore()
   const agentTeamsStore = useAgentTeamsStore()
@@ -660,16 +674,38 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     }
   }
 
+  /**
+   * 基于当前会话上下文重新发起最新一轮拆分，并清理上一轮失败/停止留下的 AI 渲染痕迹。
+   */
   async function restartFromPersistedContext(snapshot: PlanSplitSessionRecord) {
     if (!context.value) {
       return
     }
 
-    const llmMessages = parseJson<MessageInput[]>(snapshot.llmMessagesJson, [])
-    const uiMessages = toSplitMessages(snapshot.messagesJson)
+    const llmMessages = trimTrailingAssistantMessages(
+      parseJson<MessageInput[]>(snapshot.llmMessagesJson, [])
+    )
+    const uiMessages = trimTrailingAssistantMessages(
+      toSplitMessages(snapshot.messagesJson)
+    )
     if (llmMessages.length === 0) {
       throw new Error('当前会话缺少可重试的上下文。')
     }
+
+    const latestExecutionSessionId = snapshot.executionSessionId?.trim() || null
+    const resetSnapshot = await invoke<PlanSplitSessionRecord>('reset_plan_split_turn_for_restart', {
+      planId: context.value.planId
+    })
+
+    messages.value = uiMessages
+    if (latestExecutionSessionId) {
+      logs.value = logs.value.filter(log => log.sessionId !== latestExecutionSessionId)
+    }
+    applySessionSnapshot({
+      ...resetSnapshot,
+      messagesJson: JSON.stringify(uiMessages),
+      llmMessagesJson: JSON.stringify(llmMessages)
+    }, true)
 
     await startBackgroundSession(context.value, llmMessages, uiMessages, {
       preserveLogs: true

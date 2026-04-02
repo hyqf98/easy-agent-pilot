@@ -127,7 +127,19 @@ const fileGroups = computed(() => [
   gap: 0.35rem;
   margin: 0;
   padding-left: 1rem;
+  max-height: 220px;
+  overflow: auto;
+  overscroll-behavior: contain;
   color: var(--color-text-secondary);
+}
+
+.structured-result-card__files::-webkit-scrollbar {
+  width: 6px;
+}
+
+.structured-result-card__files::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-border) 72%, transparent);
 }
 
 :global(.dark) .structured-result-card {

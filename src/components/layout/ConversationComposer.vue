@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch, type ComponentPublicInstance } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useI18n } from 'vue-i18n'
 import { EaIcon } from '@/components/common'
@@ -44,6 +44,7 @@ const isDragOver = ref(false)
 const isQueueCollapsed = ref(true)
 const editingQueuedDraftId = ref<string | null>(null)
 const queuedDraftEditText = ref('')
+const queuedDraftEditorRefs = new Map<string, HTMLTextAreaElement>()
 let unlistenDragDrop: (() => void) | null = null
 const isMainPanel = computed(() => props.panelType === 'main')
 const isMiniPanel = computed(() => props.panelType === 'mini')
@@ -199,6 +200,15 @@ const toggleQueueCollapsed = () => {
 const startQueuedMessageEdit = (draftId: string, content: string) => {
   editingQueuedDraftId.value = draftId
   queuedDraftEditText.value = content
+  void nextTick(() => {
+    const editor = queuedDraftEditorRefs.get(draftId)
+    if (!editor) {
+      return
+    }
+
+    editor.focus()
+    editor.setSelectionRange(editor.value.length, editor.value.length)
+  })
 }
 
 const cancelQueuedMessageEdit = () => {
@@ -218,6 +228,15 @@ const saveQueuedMessageEdit = (draftId: string) => {
     memoryReferences: []
   })
   cancelQueuedMessageEdit()
+}
+
+const setQueuedDraftEditorRef = (draftId: string, element: Element | ComponentPublicInstance | null) => {
+  if (!(element instanceof HTMLTextAreaElement)) {
+    queuedDraftEditorRefs.delete(draftId)
+    return
+  }
+
+  queuedDraftEditorRefs.set(draftId, element)
 }
 
 defineExpose({
@@ -610,6 +629,7 @@ defineExpose({
           v-show="!isMainPanel || !isQueueCollapsed"
           :key="draft.id"
           class="conversation-composer__queue-item"
+          :class="{ 'conversation-composer__queue-item--editing': editingQueuedDraftId === draft.id }"
         >
           <div class="conversation-composer__queue-index">
             {{ index + 1 }}
@@ -619,12 +639,18 @@ defineExpose({
               <span>{{ draft.status === 'failed' ? t('message.pendingFailed') : t('message.pendingLabel') }}</span>
               <span v-if="draft.attachments.length > 0">{{ t('message.queueImages', { count: draft.attachments.length }) }}</span>
             </div>
-            <div class="conversation-composer__queue-preview">
+            <div
+              class="conversation-composer__queue-preview"
+              :class="{ 'conversation-composer__queue-preview--editing': editingQueuedDraftId === draft.id }"
+            >
               <textarea
                 v-if="editingQueuedDraftId === draft.id"
+                :ref="(element) => setQueuedDraftEditorRef(draft.id, element)"
                 v-model="queuedDraftEditText"
                 class="conversation-composer__queue-editor"
-                rows="3"
+                rows="4"
+                placeholder="编辑待发送内容..."
+                @keydown.stop
               />
               <template v-else>
                 {{ buildQueuedMessagePreview(draft) || t('message.pendingEmpty') }}
@@ -1413,9 +1439,22 @@ defineExpose({
   background: linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(255, 255, 255, 0.98));
 }
 
+.conversation-composer__queue-item--editing {
+  border-color: color-mix(in srgb, var(--color-primary) 28%, rgba(226, 232, 240, 0.94));
+  background:
+    linear-gradient(180deg, rgba(239, 246, 255, 0.98), rgba(255, 255, 255, 0.99));
+  box-shadow: 0 12px 30px rgba(96, 165, 250, 0.12);
+}
+
 .conversation-composer__queue-body {
   flex: 1;
   min-width: 0;
+}
+
+.conversation-composer__queue-item--editing .conversation-composer__queue-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .conversation-composer__queue-index,
@@ -1469,17 +1508,50 @@ defineExpose({
   word-break: break-word;
 }
 
+.conversation-composer__queue-preview--editing {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+}
+
 .conversation-composer__queue-editor {
+  box-sizing: border-box;
+  display: block;
   width: 100%;
-  min-height: 72px;
-  padding: 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--color-primary) 18%, var(--color-border));
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.96);
+  min-height: 108px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 26%, var(--color-border));
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.98));
   color: var(--color-text-primary);
   font: inherit;
   line-height: 1.5;
   resize: vertical;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), 0 8px 18px rgba(148, 163, 184, 0.12);
+}
+
+.conversation-composer__queue-editor:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--color-primary) 52%, var(--color-border));
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent),
+    0 12px 24px rgba(96, 165, 250, 0.12);
+}
+
+.conversation-composer__queue-item--editing .conversation-composer__queue-actions {
+  align-self: flex-start;
+  padding-top: 2px;
+}
+
+.conversation-composer__queue-item--editing .conversation-composer__queue-action {
+  background: rgba(255, 255, 255, 0.88);
+  border-color: color-mix(in srgb, var(--color-primary) 16%, var(--color-border));
+}
+
+.conversation-composer__queue-item--editing .conversation-composer__queue-action:hover {
+  background: color-mix(in srgb, var(--color-primary) 10%, rgba(255, 255, 255, 0.94));
 }
 
 .conversation-composer__queue-error {
@@ -2237,6 +2309,35 @@ defineExpose({
 :global(.dark) .conversation-composer__queue-index {
   background: rgba(51, 65, 85, 0.92);
   color: #cbd5e1;
+}
+
+:global([data-theme='dark']) .conversation-composer__queue-item--editing,
+:global(.dark) .conversation-composer__queue-item--editing {
+  border-color: rgba(59, 130, 246, 0.42);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(17, 24, 39, 0.98));
+  box-shadow: 0 16px 34px rgba(2, 6, 23, 0.34);
+}
+
+:global([data-theme='dark']) .conversation-composer__queue-editor,
+:global(.dark) .conversation-composer__queue-editor {
+  border-color: rgba(59, 130, 246, 0.34);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.96));
+  color: #e2e8f0;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.08), 0 10px 22px rgba(2, 6, 23, 0.24);
+}
+
+:global([data-theme='dark']) .conversation-composer__queue-editor:focus,
+:global(.dark) .conversation-composer__queue-editor:focus {
+  border-color: rgba(96, 165, 250, 0.68);
+  box-shadow:
+    0 0 0 3px rgba(59, 130, 246, 0.18),
+    0 14px 28px rgba(2, 6, 23, 0.34);
+}
+
+:global([data-theme='dark']) .conversation-composer__queue-item--editing .conversation-composer__queue-action,
+:global(.dark) .conversation-composer__queue-item--editing .conversation-composer__queue-action {
+  background: rgba(15, 23, 42, 0.92);
+  border-color: rgba(59, 130, 246, 0.3);
 }
 
 :global([data-theme='dark']) .conversation-composer__attachment-remove,

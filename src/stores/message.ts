@@ -108,6 +108,8 @@ interface PaginatedRustMessages {
   has_more: boolean
 }
 
+type SessionEditTrace = FileEditTrace & { messageId: string }
+
 function resolveRawMessageCreatedAt(message?: RustMessage): string | null {
   if (!message) return null
   return message.created_at ?? message.createdAt ?? null
@@ -128,7 +130,9 @@ function dedupeMessagesById(items: Message[]): Message[] {
 }
 
 const EMPTY_MESSAGES: Message[] = []
+const EMPTY_ASSISTANT_EDIT_TRACES: SessionEditTrace[] = []
 const EMPTY_TRACE_MAP = new Map<string, { traceId: string, messageId: string, timestamp: string }>()
+const EMPTY_VISIBLE_MESSAGE_TRACES: SessionEditTrace[] = []
 
 interface CreateMessageInput {
   session_id: string
@@ -235,6 +239,60 @@ function buildLatestAssistantTraceMap(
   return traceMap
 }
 
+function buildAssistantEditTraces(messages: Message[]): SessionEditTrace[] {
+  const traces: SessionEditTrace[] = []
+
+  for (const message of messages) {
+    if (message.role !== 'assistant' || !message.editTraces?.length) {
+      continue
+    }
+
+    for (const trace of message.editTraces) {
+      traces.push({
+        ...trace,
+        messageId: message.id
+      })
+    }
+  }
+
+  return traces
+}
+
+function buildAssistantTraceDigest(traces: SessionEditTrace[]): string {
+  const latestTrace = traces[traces.length - 1]
+  return `${traces.length}:${latestTrace?.id ?? ''}:${latestTrace?.timestamp ?? ''}`
+}
+
+function buildVisibleAssistantEditTracesByMessage(
+  messages: Message[],
+  latestTraceByFile: Map<string, { traceId: string, messageId: string, timestamp: string }>
+): Map<string, SessionEditTrace[]> {
+  const tracesByMessage = new Map<string, SessionEditTrace[]>()
+
+  for (const message of messages) {
+    if (message.role !== 'assistant' || !message.editTraces?.length) {
+      continue
+    }
+
+    const visibleTraces = message.editTraces
+      .filter((trace) => {
+        const latest = latestTraceByFile.get(trace.filePath)
+        return latest?.traceId === trace.id && latest.messageId === message.id
+      })
+      .map(trace => ({
+        ...trace,
+        messageId: message.id
+      }))
+      .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
+
+    if (visibleTraces.length > 0) {
+      tracesByMessage.set(message.id, visibleTraces)
+    }
+  }
+
+  return tracesByMessage
+}
+
 function shouldReconcileStreamingMessage(
   message: Message,
   currentStreamingMessageId: string | null,
@@ -324,7 +382,10 @@ export const useMessageStore = defineStore('message', () => {
   const isLoading = ref(false)
   const pagination = ref<Map<string, PaginationState>>(new Map())
   const sessionMessages = ref<Map<string, Message[]>>(new Map())
+  const assistantEditTracesBySession = ref<Map<string, SessionEditTrace[]>>(new Map())
   const latestAssistantTraceBySession = ref<Map<string, Map<string, { traceId: string, messageId: string, timestamp: string }>>>(new Map())
+  const visibleAssistantEditTracesByMessageBySession = ref<Map<string, Map<string, SessionEditTrace[]>>>(new Map())
+  const assistantTraceDigestBySession = ref<Map<string, string>>(new Map())
   const pendingMessageUpdates = new Map<string, Partial<Message>>()
   const pendingMessageTimers = new Map<string, ReturnType<typeof setTimeout>>()
   const inFlightMessageFlushes = new Map<string, Promise<void>>()
@@ -338,6 +399,18 @@ export const useMessageStore = defineStore('message', () => {
 
   const getLatestAssistantTraceIdsByFile = (sessionId: string) => {
     return latestAssistantTraceBySession.value.get(sessionId) ?? EMPTY_TRACE_MAP
+  }
+
+  const getVisibleAssistantEditTracesForMessage = (sessionId: string, messageId: string) => {
+    return visibleAssistantEditTracesByMessageBySession.value.get(sessionId)?.get(messageId) ?? EMPTY_VISIBLE_MESSAGE_TRACES
+  }
+
+  const getAssistantEditTraces = (sessionId: string) => {
+    return assistantEditTracesBySession.value.get(sessionId) ?? EMPTY_ASSISTANT_EDIT_TRACES
+  }
+
+  const getAssistantTraceDigest = (sessionId: string) => {
+    return assistantTraceDigestBySession.value.get(sessionId) ?? '0::'
   }
 
   const lastMessage = computed(() => {
@@ -383,13 +456,24 @@ export const useMessageStore = defineStore('message', () => {
 
   function setSessionMessages(sessionId: string, nextMessages: Message[]): void {
     const normalizedMessages = dedupeMessagesById(nextMessages).sort(compareMessageCreatedAt)
+    const assistantEditTraces = buildAssistantEditTraces(normalizedMessages)
+    const latestAssistantTraceMap = buildLatestAssistantTraceMap(normalizedMessages)
     sessionMessages.value.set(sessionId, normalizedMessages)
-    latestAssistantTraceBySession.value.set(sessionId, buildLatestAssistantTraceMap(normalizedMessages))
+    assistantEditTracesBySession.value.set(sessionId, assistantEditTraces)
+    latestAssistantTraceBySession.value.set(sessionId, latestAssistantTraceMap)
+    visibleAssistantEditTracesByMessageBySession.value.set(
+      sessionId,
+      buildVisibleAssistantEditTracesByMessage(normalizedMessages, latestAssistantTraceMap)
+    )
+    assistantTraceDigestBySession.value.set(sessionId, buildAssistantTraceDigest(assistantEditTraces))
   }
 
   function clearSessionDerivedState(sessionId: string): void {
     sessionMessages.value.delete(sessionId)
+    assistantEditTracesBySession.value.delete(sessionId)
     latestAssistantTraceBySession.value.delete(sessionId)
+    visibleAssistantEditTracesByMessageBySession.value.delete(sessionId)
+    assistantTraceDigestBySession.value.delete(sessionId)
   }
 
   /**
@@ -829,7 +913,10 @@ export const useMessageStore = defineStore('message', () => {
     messagesBySession,
     lastMessage,
     getPagination,
+    getAssistantEditTraces,
+    getAssistantTraceDigest,
     getLatestAssistantTraceIdsByFile,
+    getVisibleAssistantEditTracesForMessage,
     // Actions
     loadMessages,
     loadMoreMessages,

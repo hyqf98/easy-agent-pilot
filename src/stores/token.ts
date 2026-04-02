@@ -4,6 +4,7 @@ import { useMessageStore } from './message'
 import { useAgentConfigStore } from './agentConfig'
 import { useAgentStore } from './agent'
 import { useSessionStore } from './session'
+import { useSessionExecutionStore } from './sessionExecution'
 import { useSettingsStore } from './settings'
 import {
   DEFAULT_CONTEXT_WINDOW,
@@ -145,6 +146,7 @@ export const useTokenStore = defineStore('token', () => {
       const agentConfigStore = useAgentConfigStore()
       const agentStore = useAgentStore()
       const sessionStore = useSessionStore()
+      const sessionExecutionStore = useSessionExecutionStore()
 
       const session = sessionStore.sessions.find(s => s.id === sessionId)
       if (!session) {
@@ -174,7 +176,7 @@ export const useTokenStore = defineStore('token', () => {
       }
 
       // 鐠侊紕鐣诲韫▏閻?锟?锟斤拷锟?token
-      const realtimeTotal = hasMeaningfulRealtimeUsage(realtimeData)
+      const realtimeTotal = sessionExecutionStore.getIsSending(sessionId) && hasMeaningfulRealtimeUsage(realtimeData)
         ? (realtimeData?.inputTokens ?? 0) + (realtimeData?.outputTokens ?? 0)
         : 0
       const persistedTotal = sessionTokenCaches.value.get(sessionId)?.totalTokens ?? 0
@@ -231,14 +233,18 @@ export const useTokenStore = defineStore('token', () => {
       model: model ?? existing.model
     })
 
-    if (incomingHasUsage) {
-      sessionTokenCaches.value.set(sessionId, {
-        sessionId,
-        totalTokens: nextInputTokens + nextOutputTokens,
-        lastUpdated: Date.now()
-      })
-      persistSessionTokenCaches()
+    if (!incomingHasUsage) {
+      return
     }
+
+    const currentRequestTotal = nextInputTokens + nextOutputTokens
+    const persistedTotal = sessionTokenCaches.value.get(sessionId)?.totalTokens ?? 0
+    sessionTokenCaches.value.set(sessionId, {
+      sessionId,
+      totalTokens: Math.max(persistedTotal, currentRequestTotal),
+      lastUpdated: Date.now()
+    })
+    persistSessionTokenCaches()
   }
 
   /**
@@ -259,16 +265,8 @@ export const useTokenStore = defineStore('token', () => {
       estimatedTokens += estimateMessageTokens(message.content)
     }
 
-    const realtimeData = realtimeTokens.value.get(sessionId)
-    const realtimeTotal = hasMeaningfulRealtimeUsage(realtimeData)
-      ? (realtimeData?.inputTokens ?? 0) + (realtimeData?.outputTokens ?? 0)
-      : 0
     const persistedTotal = sessionTokenCaches.value.get(sessionId)?.totalTokens ?? 0
-    const totalTokens = resolvePreferredTokenTotal({
-      estimatedTokens,
-      persistedTotal,
-      realtimeTotal
-    })
+    const totalTokens = Math.max(estimatedTokens, persistedTotal)
 
     sessionTokenCaches.value.set(sessionId, {
       sessionId,
