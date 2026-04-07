@@ -936,8 +936,29 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
         .unwrap_or("unknown");
 
     let event = match event_type {
-        "system" => extract_runtime_system_notice(json)
-            .map(|content| build_system_event(session_id, content)),
+        "system" => {
+            let notice_event = extract_runtime_system_notice(json)
+                .map(|content| build_system_event(session_id, content));
+
+            if notice_event.is_some() {
+                notice_event
+            } else {
+                extract_external_session_id(json).map(|sid| CliStreamEvent {
+                    event_type: "system".to_string(),
+                    session_id: session_id.to_string(),
+                    content: None,
+                    tool_name: None,
+                    tool_call_id: None,
+                    tool_input: None,
+                    tool_result: None,
+                    error: None,
+                    input_tokens: None,
+                    output_tokens: None,
+                    model: None,
+                    external_session_id: Some(sid),
+                })
+            }
+        }
         "content_block_delta" => {
             let delta = json.get("delta")?;
             let delta_type = delta.get("type").and_then(|t| t.as_str()).unwrap_or("");
@@ -1066,20 +1087,35 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
                 None
             }
         }
-        "message_stop" => Some(CliStreamEvent {
-            event_type: "done".to_string(),
-            session_id: session_id.to_string(),
-            content: None,
-            tool_name: None,
-            tool_call_id: None,
-            tool_input: None,
-            tool_result: None,
-            error: None,
-            input_tokens: None,
-            output_tokens: None,
-            model: None,
-            external_session_id: None,
-        }),
+        // message_stop 只表示当前一轮模型消息结束，不代表整个 CLI 执行完成。
+        // 在 agentic 工具调用场景中，CLI 会执行工具后继续下一轮对话，产生多个 message_stop。
+        // 因此不能将 message_stop 转换为 done 事件，否则会导致前端过早标记消息为"已完成"。
+        // 最终的 done 事件由进程退出后的代码统一发出。
+        "message_stop" => {
+            // 不再将 message_stop 映射为 "done"。
+            // 最终的 done 事件由进程退出后的代码统一发出，
+            // 确保 result 事件中的 session_id 先被处理和持久化，
+            // 避免排队消息在 session_id 存储前就开始处理。
+            let (input_tokens, output_tokens) = extract_usage_counts(json.get("usage"));
+            if input_tokens.is_some() || output_tokens.is_some() {
+                Some(CliStreamEvent {
+                    event_type: "usage".to_string(),
+                    session_id: session_id.to_string(),
+                    content: None,
+                    tool_name: None,
+                    tool_call_id: None,
+                    tool_input: None,
+                    tool_result: None,
+                    error: None,
+                    input_tokens,
+                    output_tokens,
+                    model: None,
+                    external_session_id: None,
+                })
+            } else {
+                None
+            }
+        }
         "result" => {
             let (input_tokens, output_tokens) = extract_usage_counts(json.get("usage"));
             let model = extract_result_model_name(json);
@@ -1100,7 +1136,22 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
                     external_session_id: None,
                 })
             } else {
-                None
+                // result 事件可能不携带 usage/model，但仍包含 session_id，
+                // 需要提取以保证 resume 绑定能正确存储。
+                extract_external_session_id(json).map(|sid| CliStreamEvent {
+                    event_type: "usage".to_string(),
+                    session_id: session_id.to_string(),
+                    content: None,
+                    tool_name: None,
+                    tool_call_id: None,
+                    tool_input: None,
+                    tool_result: None,
+                    error: None,
+                    input_tokens: None,
+                    output_tokens: None,
+                    model: None,
+                    external_session_id: Some(sid),
+                })
             }
         }
         "turn.completed" => {

@@ -577,8 +577,41 @@ pub fn read_current_cli_config(cli_type: String) -> Result<ProviderProfile, Stri
                         .map(|s| s.to_string());
                     profile.main_model = env
                         .get("ANTHROPIC_MODEL")
+                        .or_else(|| env.get("CLAUDE_MODEL"))
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string());
+                }
+
+                // 兜底：从 settings.json 顶层 model 字段读取
+                if profile.main_model.is_none() {
+                    profile.main_model = settings
+                        .get("model")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                }
+            }
+
+            // 如果 settings.json 未找到模型，尝试 ~/.claude.json
+            if profile.main_model.is_none() {
+                let claude_json_path = home_dir.join(".claude.json");
+                if claude_json_path.exists() {
+                    if let Ok(content) = fs::read_to_string(&claude_json_path) {
+                        if let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) {
+                            if let Some(env) = config.get("env").and_then(|e| e.as_object()) {
+                                profile.main_model = env
+                                    .get("ANTHROPIC_MODEL")
+                                    .or_else(|| env.get("CLAUDE_MODEL"))
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string());
+                            }
+                            if profile.main_model.is_none() {
+                                profile.main_model = config
+                                    .get("model")
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string());
+                            }
+                        }
+                    }
                 }
             }
 
