@@ -248,6 +248,30 @@ export const useTokenStore = defineStore('token', () => {
   }
 
   /**
+   * 流式输出期间，基于累积内容长度估算 output tokens。
+   * 仅当估算值大于当前已知的 outputTokens 时才更新（真实值优先）。
+   */
+  function updateRealtimeOutputEstimate(sessionId: string, estimatedOutputTokens: number) {
+    const existing = realtimeTokens.value.get(sessionId)
+    if (!existing) return
+    if (estimatedOutputTokens <= existing.outputTokens) return
+
+    realtimeTokens.value.set(sessionId, {
+      ...existing,
+      outputTokens: estimatedOutputTokens
+    })
+
+    const currentRequestTotal = existing.inputTokens + estimatedOutputTokens
+    const persistedTotal = sessionTokenCaches.value.get(sessionId)?.totalTokens ?? 0
+    sessionTokenCaches.value.set(sessionId, {
+      sessionId,
+      totalTokens: Math.max(persistedTotal, currentRequestTotal),
+      lastUpdated: Date.now()
+    })
+    persistSessionTokenCaches()
+  }
+
+  /**
    * 濞撳懘娅庯拷锟界偞锟?token 閺佺増锟?
    */
   function clearRealtimeTokens(sessionId: string) {
@@ -314,6 +338,7 @@ export const useTokenStore = defineStore('token', () => {
     needsCompression,
     // Actions
     updateRealtimeTokens,
+    updateRealtimeOutputEstimate,
     clearRealtimeTokens,
     updateSessionTokenCache,
     clearSessionTokenCache,

@@ -36,6 +36,8 @@ const isAssistant = computed(() => props.message.role === 'assistant')
 const isCompression = computed(() => props.message.role === 'compression')
 const isStreaming = computed(() => props.message.status === 'streaming')
 const isError = computed(() => props.message.status === 'error')
+const isInterrupted = computed(() => props.message.status === 'interrupted')
+const canRetry = computed(() => isError.value || isInterrupted.value)
 const messageStore = useMessageStore()
 const tokenStore = useTokenStore()
 const messageAttachmentPreviews = ref<Array<{ id: string, name: string, previewUrl: string }>>([])
@@ -765,18 +767,18 @@ const resolvedFormResponse = computed(() => {
         >
           ⏹
         </button>
-        <!-- 重试按钮 - 用户消息失败 -->
+        <!-- 重试按钮 - 用户消息失败/中断 -->
         <button
-          v-if="isUser && isError"
+          v-if="isUser && canRetry"
           class="message-bubble__retry"
-          :title="errorMessage"
+          :title="isInterrupted ? t('message.status.interrupted') : errorMessage"
           @click="handleRetry"
         >
           {{ t('common.retry') }}
         </button>
         <!-- 重试按钮 - AI 消息 -->
         <button
-          v-if="isAssistant && !isStreaming && (isError || message.content)"
+          v-if="isAssistant && !isStreaming && (canRetry || message.content)"
           class="message-bubble__retry"
           :title="t('message.retry')"
           @click="handleRetry"

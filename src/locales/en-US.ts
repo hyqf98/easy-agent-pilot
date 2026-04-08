@@ -438,6 +438,8 @@ export default {
       duplicateSuffix: 'Copy',
       deleteBlocked: 'This expert is still referenced: plans {plans}, tasks {tasks}, sessions {sessions}',
       deleteConfirm: 'Delete expert "{name}"?',
+      saveSuccess: 'Saved successfully',
+      saveFailed: 'Failed to save',
       fields: {
         name: 'Name',
         category: 'Category',
@@ -1899,7 +1901,20 @@ export default {
       resumeExecutionFlow: 'Resume the paused task flow and continue auto execution',
       addTask: 'Add a new task to pending list'
     },
-    emptyColumn: 'No tasks'
+    emptyColumn: 'No tasks',
+    planOverview: {
+      title: 'Plan Overview',
+      completedCount: '{count} done',
+      failedCount: '{count} failed',
+      pendingCount: '{count} remaining',
+      statusCompleted: 'Done',
+      statusFailed: 'Failed',
+      statusRunning: 'Running',
+      statusBlocked: 'Blocked',
+      statusPending: 'Pending',
+      files: 'Files',
+      failReason: 'Reason'
+    }
   },
   taskDetail: {
     title: 'Task Details',
@@ -2023,6 +2038,7 @@ Rules:
       completedSection: 'Completed:',
       failedSection: 'Failed:',
       filesSection: 'Files:',
+      files: 'Files',
       noSummary: 'No summary available',
       noFailureReason: 'No failure reason available',
       fileAdded: 'Added',
@@ -2055,9 +2071,59 @@ Rules:
     removeTaskConfirmTitle: 'Delete Task',
     removeTaskConfirmMessage: 'Delete task "{name}"?',
     // Task card
+    noExpertAssigned: 'No expert assigned',
+    executionExpert: 'Execution Expert',
     edit: 'Edit',
     delete: 'Delete',
     resplit: 'Split Task',
+    // Footer & input
+    hide: 'Hide',
+    close: 'Close',
+    stopTask: 'Stop Task',
+    continueSplit: 'Continue Split',
+    discardOptimize: 'Discard Optimization',
+    discardResplit: 'Discard Split',
+    applyOptimizeResult: 'Apply Optimization',
+    waitingOptimizeResult: 'Waiting for optimization...',
+    applyResplitResult: 'Apply Split Result',
+    waitingResplitResult: 'Waiting for split...',
+    retryLabel: 'Retry',
+    resendLabel: 'Resend',
+    // Resplit status
+    resplitInProgress: 'Splitting: {title}',
+    resplitInProgressHint: 'Splitting: {title}, please wait...',
+    // Input placeholder
+    instructionPlaceholder: 'Enter instructions to manage task list, e.g.: delete task 1, resplit task 2...',
+    // Instruction results
+    instructionDeleted: 'Deleted task {index}: {title}',
+    instructionDeletedByTitle: 'Deleted task: {title}',
+    instructionAdded: 'New task added',
+    instructionTitleUpdated: 'Updated task {index} title to: {title}',
+    instructionDescUpdated: 'Updated task {index} description',
+    instructionPriorityUpdated: 'Updated task {index} priority to: {priority}',
+    instructionMovedUp: 'Moved up task {index}: {title}',
+    instructionMovedDown: 'Moved down task {index}: {title}',
+    instructionUnknown: 'Unrecognized instruction',
+    // Footer hints
+    hintRetryFailed: 'AI response failed, click retry to resend the request.',
+    hintSessionStoppedWithForm: 'Session stopped. You can fill in the form above and submit.',
+    hintSessionStoppedWithHistory: 'Session stopped. You can continue splitting or review history.',
+    hintSessionStopped: 'Session stopped. You can continue splitting from the last confirmed context.',
+    hintSessionRunning: 'Splitting in background, you can close the dialog and check back later.',
+    hintWaitingFormInput: 'Please fill in the AI dynamic form above to supplement requirements.',
+    hintNoFormData: 'No pending form data for this session.',
+    // Runtime status
+    runtimeThinking: 'Thinking and splitting tasks...',
+    runtimeThinkingStart: 'Entering thinking phase...',
+    runtimeLoadingExtensions: 'Loading runtime extensions...',
+    runtimeCallingTool: 'Calling tool {name}...',
+    runtimeCallingToolFallback: 'Calling tool...',
+    runtimeToolInputDelta: 'Tool parameters streaming...',
+    runtimeGenerating: 'Generating structured result...',
+    runtimeToolResult: 'Tool returned result, processing...',
+    runtimeError: 'Error received, waiting for final status...',
+    runtimeWaitingFirstOutput: 'Task started, waiting for first output...',
+    runtimeProcessing: 'Processing...',
     // Priority
     priority: {
       high: 'High',

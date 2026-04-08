@@ -538,7 +538,8 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     try {
       const snapshot = await invoke<PlanSplitSessionRecord>('update_plan_split_result', {
         planId: context.value.planId,
-        result: nextTasks
+        result: nextTasks,
+        messages: messages.value
       })
       applySessionSnapshot(snapshot, true)
     } catch (error) {

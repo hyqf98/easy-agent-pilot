@@ -33,6 +33,7 @@ import {
   createExecutionState
 } from './taskExecutionShared'
 import type { PendingLogBuffer } from './taskExecutionShared'
+import { ACTIVE_EXECUTION_STATUSES } from './taskExecutionShared'
 import {
   clearPendingBuffer as clearPendingLogBuffer,
   clearPlanExecutionResultsFromBackend,
@@ -54,7 +55,6 @@ import {
 } from './taskExecutionPlanRuntime'
 import {
   buildTaskInputRequest,
-  canHydrateTaskLogs,
   clearTaskStopRequested,
   hydrateTaskLogs,
   isTaskStopRequested,
@@ -255,7 +255,8 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
 
   function updateTaskTokenUsage(
     taskId: string,
-    usage: Pick<StreamEvent, 'inputTokens' | 'outputTokens' | 'model'>
+    usage: Pick<StreamEvent, 'inputTokens' | 'outputTokens' | 'model'>,
+    requestedModelId?: string | null
   ): void {
     const state = executionStates.value.get(taskId)
     if (!state) return
@@ -267,7 +268,10 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
     const nextOutputTokens = typeof usage.outputTokens === 'number'
       ? usage.outputTokens
       : current.outputTokens
-    const nextModel = usage.model || current.model
+    const resolvedModel = resolveRecordedModelId({
+      reportedModelId: usage.model || current.model,
+      requestedModelId
+    }) ?? usage.model ?? current.model
     const didReset = (
       typeof usage.inputTokens === 'number'
       || typeof usage.outputTokens === 'number'
@@ -280,7 +284,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
     state.tokenUsage = {
       inputTokens: nextInputTokens,
       outputTokens: nextOutputTokens,
-      model: nextModel,
+      model: resolvedModel,
       resetCount: didReset ? current.resetCount + 1 : current.resetCount,
       lastUpdatedAt: new Date().toISOString()
     }
@@ -477,12 +481,16 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
       queue.lastInterruptedTaskId = null
     }
 
-    if (queue.currentTaskId) {
+    if (queue.currentTaskId || queue.pendingTaskIds.length > 0) {
       if (!queue.pendingTaskIds.includes(taskId)) {
         queue.pendingTaskIds.push(taskId)
         state.status = 'queued'
       }
       await syncPlanRuntimeState(planId)
+      // 无当前运行任务但有排队任务时，触发队列处理以避免死锁
+      if (!queue.currentTaskId) {
+        void processNextInQueue(planId)
+      }
       return
     }
 
@@ -744,7 +752,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
             }
           })()
         }
-        handleStreamEvent(taskId, event)
+        handleStreamEvent(taskId, event, agent.modelId)
       })
 
       if (isTaskStopRequested(taskId, stopRequestedTaskIds.value)) {
@@ -868,12 +876,12 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
 
   /**
    */
-  function handleStreamEvent(taskId: string, event: StreamEvent): void {
+  function handleStreamEvent(taskId: string, event: StreamEvent, requestedModelId?: string | null): void {
     const state = executionStates.value.get(taskId)
     if (!state) return
 
     if (event.inputTokens !== undefined || event.outputTokens !== undefined || event.model) {
-      updateTaskTokenUsage(taskId, event)
+      updateTaskTokenUsage(taskId, event, requestedModelId)
     }
 
     switch (event.type) {
@@ -1240,7 +1248,14 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
       state.completedAt = new Date().toISOString()
       finalizeRunningToolCalls(state.toolCalls)
       agentExecutor.abort(sessionId)
+      removeTaskFromQueue(queue, taskId)
       normalizePlanExecutionStates(task.planId)
+
+      if (autoAdvance && !pauseQueue) {
+        await processNextInQueue(task.planId)
+        return
+      }
+
       await syncPlanRuntimeState(task.planId)
       return
     }
@@ -1262,17 +1277,30 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
   }
 
   async function pausePlanExecutionFlow(planId: string): Promise<void> {
+    const taskStore = useTaskStore()
     const queue = getOrCreateQueue(planId)
     queue.isPaused = true
 
+    // 1. 停止当前运行中的任务
     if (queue.currentTaskId) {
       queue.lastInterruptedTaskId = queue.currentTaskId
       await stopTaskExecution(queue.currentTaskId, {
         pauseQueue: true,
         autoAdvance: false
       })
-      return
     }
+
+    // 2. 将排队中的任务状态改回 pending，并清空队列
+    const queuedTaskIds = [...queue.pendingTaskIds]
+    for (const taskId of queuedTaskIds) {
+      await updateTaskSafely(taskId, { status: 'pending' })
+      const state = executionStates.value.get(taskId)
+      if (state) {
+        state.status = 'idle'
+        state.completedAt = undefined
+      }
+    }
+    queue.pendingTaskIds = []
 
     await syncPlanRuntimeState(planId)
   }
@@ -1434,7 +1462,9 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
   async function loadTaskLogs(taskId: string): Promise<void> {
     try {
       const existingState = executionStates.value.get(taskId)
-      if (!canHydrateTaskLogs(existingState)) {
+      // 运行中/排队中的任务且内存中已有日志时，跳过后端加载（避免覆盖实时数据）
+      // 但如果内存中日志为空（例如视图切换后回显场景），仍从后端加载
+      if (existingState && ACTIVE_EXECUTION_STATUSES.has(existingState.status) && existingState.logs.length > 0) {
         return
       }
 

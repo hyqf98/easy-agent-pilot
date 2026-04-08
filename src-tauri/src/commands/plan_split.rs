@@ -1153,6 +1153,7 @@ pub fn resume_plan_split(plan_id: String) -> Result<Option<PlanSplitSession>, St
 /// 参数：
 /// - `plan_id`: 计划 ID
 /// - `result`: 当前确认中的任务列表数组
+/// - `messages`: 可选的前端 UI 消息数组，用于持久化指令操作记录
 ///
 /// 返回：
 /// - 更新后的计划拆分会话快照
@@ -1161,6 +1162,7 @@ pub fn update_plan_split_result(
     app: AppHandle,
     plan_id: String,
     result: Value,
+    messages: Option<Value>,
 ) -> Result<PlanSplitSession, String> {
     if !result.is_array() {
         return Err("任务拆分结果必须是任务数组。".to_string());
@@ -1173,6 +1175,11 @@ pub fn update_plan_split_result(
     session.result_json = Some(serialize_json(&serde_json::json!({
         "tasks": result
     }))?);
+    if let Some(msgs) = messages {
+        if msgs.is_array() {
+            session.messages_json = Some(serialize_json(&msgs)?);
+        }
+    }
     session.parse_error = None;
     session.error_message = None;
     session.updated_at = now_rfc3339();

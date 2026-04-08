@@ -14,7 +14,6 @@ defineProps<{
 const emit = defineEmits<{
   edit: []
   remove: []
-  resplit: []
 }>()
 
 const { t } = useI18n()
@@ -32,7 +31,7 @@ function getPriorityLabel(priority: TaskPriority) {
 
 function getExpertLabel(expertId?: string): string {
   if (!expertId) {
-    return '未分配专家'
+    return t('taskSplit.noExpertAssigned')
   }
   return agentTeamsStore.getExpertById(expertId)?.name || expertId
 }
@@ -54,24 +53,6 @@ function getExpertLabel(expertId?: string): string {
         {{ getPriorityLabel(task.priority) }}
       </span>
       <div class="task-actions">
-        <button
-          class="btn-icon"
-          :title="t('taskSplit.resplit')"
-          :disabled="disableActions"
-          @click="emit('resplit')"
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <path d="M21 12a9 9 0 11-6.219-8.56" />
-            <polyline points="21,3 21,9 15,9" />
-          </svg>
-        </button>
         <button
           class="btn-icon"
           :title="t('taskSplit.edit')"
@@ -117,7 +98,7 @@ function getExpertLabel(expertId?: string): string {
     </p>
 
     <div class="task-expert">
-      <span class="deps-label">执行专家:</span>
+      <span class="deps-label">{{ t('taskSplit.executionExpert') }}:</span>
       <span class="deps-list">{{ getExpertLabel(task.expertId) }}</span>
     </div>
 

@@ -278,15 +278,21 @@ function buildPlanProgressContext(
   if (snapshot.completedTasks.length > 0) {
     lines.push('', t('prompts.taskExecution.completedSection'))
     snapshot.completedTasks.slice(-3).forEach((item) => {
-      lines.push(`- ${item.title}: ${compactExecutionSummary(item.last_result_summary || t('prompts.taskExecution.noSummary'))}`)
+      const expert = item.expert_id ? ` [${item.expert_id}]` : ''
+      const summary = compactExecutionSummary(item.last_result_summary || t('prompts.taskExecution.noSummary'))
+      const files = (item.last_result_files ?? []).length > 0
+        ? ` | ${t('prompts.taskExecution.files')}: ${(item.last_result_files ?? []).slice(0, 5).join(', ')}`
+        : ''
+      lines.push(`- ${item.title}${expert}: ${summary}${files}`)
     })
   }
 
   if (snapshot.failedTasks.length > 0) {
     lines.push('', t('prompts.taskExecution.failedSection'))
     snapshot.failedTasks.slice(-2).forEach((item) => {
+      const expert = item.expert_id ? ` [${item.expert_id}]` : ''
       const reason = item.last_fail_reason || item.last_result_summary || t('prompts.taskExecution.noFailureReason')
-      lines.push(`- ${item.title}: ${compactExecutionSummary(reason)}`)
+      lines.push(`- ${item.title}${expert}: ${compactExecutionSummary(reason)}`)
     })
   }
 

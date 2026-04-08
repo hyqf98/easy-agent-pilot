@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { usePlanStore } from '@/stores/plan'
 import { useTaskSplitStore } from '@/stores/taskSplit'
 import { useTaskStore } from '@/stores/task'
@@ -9,15 +10,14 @@ import { useAgentStore } from '@/stores/agent'
 import { useAgentTeamsStore } from '@/stores/agentTeams'
 import TaskSplitPreview from './TaskSplitPreview.vue'
 import TaskListOptimizeModal from './TaskListOptimizeModal.vue'
-import TaskResplitModal from './TaskResplitModal.vue'
 import ExecutionTimeline from '@/components/message/ExecutionTimeline.vue'
 import { useOverlayDismiss } from '@/composables/useOverlayDismiss'
 import type {
   AITaskItem,
   DynamicFormSchema,
   PlanSplitLogRecord,
-  TaskListOptimizeConfig,
-  TaskResplitConfig
+  SplitMessage,
+  TaskListOptimizeConfig
 } from '@/types/plan'
 import type { TimelineEntry } from '@/types/timeline'
 import { buildToolCallMapFromLogs, extractDynamicFormSchemas } from '@/utils/toolCallLog'
@@ -29,9 +29,11 @@ import {
 import { extractFirstFormRequest, extractTaskSplitResult } from '@/utils/structuredContent'
 import { DEFAULT_SPLIT_GRANULARITY } from '@/constants/plan'
 import { logger } from '@/utils/logger'
+import { resolveRecordedModelId } from '@/services/usage/agentCliUsageRecorder'
 import { resolveExpertById, resolveExpertRuntime } from '@/services/agentTeams/runtime'
 
 const planStore = usePlanStore()
+const { t } = useI18n()
 const taskSplitStore = useTaskSplitStore()
 const taskStore = useTaskStore()
 const projectStore = useProjectStore()
@@ -42,11 +44,10 @@ const isDarkTheme = computed(() => themeStore.isDark)
 
 const isConfirming = ref(false)
 const messagesContainerRef = ref<HTMLElement | null>(null)
+const userInstruction = ref('')
+const instructionInputRef = ref<HTMLTextAreaElement | null>(null)
 
-// 继续拆分相关状态
-const resplitModalVisible = ref(false)
-const resplitTargetIndex = ref<number | null>(null)
-const resplitTargetTask = ref<AITaskItem | null>(null)
+// 优化列表弹框状态
 const optimizeListModalVisible = ref(false)
 
 // 是否显示预览
@@ -54,6 +55,13 @@ const showPreview = computed(() => taskSplitStore.splitResult !== null)
 const refinementMode = computed(() => taskSplitStore.refinementMode)
 const hasPendingRefinement = computed(() => Boolean(refinementMode.value))
 const isListOptimizePending = computed(() => refinementMode.value === 'list_optimize')
+const isSubSplitActive = computed(() => refinementMode.value === 'task_resplit')
+const subSplitTargetTitle = computed(() => {
+  if (!isSubSplitActive.value || taskSplitStore.subSplitTargetIndex === null) return ''
+  const originalTasks = taskSplitStore.refinementState?.originalTasks
+  const idx = taskSplitStore.subSplitTargetIndex
+  return originalTasks?.[idx]?.title ?? t('taskBoard.emptyNoTasks')
+})
 const previewActionsDisabled = computed(() =>
   isSessionRunning.value || isConfirming.value || hasPendingRefinement.value
 )
@@ -75,7 +83,7 @@ const retryActionLabel = computed(() => {
   const hasUserMessage = taskSplitStore.messages.some(message =>
     message.role === 'user' && message.content.trim()
   )
-  return hasUserMessage ? '重新发送' : '重试'
+  return hasUserMessage ? t('taskSplit.resendLabel') : t('taskSplit.retryLabel')
 })
 const splitErrorMessage = computed(() =>
   taskSplitStore.session?.errorMessage?.trim()
@@ -84,43 +92,43 @@ const splitErrorMessage = computed(() =>
 )
 const primaryActionLabel = computed(() => {
   if (refinementMode.value === 'list_optimize') {
-    return canApplyRefinement.value ? '应用优化结果' : '等待优化结果'
+    return canApplyRefinement.value ? t('taskSplit.applyOptimizeResult') : t('taskSplit.waitingOptimizeResult')
   }
   if (refinementMode.value === 'task_resplit') {
-    return canApplyRefinement.value ? '应用拆分结果' : '等待拆分结果'
+    return canApplyRefinement.value ? t('taskSplit.applyResplitResult') : t('taskSplit.waitingResplitResult')
   }
-  return isConfirming.value ? '创建中...' : '确认并创建任务'
+  return isConfirming.value ? t('taskSplit.creating') : t('taskSplit.confirmCreate')
 })
 const footerHint = computed(() => {
   if (canRetrySplit.value) {
-    return splitErrorMessage.value || 'AI 响应失败，可点击重试重新发起请求。'
+    return splitErrorMessage.value || t('taskSplit.hintRetryFailed')
   }
 
   if (taskSplitStore.session?.status === 'stopped') {
     if (activeFormSchema.value) {
-      return '当前会话已停止，可继续填写上方表单后再提交。'
+      return t('taskSplit.hintSessionStoppedWithForm')
     }
     const hasArchivedForms = taskSplitStore.logs.some(log =>
       log.type === 'content' && log.content.includes('"type": "form_request"')
     )
     return hasArchivedForms
-      ? '当前会话已停止，可继续拆分，或回看历史表单与建议。'
-      : '当前会话已停止，可继续拆分并从上一次确认过的上下文接着执行。'
+      ? t('taskSplit.hintSessionStoppedWithHistory')
+      : t('taskSplit.hintSessionStopped')
   }
 
   if (taskSplitStore.session?.status === 'running') {
-    return '后台正在执行拆分，可关闭弹框稍后回来查看'
+    return t('taskSplit.hintSessionRunning')
   }
 
   if (taskSplitStore.session?.status === 'waiting_input' && activeFormSchema.value) {
-    return '请根据上方 AI 动态表单逐步补充需求'
+    return t('taskSplit.hintWaitingFormInput')
   }
 
   if (!activeFormSchema.value && !showPreview.value) {
-    return '当前会话没有待展示的表单数据。'
+    return t('taskSplit.hintNoFormData')
   }
 
-  return '请根据上方 AI 动态表单逐步补充需求'
+  return t('taskSplit.hintWaitingFormInput')
 })
 
 const sortedSplitLogs = computed(() => [...taskSplitStore.logs].sort((left, right) =>
@@ -141,17 +149,17 @@ const latestRuntimeLog = computed(() => {
 })
 
 const runtimeLogStatusTextResolvers: Partial<Record<PlanSplitLogRecord['type'], (log: PlanSplitLogRecord) => string>> = {
-  thinking: () => '正在思考并拆分任务...',
-  thinking_start: () => '正在进入思考阶段...',
-  system: () => '正在加载运行扩展...',
+  thinking: () => t('taskSplit.runtimeThinking'),
+  thinking_start: () => t('taskSplit.runtimeThinkingStart'),
+  system: () => t('taskSplit.runtimeLoadingExtensions'),
   tool_use: (log) => {
     const toolCall = toolCallMap.value.get(log.id)
-    return toolCall ? `正在调用工具 ${toolCall.name}...` : '正在调用工具...'
+    return toolCall ? t('taskSplit.runtimeCallingTool', { name: toolCall.name }) : t('taskSplit.runtimeCallingToolFallback')
   },
-  tool_input_delta: () => '工具参数正在流式更新...',
-  content: () => '正在生成结构化结果...',
-  tool_result: () => '工具返回结果，正在继续处理...',
-  error: () => '收到错误输出，正在等待最终状态...'
+  tool_input_delta: () => t('taskSplit.runtimeToolInputDelta'),
+  content: () => t('taskSplit.runtimeGenerating'),
+  tool_result: () => t('taskSplit.runtimeToolResult'),
+  error: () => t('taskSplit.runtimeError')
 }
 
 const runningStatusText = computed(() => {
@@ -161,7 +169,7 @@ const runningStatusText = computed(() => {
 
   const latestLog = latestRuntimeLog.value
   if (!latestLog) {
-    return '任务已启动，等待首个输出...'
+    return t('taskSplit.runtimeWaitingFirstOutput')
   }
 
   const resolver = runtimeLogStatusTextResolvers[latestLog.type]
@@ -169,7 +177,7 @@ const runningStatusText = computed(() => {
     return resolver(latestLog)
   }
 
-  return '正在处理中...'
+  return t('taskSplit.runtimeProcessing')
 })
 
 function scrollMessagesToBottom() {
@@ -256,22 +264,26 @@ function readMetadataNumber(metadata: Record<string, unknown> | null, key: strin
 }
 
 function resolveUsageState(logs: PlanSplitLogRecord[]) {
+  const requestedModelId = taskSplitStore.context?.modelId
+    || taskSplitStore.usageModelHint
+    || undefined
   const usageState: { model?: string, inputTokens?: number, outputTokens?: number } = {
-    model: taskSplitStore.context?.modelId
-      || taskSplitStore.usageModelHint
-      || undefined
+    model: requestedModelId
   }
 
   for (const log of logs) {
     const metadata = parseLogMetadata(log)
-    const model = typeof metadata?.model === 'string' && metadata.model.trim()
+    const reportedModel = typeof metadata?.model === 'string' && metadata.model.trim()
       ? metadata.model.trim()
       : undefined
     const inputTokens = readMetadataNumber(metadata, 'inputTokens')
     const outputTokens = readMetadataNumber(metadata, 'outputTokens')
 
-    if (model) {
-      usageState.model = model
+    if (reportedModel) {
+      usageState.model = resolveRecordedModelId({
+        reportedModelId: reportedModel,
+        requestedModelId
+      }) ?? reportedModel
     }
     if (inputTokens !== undefined && (usageState.inputTokens === undefined || inputTokens >= usageState.inputTokens)) {
       usageState.inputTokens = inputTokens
@@ -719,17 +731,28 @@ const timelineEntries = computed<TimelineEntry[]>(() => {
   }
 
   for (const message of sortedMessages) {
-    if (message.role !== 'user' || !message.content.trim() || submittedMessageIds.has(message.id)) {
+    if (!message.content.trim() || submittedMessageIds.has(message.id)) {
       continue
     }
-
-    pushEntry({
-      id: `message-${message.id}`,
-      type: 'message',
-      role: message.role,
-      content: message.content,
-      timestamp: message.timestamp
-    })
+    // 用户消息：直接展示
+    if (message.role === 'user') {
+      pushEntry({
+        id: `message-${message.id}`,
+        type: 'message',
+        role: message.role,
+        content: message.content,
+        timestamp: message.timestamp
+      })
+    } else if (message.role === 'assistant' && !message.formSchema) {
+      // assistant 消息：仅展示非表单类的指令操作结果
+      pushEntry({
+        id: `message-${message.id}`,
+        type: 'message',
+        role: message.role,
+        content: message.content,
+        timestamp: message.timestamp
+      })
+    }
   }
 
   if (!hasRuntimeSystemLog.value) {
@@ -1009,28 +1032,8 @@ function handleTimelineFormSubmit(_entryId: string, values: Record<string, unkno
   void handleFormSubmit(values as Record<string, any>)
 }
 
-function handleResplit(index: number) {
-  const tasks = taskSplitStore.splitResult
-  if (!tasks || !tasks[index]) return
-
-  resplitTargetIndex.value = index
-  resplitTargetTask.value = tasks[index]
-  resplitModalVisible.value = true
-}
-
 function handleOptimizeList() {
   optimizeListModalVisible.value = true
-}
-
-async function handleResplitConfirm(config: TaskResplitConfig) {
-  if (resplitTargetIndex.value === null) return
-
-  config.taskIndex = resplitTargetIndex.value
-
-  // 关闭弹框
-  resplitModalVisible.value = false
-
-  await taskSplitStore.startSubSplit(resplitTargetIndex.value, config)
 }
 
 async function handleOptimizeListConfirm(config: TaskListOptimizeConfig) {
@@ -1129,6 +1132,218 @@ async function continueSplitTask() {
   await taskSplitStore.continueSession()
 }
 
+/**
+ * 将用户指令和操作结果追加到 messages 中，使其在左侧对话流可见。
+ * 仅对简单操作（删除/添加/修改/移动）添加消息；再拆分由 startSubSplit 内部通过 uiMessages 和 logs 处理。
+ */
+function pushInstructionMessages(userContent: string, assistantContent: string) {
+  const now = new Date().toISOString()
+  const userMsg: SplitMessage = {
+    id: crypto.randomUUID(),
+    role: 'user',
+    content: userContent,
+    timestamp: now
+  }
+  const assistantMsg: SplitMessage = {
+    id: crypto.randomUUID(),
+    role: 'assistant',
+    content: assistantContent,
+    timestamp: new Date(Date.now() + 1).toISOString() // 确保 assistant 在 user 之后
+  }
+  taskSplitStore.messages.push(userMsg, assistantMsg)
+}
+
+/**
+ * 解析用户自然语言指令并调用对应的 store 方法操作任务列表。
+ * 支持的指令格式：
+ *   - 删除任务 N / 移除任务 N
+ *   - 添加任务 / 新增任务
+ *   - 修改任务 N 的标题为 XXX / 修改任务 N 的描述为 XXX / 修改任务 N 的优先级为高/中/低
+ *   - 再次拆分任务 N / 拆分任务 N
+ *   - 上移任务 N / 下移任务 N
+ */
+function handleUserInstruction() {
+  const text = userInstruction.value.trim()
+  if (!text || !taskSplitStore.splitResult) return
+
+  const tasks = taskSplitStore.splitResult
+
+  // 解析任务编号（1-based）
+  const resolveIndex = (matched: string | undefined): number | null => {
+    if (!matched) return null
+    const num = parseInt(matched, 10)
+    if (Number.isFinite(num) && num >= 1 && num <= tasks.length) return num - 1
+    return null
+  }
+
+  // 按标题模糊匹配任务编号
+  const resolveIndexByTitle = (keyword: string): number | null => {
+    for (let i = 0; i < tasks.length; i++) {
+      if (tasks[i].title.includes(keyword)) return i
+    }
+    return null
+  }
+
+  let handled = false
+  let resultText = ''
+
+  // 删除任务 N
+  {
+    const match = text.match(/(?:删除|移除|去掉)\s*(?:任务\s*)?(\d+)/)
+    if (match) {
+      const idx = resolveIndex(match[1])
+      if (idx !== null) {
+        const title = tasks[idx].title
+        taskSplitStore.removeSplitTask(idx)
+        resultText = t('taskSplit.instructionDeleted', { index: idx + 1, title })
+        handled = true
+      }
+    }
+  }
+
+  // 添加任务
+  if (!handled && /(?:添加|新增|增加)\s*(?:一个\s*)?(?:新\s*)?任务/.test(text)) {
+    taskSplitStore.addSplitTask()
+    resultText = t('taskSplit.instructionAdded')
+    handled = true
+  }
+
+  // 再次拆分任务 N（由 startSubSplit 内部管理 uiMessages，此处仅追加用户消息）
+  if (!handled) {
+    const match = text.match(/(?:再次?拆分|继续拆分)\s*(?:任务\s*)?(\d+)/)
+    if (match) {
+      const idx = resolveIndex(match[1])
+      if (idx !== null) {
+        // 仅追加用户消息，assistant 消息由 AI 处理过程的 logs 自动展示
+        const userMsg: SplitMessage = {
+          id: crypto.randomUUID(),
+          role: 'user',
+          content: text,
+          timestamp: new Date().toISOString()
+        }
+        taskSplitStore.messages.push(userMsg)
+        taskSplitStore.startSubSplit(idx, {
+          taskIndex: idx,
+          granularity: taskSplitStore.context?.granularity || DEFAULT_SPLIT_GRANULARITY,
+          expertId: taskSplitStore.context?.expertId,
+          modelId: taskSplitStore.context?.modelId
+        })
+        handled = true
+      }
+    }
+  }
+
+  // 修改任务 N 的标题/描述/优先级
+  if (!handled) {
+    const match = text.match(/(?:修改|更新|更改)\s*(?:任务\s*)?(\d+)\s*的(?:标题|名称)\s*为\s*(.+)/)
+    if (match) {
+      const idx = resolveIndex(match[1])
+      if (idx !== null) {
+        const newTitle = match[2].trim()
+        taskSplitStore.updateSplitTask(idx, { title: newTitle })
+        resultText = t('taskSplit.instructionTitleUpdated', { index: idx + 1, title: newTitle })
+        handled = true
+      }
+    }
+  }
+
+  if (!handled) {
+    const match = text.match(/(?:修改|更新|更改)\s*(?:任务\s*)?(\d+)\s*的描述\s*为\s*(.+)/)
+    if (match) {
+      const idx = resolveIndex(match[1])
+      if (idx !== null) {
+        const newDesc = match[2].trim()
+        taskSplitStore.updateSplitTask(idx, { description: newDesc })
+        resultText = t('taskSplit.instructionDescUpdated', { index: idx + 1 })
+        handled = true
+      }
+    }
+  }
+
+  if (!handled) {
+    const match = text.match(/(?:修改|更新|更改)\s*(?:任务\s*)?(\d+)\s*的?优先级?\s*为\s*(.+)/)
+    if (match) {
+      const idx = resolveIndex(match[1])
+      const raw = match[2].trim()
+      const priorityMap: Record<string, string> = { '高': 'high', '低': 'low', '中': 'medium', 'high': 'high', 'low': 'low', 'medium': 'medium' }
+      const priority = priorityMap[raw.toLowerCase()] || 'medium'
+      if (idx !== null) {
+        taskSplitStore.updateSplitTask(idx, { priority: priority as AITaskItem['priority'] })
+        resultText = t('taskSplit.instructionPriorityUpdated', { index: idx + 1, priority: raw })
+        handled = true
+      }
+    }
+  }
+
+  // 上移/下移任务 N
+  if (!handled) {
+    const match = text.match(/(?:上移|往前移)\s*(?:任务\s*)?(\d+)/)
+    if (match) {
+      const idx = resolveIndex(match[1])
+      if (idx !== null && idx > 0) {
+        const title = tasks[idx].title
+        const temp = tasks[idx]
+        tasks.splice(idx, 1)
+        tasks.splice(idx - 1, 0, temp)
+        resultText = t('taskSplit.instructionMovedUp', { index: idx + 1, title })
+        handled = true
+      }
+    }
+  }
+
+  if (!handled) {
+    const match = text.match(/(?:下移|往后移)\s*(?:任务\s*)?(\d+)/)
+    if (match) {
+      const idx = resolveIndex(match[1])
+      if (idx !== null && idx < tasks.length - 1) {
+        const title = tasks[idx].title
+        const temp = tasks[idx]
+        tasks.splice(idx, 1)
+        tasks.splice(idx + 1, 0, temp)
+        resultText = t('taskSplit.instructionMovedDown', { index: idx + 1, title })
+        handled = true
+      }
+    }
+  }
+
+  // 按标题模糊删除
+  if (!handled) {
+    const match = text.match(/(?:删除|移除)\s*(?:任务\s*)?[\"""'](.+?)[\"""']/)
+    if (match) {
+      const idx = resolveIndexByTitle(match[1])
+      if (idx !== null) {
+        const title = tasks[idx].title
+        taskSplitStore.removeSplitTask(idx)
+        resultText = t('taskSplit.instructionDeletedByTitle', { title })
+        handled = true
+      }
+    }
+  }
+
+  if (handled && resultText) {
+    pushInstructionMessages(text, resultText)
+  }
+
+  if (!handled) {
+    logger.warn('[TaskSplitDialog] Unrecognized instruction:', text)
+  }
+
+  userInstruction.value = ''
+  nextTick(autoResizeInput)
+}
+
+/**
+ * textarea 高度自适应：1～4 行
+ */
+function autoResizeInput() {
+  const el = instructionInputRef.value
+  if (!el) return
+  el.style.height = 'auto'
+  const lineHeight = parseFloat(getComputedStyle(el).lineHeight) || 20
+  const maxH = lineHeight * 4 + 16
+  el.style.height = `${Math.min(el.scrollHeight, maxH)}px`
+}
+
 // 监听对话框打开
 watch(() => planStore.splitDialogVisible, async (visible) => {
   if (visible) {
@@ -1164,7 +1379,7 @@ const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(close
         <div class="dialog-header">
           <h4>
             <span class="dialog-icon">✂️</span>
-            任务拆分
+            {{ t('taskSplit.dialogTitle') }}
           </h4>
           <button
             class="btn-close"
@@ -1193,7 +1408,7 @@ const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(close
                 <ExecutionTimeline
                   :entries="timelineEntries"
                   group-tool-calls
-                  form-cancel-text="隐藏"
+                  :form-cancel-text="t('taskSplit.hide')"
                   @form-submit="handleTimelineFormSubmit"
                   @form-cancel="closeDialog"
                   @message-form-submit="(_formId, values) => handleTimelineFormSubmit('', values)"
@@ -1219,6 +1434,13 @@ const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(close
               v-if="showPreview"
               class="preview-pane"
             >
+              <div
+                v-if="isSubSplitActive && isSessionRunning"
+                class="preview-resplit-overlay"
+              >
+                <div class="resplit-overlay-spinner" />
+                <span class="resplit-overlay-text">{{ t('taskSplit.resplitInProgress', { title: subSplitTargetTitle }) }}</span>
+              </div>
               <TaskSplitPreview
                 :tasks="taskSplitStore.splitResult!"
                 :disable-actions="previewActionsDisabled"
@@ -1226,7 +1448,6 @@ const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(close
                 @update="taskSplitStore.updateSplitTask"
                 @remove="taskSplitStore.removeSplitTask"
                 @add="taskSplitStore.addSplitTask"
-                @resplit="handleResplit"
                 @optimize-list="handleOptimizeList"
               />
             </div>
@@ -1234,18 +1455,53 @@ const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(close
         </div>
 
         <div class="dialog-footer">
-          <!-- 无预览时通过动态表单引导，不展示自由输入 -->
-          <div
-            v-if="!showPreview"
-            class="footer-bar"
-          >
-            <span
-              class="idle-hint"
-              :class="{ 'idle-hint--error': canRetrySplit }"
+          <!-- 有预览时：输入栏 + 操作按钮 -->
+          <template v-if="showPreview">
+            <div
+              v-if="isSubSplitActive && isSessionRunning"
+              class="footer-resplit-hint"
             >
-              {{ footerHint }}
-            </span>
-            <div class="footer-actions">
+              <span class="resplit-hint-spinner" />
+              <span>{{ t('taskSplit.resplitInProgressHint', { title: subSplitTargetTitle }) }}</span>
+            </div>
+            <div class="footer-input-bar">
+              <div class="input-wrapper">
+                <textarea
+                  ref="instructionInputRef"
+                  v-model="userInstruction"
+                  class="instruction-input"
+                  :disabled="isSessionRunning || isConfirming"
+                  :placeholder="t('taskSplit.instructionPlaceholder')"
+                  rows="1"
+                  @keydown.enter.exact.prevent="handleUserInstruction"
+                  @input="autoResizeInput"
+                />
+              </div>
+              <button
+                class="btn btn-send"
+                :disabled="isSessionRunning || isConfirming || !userInstruction.trim()"
+                @click="handleUserInstruction"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M22 2L11 13" /><path d="M22 2L15 22L11 13L2 9L22 2Z" />
+                </svg>
+              </button>
+            </div>
+            <div class="footer-actions footer-actions--confirm">
+              <button
+                v-if="hasPendingRefinement"
+                class="btn btn-secondary"
+                @click="closeDialog"
+              >
+                {{ t(refinementMode === 'list_optimize' ? 'taskSplit.discardOptimize' : 'taskSplit.discardResplit') }}
+              </button>
+              <button
+                v-if="showStopButton"
+                class="btn btn-danger"
+                @click="stopSplitTask"
+              >
+                {{ t('taskSplit.stopTask') }}
+              </button>
               <button
                 v-if="canRetrySplit"
                 class="btn btn-secondary btn-retry"
@@ -1258,90 +1514,75 @@ const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(close
                 class="btn btn-secondary btn-continue"
                 @click="continueSplitTask"
               >
-                继续拆分
-              </button>
-              <button
-                v-if="showStopButton"
-                class="btn btn-danger"
-                @click="stopSplitTask"
-              >
-                停止任务
+                {{ t('taskSplit.continueSplit') }}
               </button>
               <button
                 class="btn btn-secondary"
+                :disabled="isConfirming || isSessionRunning"
                 @click="closeDialog"
               >
-                隐藏
+                {{ t('taskSplit.close') }}
+              </button>
+              <button
+                class="btn btn-secondary"
+                :disabled="isSessionRunning"
+                @click="restartSplit"
+              >
+                {{ t('taskSplit.restart') }}
+              </button>
+              <button
+                class="btn btn-primary"
+                :disabled="isConfirming || isSessionRunning || (hasPendingRefinement && !canApplyRefinement)"
+                @click="confirmSplit"
+              >
+                {{ primaryActionLabel }}
               </button>
             </div>
-          </div>
+          </template>
 
-          <div
-            v-else
-            class="footer-actions footer-actions--confirm"
-          >
-            <button
-              v-if="hasPendingRefinement"
-              class="btn btn-secondary"
-              @click="closeDialog"
-            >
-              放弃本次{{ refinementMode === 'list_optimize' ? '优化' : '拆分' }}
-            </button>
-            <button
-              v-if="showStopButton"
-              class="btn btn-danger"
-              @click="stopSplitTask"
-            >
-              停止任务
-            </button>
-            <button
-              v-if="canRetrySplit"
-              class="btn btn-secondary btn-retry"
-              @click="retrySplitTask"
-            >
-              {{ retryActionLabel }}
-            </button>
-            <button
-              v-if="canContinueSplit"
-              class="btn btn-secondary btn-continue"
-              @click="continueSplitTask"
-            >
-              继续拆分
-            </button>
-            <button
-              class="btn btn-secondary"
-              :disabled="isConfirming || isSessionRunning"
-              @click="closeDialog"
-            >
-              关闭
-            </button>
-            <button
-              class="btn btn-secondary"
-              :disabled="isSessionRunning"
-              @click="restartSplit"
-            >
-              重新拆分
-            </button>
-            <button
-              class="btn btn-primary"
-              :disabled="isConfirming || isSessionRunning || (hasPendingRefinement && !canApplyRefinement)"
-              @click="confirmSplit"
-            >
-              {{ primaryActionLabel }}
-            </button>
-          </div>
+          <!-- 无预览时：提示 + 操作按钮（保持原有行为） -->
+          <template v-else>
+            <div class="footer-bar">
+              <span
+                class="idle-hint"
+                :class="{ 'idle-hint--error': canRetrySplit }"
+              >
+                {{ footerHint }}
+              </span>
+              <div class="footer-actions">
+                <button
+                  v-if="canRetrySplit"
+                  class="btn btn-secondary btn-retry"
+                  @click="retrySplitTask"
+                >
+                  {{ retryActionLabel }}
+                </button>
+                <button
+                  v-if="canContinueSplit"
+                  class="btn btn-secondary btn-continue"
+                  @click="continueSplitTask"
+                >
+                  {{ t('taskSplit.continueSplit') }}
+                </button>
+                <button
+                  v-if="showStopButton"
+                  class="btn btn-danger"
+                  @click="stopSplitTask"
+                >
+                  {{ t('taskSplit.stopTask') }}
+                </button>
+                <button
+                  class="btn btn-secondary"
+                  @click="closeDialog"
+                >
+                  {{ t('taskSplit.hide') }}
+                </button>
+              </div>
+            </div>
+          </template>
         </div>
       </div>
     </div>
-
-    <TaskResplitModal
-      v-model:visible="resplitModalVisible"
-      :task="resplitTargetTask"
-      :default-granularity="taskSplitStore.context?.granularity || DEFAULT_SPLIT_GRANULARITY"
-      :default-expert-id="taskSplitStore.context?.expertId"
-      :default-model-id="taskSplitStore.context?.modelId"
-      @confirm="handleResplitConfirm"
-    />
 
     <TaskListOptimizeModal
       v-model:visible="optimizeListModalVisible"
@@ -1500,6 +1741,7 @@ const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(close
 }
 
 .preview-pane {
+  position: relative;
   min-width: 0;
   width: 46%;
   border: 1px solid var(--split-pane-border);
@@ -1698,6 +1940,147 @@ const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(close
   width: 100%;
 }
 
+.footer-input-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--spacing-2, 0.5rem);
+  margin-bottom: var(--spacing-3, 0.75rem);
+  padding: var(--spacing-2, 0.5rem) var(--spacing-3, 0.75rem);
+  border-radius: 0.85rem;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  transition: border-color var(--transition-fast, 150ms), box-shadow var(--transition-fast, 150ms);
+}
+
+.footer-input-bar:focus-within {
+  border-color: rgba(99, 102, 241, 0.45);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.footer-resplit-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2, 0.5rem);
+  margin-bottom: var(--spacing-2, 0.5rem);
+  padding: var(--spacing-2, 0.5rem) var(--spacing-3, 0.75rem);
+  border-radius: 0.5rem;
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.08), rgba(59, 130, 246, 0.06));
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  color: var(--color-text-secondary, #64748b);
+  font-size: var(--font-size-xs, 12px);
+}
+
+.resplit-hint-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(99, 102, 241, 0.2);
+  border-top-color: rgba(99, 102, 241, 0.7);
+  border-radius: 50%;
+  animation: resplit-spin 0.6s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes resplit-spin {
+  to { transform: rotate(360deg); }
+}
+
+.preview-resplit-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-3, 0.75rem);
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(2px);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.resplit-overlay-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(99, 102, 241, 0.15);
+  border-top-color: rgba(99, 102, 241, 0.6);
+  border-radius: 50%;
+  animation: resplit-spin 0.6s linear infinite;
+}
+
+.resplit-overlay-text {
+  color: var(--color-text-secondary, #64748b);
+  font-size: var(--font-size-sm, 13px);
+  font-weight: var(--font-weight-medium, 500);
+}
+
+.input-wrapper {
+  flex: 1;
+  min-width: 0;
+}
+
+.instruction-input {
+  width: 100%;
+  min-height: 2rem;
+  max-height: 6rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary, #1e293b);
+  font-size: var(--font-size-sm, 13px);
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+  font-family: inherit;
+  overflow-y: auto;
+}
+
+.instruction-input::placeholder {
+  color: var(--color-text-tertiary, #94a3b8);
+  font-size: var(--font-size-xs, 12px);
+}
+
+.instruction-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.footer-input-bar:has(.instruction-input:disabled) {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.btn-send {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border-radius: 0.5rem;
+  background: linear-gradient(135deg, #0ea5e9, #6366f1);
+  color: white;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--transition-fast, 150ms);
+  box-shadow: 0 2px 6px rgba(79, 70, 229, 0.2);
+}
+
+.btn-send:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px rgba(79, 70, 229, 0.3);
+}
+
+.btn-send:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
 .btn-retry {
   border-color: rgba(14, 165, 233, 0.36);
   color: #0369a1;
@@ -1831,6 +2214,39 @@ const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(close
 .split-dialog--dark .btn-secondary:hover {
   background: rgba(30, 41, 59, 0.96) !important;
   border-color: rgba(100, 116, 139, 0.82) !important;
+}
+
+.split-dialog--dark .footer-input-bar {
+  background: rgba(15, 23, 42, 0.72) !important;
+  border-color: rgba(71, 85, 105, 0.6) !important;
+}
+
+.split-dialog--dark .footer-input-bar:focus-within {
+  border-color: rgba(99, 102, 241, 0.55) !important;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15) !important;
+  background: rgba(15, 23, 42, 0.85) !important;
+}
+
+.split-dialog--dark .instruction-input {
+  color: #e2e8f0 !important;
+}
+
+.split-dialog--dark .instruction-input::placeholder {
+  color: #64748b !important;
+}
+
+.split-dialog--dark .footer-resplit-hint {
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.12), rgba(59, 130, 246, 0.08));
+  border-color: rgba(99, 102, 241, 0.2);
+  color: #94a3b8;
+}
+
+.split-dialog--dark .preview-resplit-overlay {
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.split-dialog--dark .resplit-overlay-text {
+  color: #94a3b8;
 }
 
 :global([data-theme='dark']) .split-dialog,

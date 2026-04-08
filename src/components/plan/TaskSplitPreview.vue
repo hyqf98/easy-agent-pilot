@@ -17,7 +17,6 @@ const emit = defineEmits<{
   (e: 'update', index: number, updates: Partial<AITaskItem>): void
   (e: 'remove', index: number): void
   (e: 'add', task: AITaskItem): void
-  (e: 'resplit', index: number): void
   (e: 'optimize-list'): void
 }>()
 
@@ -159,7 +158,6 @@ function addTask() {
           :disable-actions="disableActions"
           @edit="startEdit(index)"
           @remove="removeTask(index)"
-          @resplit="emit('resplit', index)"
         />
       </div>
     </div>

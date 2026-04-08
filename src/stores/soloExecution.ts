@@ -327,11 +327,15 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
     return log
   }
 
-  function updateTokenUsage(runId: string, usage: Pick<StreamEvent, 'inputTokens' | 'outputTokens' | 'model'>) {
+  function updateTokenUsage(runId: string, usage: Pick<StreamEvent, 'inputTokens' | 'outputTokens' | 'model'>, requestedModelId?: string | null) {
     const state = initExecutionState(runId)
     const current = state.tokenUsage
     const nextInputTokens = typeof usage.inputTokens === 'number' ? usage.inputTokens : current.inputTokens
     const nextOutputTokens = typeof usage.outputTokens === 'number' ? usage.outputTokens : current.outputTokens
+    const resolvedModel = resolveRecordedModelId({
+      reportedModelId: usage.model || current.model,
+      requestedModelId
+    }) ?? usage.model ?? current.model
     const didReset = (
       typeof usage.inputTokens === 'number'
       || typeof usage.outputTokens === 'number'
@@ -343,7 +347,7 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
     state.tokenUsage = {
       inputTokens: nextInputTokens,
       outputTokens: nextOutputTokens,
-      model: usage.model || current.model,
+      model: resolvedModel,
       resetCount: didReset ? current.resetCount + 1 : current.resetCount,
       lastUpdatedAt: new Date().toISOString()
     }
@@ -581,7 +585,7 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
     try {
       await agentExecutor.execute(context, (event) => {
         if (event.inputTokens !== undefined || event.outputTokens !== undefined || event.model) {
-          updateTokenUsage(run.id, event)
+          updateTokenUsage(run.id, event, agent.modelId)
           if (typeof event.inputTokens === 'number') turnTokens.inputTokens = event.inputTokens
           if (typeof event.outputTokens === 'number') turnTokens.outputTokens = event.outputTokens
           if (event.model) turnTokens.model = event.model
@@ -640,6 +644,15 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
         if (event.content) {
           state.accumulatedContent += event.content
           options.fullContentRef(state.accumulatedContent)
+          // 流式输出期间估算 output tokens（CLI 不在 content 事件中携带 token 数据）
+          const estimatedOutputTokens = Math.ceil(state.accumulatedContent.length / 4)
+          if (state.tokenUsage.outputTokens < estimatedOutputTokens) {
+            state.tokenUsage = {
+              ...state.tokenUsage,
+              outputTokens: estimatedOutputTokens,
+              lastUpdatedAt: new Date().toISOString()
+            }
+          }
           if (options.persistContentLogs) {
             void addLog({
               runId,

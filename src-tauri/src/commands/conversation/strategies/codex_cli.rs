@@ -1122,20 +1122,26 @@ fn parse_codex_json_output(session_id: &str, json: &serde_json::Value) -> Option
                 None
             }
         }
-        "message_stop" => Some(CliStreamEvent {
-            event_type: "done".to_string(),
-            session_id: session_id.to_string(),
-            content: None,
-            tool_name: None,
-            tool_call_id: None,
-            tool_input: None,
-            tool_result: None,
-            error: None,
-            input_tokens: None,
-            output_tokens: None,
-            model: None,
-            external_session_id: None,
-        }),
+        // message_stop 只表示当前一轮模型消息结束，不代表整个 CLI 执行完成。
+        // 在 agentic 工具调用场景中，CLI 会执行工具后继续下一轮对话，产生多个 message_stop。
+        // 因此不能将 message_stop 转换为 done 事件，否则会导致前端过早标记消息为"已完成"。
+        // 最终的 done 事件由进程退出后的代码统一发出。
+        "message_stop" => {
+            let usage = json.get("usage");
+            let input_tokens = usage
+                .and_then(|u| u.get("input_tokens"))
+                .and_then(|t| t.as_u64())
+                .map(|t| t as u32);
+            let output_tokens = usage
+                .and_then(|u| u.get("output_tokens"))
+                .and_then(|t| t.as_u64())
+                .map(|t| t as u32);
+            if input_tokens.is_some() || output_tokens.is_some() {
+                Some(build_usage_event(session_id, input_tokens, output_tokens))
+            } else {
+                None
+            }
+        }
 
         // === 工具相关事件 ===
         "tool_use" => {
@@ -1341,12 +1347,30 @@ fn extract_item_text(item: &serde_json::Value) -> Option<String> {
 }
 
 fn extract_structured_payload(value: &serde_json::Value) -> Option<String> {
-    value
+    let raw = value
         .get("structured_output")
         .or_else(|| value.get("structuredOutput"))
         .or_else(|| value.get("output_struct"))
-        .or_else(|| value.get("outputStruct"))
-        .and_then(|v| serde_json::to_string(v).ok())
+        .or_else(|| value.get("outputStruct"))?;
+
+    // structured_output 可能是字符串（已序列化的 JSON）或对象
+    match raw {
+        serde_json::Value::String(s) => {
+            let trimmed = s.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            // 如果是有效的 JSON 字符串，直接返回（避免二次序列化导致转义）
+            if trimmed.starts_with('{') || trimmed.starts_with('[') {
+                if serde_json::from_str::<serde_json::Value>(trimmed).is_ok() {
+                    return Some(trimmed.to_string());
+                }
+            }
+            // 非 JSON 字符串，按原样返回
+            Some(trimmed.to_string())
+        }
+        other => serde_json::to_string(other).ok(),
+    }
 }
 
 fn extract_turn_output(value: &serde_json::Value) -> Option<String> {

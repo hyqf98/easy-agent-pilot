@@ -903,6 +903,12 @@ export class ConversationService {
           onContent: (content) => {
             markMetric('firstContentAt')
             accumulatedContent += content
+            // 流式输出期间估算 output tokens（CLI 不在 content 事件中携带 token 数据）
+            const estimatedOutputTokens = Math.ceil(accumulatedContent.length / 4)
+            if ((usageState.outputTokens ?? 0) < estimatedOutputTokens) {
+              usageState.outputTokens = estimatedOutputTokens
+              tokenStore.updateRealtimeOutputEstimate(sessionId, estimatedOutputTokens)
+            }
             bufferMessageUpdate({
               content: accumulatedContent
             })

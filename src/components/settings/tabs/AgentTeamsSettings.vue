@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useAgentStore } from '@/stores/agent'
 import { useAgentConfigStore } from '@/stores/agentConfig'
 import { useAgentTeamsStore, type AgentExpert, type AgentExpertCategory } from '@/stores/agentTeams'
+import { useNotificationStore } from '@/stores/notification'
 import { inferAgentProvider } from '@/stores/agent'
 
 interface ExpertFormState {
@@ -23,6 +24,7 @@ interface ExpertFormState {
 const agentStore = useAgentStore()
 const agentConfigStore = useAgentConfigStore()
 const teamsStore = useAgentTeamsStore()
+const notificationStore = useNotificationStore()
 const { t } = useI18n()
 
 const searchQuery = ref('')
@@ -195,6 +197,10 @@ async function handleSave() {
       const updated = await teamsStore.updateExpert(form.id, payload)
       teamsStore.setSelectedExpert(updated.id)
     }
+    notificationStore.success(t('settings.agentTeams.saveSuccess'))
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    notificationStore.error(t('settings.agentTeams.saveFailed'), msg)
   } finally {
     isSaving.value = false
   }

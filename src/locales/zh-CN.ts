@@ -349,7 +349,9 @@ const zhCN = {
       saving: '保存中...',
       duplicateSuffix: '副本',
       deleteBlocked: '该专家仍被引用：计划 {plans}、任务 {tasks}、会话 {sessions}',
-      deleteConfirm: '确认删除专家“{name}”吗？',
+      deleteConfirm: '确认删除专家”{name}”吗？',
+      saveSuccess: '保存成功',
+      saveFailed: '保存失败',
       fields: {
         name: '名称',
         category: '分类',
@@ -1428,7 +1430,20 @@ const zhCN = {
       resumeExecutionFlow: '继续当前暂停的任务流程，并恢复自动执行',
       addTask: '添加新任务到待办列表'
     },
-    emptyColumn: '暂无任务'
+    emptyColumn: '暂无任务',
+    planOverview: {
+      title: '计划概览',
+      completedCount: '{count} 已完成',
+      failedCount: '{count} 失败',
+      pendingCount: '{count} 剩余',
+      statusCompleted: '已完成',
+      statusFailed: '失败',
+      statusRunning: '执行中',
+      statusBlocked: '阻塞',
+      statusPending: '待执行',
+      files: '文件',
+      failReason: '原因'
+    }
   },
   taskDetail: {
     title: '任务详情',
@@ -1568,6 +1583,7 @@ const zhCN = {
       completedSection: '已完成:',
       failedSection: '失败:',
       filesSection: '文件:',
+      files: '文件',
       noSummary: '暂无摘要',
       noFailureReason: '暂无失败原因',
       fileAdded: '新增',
@@ -1598,11 +1614,61 @@ const zhCN = {
     restart: '重新拆分',
     cancel: '取消',
     removeTaskConfirmTitle: '删除任务',
-    removeTaskConfirmMessage: '确定要删除任务“{name}”吗？',
+    removeTaskConfirmMessage: '确定要删除任务”{name}”吗？',
     // 任务卡片
+    noExpertAssigned: '未分配专家',
+    executionExpert: '执行专家',
     edit: '编辑',
     delete: '删除',
     resplit: '继续拆分',
+    // 底部 & 输入
+    hide: '隐藏',
+    close: '关闭',
+    stopTask: '停止任务',
+    continueSplit: '继续拆分',
+    discardOptimize: '放弃本次优化',
+    discardResplit: '放弃本次拆分',
+    applyOptimizeResult: '应用优化结果',
+    waitingOptimizeResult: '等待优化结果',
+    applyResplitResult: '应用拆分结果',
+    waitingResplitResult: '等待拆分结果',
+    retryLabel: '重试',
+    resendLabel: '重新发送',
+    // 再拆分状态
+    resplitInProgress: '正在拆分：{title}',
+    resplitInProgressHint: '正在拆分：{title}，请稍候...',
+    // 输入框占位符
+    instructionPlaceholder: '输入指令操作任务列表，如：删除任务 1、再次拆分任务 2...',
+    // 指令结果
+    instructionDeleted: '已删除任务 {index}：{title}',
+    instructionDeletedByTitle: '已删除任务：{title}',
+    instructionAdded: '已添加新任务',
+    instructionTitleUpdated: '已修改任务 {index} 的标题为：{title}',
+    instructionDescUpdated: '已修改任务 {index} 的描述',
+    instructionPriorityUpdated: '已修改任务 {index} 的优先级为：{priority}',
+    instructionMovedUp: '已上移任务 {index}：{title}',
+    instructionMovedDown: '已下移任务 {index}：{title}',
+    instructionUnknown: '无法识别的指令',
+    // 底部提示
+    hintRetryFailed: 'AI 响应失败，可点击重试重新发起请求。',
+    hintSessionStoppedWithForm: '当前会话已停止，可继续填写上方表单后再提交。',
+    hintSessionStoppedWithHistory: '当前会话已停止，可继续拆分，或回看历史表单与建议。',
+    hintSessionStopped: '当前会话已停止，可继续拆分并从上一次确认过的上下文接着执行。',
+    hintSessionRunning: '后台正在执行拆分，可关闭弹框稍后回来查看',
+    hintWaitingFormInput: '请根据上方 AI 动态表单逐步补充需求',
+    hintNoFormData: '当前会话没有待展示的表单数据。',
+    // 运行时状态
+    runtimeThinking: '正在思考并拆分任务...',
+    runtimeThinkingStart: '正在进入思考阶段...',
+    runtimeLoadingExtensions: '正在加载运行扩展...',
+    runtimeCallingTool: '正在调用工具 {name}...',
+    runtimeCallingToolFallback: '正在调用工具...',
+    runtimeToolInputDelta: '工具参数正在流式更新...',
+    runtimeGenerating: '正在生成结构化结果...',
+    runtimeToolResult: '工具返回结果，正在继续处理...',
+    runtimeError: '收到错误输出，正在等待最终状态...',
+    runtimeWaitingFirstOutput: '任务已启动，等待首个输出...',
+    runtimeProcessing: '正在处理中...',
     // 优先级
     priority: {
       high: '高',
