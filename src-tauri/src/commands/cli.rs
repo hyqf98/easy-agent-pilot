@@ -50,7 +50,7 @@ fn get_db_connection() -> Result<Connection, String> {
 }
 
 /// 获取不同操作系统的扫描路径
-fn get_scan_paths() -> Vec<PathBuf> {
+pub fn get_scan_paths_public() -> Vec<PathBuf> {
     let mut paths = Vec::new();
     let home = dirs::home_dir();
 
@@ -95,7 +95,7 @@ fn get_scan_paths() -> Vec<PathBuf> {
 
 /// 检测单个 CLI 工具
 fn detect_cli(cli_name: &str) -> CliTool {
-    let scan_paths = get_scan_paths();
+    let scan_paths = get_scan_paths_public();
     let mut first_invalid_match: Option<PathBuf> = None;
 
     for cli_path in find_cli_executables(cli_name, &scan_paths) {

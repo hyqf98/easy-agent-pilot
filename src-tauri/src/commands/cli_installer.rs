@@ -168,7 +168,8 @@ pub fn detect_package_managers() -> Result<Vec<PackageManager>, String> {
 }
 
 fn detect_cli_installed(cli_name: &str) -> (bool, Option<String>) {
-    if let Some(cli_path) = find_cli_executable(cli_name, &[]) {
+    let scan_paths = crate::commands::cli::get_scan_paths_public();
+    if let Some(cli_path) = find_cli_executable(cli_name, &scan_paths) {
         return (true, get_cli_version(&cli_path));
     }
 
