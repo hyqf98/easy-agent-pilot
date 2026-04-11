@@ -65,6 +65,7 @@ export function usePlanListView(emit: PlanListEmit) {
   const createForm = reactive<PlanCreateFormState>({
     name: '',
     description: '',
+    memoryLibraryIds: [],
     splitMode: 'ai',
     granularity: DEFAULT_SPLIT_GRANULARITY,
     maxRetryCount: 3,
@@ -82,6 +83,7 @@ export function usePlanListView(emit: PlanListEmit) {
   const editForm = reactive<PlanEditFormState>({
     name: '',
     description: '',
+    memoryLibraryIds: [],
     splitMode: 'ai',
     granularity: DEFAULT_SPLIT_GRANULARITY,
     maxRetryCount: 3,
@@ -308,6 +310,7 @@ export function usePlanListView(emit: PlanListEmit) {
     updateCreateForm({
       name: '',
       description: '',
+      memoryLibraryIds: [],
       splitMode: 'ai',
       granularity: DEFAULT_SPLIT_GRANULARITY,
       maxRetryCount: 3,
@@ -339,6 +342,7 @@ export function usePlanListView(emit: PlanListEmit) {
         projectId: projectStore.currentProjectId,
         name: createForm.name.trim(),
         description: createForm.description.trim() || undefined,
+        memoryLibraryIds: [...createForm.memoryLibraryIds],
         splitMode: createForm.splitMode,
         splitExpertId: createForm.splitMode === 'ai' ? (selectedExpert?.id ?? undefined) : undefined,
         splitAgentId: runtime?.agent.id,
@@ -380,6 +384,7 @@ export function usePlanListView(emit: PlanListEmit) {
         projectId: projectStore.currentProjectId,
         name: createForm.name.trim(),
         description: createForm.description.trim() || undefined,
+        memoryLibraryIds: [...createForm.memoryLibraryIds],
         splitMode: 'manual',
         granularity: createForm.granularity,
         maxRetryCount: createForm.maxRetryCount,
@@ -404,7 +409,10 @@ export function usePlanListView(emit: PlanListEmit) {
       agentStore.loadAgents(),
       agentTeamsStore.loadExperts(true)
     ])
-    updateCreateForm({ splitAgentId: getDefaultSplitExpertId() })
+    updateCreateForm({
+      splitAgentId: getDefaultSplitExpertId(),
+      memoryLibraryIds: [...(projectStore.currentProject?.memoryLibraryIds || [])]
+    })
     showCreateDialog.value = true
   }
 
@@ -416,6 +424,7 @@ export function usePlanListView(emit: PlanListEmit) {
     updateEditForm({
       name: '',
       description: '',
+      memoryLibraryIds: [],
       splitMode: 'ai',
       granularity: DEFAULT_SPLIT_GRANULARITY,
       maxRetryCount: 3,
@@ -432,6 +441,7 @@ export function usePlanListView(emit: PlanListEmit) {
     updateEditForm({
       name: plan.name,
       description: plan.description || '',
+      memoryLibraryIds: [...plan.memoryLibraryIds],
       splitMode: plan.splitMode,
       granularity: plan.granularity,
       maxRetryCount: plan.maxRetryCount,
@@ -461,7 +471,8 @@ export function usePlanListView(emit: PlanListEmit) {
         : null
       const updates: UpdatePlanInput = {
         name: editForm.name.trim(),
-        description: editForm.description.trim() || undefined
+        description: editForm.description.trim() || undefined,
+        memoryLibraryIds: [...editForm.memoryLibraryIds]
       }
 
       if (editingPlan.value.status === 'draft') {

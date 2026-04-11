@@ -16,6 +16,7 @@ export interface SoloCreateFormState {
   name: string
   requirement: string
   goal: string
+  memoryLibraryIds: string[]
   maxDispatchDepth: number
   participantExpertIds: string[]
   coordinatorExpertId: string | null

@@ -286,6 +286,8 @@ const INIT_SQL: &str = r#"
         project_id TEXT NOT NULL,
         name TEXT NOT NULL,
         description TEXT,
+        execution_overview TEXT,
+        execution_overview_updated_at TEXT,
         split_expert_id TEXT,
         split_agent_id TEXT,
         split_model_id TEXT,
@@ -297,6 +299,14 @@ const INIT_SQL: &str = r#"
     );
     CREATE INDEX IF NOT EXISTS idx_plans_project ON plans(project_id);
     CREATE INDEX IF NOT EXISTS idx_plans_status ON plans(status);
+    CREATE TABLE IF NOT EXISTS plan_memory_libraries (
+        plan_id TEXT NOT NULL,
+        library_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (plan_id, library_id),
+        FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE,
+        FOREIGN KEY (library_id) REFERENCES memory_libraries(id) ON DELETE CASCADE
+    );
 
     CREATE TABLE IF NOT EXISTS solo_runs (
         id TEXT PRIMARY KEY,
@@ -305,6 +315,7 @@ const INIT_SQL: &str = r#"
         name TEXT NOT NULL,
         requirement TEXT NOT NULL,
         goal TEXT NOT NULL,
+        memory_library_ids_json TEXT NOT NULL DEFAULT '[]',
         participant_expert_ids_json TEXT NOT NULL DEFAULT '[]',
         coordinator_expert_id TEXT,
         coordinator_agent_id TEXT,
@@ -326,6 +337,14 @@ const INIT_SQL: &str = r#"
     );
     CREATE INDEX IF NOT EXISTS idx_solo_runs_project ON solo_runs(project_id);
     CREATE INDEX IF NOT EXISTS idx_solo_runs_status ON solo_runs(status);
+    CREATE TABLE IF NOT EXISTS solo_run_memory_libraries (
+        run_id TEXT NOT NULL,
+        library_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (run_id, library_id),
+        FOREIGN KEY (run_id) REFERENCES solo_runs(id) ON DELETE CASCADE,
+        FOREIGN KEY (library_id) REFERENCES memory_libraries(id) ON DELETE CASCADE
+    );
 
     CREATE TABLE IF NOT EXISTS solo_steps (
         id TEXT PRIMARY KEY,
@@ -397,6 +416,7 @@ const INIT_SQL: &str = r#"
         progress_file TEXT,
         dependencies TEXT,
         task_order INTEGER NOT NULL DEFAULT 0,
+        memory_library_ids TEXT,
         last_result_status TEXT,
         last_result_summary TEXT,
         last_result_files TEXT,
@@ -410,6 +430,14 @@ const INIT_SQL: &str = r#"
     CREATE INDEX IF NOT EXISTS idx_tasks_plan ON tasks(plan_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+    CREATE TABLE IF NOT EXISTS task_memory_libraries (
+        task_id TEXT NOT NULL,
+        library_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (task_id, library_id),
+        FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+        FOREIGN KEY (library_id) REFERENCES memory_libraries(id) ON DELETE CASCADE
+    );
 
     CREATE TABLE IF NOT EXISTS task_runtime_bindings (
         task_id TEXT NOT NULL,
@@ -975,6 +1003,8 @@ pub fn init_database() -> Result<()> {
         "ALTER TABLE plans ADD COLUMN max_retry_count INTEGER DEFAULT 3",
         "ALTER TABLE plans ADD COLUMN execution_status TEXT DEFAULT 'idle'",
         "ALTER TABLE plans ADD COLUMN current_task_id TEXT",
+        "ALTER TABLE plans ADD COLUMN execution_overview TEXT",
+        "ALTER TABLE plans ADD COLUMN execution_overview_updated_at TEXT",
         "ALTER TABLE plans ADD COLUMN split_agent_id TEXT",
         "ALTER TABLE plans ADD COLUMN split_model_id TEXT",
         "ALTER TABLE plans ADD COLUMN split_expert_id TEXT",
@@ -992,6 +1022,20 @@ pub fn init_database() -> Result<()> {
         }
     }
 
+    let plan_memory_libraries_table_sql = r#"
+        CREATE TABLE IF NOT EXISTS plan_memory_libraries (
+            plan_id TEXT NOT NULL,
+            library_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (plan_id, library_id),
+            FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE,
+            FOREIGN KEY (library_id) REFERENCES memory_libraries(id) ON DELETE CASCADE
+        )
+    "#;
+    if let Err(e) = conn.execute(plan_memory_libraries_table_sql, []) {
+        println!("Plan memory libraries table migration warning: {}", e);
+    }
+
     // tasks 表添加新字段（重试计数��最大重试��错误信息��实现步骤��测试步骤��验收标准）
     let tasks_migrations = [
         "ALTER TABLE tasks ADD COLUMN agent_id TEXT",
@@ -1004,6 +1048,7 @@ pub fn init_database() -> Result<()> {
         "ALTER TABLE tasks ADD COLUMN implementation_steps TEXT",
         "ALTER TABLE tasks ADD COLUMN test_steps TEXT",
         "ALTER TABLE tasks ADD COLUMN acceptance_criteria TEXT",
+        "ALTER TABLE tasks ADD COLUMN memory_library_ids TEXT",
         "ALTER TABLE tasks ADD COLUMN last_result_status TEXT",
         "ALTER TABLE tasks ADD COLUMN last_result_summary TEXT",
         "ALTER TABLE tasks ADD COLUMN last_result_files TEXT",
@@ -1021,6 +1066,41 @@ pub fn init_database() -> Result<()> {
                 println!("Tasks migration warning: {}", e);
             }
         }
+    }
+
+    let task_memory_libraries_table_sql = r#"
+        CREATE TABLE IF NOT EXISTS task_memory_libraries (
+            task_id TEXT NOT NULL,
+            library_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (task_id, library_id),
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+            FOREIGN KEY (library_id) REFERENCES memory_libraries(id) ON DELETE CASCADE
+        )
+    "#;
+    if let Err(e) = conn.execute(task_memory_libraries_table_sql, []) {
+        println!("Task memory libraries table migration warning: {}", e);
+    }
+
+    if !table_has_column(&conn, "solo_runs", "memory_library_ids_json")? {
+        conn.execute(
+            "ALTER TABLE solo_runs ADD COLUMN memory_library_ids_json TEXT NOT NULL DEFAULT '[]'",
+            [],
+        )?;
+    }
+
+    let solo_run_memory_libraries_table_sql = r#"
+        CREATE TABLE IF NOT EXISTS solo_run_memory_libraries (
+            run_id TEXT NOT NULL,
+            library_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (run_id, library_id),
+            FOREIGN KEY (run_id) REFERENCES solo_runs(id) ON DELETE CASCADE,
+            FOREIGN KEY (library_id) REFERENCES memory_libraries(id) ON DELETE CASCADE
+        )
+    "#;
+    if let Err(e) = conn.execute(solo_run_memory_libraries_table_sql, []) {
+        println!("SOLO run memory libraries table migration warning: {}", e);
     }
 
     let runtime_binding_tables = [

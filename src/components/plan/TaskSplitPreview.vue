@@ -90,6 +90,7 @@ function addTask() {
     title: t('taskSplit.newTask'),
     description: '',
     priority: 'medium',
+    memoryLibraryIds: [],
     implementationSteps: [],
     testSteps: [],
     acceptanceCriteria: [],

@@ -86,6 +86,8 @@ fn is_meaningful_event_type(event_type: &str) -> bool {
             | "tool_result"
             | "file_edit"
             | "system"
+            | "reasoning"
+            | "reasoning_start"
     )
 }
 
@@ -351,6 +353,7 @@ impl AgentExecutionStrategy for OpenCodeCliStrategy {
         let app_clone = app.clone();
         let event_name_clone = event_name.clone();
         let plan_id_clone = plan_id.clone();
+        let requested_model_clone = model_id.clone();
         let stdout_monitor = monitor.clone();
 
         let stdout_handle = tokio::spawn(async move {
@@ -367,24 +370,41 @@ impl AgentExecutionStrategy for OpenCodeCliStrategy {
 
                 match serde_json::from_str::<serde_json::Value>(&line) {
                     Ok(json_value) => {
-                        if let Some(event) = parse_opencode_json_output(&session_id_clone, &json_value) {
-                            outcome.emitted_non_error_event |=
-                                is_successful_event_type(&event.event_type);
-                            outcome.emitted_content |= event.event_type == "content";
-                            outcome.emitted_error |= event.event_type == "error";
-                            stdout_monitor
-                                .note_activity(is_meaningful_event_type(&event.event_type));
-                            log_info!(
-                                "[stdout] 发送事件: type={}, content_len={:?}",
-                                event.event_type,
-                                event.content.as_ref().map(|c| c.len())
+                        if let Some(mut event) = parse_opencode_json_output(
+                            &session_id_clone,
+                            &json_value,
+                            requested_model_clone.as_deref(),
+                        ) {
+                            apply_requested_model_fallback(
+                                &mut event,
+                                requested_model_clone.as_deref(),
                             );
-                            emit_cli_event(
-                                &app_clone,
-                                &event_name_clone,
-                                plan_id_clone.as_ref(),
-                                &event,
-                            );
+                            let mut events = vec![event];
+                            events.extend(build_opencode_followup_events(
+                                &session_id_clone,
+                                &json_value,
+                                events.first().expect("primary event exists"),
+                            ));
+
+                            for event in events {
+                                outcome.emitted_non_error_event |=
+                                    is_successful_event_type(&event.event_type);
+                                outcome.emitted_content |= event.event_type == "content";
+                                outcome.emitted_error |= event.event_type == "error";
+                                stdout_monitor
+                                    .note_activity(is_meaningful_event_type(&event.event_type));
+                                log_info!(
+                                    "[stdout] 发送事件: type={}, content_len={:?}",
+                                    event.event_type,
+                                    event.content.as_ref().map(|c| c.len())
+                                );
+                                emit_cli_event(
+                                    &app_clone,
+                                    &event_name_clone,
+                                    plan_id_clone.as_ref(),
+                                    &event,
+                                );
+                            }
                         }
                     }
                     Err(e) => {
@@ -563,11 +583,485 @@ fn build_full_opencode_command(cli_path: &str, args: &[String], stdin_payload: &
     cmd_parts.join(" ")
 }
 
+/// 解析 OpenCode pubsub 消息更新事件中的 payload，提取 Parts 数组中的 tool_call、reasoning、text 等。
+fn stringify_json_value(value: Option<&serde_json::Value>) -> Option<String> {
+    let value = value?;
+
+    match value {
+        serde_json::Value::Null => None,
+        serde_json::Value::String(text) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        _ => serde_json::to_string(value).ok(),
+    }
+}
+
+fn build_thinking_cli_event(session_id: &str, content: String) -> CliStreamEvent {
+    CliStreamEvent {
+        event_type: "thinking".to_string(),
+        session_id: session_id.to_string(),
+        content: Some(content),
+        tool_name: None,
+        tool_call_id: None,
+        tool_input: None,
+        tool_result: None,
+        error: None,
+        input_tokens: None,
+        output_tokens: None,
+        model: None,
+        external_session_id: None,
+    }
+}
+
+fn build_tool_use_cli_event(
+    session_id: &str,
+    tool_name: String,
+    tool_call_id: Option<String>,
+    tool_input: Option<String>,
+) -> CliStreamEvent {
+    CliStreamEvent {
+        event_type: "tool_use".to_string(),
+        session_id: session_id.to_string(),
+        content: None,
+        tool_name: Some(tool_name),
+        tool_call_id,
+        tool_input,
+        tool_result: None,
+        error: None,
+        input_tokens: None,
+        output_tokens: None,
+        model: None,
+        external_session_id: None,
+    }
+}
+
+fn build_tool_result_cli_event(
+    session_id: &str,
+    tool_call_id: Option<String>,
+    tool_result: Option<String>,
+) -> CliStreamEvent {
+    CliStreamEvent {
+        event_type: "tool_result".to_string(),
+        session_id: session_id.to_string(),
+        content: None,
+        tool_name: None,
+        tool_call_id,
+        tool_input: None,
+        tool_result,
+        error: None,
+        input_tokens: None,
+        output_tokens: None,
+        model: None,
+        external_session_id: None,
+    }
+}
+
+fn extract_opencode_part_tool_name(part: &serde_json::Value) -> Option<String> {
+    part.get("tool")
+        .or_else(|| part.get("name"))
+        .or_else(|| part.pointer("/data/name"))
+        .and_then(|value| value.as_str())
+        .map(|value| value.to_string())
+}
+
+fn extract_opencode_part_tool_call_id(part: &serde_json::Value) -> Option<String> {
+    part.get("callID")
+        .or_else(|| part.get("callId"))
+        .or_else(|| part.get("id"))
+        .or_else(|| part.pointer("/data/id"))
+        .and_then(|value| value.as_str())
+        .map(|value| value.to_string())
+}
+
+fn extract_opencode_part_tool_input(part: &serde_json::Value) -> Option<String> {
+    stringify_json_value(
+        part.pointer("/state/input")
+            .or_else(|| part.get("input"))
+            .or_else(|| part.pointer("/data/input"))
+            .or_else(|| part.pointer("/properties/input")),
+    )
+}
+
+fn extract_opencode_part_tool_output(part: &serde_json::Value) -> Option<String> {
+    stringify_json_value(
+        part.pointer("/state/output")
+            .or_else(|| part.get("output"))
+            .or_else(|| part.get("content"))
+            .or_else(|| part.pointer("/data/output"))
+            .or_else(|| part.pointer("/data/content")),
+    )
+}
+
+fn extract_opencode_part_tokens(json: &serde_json::Value) -> (Option<u32>, Option<u32>) {
+    extract_usage_counts(
+        json.get("usage")
+            .or_else(|| json.pointer("/part/tokens"))
+            .or_else(|| json.pointer("/payload/part/tokens")),
+    )
+}
+
+fn apply_requested_model_fallback(
+    event: &mut CliStreamEvent,
+    requested_model: Option<&str>,
+) {
+    if event.model.is_some() || event.event_type == "error" {
+        return;
+    }
+
+    let Some(model) = requested_model.map(str::trim).filter(|value| !value.is_empty()) else {
+        return;
+    };
+
+    event.model = Some(model.to_string());
+}
+
+fn extract_opencode_model_name(
+    json: &serde_json::Value,
+    requested_model: Option<&str>,
+) -> Option<String> {
+    json.get("model")
+        .or_else(|| json.pointer("/part/model"))
+        .or_else(|| json.pointer("/part/modelName"))
+        .or_else(|| json.pointer("/message/model"))
+        .or_else(|| json.pointer("/message/modelName"))
+        .or_else(|| json.pointer("/payload/model"))
+        .or_else(|| json.pointer("/payload/modelName"))
+        .and_then(|value| value.as_str())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            requested_model
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| value.to_string())
+        })
+}
+
+fn build_opencode_followup_events(
+    session_id: &str,
+    json: &serde_json::Value,
+    primary_event: &CliStreamEvent,
+) -> Vec<CliStreamEvent> {
+    if primary_event.event_type != "tool_use" {
+        return Vec::new();
+    }
+
+    let part = json
+        .get("part")
+        .or_else(|| json.pointer("/payload/part"))
+        .unwrap_or(json);
+    let tool_status = part
+        .pointer("/state/status")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    if tool_status != "completed" {
+        return Vec::new();
+    }
+
+    let tool_result = extract_opencode_part_tool_output(part);
+    if tool_result.is_none() {
+        return Vec::new();
+    }
+
+    vec![build_tool_result_cli_event(
+        session_id,
+        primary_event.tool_call_id.clone(),
+        tool_result,
+    )]
+}
+
+fn parse_opencode_part_event(
+    session_id: &str,
+    part: &serde_json::Value,
+) -> Option<CliStreamEvent> {
+    let part_type = part
+        .get("type")
+        .or_else(|| part.pointer("/part/type"))
+        .or_else(|| part.pointer("/data/type"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    let data = part.get("data").unwrap_or(part);
+
+    match part_type {
+        "text" | "output_text" | "input_text" | "message" => stringify_json_value(
+            data.get("text")
+                .or_else(|| part.get("text"))
+                .or_else(|| data.get("content"))
+                .or_else(|| part.get("content")),
+        )
+        .map(|text| build_content_event(session_id, text)),
+        "reasoning" | "thinking" | "reasoning_content" => stringify_json_value(
+            data.get("thinking")
+                .or_else(|| part.get("thinking"))
+                .or_else(|| data.get("summary"))
+                .or_else(|| part.get("summary"))
+                .or_else(|| data.get("text"))
+                .or_else(|| part.get("text"))
+                .or_else(|| data.get("content"))
+                .or_else(|| part.get("content")),
+        )
+        .map(|text| build_thinking_cli_event(session_id, text)),
+        "tool_call" | "tool_use" | "tool" | "function_call" => {
+            let tool_name = data
+                .get("name")
+                .or_else(|| part.get("name"))
+                .and_then(|value| value.as_str())
+                .map(|value| value.to_string())
+                .or_else(|| extract_opencode_part_tool_name(part))?;
+            let tool_call_id = data
+                .get("id")
+                .or_else(|| data.get("call_id"))
+                .or_else(|| part.get("id"))
+                .or_else(|| part.get("call_id"))
+                .and_then(|value| value.as_str())
+                .map(|value| value.to_string())
+                .or_else(|| extract_opencode_part_tool_call_id(part));
+            let tool_input = stringify_json_value(
+                data.get("input")
+                    .or_else(|| data.get("arguments"))
+                    .or_else(|| part.get("input"))
+                    .or_else(|| part.get("arguments")),
+            )
+            .or_else(|| extract_opencode_part_tool_input(part));
+
+            Some(build_tool_use_cli_event(
+                session_id,
+                tool_name,
+                tool_call_id,
+                tool_input,
+            ))
+        }
+        "tool_result" | "function_call_output" => {
+            let tool_call_id = data
+                .get("tool_call_id")
+                .or_else(|| data.get("tool_use_id"))
+                .or_else(|| data.get("call_id"))
+                .or_else(|| part.get("tool_call_id"))
+                .or_else(|| part.get("tool_use_id"))
+                .or_else(|| part.get("call_id"))
+                .and_then(|value| value.as_str())
+                .map(|value| value.to_string())
+                .or_else(|| extract_opencode_part_tool_call_id(part));
+            let tool_result = stringify_json_value(
+                data.get("content")
+                    .or_else(|| data.get("output"))
+                    .or_else(|| data.get("result"))
+                    .or_else(|| part.get("content"))
+                    .or_else(|| part.get("output"))
+                    .or_else(|| part.get("result")),
+            )
+            .or_else(|| extract_opencode_part_tool_output(part));
+
+            Some(build_tool_result_cli_event(
+                session_id,
+                tool_call_id,
+                tool_result,
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn parse_opencode_parts_event(
+    session_id: &str,
+    parts: &[serde_json::Value],
+) -> Option<CliStreamEvent> {
+    let mut content_text = String::new();
+    let mut thinking_text = String::new();
+
+    for part in parts {
+        let part_type = part
+            .get("type")
+            .or_else(|| part.pointer("/part/type"))
+            .or_else(|| part.pointer("/data/type"))
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+
+        match part_type {
+            "text" | "output_text" | "input_text" | "message" => {
+                if let Some(text) = stringify_json_value(
+                    part.get("data")
+                        .and_then(|value| value.get("text"))
+                        .or_else(|| part.get("text"))
+                        .or_else(|| part.pointer("/data/content"))
+                        .or_else(|| part.get("content")),
+                ) {
+                    content_text.push_str(&text);
+                }
+            }
+            "reasoning" | "thinking" | "reasoning_content" => {
+                if let Some(text) = stringify_json_value(
+                    part.get("data")
+                        .and_then(|value| value.get("thinking"))
+                        .or_else(|| part.get("thinking"))
+                        .or_else(|| part.pointer("/data/summary"))
+                        .or_else(|| part.get("summary"))
+                        .or_else(|| part.pointer("/data/text"))
+                        .or_else(|| part.get("text"))
+                        .or_else(|| part.pointer("/data/content"))
+                        .or_else(|| part.get("content")),
+                ) {
+                    thinking_text.push_str(&text);
+                }
+            }
+            "tool_call" | "tool_use" | "tool" | "function_call" | "tool_result"
+            | "function_call_output" => {
+                if let Some(event) = parse_opencode_part_event(session_id, part) {
+                    return Some(event);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if !thinking_text.is_empty() {
+        return Some(build_thinking_cli_event(session_id, thinking_text));
+    }
+
+    if !content_text.is_empty() {
+        return Some(build_content_event(session_id, content_text));
+    }
+
+    None
+}
+
+fn parse_opencode_message_payload(
+    session_id: &str,
+    json: &serde_json::Value,
+) -> Option<CliStreamEvent> {
+    let payload = json.get("payload").cloned().unwrap_or_else(|| json.clone());
+
+    let role = payload
+        .get("Role")
+        .or_else(|| payload.get("role"))
+        .and_then(|r| r.as_str())
+        .unwrap_or("");
+
+    if role != "assistant" {
+        return None;
+    }
+
+    let parts = payload
+        .get("Parts")
+        .or_else(|| payload.get("parts"))
+        .and_then(|p| p.as_array());
+
+    if let Some(parts_array) = parts {
+        return parse_opencode_parts_event(session_id, parts_array);
+    }
+
+    None
+}
+
+fn parse_opencode_response_item(
+    session_id: &str,
+    json: &serde_json::Value,
+) -> Option<CliStreamEvent> {
+    let payload = json.get("payload").unwrap_or(json);
+    let payload_type = payload.get("type").and_then(|value| value.as_str()).unwrap_or("");
+
+    match payload_type {
+        "message" => {
+            if let Some(content) = payload.get("content").and_then(|value| value.as_array()) {
+                return parse_opencode_parts_event(session_id, content);
+            }
+
+            stringify_json_value(payload.get("content"))
+                .map(|text| build_content_event(session_id, text))
+        }
+        "function_call" => parse_opencode_part_event(
+            session_id,
+            &serde_json::json!({
+                "type": "function_call",
+                "name": payload.get("name").cloned().unwrap_or(serde_json::Value::Null),
+                "call_id": payload.get("call_id").cloned().unwrap_or(serde_json::Value::Null),
+                "arguments": payload.get("arguments").cloned().unwrap_or(serde_json::Value::Null)
+            }),
+        ),
+        "function_call_output" => parse_opencode_part_event(
+            session_id,
+            &serde_json::json!({
+                "type": "function_call_output",
+                "call_id": payload.get("call_id").cloned().unwrap_or(serde_json::Value::Null),
+                "output": payload.get("output").cloned().unwrap_or(serde_json::Value::Null)
+            }),
+        ),
+        "reasoning" => stringify_json_value(
+            payload
+                .get("summary")
+                .or_else(|| payload.get("text"))
+                .or_else(|| payload.get("content")),
+        )
+        .map(|text| build_thinking_cli_event(session_id, text)),
+        _ => None,
+    }
+}
+
+fn parse_opencode_event_msg(
+    session_id: &str,
+    json: &serde_json::Value,
+) -> Option<CliStreamEvent> {
+    let payload = json.get("payload").unwrap_or(json);
+    let payload_type = payload.get("type").and_then(|value| value.as_str()).unwrap_or("");
+
+    match payload_type {
+        "agent_message" => stringify_json_value(
+            payload
+                .get("message")
+                .or_else(|| payload.get("content"))
+                .or_else(|| payload.get("text")),
+        )
+        .map(|text| build_content_event(session_id, text)),
+        "agent_reasoning" => stringify_json_value(
+            payload
+                .get("text")
+                .or_else(|| payload.get("content"))
+                .or_else(|| payload.get("summary")),
+        )
+        .map(|text| build_thinking_cli_event(session_id, text)),
+        "token_count" => {
+            let (input_tokens, output_tokens) = extract_usage_counts(Some(payload));
+            Some(CliStreamEvent {
+                event_type: "usage".to_string(),
+                session_id: session_id.to_string(),
+                content: None,
+                tool_name: None,
+                tool_call_id: None,
+                tool_input: None,
+                tool_result: None,
+                error: None,
+                input_tokens,
+                output_tokens,
+                model: None,
+                external_session_id: None,
+            })
+        }
+        "task_started" => stringify_json_value(
+            payload
+                .get("message")
+                .or_else(|| payload.get("content"))
+                .or_else(|| payload.get("text")),
+        )
+        .map(|text| build_system_event(session_id, text))
+        .or_else(|| Some(build_system_event(session_id, "任务已开始".to_string()))),
+        _ => None,
+    }
+}
+
 /// 解析 `opencode run --format json` 的每行 JSON 输出。
 ///
 /// OpenCode 的 JSON 事件格式与 Claude CLI 类似但字段名不同。
 /// 初期实现基于实际运行样本迭代，支持基本事件类型。
-fn parse_opencode_json_output(session_id: &str, json: &serde_json::Value) -> Option<CliStreamEvent> {
+fn parse_opencode_json_output(
+    session_id: &str,
+    json: &serde_json::Value,
+    requested_model: Option<&str>,
+) -> Option<CliStreamEvent> {
     let event_type = json
         .get("type")
         .and_then(|t| t.as_str())
@@ -584,12 +1078,19 @@ fn parse_opencode_json_output(session_id: &str, json: &serde_json::Value) -> Opt
                 .and_then(|t| t.as_str())?;
             Some(build_content_event(session_id, text.to_string()))
         }
-        // thinking 内容
-        "thinking_delta" | "thinking" => {
+        // thinking / reasoning 内容
+        "thinking_delta" | "thinking" | "reasoning" | "reasoning_delta" => {
             let text = json
                 .get("thinking")
+                .or_else(|| json.pointer("/part/thinking"))
                 .or_else(|| json.pointer("/delta/thinking"))
-                .and_then(|t| t.as_str())?;
+                .or_else(|| json.pointer("/data/thinking"))
+                .or_else(|| json.pointer("/part/summary"))
+                .or_else(|| json.pointer("/part/text"))
+                .and_then(|t| t.as_str())
+                .filter(|s| !s.is_empty())
+                .or_else(|| json.get("content").and_then(|c| c.as_str()).filter(|s| !s.is_empty()))
+                .or_else(|| json.get("text").and_then(|t| t.as_str()).filter(|s| !s.is_empty()))?;
             Some(CliStreamEvent {
                 event_type: "thinking".to_string(),
                 session_id: session_id.to_string(),
@@ -605,33 +1106,61 @@ fn parse_opencode_json_output(session_id: &str, json: &serde_json::Value) -> Opt
                 external_session_id: None,
             })
         }
+        // thinking_start 显式事件（OpenCode 可能单独发送）
+        "thinking_start" | "reasoning_start" => {
+            Some(CliStreamEvent {
+                event_type: "thinking_start".to_string(),
+                session_id: session_id.to_string(),
+                content: None,
+                tool_name: None,
+                tool_call_id: None,
+                tool_input: None,
+                tool_result: None,
+                error: None,
+                input_tokens: None,
+                output_tokens: None,
+                model: None,
+                external_session_id: None,
+            })
+        }
         // 工具调用开始
-        "tool_use" | "content_block_start" => {
+        "tool_use" | "content_block_start" | "tool_call" => {
+            let part = json
+                .get("part")
+                .or_else(|| json.pointer("/payload/part"))
+                .unwrap_or(json);
             let tool_name = json
                 .get("name")
                 .or_else(|| json.pointer("/content_block/name"))
                 .or_else(|| json.pointer("/properties/name"))
-                .and_then(|n| n.as_str())?;
+                .or_else(|| json.pointer("/data/name"))
+                .and_then(|n| n.as_str())
+                .map(|value| value.to_string())
+                .or_else(|| extract_opencode_part_tool_name(part))?;
             let tool_id = json
                 .get("id")
                 .or_else(|| json.pointer("/content_block/id"))
+                .or_else(|| json.pointer("/data/id"))
                 .and_then(|i| i.as_str())
-                .map(|i| i.to_string());
+                .map(|i| i.to_string())
+                .or_else(|| extract_opencode_part_tool_call_id(part));
             let tool_input = json
                 .get("input")
-                .and_then(|i| serde_json::to_string(i).ok());
+                .or_else(|| json.pointer("/data/input"))
+                .and_then(|i| serde_json::to_string(i).ok())
+                .or_else(|| extract_opencode_part_tool_input(part));
             Some(CliStreamEvent {
                 event_type: "tool_use".to_string(),
                 session_id: session_id.to_string(),
                 content: None,
-                tool_name: Some(tool_name.to_string()),
+                tool_name: Some(tool_name),
                 tool_call_id: tool_id,
                 tool_input,
                 tool_result: None,
                 error: None,
                 input_tokens: None,
                 output_tokens: None,
-                model: None,
+                model: extract_opencode_model_name(json, requested_model),
                 external_session_id: None,
             })
         }
@@ -665,12 +1194,22 @@ fn parse_opencode_json_output(session_id: &str, json: &serde_json::Value) -> Opt
         "tool_result" => {
             let tool_id = json
                 .get("tool_use_id")
+                .or_else(|| json.get("tool_call_id"))
+                .or_else(|| json.pointer("/data/tool_call_id"))
                 .and_then(|i| i.as_str())
                 .map(|i| i.to_string());
             let result_content = json
                 .get("content")
-                .and_then(|c| c.as_str())
-                .map(|c| c.to_string());
+                .or_else(|| json.pointer("/data/content"))
+                .and_then(|c| {
+                    if let Some(s) = c.as_str() {
+                        Some(s.to_string())
+                    } else if c.is_object() || c.is_array() {
+                        serde_json::to_string(c).ok()
+                    } else {
+                        None
+                    }
+                });
             Some(CliStreamEvent {
                 event_type: "tool_result".to_string(),
                 session_id: session_id.to_string(),
@@ -686,7 +1225,7 @@ fn parse_opencode_json_output(session_id: &str, json: &serde_json::Value) -> Opt
                 external_session_id: None,
             })
         }
-        // 完整 assistant 消息（非流式）
+        // 完整 assistant 消息（非流式）/ OpenCode 消息快照
         "assistant" | "message" => {
             let content: Option<&str> = json
                 .get("content")
@@ -718,21 +1257,24 @@ fn parse_opencode_json_output(session_id: &str, json: &serde_json::Value) -> Opt
         }
         // 错误
         "error" => {
-            let error_msg: &str = json
+            let error_msg = json
                 .get("error")
-                .and_then(|e| e.as_str())
-                .or_else(|| json.get("message").and_then(|m| m.as_str()))
-                .or_else(|| json.pointer("/properties/error").and_then(|e| e.as_str()))
-                .unwrap_or("Unknown error");
-            Some(build_error_event(session_id, error_msg.to_string()))
+                .and_then(|e| {
+                    e.as_str()
+                        .map(|value| value.to_string())
+                        .or_else(|| stringify_json_value(e.get("data").and_then(|data| data.get("message"))))
+                        .or_else(|| stringify_json_value(e.get("message")))
+                        .or_else(|| stringify_json_value(e.get("name")))
+                })
+                .or_else(|| json.get("message").and_then(|m| m.as_str()).map(|value| value.to_string()))
+                .or_else(|| json.pointer("/properties/error").and_then(|e| e.as_str()).map(|value| value.to_string()))
+                .unwrap_or_else(|| "Unknown error".to_string());
+            Some(build_error_event(session_id, error_msg))
         }
         // 用量统计
         "usage" | "message_start" | "message_delta" | "message_stop" | "turn.failed" | "session_meta" => {
             let (input_tokens, output_tokens) = extract_usage_counts(json.get("usage"));
-            let model = json
-                .get("model")
-                .and_then(|m| m.as_str())
-                .map(|m| m.to_string());
+            let model = extract_opencode_model_name(json, requested_model);
 
             if input_tokens.is_some() || output_tokens.is_some() || model.is_some() {
                 Some(CliStreamEvent {
@@ -791,23 +1333,48 @@ fn parse_opencode_json_output(session_id: &str, json: &serde_json::Value) -> Opt
                 })
             }
         }
+        "response_item" => {
+            parse_opencode_response_item(session_id, json)
+        }
+        "event_msg" => {
+            parse_opencode_event_msg(session_id, json)
+        }
+        "message.part.created" | "message.part.updated" | "message.part.delta"
+        | "message.part.completed" => {
+            json.get("part")
+                .or_else(|| json.pointer("/payload/part"))
+                .or_else(|| json.pointer("/properties/part"))
+                .or_else(|| json.pointer("/data/part"))
+                .and_then(|part| parse_opencode_part_event(session_id, part))
+        }
+        "message.created" | "message.updated" | "message.completed" => {
+            parse_opencode_message_payload(session_id, json)
+        }
+        // OpenCode pubsub 消息更新事件 {"type":"updated","payload":{"Role":"assistant","Parts":[...]}}
+        "created" | "updated" => {
+            parse_opencode_message_payload(session_id, json)
+        }
         // item 事件（OpenCode 特有）
         "item.started" | "item.completed" | "item.delta" => {
             let item_type = json
                 .get("item_type")
+                .or_else(|| json.get("type"))
                 .or_else(|| json.pointer("/properties/type"))
+                .or_else(|| json.pointer("/data/type"))
                 .and_then(|t| t.as_str())
                 .unwrap_or("");
 
             match item_type {
-                "tool_use" | "tool" => {
+                "tool_use" | "tool" | "tool_call" => {
                     let tool_name = json
                         .get("name")
                         .or_else(|| json.pointer("/properties/name"))
+                        .or_else(|| json.pointer("/data/name"))
                         .and_then(|n| n.as_str());
                     let tool_input = json
                         .get("input")
                         .or_else(|| json.pointer("/properties/input"))
+                        .or_else(|| json.pointer("/data/input"))
                         .and_then(|i| serde_json::to_string(i).ok());
                     if let Some(name) = tool_name {
                         Some(CliStreamEvent {
@@ -815,7 +1382,11 @@ fn parse_opencode_json_output(session_id: &str, json: &serde_json::Value) -> Opt
                             session_id: session_id.to_string(),
                             content: None,
                             tool_name: Some(name.to_string()),
-                            tool_call_id: json.get("id").and_then(|i| i.as_str()).map(|i| i.to_string()),
+                            tool_call_id: json
+                                .get("id")
+                                .or_else(|| json.pointer("/data/id"))
+                                .and_then(|i| i.as_str())
+                                .map(|i| i.to_string()),
                             tool_input,
                             tool_result: None,
                             error: None,
@@ -831,12 +1402,28 @@ fn parse_opencode_json_output(session_id: &str, json: &serde_json::Value) -> Opt
                 "tool_result" => {
                     let tool_id = json
                         .get("tool_use_id")
+                        .or_else(|| json.get("tool_call_id"))
+                        .or_else(|| json.pointer("/data/tool_call_id"))
                         .and_then(|i| i.as_str())
                         .map(|i| i.to_string());
                     let result = json
                         .get("content")
-                        .and_then(|c| serde_json::to_string(c).ok())
-                        .or_else(|| json.get("content").and_then(|c| c.as_str()).map(|s| s.to_string()));
+                        .or_else(|| json.pointer("/data/content"))
+                        .and_then(|c| {
+                            if let Some(s) = c.as_str() {
+                                Some(s.to_string())
+                            } else if c.is_object() || c.is_array() {
+                                serde_json::to_string(c).ok()
+                            } else {
+                                None
+                            }
+                        })
+                        .or_else(|| {
+                            json.get("content")
+                                .or_else(|| json.pointer("/data/content"))
+                                .and_then(|c| c.as_str())
+                                .map(|s| s.to_string())
+                        });
                     Some(CliStreamEvent {
                         event_type: "tool_result".to_string(),
                         session_id: session_id.to_string(),
@@ -852,33 +1439,76 @@ fn parse_opencode_json_output(session_id: &str, json: &serde_json::Value) -> Opt
                         external_session_id: None,
                     })
                 }
+                "reasoning" | "thinking" | "reasoning_content" => {
+                    let text = json
+                        .get("thinking")
+                        .or_else(|| json.pointer("/data/thinking"))
+                        .or_else(|| json.get("content"))
+                        .or_else(|| json.pointer("/data/content"))
+                        .or_else(|| json.get("text"))
+                        .and_then(|t| t.as_str());
+                    text.map(|t| CliStreamEvent {
+                        event_type: "thinking".to_string(),
+                        session_id: session_id.to_string(),
+                        content: Some(t.to_string()),
+                        tool_name: None,
+                        tool_call_id: None,
+                        tool_input: None,
+                        tool_result: None,
+                        error: None,
+                        input_tokens: None,
+                        output_tokens: None,
+                        model: None,
+                        external_session_id: None,
+                    })
+                }
                 "text" | "message" => {
                     let text = json
                         .get("text")
                         .or_else(|| json.get("content"))
+                        .or_else(|| json.pointer("/data/text"))
                         .and_then(|t| t.as_str());
                     text.map(|t| build_content_event(session_id, t.to_string()))
                 }
                 _ => {
-                    // 尝试从 delta 中提取文本
+                    // 尝试从 delta/data 中提取文本
                     let text = json
                         .get("text")
                         .or_else(|| json.pointer("/properties/text"))
                         .or_else(|| json.pointer("/delta/text"))
+                        .or_else(|| json.pointer("/data/text"))
                         .and_then(|t| t.as_str());
-                    text.map(|t| build_content_event(session_id, t.to_string()))
+                    if let Some(t) = text {
+                        Some(build_content_event(session_id, t.to_string()))
+                    } else if let Some(reasoning) = json
+                        .get("thinking")
+                        .or_else(|| json.pointer("/data/thinking"))
+                        .and_then(|t| t.as_str())
+                    {
+                        Some(CliStreamEvent {
+                            event_type: "thinking".to_string(),
+                            session_id: session_id.to_string(),
+                            content: Some(reasoning.to_string()),
+                            tool_name: None,
+                            tool_call_id: None,
+                            tool_input: None,
+                            tool_result: None,
+                            error: None,
+                            input_tokens: None,
+                            output_tokens: None,
+                            model: None,
+                            external_session_id: None,
+                        })
+                    } else {
+                        None
+                    }
                 }
             }
         }
         // turn / session / step 元信息
         "turn.completed" | "result" | "step_finish" => {
-            let (input_tokens, output_tokens) = extract_usage_counts(
-                json.get("usage").or_else(|| json.pointer("/part/tokens"))
-            );
-            let model = json
-                .get("model")
-                .and_then(|m| m.as_str())
-                .map(|m| m.to_string());
+            let (input_tokens, output_tokens) = extract_opencode_part_tokens(json);
+            let model = extract_opencode_model_name(json, requested_model);
 
             if input_tokens.is_some() || output_tokens.is_some() || model.is_some() {
                 Some(CliStreamEvent {
@@ -914,6 +1544,101 @@ fn parse_opencode_json_output(session_id: &str, json: &serde_json::Value) -> Opt
         }
         // 未知事件：尝试提取文本内容，否则跳过
         _ => {
+            // 处理 OpenCode 最终输出格式 {"response": "..."}
+            if let Some(response) = json.get("response").and_then(|r| r.as_str()) {
+                if !response.is_empty() {
+                    return Some(build_content_event(session_id, response.to_string()));
+                }
+            }
+
+            // 处理 OpenCode 消息格式 {"role": "assistant", "content": "..."}
+            let role = json.get("role").and_then(|r| r.as_str()).unwrap_or("");
+            if role == "assistant" {
+                if let Some(content) = json.get("content").and_then(|c| c.as_str()) {
+                    if !content.is_empty() {
+                        return Some(build_content_event(session_id, content.to_string()));
+                    }
+                }
+                // 检查 Parts 数组格式（OpenCode message 格式）
+                if let Some(parts) = json.get("parts").and_then(|p| p.as_array()) {
+                    let mut content_parts = Vec::new();
+                    for part in parts {
+                        let part_type = part.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                        match part_type {
+                            "text" => {
+                                if let Some(text) = part.get("data").and_then(|d| d.get("text")).or_else(|| part.get("text")).and_then(|t| t.as_str()) {
+                                    content_parts.push(text.to_string());
+                                }
+                            }
+                            "reasoning" => {
+                                if let Some(thinking) = part.get("data").and_then(|d| d.get("thinking")).or_else(|| part.get("thinking")).and_then(|t| t.as_str()) {
+                                    if !thinking.is_empty() {
+                                        return Some(CliStreamEvent {
+                                            event_type: "thinking".to_string(),
+                                            session_id: session_id.to_string(),
+                                            content: Some(thinking.to_string()),
+                                            tool_name: None,
+                                            tool_call_id: None,
+                                            tool_input: None,
+                                            tool_result: None,
+                                            error: None,
+                                            input_tokens: None,
+                                            output_tokens: None,
+                                            model: None,
+                                            external_session_id: None,
+                                        });
+                                    }
+                                }
+                            }
+                            "tool_call" => {
+                                let data = part.get("data").cloned().unwrap_or_else(|| part.clone());
+                                let name = data.get("name").and_then(|n| n.as_str());
+                                if let Some(tool_name) = name {
+                                    let input = data.get("input").and_then(|i| serde_json::to_string(i).ok());
+                                    return Some(CliStreamEvent {
+                                        event_type: "tool_use".to_string(),
+                                        session_id: session_id.to_string(),
+                                        content: None,
+                                        tool_name: Some(tool_name.to_string()),
+                                        tool_call_id: data.get("id").and_then(|i| i.as_str()).map(|i| i.to_string()),
+                                        tool_input: input,
+                                        tool_result: None,
+                                        error: None,
+                                        input_tokens: None,
+                                        output_tokens: None,
+                                        model: None,
+                                        external_session_id: None,
+                                    });
+                                }
+                            }
+                            "tool_result" => {
+                                let data = part.get("data").cloned().unwrap_or_else(|| part.clone());
+                                let tool_id = data.get("tool_call_id").and_then(|i| i.as_str()).map(|i| i.to_string());
+                                let result = data.get("content").and_then(|c| c.as_str()).map(|s| s.to_string());
+                                return Some(CliStreamEvent {
+                                    event_type: "tool_result".to_string(),
+                                    session_id: session_id.to_string(),
+                                    content: None,
+                                    tool_name: None,
+                                    tool_call_id: tool_id,
+                                    tool_input: None,
+                                    tool_result: result,
+                                    error: None,
+                                    input_tokens: None,
+                                    output_tokens: None,
+                                    model: None,
+                                    external_session_id: None,
+                                });
+                            }
+                            _ => {}
+                        }
+                    }
+                    if !content_parts.is_empty() {
+                        return Some(build_content_event(session_id, content_parts.join("\n")));
+                    }
+                }
+            }
+
             let text = json.get("text").and_then(|t| t.as_str());
             text.map(|t| build_content_event(session_id, t.to_string()))
         }

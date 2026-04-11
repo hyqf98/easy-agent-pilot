@@ -76,6 +76,18 @@ const failureTasks = computed(() =>
     }))
 )
 
+const overviewContent = computed(() =>
+  progress.value?.execution_overview?.trim()
+  || plan.value?.executionOverview?.trim()
+  || ''
+)
+
+const overviewUpdatedAt = computed(() =>
+  progress.value?.execution_overview_updated_at
+  || plan.value?.executionOverviewUpdatedAt
+  || null
+)
+
 function formatPlanStatus(status?: string): string {
   switch (status) {
     case 'draft': return '草稿'
@@ -297,6 +309,25 @@ onMounted(async () => {
             <span class="stat-card__label">{{ card.label }}</span>
             <span class="stat-card__value">{{ card.value }}</span>
           </div>
+        </div>
+      </div>
+
+      <div class="detail-section">
+        <div class="section-header">
+          <h5>执行概述</h5>
+          <span>{{ overviewUpdatedAt ? `更新于 ${formatRelativeTime(overviewUpdatedAt)}` : '暂无' }}</span>
+        </div>
+        <div
+          v-if="overviewContent"
+          class="overview-card"
+        >
+          <pre class="overview-card__content">{{ overviewContent }}</pre>
+        </div>
+        <div
+          v-else
+          class="placeholder placeholder--compact"
+        >
+          任务开始执行后，这里会持续汇总每个任务的结果概述。
         </div>
       </div>
 
@@ -623,6 +654,23 @@ onMounted(async () => {
   gap: 0.7rem;
 }
 
+.overview-card {
+  padding: 0.9rem 0.95rem;
+  border-radius: 0.9rem;
+  background: color-mix(in srgb, var(--color-bg-secondary, #f8fafc) 86%, var(--color-surface, #fff));
+  border: 1px solid color-mix(in srgb, var(--color-border, #e2e8f0) 72%, transparent);
+}
+
+.overview-card__content {
+  margin: 0;
+  font-family: inherit;
+  font-size: 0.83rem;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-text-primary, #0f172a);
+}
+
 .task-row {
   display: flex;
   flex-direction: column;
@@ -758,6 +806,12 @@ onMounted(async () => {
   border: 1px dashed color-mix(in srgb, var(--color-border, #e2e8f0) 70%, transparent);
   color: var(--color-text-secondary, #64748b);
   background: color-mix(in srgb, var(--color-bg-secondary, #f8fafc) 78%, var(--color-surface, #fff));
+}
+
+.placeholder--compact {
+  min-height: 96px;
+  padding: 0.9rem 1rem;
+  text-align: center;
 }
 
 [data-theme='dark'] .plan-progress-detail {

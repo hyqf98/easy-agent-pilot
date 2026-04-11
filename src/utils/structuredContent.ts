@@ -180,6 +180,7 @@ function normalizeTaskSplitItem(value: unknown): AITaskItem | null {
     expertId: readString(value, 'expertId', 'expert_id'),
     agentId: readString(value, 'agentId', 'agent_id'),
     modelId: readString(value, 'modelId', 'model_id'),
+    memoryLibraryIds: normalizeStringArray(value.memoryLibraryIds ?? value.memory_library_ids),
     implementationSteps: normalizeStringArray(value.implementationSteps ?? value.implementation_steps),
     testSteps: normalizeStringArray(value.testSteps ?? value.test_steps),
     acceptanceCriteria: normalizeStringArray(value.acceptanceCriteria ?? value.acceptance_criteria),
@@ -553,6 +554,20 @@ export function parseStructuredContent(content: string): StructuredContentBlock[
 export function extractExecutionResult(content: string): StructuredExecutionResult | null {
   const block = parseStructuredContent(content).find(item => item.type === 'result')
   return block?.type === 'result' ? block.result : null
+}
+
+export function stripExecutionResultFromContent(content: string): string {
+  const blocks = parseStructuredContent(content)
+  const hasResultBlock = blocks.some(block => block.type === 'result')
+  if (!hasResultBlock) {
+    return content
+  }
+
+  return blocks
+    .filter((block): block is Extract<StructuredContentBlock, { type: 'markdown' }> => block.type === 'markdown')
+    .map(block => block.content)
+    .join('')
+    .trim()
 }
 
 export function normalizeStructuredExecutionResult(result: {

@@ -122,7 +122,7 @@ export interface AgentStrategy {
 
   /**
    */
-  abort(): void
+  abort(sessionId?: string): void
 }
 
 /**

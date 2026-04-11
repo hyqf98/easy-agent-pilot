@@ -34,6 +34,7 @@ export function useSoloModePanel() {
     name: '',
     requirement: '',
     goal: '',
+    memoryLibraryIds: [],
     maxDispatchDepth: 100,
     participantExpertIds: [],
     coordinatorExpertId: null,
@@ -218,6 +219,7 @@ export function useSoloModePanel() {
       name: '',
       requirement: '',
       goal: '',
+      memoryLibraryIds: [],
       maxDispatchDepth: 100,
       participantExpertIds: [],
       coordinatorExpertId: getDefaultCoordinatorExpertId(),
@@ -234,6 +236,7 @@ export function useSoloModePanel() {
     ])
     createForm.projectId = projectStore.currentProjectId || projectStore.projects[0]?.id || ''
     createForm.executionPath = projectStore.currentProject?.path || projectStore.projects.find((project) => project.id === createForm.projectId)?.path || ''
+    createForm.memoryLibraryIds = [...(projectStore.currentProject?.memoryLibraryIds || [])]
     createForm.participantExpertIds = getDefaultParticipantExpertIds()
     createForm.coordinatorExpertId = getDefaultCoordinatorExpertId()
     await syncCreateDialogModels()
@@ -259,7 +262,7 @@ export function useSoloModePanel() {
         name: extractNameFromPath(trimmedExecutionPath),
         path: trimmedExecutionPath,
         description: 'SOLO 执行路径自动创建的项目',
-        memoryLibraryIds: []
+        memoryLibraryIds: [...createForm.memoryLibraryIds]
       })
       targetProjectId = createdProject.id
     }
@@ -272,6 +275,7 @@ export function useSoloModePanel() {
       name: createForm.name.trim(),
       requirement: createForm.requirement.trim(),
       goal: createForm.goal.trim(),
+      memoryLibraryIds: [...createForm.memoryLibraryIds],
       participantExpertIds: createForm.participantExpertIds,
       coordinatorExpertId: createForm.coordinatorExpertId || undefined,
       coordinatorModelId: createForm.coordinatorModelId || undefined,

@@ -80,7 +80,7 @@ export class AgentExecutor {
   abort(sessionId: string): void {
     const strategy = this.activeStrategies.get(sessionId)
     if (strategy) {
-      strategy.abort()
+      strategy.abort(sessionId)
       this.activeStrategies.delete(sessionId)
     }
   }

@@ -315,141 +315,6 @@ defineExpose({
       />
 
       <div
-        v-if="isMainPanel"
-        class="conversation-composer__main-header"
-      >
-        <div class="conversation-composer__main-header-left">
-          <div
-            ref="agentDropdownRef"
-            class="composer-chip composer-chip--dropdown"
-            :class="{
-              'composer-chip--main': isMainPanel,
-              'composer-chip--open': isAgentDropdownOpen
-            }"
-          >
-            <button
-              class="composer-chip__button"
-              @click="toggleAgentDropdown"
-            >
-              <EaIcon
-                :name="currentAgent?.type === 'cli' ? 'terminal' : 'code'"
-                :size="11"
-              />
-              <span>{{ currentAgentName }}</span>
-              <EaIcon
-                :name="isAgentDropdownOpen ? 'chevron-up' : 'chevron-down'"
-                :size="9"
-              />
-            </button>
-            <Transition name="dropdown">
-              <div
-                v-if="isAgentDropdownOpen"
-                class="composer-chip__menu"
-              >
-                <div
-                  v-for="option in agentOptions"
-                  :key="option.value"
-                  class="composer-chip__option"
-                  :class="{ 'composer-chip__option--selected': option.value === currentAgentId }"
-                  @click="selectAgent(option.value)"
-                >
-                  <EaIcon
-                    :name="option.type === 'cli' ? 'terminal' : 'code'"
-                    :size="12"
-                  />
-                  <span>{{ option.label }}</span>
-                  <span class="composer-chip__tag">{{ option.provider ? option.provider.toUpperCase() + ' CLI' : option.type === 'cli' ? 'CLI' : 'SDK' }}</span>
-                </div>
-              </div>
-            </Transition>
-          </div>
-
-          <!-- 模型选择器，移到智能体旁边 -->
-          <div
-            v-if="currentAgent"
-            ref="modelDropdownRef"
-            class="composer-chip composer-chip--dropdown"
-            :class="{
-              'composer-chip--main': isMainPanel,
-              'composer-chip--open': isModelDropdownOpen
-            }"
-          >
-            <button
-              class="composer-chip__button"
-              @click="toggleModelDropdown"
-            >
-              <EaIcon
-                name="cpu"
-                :size="11"
-              />
-              <span>{{ getModelLabel(selectedModelId) }}</span>
-              <EaIcon
-                :name="isModelDropdownOpen ? 'chevron-up' : 'chevron-down'"
-                :size="9"
-              />
-            </button>
-            <Transition name="dropdown">
-              <div
-                v-if="isModelDropdownOpen"
-                class="composer-chip__menu"
-              >
-                <div
-                  v-for="model in presetModelOptions"
-                  :key="model.value"
-                  class="composer-chip__option"
-                  :class="{ 'composer-chip__option--selected': model.value === selectedModelId }"
-                  @click="selectModel(model.value)"
-                >
-                  {{ model.label }}
-                </div>
-              </div>
-            </Transition>
-          </div>
-
-          <!-- 图片按钮移到顶部 -->
-          <button
-            class="composer-chip composer-chip--image"
-            :class="{ 'composer-chip--main': isMainPanel }"
-            :disabled="isUploadingImages"
-            @click="openImagePicker"
-          >
-            <EaIcon
-              name="image-up"
-              :size="12"
-            />
-            <span>{{ isUploadingImages ? t('message.uploadingImages') : t('message.selectImages') }}</span>
-          </button>
-
-          <div
-            v-if="queuedMessages.length > 0"
-            class="conversation-composer__queue-pill conversation-composer__queue-pill--main"
-          >
-            <EaIcon
-              name="clock-3"
-              :size="12"
-            />
-            <span>{{ t('message.queueCount', { count: queuedMessages.length }) }}</span>
-          </div>
-        </div>
-      </div>
-
-      <input
-        ref="fileInputRef"
-        type="file"
-        class="conversation-composer__file-input"
-        accept="image/*"
-        multiple
-        @change="handleImageFileChange"
-      >
-
-      <ConversationComposerAttachments
-        v-if="!isMainPanel"
-        :images="pendingImages"
-        :main="false"
-        :remove-image="removeImage"
-      />
-
-      <div
         v-if="queuedMessages.length > 0"
         class="conversation-composer__queue"
       >
@@ -565,6 +430,130 @@ defineExpose({
           </div>
         </div>
       </div>
+
+      <div
+        v-if="isMainPanel"
+        class="conversation-composer__main-header"
+      >
+        <div class="conversation-composer__main-header-left">
+          <div
+            ref="agentDropdownRef"
+            class="composer-chip composer-chip--dropdown"
+            :class="{
+              'composer-chip--main': isMainPanel,
+              'composer-chip--open': isAgentDropdownOpen
+            }"
+          >
+            <button
+              class="composer-chip__button"
+              @click="toggleAgentDropdown"
+            >
+              <EaIcon
+                :name="currentAgent?.type === 'cli' ? 'terminal' : 'code'"
+                :size="11"
+              />
+              <span>{{ currentAgentName }}</span>
+              <EaIcon
+                :name="isAgentDropdownOpen ? 'chevron-up' : 'chevron-down'"
+                :size="9"
+              />
+            </button>
+            <Transition name="dropdown">
+              <div
+                v-if="isAgentDropdownOpen"
+                class="composer-chip__menu"
+              >
+                <div
+                  v-for="option in agentOptions"
+                  :key="option.value"
+                  class="composer-chip__option"
+                  :class="{ 'composer-chip__option--selected': option.value === currentAgentId }"
+                  @click="selectAgent(option.value)"
+                >
+                  <EaIcon
+                    :name="option.type === 'cli' ? 'terminal' : 'code'"
+                    :size="12"
+                  />
+                  <span>{{ option.label }}</span>
+                  <span class="composer-chip__tag">{{ option.provider ? option.provider.toUpperCase() + ' CLI' : option.type === 'cli' ? 'CLI' : 'SDK' }}</span>
+                </div>
+              </div>
+            </Transition>
+          </div>
+
+          <!-- 模型选择器，移到智能体旁边 -->
+          <div
+            v-if="currentAgent"
+            ref="modelDropdownRef"
+            class="composer-chip composer-chip--dropdown"
+            :class="{
+              'composer-chip--main': isMainPanel,
+              'composer-chip--open': isModelDropdownOpen
+            }"
+          >
+            <button
+              class="composer-chip__button"
+              @click="toggleModelDropdown"
+            >
+              <EaIcon
+                name="cpu"
+                :size="11"
+              />
+              <span>{{ getModelLabel(selectedModelId) }}</span>
+              <EaIcon
+                :name="isModelDropdownOpen ? 'chevron-up' : 'chevron-down'"
+                :size="9"
+              />
+            </button>
+            <Transition name="dropdown">
+              <div
+                v-if="isModelDropdownOpen"
+                class="composer-chip__menu"
+              >
+                <div
+                  v-for="model in presetModelOptions"
+                  :key="model.value"
+                  class="composer-chip__option"
+                  :class="{ 'composer-chip__option--selected': model.value === selectedModelId }"
+                  @click="selectModel(model.value)"
+                >
+                  {{ model.label }}
+                </div>
+              </div>
+            </Transition>
+          </div>
+
+          <!-- 图片按钮移到顶部 -->
+          <button
+            class="composer-chip composer-chip--image"
+            :class="{ 'composer-chip--main': isMainPanel }"
+            :disabled="isUploadingImages"
+            @click="openImagePicker"
+          >
+            <EaIcon
+              name="image-up"
+              :size="12"
+            />
+            <span>{{ isUploadingImages ? t('message.uploadingImages') : t('message.selectImages') }}</span>
+          </button>
+        </div>
+      </div>
+
+      <input
+        ref="fileInputRef"
+        type="file"
+        class="conversation-composer__file-input"
+        accept="image/*"
+        multiple
+        @change="handleImageFileChange"
+      >
+
+      <ConversationComposerAttachments
+        v-if="!isMainPanel"
+        :images="pendingImages"
+        :main="false"
+        :remove-image="removeImage"
+      />
 
       <ConversationComposerMemoryAssist
         :t="t"

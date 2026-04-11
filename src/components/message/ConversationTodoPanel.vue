@@ -1,19 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { EaIcon } from '@/components/common'
-import { useMessageStore, type ToolCall } from '@/stores/message'
-
-interface TodoItem {
-  id: string
-  content: string
-  status: 'pending' | 'in_progress' | 'completed'
-  activeForm?: string
-}
-
-interface TodoSnapshot {
-  items: TodoItem[]
-  updatedAt: string
-}
+import { useMessageStore } from '@/stores/message'
+import {
+  extractTodoSnapshotFromMessages,
+  sortTodoItems,
+  type TodoItem
+} from '@/utils/todoToolCall'
 
 const props = defineProps<{
   sessionId: string | null | undefined
@@ -57,115 +50,19 @@ onBeforeUnmount(() => {
   document.removeEventListener('mousedown', handleDocumentInteraction, true)
 })
 
-function normalizeTodoStatus(value: unknown): TodoItem['status'] {
-  if (value === 'completed') {
-    return 'completed'
-  }
-  if (value === 'in_progress') {
-    return 'in_progress'
-  }
-  return 'pending'
-}
-
-function parseClaudeTodos(toolCall: ToolCall): TodoItem[] {
-  const todos = Array.isArray(toolCall.arguments?.todos) ? toolCall.arguments.todos : []
-  return todos.flatMap((todo, index) => {
-    if (!todo || typeof todo !== 'object') {
-      return []
-    }
-
-    const entry = todo as Record<string, unknown>
-    const content = typeof entry.content === 'string' ? entry.content.trim() : ''
-    if (!content) {
-      return []
-    }
-
-    return [{
-      id: `${toolCall.id}-${index}`,
-      content,
-      status: normalizeTodoStatus(entry.status),
-      activeForm: typeof entry.activeForm === 'string' ? entry.activeForm.trim() : undefined
-    }]
-  })
-}
-
-function parseCodexPlan(toolCall: ToolCall): TodoItem[] {
-  const plan = Array.isArray(toolCall.arguments?.plan) ? toolCall.arguments.plan : []
-  return plan.flatMap((item, index) => {
-    if (!item || typeof item !== 'object') {
-      return []
-    }
-
-    const entry = item as Record<string, unknown>
-    const content = typeof entry.step === 'string' ? entry.step.trim() : ''
-    if (!content) {
-      return []
-    }
-
-    return [{
-      id: `${toolCall.id}-${index}`,
-      content,
-      status: normalizeTodoStatus(entry.status)
-    }]
-  })
-}
-
-function parseTodoSnapshot(): TodoSnapshot | null {
+function parseTodoSnapshot() {
   if (!props.sessionId) {
     return null
   }
 
   const messages = messageStore.messagesBySession(props.sessionId)
-
-  for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
-    const message = messages[messageIndex]
-    const toolCalls = message.toolCalls ?? []
-
-    for (let toolIndex = toolCalls.length - 1; toolIndex >= 0; toolIndex -= 1) {
-      const toolCall = toolCalls[toolIndex]
-      const normalizedName = toolCall.name.trim().toLowerCase()
-
-      if (normalizedName === 'todowrite') {
-        const items = parseClaudeTodos(toolCall)
-        if (items.length > 0) {
-          return {
-            items,
-            updatedAt: message.createdAt
-          }
-        }
-      }
-
-      if (normalizedName === 'update_plan' || normalizedName === 'functions.update_plan') {
-        const items = parseCodexPlan(toolCall)
-        if (items.length > 0) {
-          return {
-            items,
-            updatedAt: message.createdAt
-          }
-        }
-      }
-    }
-  }
-
-  return null
+  return extractTodoSnapshotFromMessages(messages)
 }
 
 const todoSnapshot = computed(() => parseTodoSnapshot())
 
 const sortedTodoItems = computed(() => {
-  const items = todoSnapshot.value?.items ?? []
-  const weight = (status: TodoItem['status']) => {
-    switch (status) {
-      case 'in_progress':
-        return 0
-      case 'pending':
-        return 1
-      default:
-        return 2
-    }
-  }
-
-  return [...items].sort((left, right) => weight(left.status) - weight(right.status))
+  return sortTodoItems(todoSnapshot.value?.items ?? [])
 })
 
 const completedCount = computed(() =>

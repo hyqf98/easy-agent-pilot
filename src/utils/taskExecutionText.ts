@@ -131,17 +131,17 @@ export function buildExecutionPrompt(
     parts.push('')
   }
 
-  parts.push(`${t('prompts.taskExecution.requirements')}:`)
-  parts.push(t('prompts.taskExecution.continueFromContext'))
-  parts.push(t('prompts.taskExecution.formRequestJsonOnly'))
+  parts.push('执行要求:')
+  parts.push('1. 基于当前工作区和已有上下文继续推进，不要重复已经完成的工作。')
+  parts.push('2. 如果缺少继续执行所必需的信息，只输出一个 `form_request` JSON。')
   parts.push('```json')
   parts.push(buildFormRequestExample())
   parts.push('```')
-  parts.push(t('prompts.taskExecution.resultJsonOnly'))
+  parts.push('3. 完成后只输出一个 `result` JSON，用于记录任务结果。')
   parts.push('```json')
   parts.push(buildResultExample())
   parts.push('```')
-  parts.push(t('prompts.taskExecution.resultSummaryRule'))
+  parts.push('4. `result_summary` 用 1-3 句话交代结果、关键变更和失败原因。')
 
   return parts.join('\n')
 }
@@ -273,6 +273,11 @@ function buildPlanProgressContext(
       current: snapshot.currentTaskIndex,
       total: snapshot.totalTasks
     })}`)
+  }
+
+  if (planProgress.execution_overview?.trim()) {
+    lines.push('', getCurrentLocale() === 'en-US' ? 'Plan overview' : '计划概览')
+    lines.push(planProgress.execution_overview.trim())
   }
 
   if (snapshot.completedTasks.length > 0) {

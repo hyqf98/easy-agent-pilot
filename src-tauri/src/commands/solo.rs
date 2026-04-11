@@ -12,6 +12,7 @@ pub struct SoloRun {
     pub name: String,
     pub requirement: String,
     pub goal: String,
+    pub memory_library_ids_json: Option<String>,
     pub participant_expert_ids_json: Option<String>,
     pub coordinator_expert_id: Option<String>,
     pub coordinator_agent_id: Option<String>,
@@ -95,6 +96,7 @@ pub struct CreateSoloRunInput {
     pub name: String,
     pub requirement: String,
     pub goal: String,
+    pub memory_library_ids_json: Option<String>,
     pub participant_expert_ids_json: Option<String>,
     pub coordinator_expert_id: Option<String>,
     pub coordinator_agent_id: Option<String>,
@@ -113,6 +115,8 @@ pub struct UpdateSoloRunInput {
     pub requirement: UpdateField<String>,
     #[serde(default)]
     pub goal: UpdateField<String>,
+    #[serde(default)]
+    pub memory_library_ids_json: UpdateField<String>,
     #[serde(default)]
     pub participant_expert_ids_json: UpdateField<String>,
     #[serde(default)]
@@ -219,24 +223,69 @@ fn map_solo_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<SoloRun> {
         name: row.get(3)?,
         requirement: row.get(4)?,
         goal: row.get(5)?,
-        participant_expert_ids_json: row.get(6)?,
-        coordinator_expert_id: row.get(7)?,
-        coordinator_agent_id: row.get(8)?,
-        coordinator_model_id: row.get(9)?,
-        max_dispatch_depth: row.get(10)?,
-        current_depth: row.get(11)?,
-        current_step_id: row.get(12)?,
-        status: row.get(13)?,
-        execution_status: row.get(14)?,
-        last_error: row.get(15)?,
-        input_request_json: row.get(16)?,
-        input_response_json: row.get(17)?,
-        created_at: row.get(18)?,
-        updated_at: row.get(19)?,
-        started_at: row.get(20)?,
-        completed_at: row.get(21)?,
-        stopped_at: row.get(22)?,
+        memory_library_ids_json: row.get(6)?,
+        participant_expert_ids_json: row.get(7)?,
+        coordinator_expert_id: row.get(8)?,
+        coordinator_agent_id: row.get(9)?,
+        coordinator_model_id: row.get(10)?,
+        max_dispatch_depth: row.get(11)?,
+        current_depth: row.get(12)?,
+        current_step_id: row.get(13)?,
+        status: row.get(14)?,
+        execution_status: row.get(15)?,
+        last_error: row.get(16)?,
+        input_request_json: row.get(17)?,
+        input_response_json: row.get(18)?,
+        created_at: row.get(19)?,
+        updated_at: row.get(20)?,
+        started_at: row.get(21)?,
+        completed_at: row.get(22)?,
+        stopped_at: row.get(23)?,
     })
+}
+
+fn parse_memory_library_ids_json(raw: Option<&String>) -> Vec<String> {
+    raw.and_then(|value| serde_json::from_str::<Vec<String>>(value).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|library_id| library_id.trim().to_string())
+        .filter(|library_id| !library_id.is_empty())
+        .fold(Vec::new(), |mut acc, library_id| {
+            if !acc.iter().any(|existing| existing == &library_id) {
+                acc.push(library_id);
+            }
+            acc
+        })
+}
+
+fn normalize_memory_library_ids_json(raw: Option<&String>) -> String {
+    serde_json::to_string(&parse_memory_library_ids_json(raw)).unwrap_or_else(|_| "[]".to_string())
+}
+
+fn replace_solo_run_memory_libraries(
+    conn: &rusqlite::Connection,
+    run_id: &str,
+    library_ids: &[String],
+    now: &str,
+) -> Result<(), String> {
+    conn.execute(
+        "DELETE FROM solo_run_memory_libraries WHERE run_id = ?1",
+        [run_id],
+    )
+    .map_err(|error| error.to_string())?;
+
+    for library_id in library_ids {
+        conn.execute(
+            r#"
+            INSERT INTO solo_run_memory_libraries (run_id, library_id, created_at)
+            VALUES (?1, ?2, ?3)
+            "#,
+            rusqlite::params![run_id, library_id, now],
+        )
+        .map_err(|error| error.to_string())?;
+    }
+
+    Ok(())
 }
 
 fn map_solo_step(row: &rusqlite::Row<'_>) -> rusqlite::Result<SoloStep> {
@@ -319,7 +368,7 @@ pub fn list_solo_runs(project_id: String) -> Result<Vec<SoloRun>, String> {
         .prepare(
             r#"
             SELECT id, project_id, execution_path, name, requirement, goal,
-                   participant_expert_ids_json, coordinator_expert_id, coordinator_agent_id, coordinator_model_id,
+                   memory_library_ids_json, participant_expert_ids_json, coordinator_expert_id, coordinator_agent_id, coordinator_model_id,
                    max_dispatch_depth, current_depth, current_step_id,
                    status, execution_status, last_error, input_request_json, input_response_json,
                    created_at, updated_at, started_at, completed_at, stopped_at
@@ -346,7 +395,7 @@ pub fn get_solo_run(id: String) -> Result<SoloRun, String> {
     conn.query_row(
         r#"
         SELECT id, project_id, execution_path, name, requirement, goal,
-               participant_expert_ids_json, coordinator_expert_id, coordinator_agent_id, coordinator_model_id,
+               memory_library_ids_json, participant_expert_ids_json, coordinator_expert_id, coordinator_agent_id, coordinator_model_id,
                max_dispatch_depth, current_depth, current_step_id,
                status, execution_status, last_error, input_request_json, input_response_json,
                created_at, updated_at, started_at, completed_at, stopped_at
@@ -365,16 +414,18 @@ pub fn create_solo_run(input: CreateSoloRunInput) -> Result<SoloRun, String> {
     let conn = open_db_connection().map_err(|error| error.to_string())?;
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_rfc3339();
+    let normalized_memory_library_ids_json =
+        normalize_memory_library_ids_json(input.memory_library_ids_json.as_ref());
 
     conn.execute(
         r#"
         INSERT INTO solo_runs (
             id, project_id, execution_path, name, requirement, goal,
-            participant_expert_ids_json, coordinator_expert_id, coordinator_agent_id, coordinator_model_id,
+            memory_library_ids_json, participant_expert_ids_json, coordinator_expert_id, coordinator_agent_id, coordinator_model_id,
             max_dispatch_depth, current_depth, current_step_id,
             status, execution_status, last_error, input_request_json, input_response_json,
             created_at, updated_at, started_at, completed_at, stopped_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0, NULL, 'draft', 'idle', NULL, NULL, NULL, ?12, ?12, NULL, NULL, NULL)
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, NULL, 'draft', 'idle', NULL, NULL, NULL, ?13, ?13, NULL, NULL, NULL)
         "#,
         rusqlite::params![
             &id,
@@ -383,6 +434,7 @@ pub fn create_solo_run(input: CreateSoloRunInput) -> Result<SoloRun, String> {
             &input.name,
             &input.requirement,
             &input.goal,
+            &normalized_memory_library_ids_json,
             &input.participant_expert_ids_json,
             &input.coordinator_expert_id,
             &input.coordinator_agent_id,
@@ -392,6 +444,13 @@ pub fn create_solo_run(input: CreateSoloRunInput) -> Result<SoloRun, String> {
         ],
     )
     .map_err(|error| error.to_string())?;
+
+    replace_solo_run_memory_libraries(
+        &conn,
+        &id,
+        &parse_memory_library_ids_json(Some(&normalized_memory_library_ids_json)),
+        &now,
+    )?;
 
     get_solo_run(id)
 }
@@ -412,6 +471,16 @@ pub fn update_solo_run(id: String, input: UpdateSoloRunInput) -> Result<SoloRun,
     append_optional_text_update(&mut updates, &mut params, &input.name, "name");
     append_optional_text_update(&mut updates, &mut params, &input.requirement, "requirement");
     append_optional_text_update(&mut updates, &mut params, &input.goal, "goal");
+    match &input.memory_library_ids_json {
+        UpdateField::Value(value) => {
+            updates.push("memory_library_ids_json = ?".to_string());
+            params.push(Box::new(normalize_memory_library_ids_json(Some(value))));
+        }
+        UpdateField::Null => {
+            updates.push("memory_library_ids_json = NULL".to_string());
+        }
+        UpdateField::Missing => {}
+    }
     append_optional_text_update(
         &mut updates,
         &mut params,
@@ -492,6 +561,15 @@ pub fn update_solo_run(id: String, input: UpdateSoloRunInput) -> Result<SoloRun,
 
     conn.execute(&sql, params_ref.as_slice())
         .map_err(|error| error.to_string())?;
+
+    if !matches!(input.memory_library_ids_json, UpdateField::Missing) {
+        let library_ids = match &input.memory_library_ids_json {
+            UpdateField::Value(raw) => parse_memory_library_ids_json(Some(raw)),
+            UpdateField::Null => Vec::new(),
+            UpdateField::Missing => Vec::new(),
+        };
+        replace_solo_run_memory_libraries(&conn, &id, &library_ids, &now_rfc3339())?;
+    }
 
     get_solo_run(id)
 }

@@ -56,6 +56,7 @@ export interface SoloRun {
   name: string
   requirement: string
   goal: string
+  memoryLibraryIds: string[]
   participantExpertIds: string[]
   coordinatorExpertId?: string
   coordinatorAgentId?: string
@@ -127,6 +128,7 @@ export interface CreateSoloRunInput {
   name: string
   requirement: string
   goal: string
+  memoryLibraryIds?: string[]
   participantExpertIds: string[]
   coordinatorExpertId?: string
   coordinatorAgentId?: string
@@ -139,6 +141,7 @@ export interface UpdateSoloRunInput {
   name?: string | null
   requirement?: string | null
   goal?: string | null
+  memoryLibraryIds?: string[] | null
   participantExpertIds?: string[] | null
   coordinatorExpertId?: string | null
   coordinatorAgentId?: string | null

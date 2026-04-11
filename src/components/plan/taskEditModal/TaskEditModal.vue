@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import EaModal from '@/components/common/EaModal.vue'
+import MemoryLibraryPicker from '@/components/memory/MemoryLibraryPicker.vue'
 import {
   useTaskEditModal,
   type TaskEditModalEmits,
@@ -215,6 +216,27 @@ const {
               </select>
             </div>
           </div>
+        </div>
+
+        <div class="form-section">
+          <div class="section-title">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path d="M4 6h16M4 12h16M4 18h10" />
+            </svg>
+            任务记忆
+          </div>
+
+          <MemoryLibraryPicker
+            v-model="form.memoryLibraryIds"
+            hint="未单独指定时默认继承计划挂载的记忆库。"
+          />
         </div>
 
         <!-- 任务详情 -->

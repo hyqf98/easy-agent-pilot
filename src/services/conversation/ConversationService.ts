@@ -7,12 +7,11 @@ import { useNotificationStore } from '@/stores/notification'
 import { useTokenStore } from '@/stores/token'
 import { useMemoryStore } from '@/stores/memory'
 import { useAgentTeamsStore } from '@/stores/agentTeams'
-import type { MemoryLibrary } from '@/types/memory'
 import { agentExecutor } from './AgentExecutor'
 import type { ConversationContext, StreamEvent } from './strategies/types'
 import { compressionService } from '@/services/compression/CompressionService'
 import { buildConversationMessages } from './buildConversationMessages'
-import { buildProjectMemorySystemPrompt } from '@/services/memory'
+import { loadMountedMemoryPrompt } from '@/services/memory/mountedMemoryPrompt'
 import type { FileEditTrace } from '@/types/fileTrace'
 import { FileTraceCollector } from './fileTraceCollector'
 import { buildMainConversationFormRequestPrompt } from './prompts'
@@ -118,6 +117,7 @@ export class ConversationService {
   private static instance: ConversationService | null = null
   private readonly queueDrainLocks = new Set<string>()
   private readonly dedupedInjectedSystemPrompts = new Map<string, Set<string>>()
+  private readonly cliRuntimeKeys = ['claude-cli', 'codex-cli', 'opencode-cli'] as const
 
   private constructor() {}
 
@@ -511,7 +511,30 @@ export class ConversationService {
       notificationStore.smartError('发送待发送消息', error instanceof Error ? error : new Error(errorMessage))
     } finally {
       this.queueDrainLocks.delete(sessionId)
+
+      const hasPendingQueuedMessages = sessionExecutionStore
+        .getExecutionState(sessionId)
+        .queuedMessages
+        .some(draft => draft.status === 'queued')
+
+      if (!sessionExecutionStore.getIsSending(sessionId) && hasPendingQueuedMessages) {
+        queueMicrotask(() => {
+          void this.processQueuedMessages(sessionId)
+        })
+      }
     }
+  }
+
+  private async resetSessionRuntimeAfterAbort(sessionId: string): Promise<void> {
+    await Promise.allSettled(
+      this.cliRuntimeKeys.map(runtimeKey => deleteSessionRuntimeBinding(sessionId, runtimeKey))
+    )
+
+    const sessionStore = useSessionStore()
+    await sessionStore.updateSession(sessionId, {
+      cliSessionId: '',
+      cliSessionProvider: ''
+    })
   }
 
   private buildMessagePreview(content: string, attachments: MessageAttachment[]): string {
@@ -532,24 +555,7 @@ export class ConversationService {
   }
 
   private async buildProjectMemoryPrompt(memoryLibraryIds: string[]): Promise<string | null> {
-    if (memoryLibraryIds.length === 0) {
-      return null
-    }
-
-    const memoryStore = useMemoryStore()
-    const missingLibraryIds = memoryLibraryIds.filter(
-      (libraryId) => !memoryStore.libraries.some((library) => library.id === libraryId)
-    )
-
-    if (missingLibraryIds.length > 0) {
-      await memoryStore.loadLibraries()
-    }
-
-    const mountedLibraries = memoryLibraryIds
-      .map((libraryId) => memoryStore.libraries.find((library) => library.id === libraryId))
-      .filter((library): library is MemoryLibrary => Boolean(library))
-
-    return buildProjectMemorySystemPrompt(mountedLibraries)
+    return loadMountedMemoryPrompt(memoryLibraryIds)
   }
 
   private resolveCliSessionProvider(agent: AgentConfig): string | undefined {
@@ -1409,7 +1415,13 @@ export class ConversationService {
       }
 
       // 3. 更新会话执行状态
-      this.finalizeSend(sessionId)
+      void this.resetSessionRuntimeAfterAbort(sessionId)
+        .catch((error) => {
+          console.warn('[ConversationService] Failed to reset runtime binding after abort:', error)
+        })
+        .finally(() => {
+          this.finalizeSend(sessionId)
+        })
     } else {
       // 向后兼容：中断所有正在执行的会话
       const runningIds = sessionExecutionStore.runningSessionIds

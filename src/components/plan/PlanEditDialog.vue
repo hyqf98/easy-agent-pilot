@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import MemoryLibraryPicker from '@/components/memory/MemoryLibraryPicker.vue'
 import type { Plan, PlanStatus } from '@/types/plan'
 import type { AgentOption, ModelOption, PlanEditFormState } from './planListShared'
 import { useOverlayDismiss } from '@/composables/useOverlayDismiss'
@@ -82,6 +83,14 @@ const { handleOverlayPointerDown, handleOverlayClick } = useOverlayDismiss(() =>
               placeholder="描述计划的目标和范围（可选）"
               rows="3"
               @input="updateField('description', ($event.target as HTMLTextAreaElement).value)"
+            />
+          </div>
+
+          <div class="form-field">
+            <MemoryLibraryPicker
+              :model-value="props.form.memoryLibraryIds"
+              hint="计划挂载的记忆库会作为任务默认上下文。"
+              @update:model-value="updateField('memoryLibraryIds', $event)"
             />
           </div>
 

@@ -36,6 +36,26 @@ interface NormalizedToolCallLogOptions {
   fallbackStatus: ToolCall['status']
 }
 
+interface ToolCallAssociations<T extends ToolCallLogLike> {
+  effectiveToolCallIdByLogId: Map<string, string>
+  resultLogByToolCallId: Map<string, T>
+  inputDeltaLogByToolCallId: Map<string, string[]>
+}
+
+const METADATA_STRING_CACHE_LIMIT = 400
+const metadataStringCache = new Map<string, ToolCallMetadata>()
+const metadataObjectCache = new WeakMap<object, ToolCallMetadata>()
+
+function setMetadataStringCache(key: string, value: ToolCallMetadata): void {
+  metadataStringCache.set(key, value)
+  if (metadataStringCache.size > METADATA_STRING_CACHE_LIMIT) {
+    const oldestKey = metadataStringCache.keys().next().value
+    if (oldestKey) {
+      metadataStringCache.delete(oldestKey)
+    }
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
@@ -73,15 +93,29 @@ function toToolCallMetadata(metadata: unknown): ToolCallMetadata {
   if (!metadata) return {}
 
   if (typeof metadata === 'string') {
+    const cached = metadataStringCache.get(metadata)
+    if (cached) {
+      return cached
+    }
+
     try {
-      return normalize(JSON.parse(metadata) as ToolCallMetadata)
+      const normalized = normalize(JSON.parse(metadata) as ToolCallMetadata)
+      setMetadataStringCache(metadata, normalized)
+      return normalized
     } catch {
       return {}
     }
   }
 
   if (typeof metadata === 'object') {
-    return normalize(metadata as ToolCallMetadata)
+    const cached = metadataObjectCache.get(metadata)
+    if (cached) {
+      return cached
+    }
+
+    const normalized = normalize(metadata as ToolCallMetadata)
+    metadataObjectCache.set(metadata, normalized)
+    return normalized
   }
 
   return {}
@@ -108,6 +142,71 @@ function normalizeToolCallLogOptions(options: ToolCallLogOptions = {}): Normaliz
     toolInputDeltaType: options.toolInputDeltaType ?? 'tool_input_delta',
     toolResultType: options.toolResultType ?? 'tool_result',
     fallbackStatus: options.fallbackStatus ?? 'running'
+  }
+}
+
+function removeActiveToolCallId(activeToolCallIds: string[], toolCallId: string): void {
+  const index = activeToolCallIds.lastIndexOf(toolCallId)
+  if (index >= 0) {
+    activeToolCallIds.splice(index, 1)
+  }
+}
+
+function collectToolCallAssociations<T extends ToolCallLogLike>(
+  logs: T[],
+  options: NormalizedToolCallLogOptions
+): ToolCallAssociations<T> {
+  const effectiveToolCallIdByLogId = new Map<string, string>()
+  const resultLogByToolCallId = new Map<string, T>()
+  const inputDeltaLogByToolCallId = new Map<string, string[]>()
+  const activeToolCallIds: string[] = []
+
+  for (const log of logs) {
+    const metadata = toToolCallMetadata(log.metadata)
+
+    if (log.type === options.toolUseType) {
+      if (!metadata.toolName) {
+        continue
+      }
+
+      const effectiveToolCallId = metadata.toolCallId || log.id
+      effectiveToolCallIdByLogId.set(log.id, effectiveToolCallId)
+
+      if (!activeToolCallIds.includes(effectiveToolCallId)) {
+        activeToolCallIds.push(effectiveToolCallId)
+      }
+      continue
+    }
+
+    if (log.type === options.toolInputDeltaType) {
+      const effectiveToolCallId = metadata.toolCallId || activeToolCallIds[activeToolCallIds.length - 1]
+      if (!effectiveToolCallId) {
+        continue
+      }
+
+      effectiveToolCallIdByLogId.set(log.id, effectiveToolCallId)
+      const currentInputs = inputDeltaLogByToolCallId.get(effectiveToolCallId) ?? []
+      currentInputs.push(metadata.toolInput || log.content)
+      inputDeltaLogByToolCallId.set(effectiveToolCallId, currentInputs)
+      continue
+    }
+
+    if (log.type === options.toolResultType) {
+      const effectiveToolCallId = metadata.toolCallId || activeToolCallIds[activeToolCallIds.length - 1]
+      if (!effectiveToolCallId) {
+        continue
+      }
+
+      effectiveToolCallIdByLogId.set(log.id, effectiveToolCallId)
+      resultLogByToolCallId.set(effectiveToolCallId, log)
+      removeActiveToolCallId(activeToolCallIds, effectiveToolCallId)
+    }
+  }
+
+  return {
+    effectiveToolCallIdByLogId,
+    resultLogByToolCallId,
+    inputDeltaLogByToolCallId
   }
 }
 
@@ -173,31 +272,25 @@ export function buildToolCallFromLogs<T extends ToolCallLogLike>(
     return null
   }
 
-  const resultLog = logs.find(item => {
-    if (item.type !== toolResultType) return false
-    const resultMetadata = toToolCallMetadata(item.metadata)
-    return resultMetadata.toolCallId === metadata.toolCallId
+  const associations = collectToolCallAssociations(logs, {
+    toolUseType,
+    toolInputDeltaType,
+    toolResultType,
+    fallbackStatus
   })
-
+  const effectiveToolCallId = associations.effectiveToolCallIdByLogId.get(log.id) || metadata.toolCallId || log.id
+  const resultLog = associations.resultLogByToolCallId.get(effectiveToolCallId)
   const resultMetadata = toToolCallMetadata(resultLog?.metadata)
   const isError = Boolean(resultMetadata.isError)
-  const inputDeltaLogs = logs.filter(item => {
-    if (item.type !== toolInputDeltaType) return false
-    const inputMetadata = toToolCallMetadata(item.metadata)
-    return inputMetadata.toolCallId === metadata.toolCallId
-  })
   const mergedToolInput = [
     metadata.toolInput,
-    ...inputDeltaLogs.map(item => {
-      const inputMetadata = toToolCallMetadata(item.metadata)
-      return inputMetadata.toolInput || item.content
-    })
+    ...(associations.inputDeltaLogByToolCallId.get(effectiveToolCallId) ?? [])
   ]
     .filter((value): value is string => Boolean(value))
     .join('')
 
   return {
-    id: metadata.toolCallId || log.id,
+    id: effectiveToolCallId,
     name: metadata.toolName,
     arguments: toToolCallArguments(mergedToolInput || metadata.toolInput, log.content),
     status: resultLog ? (isError ? 'error' : 'success') : fallbackStatus,
@@ -217,27 +310,12 @@ export function buildToolCallMapFromLogs<T extends ToolCallLogLike>(
     fallbackStatus
   } = normalizeToolCallLogOptions(options)
 
-  const resultLogByToolCallId = new Map<string, T>()
-  const inputDeltaLogByToolCallId = new Map<string, string[]>()
-
-  for (const log of logs) {
-    const metadata = toToolCallMetadata(log.metadata)
-    const toolCallId = metadata.toolCallId
-    if (!toolCallId) {
-      continue
-    }
-
-    if (log.type === toolResultType) {
-      resultLogByToolCallId.set(toolCallId, log)
-      continue
-    }
-
-    if (log.type === toolInputDeltaType) {
-      const currentInputs = inputDeltaLogByToolCallId.get(toolCallId) ?? []
-      currentInputs.push(metadata.toolInput || log.content)
-      inputDeltaLogByToolCallId.set(toolCallId, currentInputs)
-    }
-  }
+  const associations = collectToolCallAssociations(logs, {
+    toolUseType,
+    toolInputDeltaType,
+    toolResultType,
+    fallbackStatus
+  })
 
   const toolCallMap = new Map<string, ToolCall>()
 
@@ -251,13 +329,13 @@ export function buildToolCallMapFromLogs<T extends ToolCallLogLike>(
       continue
     }
 
-    const toolCallId = metadata.toolCallId || log.id
-    const resultLog = resultLogByToolCallId.get(toolCallId)
+    const toolCallId = associations.effectiveToolCallIdByLogId.get(log.id) || metadata.toolCallId || log.id
+    const resultLog = associations.resultLogByToolCallId.get(toolCallId)
     const resultMetadata = toToolCallMetadata(resultLog?.metadata)
     const isError = Boolean(resultMetadata.isError)
     const mergedToolInput = [
       metadata.toolInput,
-      ...(inputDeltaLogByToolCallId.get(toolCallId) ?? [])
+      ...(associations.inputDeltaLogByToolCallId.get(toolCallId) ?? [])
     ]
       .filter((value): value is string => Boolean(value))
       .join('')

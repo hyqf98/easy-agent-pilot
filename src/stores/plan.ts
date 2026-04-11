@@ -12,6 +12,9 @@ interface RustPlan {
   project_id: string
   name: string
   description?: string
+  memory_library_ids?: string[]
+  execution_overview?: string
+  execution_overview_updated_at?: string
   split_mode: string
   split_expert_id?: string
   split_agent_id?: string
@@ -52,6 +55,9 @@ function transformPlan(rustPlan: RustPlan): Plan {
     projectId: rustPlan.project_id,
     name: rustPlan.name,
     description: rustPlan.description,
+    memoryLibraryIds: rustPlan.memory_library_ids ?? [],
+    executionOverview: rustPlan.execution_overview,
+    executionOverviewUpdatedAt: rustPlan.execution_overview_updated_at,
     splitMode: (rustPlan.split_mode || 'ai') as PlanSplitMode,
     splitExpertId: rustPlan.split_expert_id,
     splitAgentId: rustPlan.split_agent_id,
@@ -150,6 +156,7 @@ export const usePlanStore = defineStore('plan', () => {
       project_id: input.projectId,
       name: input.name,
       description: input.description ?? null,
+      memory_library_ids: input.memoryLibraryIds ?? [],
       split_mode: input.splitMode ?? 'ai',
       split_expert_id: input.splitExpertId ?? null,
       split_agent_id: input.splitAgentId ?? null,
@@ -182,6 +189,9 @@ export const usePlanStore = defineStore('plan', () => {
 
     if ('name' in updates) input.name = updates.name ?? null
     if ('description' in updates) input.description = updates.description ?? null
+    if ('memoryLibraryIds' in updates) input.memory_library_ids = updates.memoryLibraryIds ?? []
+    if ('executionOverview' in updates) input.execution_overview = updates.executionOverview ?? null
+    if ('executionOverviewUpdatedAt' in updates) input.execution_overview_updated_at = updates.executionOverviewUpdatedAt ?? null
     if ('splitMode' in updates) input.split_mode = updates.splitMode ?? null
     if ('splitExpertId' in updates) input.split_expert_id = updates.splitExpertId ?? null
     if ('splitAgentId' in updates) input.split_agent_id = updates.splitAgentId ?? null

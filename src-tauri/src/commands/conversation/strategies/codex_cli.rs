@@ -61,9 +61,12 @@ fn is_benign_stderr_warning(line: &str) -> bool {
     // Codex CLI 偶发会在 stderr 输出一条 rmcp transport warning：
     // "worker quit with fatal: Transport channel closed, when UnexpectedContentType(...)"
     // 目前该告警不会阻塞任务拆分结果落地，不应污染 UI 错误态或计划拆分日志。
-    normalized.contains("rmcp::transport::worker")
+    (normalized.contains("rmcp::transport::worker")
         && normalized.contains("unexpectedcontenttype")
-        && normalized.contains("missing-content-type")
+        && normalized.contains("missing-content-type"))
+        || (normalized.contains("rmcp::transport::async_rw")
+            && normalized.contains("serde error expected")
+            && normalized.contains("line 1 column"))
 }
 
 struct StdoutReadOutcome {
@@ -1509,6 +1512,13 @@ mod tests {
     #[test]
     fn ignores_rmcp_transport_closed_warning() {
         let warning = "rmcp::transport::worker: worker quit with fatal: Transport channel closed";
+        assert!(should_ignore_stderr_line(warning));
+    }
+
+    #[test]
+    fn ignores_rmcp_async_rw_serde_warning() {
+        let warning =
+            "ERROR rmcp::transport::async_rw: Error reading from stream: serde error expected `,` or `]` at line 1 column 6";
         assert!(should_ignore_stderr_line(warning));
     }
 

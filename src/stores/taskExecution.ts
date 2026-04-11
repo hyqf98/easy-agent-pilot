@@ -80,6 +80,7 @@ import {
   resolveRuntimeBindingKey,
   upsertTaskRuntimeBinding
 } from '@/services/conversation/runtimeBindings'
+import { loadMountedMemoryPrompt } from '@/services/memory/mountedMemoryPrompt'
 
 function finalizeRunningToolCalls(toolCalls: ToolCall[]): void {
   for (const toolCall of toolCalls) {
@@ -95,12 +96,35 @@ function isMissingRecordError(error: unknown): boolean {
   return /query returned no rows/i.test(getErrorMessage(error))
 }
 
+function createFallbackToolCallId(taskId: string): string {
+  return `tool-${taskId}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+}
+
+function collectMountedMemoryLibraryIds(
+  projectIds: string[] | undefined,
+  planIds: string[] | undefined,
+  taskIds: string[] | undefined
+): string[] {
+  return Array.from(
+    new Set(
+      [...(projectIds ?? []), ...(planIds ?? []), ...(taskIds ?? [])]
+        .map((id) => id.trim())
+        .filter(Boolean)
+    )
+  )
+}
+
 export const useTaskExecutionStore = defineStore('taskExecution', () => {
   // ==================== State ====================
 
   const executionStates = ref<Map<string, TaskExecutionState>>(new Map())
 
   const executionQueues = ref<Map<string, ExecutionQueue>>(new Map())
+
+  const recentPlanResultsCache = ref<Map<string, {
+    limit: number
+    records: TaskExecutionResultRecord[]
+  }>>(new Map())
 
   const currentViewingTaskId = ref<string | null>(null)
 
@@ -530,6 +554,10 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
       return
     }
 
+    if (!projectStore.projects.some(p => p.id === plan.projectId)) {
+      await projectStore.loadProjects()
+    }
+
     // 获取项目路径
     const project = projectStore.projects.find(p => p.id === plan.projectId)
     const workingDirectory = project?.path
@@ -601,12 +629,6 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
         || agentTeamsStore.enabledExperts.find(expert => expert.category === 'developer')
         || null
 
-      const runtime = resolveExpertRuntime(
-        selectedExpert,
-        agentStore.agents,
-        task.modelId || plan.splitModelId || undefined
-      )
-
       const selection = resolvePlanTaskAgentSelection(
         {
           expert_id: task.expertId ?? null,
@@ -616,8 +638,18 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
         plan
       )
 
-      const baseAgent = runtime?.agent
-        || (selection.agentId ? agentStore.agents.find(agent => agent.id === selection.agentId) : null)
+      const runtime = resolveExpertRuntime(
+        selectedExpert,
+        agentStore.agents,
+        task.modelId || plan.splitModelId || undefined
+      )
+
+      const explicitlySelectedAgent = selection.agentId
+        ? agentStore.agents.find(agent => agent.id === selection.agentId)
+        : null
+
+      const baseAgent = explicitlySelectedAgent
+        || runtime?.agent
         || (plan.splitAgentId ? agentStore.agents.find(agent => agent.id === plan.splitAgentId) : null)
         || agentStore.agents[0]
 
@@ -630,6 +662,9 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
         modelId: runtime?.modelId || selection.modelId || baseAgent.modelId
       }
       currentAgentForUsage = agent
+      if (agent.modelId?.trim()) {
+        updateTaskTokenUsage(taskId, { model: agent.modelId }, agent.modelId)
+      }
       const agentProvider = inferAgentProvider(agent)
       const runtimeKey = resolveRuntimeBindingKey(agent)
       const runtimeBinding = isResume && runtimeKey
@@ -655,6 +690,13 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
 
       const recentResults = await listRecentPlanResults(planId, 5)
       const planProgress = await getPlanExecutionProgress(planId)
+      const mountedMemoryPrompt = await loadMountedMemoryPrompt(
+        collectMountedMemoryLibraryIds(
+          project?.memoryLibraryIds,
+          plan.memoryLibraryIds,
+          task.memoryLibraryIds
+        )
+      )
 
       const prompt = resumableExternalSessionId
         ? '继续'
@@ -670,6 +712,16 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
         sessionId: executionSessionId,
         agent,
         messages: [
+          ...(!resumableExternalSessionId && mountedMemoryPrompt
+            ? [{
+                id: `task-memory-${taskId}`,
+                sessionId: executionSessionId,
+                role: 'system' as const,
+                content: mountedMemoryPrompt,
+                status: 'completed' as const,
+                createdAt: new Date().toISOString()
+              }]
+            : []),
           ...(!resumableExternalSessionId && selectedExpert?.prompt
             ? [{
                 id: `task-system-${taskId}`,
@@ -908,9 +960,10 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
         break
 
       case 'tool_use':
-        if (event.toolName && event.toolCallId) {
+        if (event.toolName) {
+          const toolCallId = event.toolCallId || createFallbackToolCallId(taskId)
           const toolCall: ToolCall = {
-            id: event.toolCallId,
+            id: toolCallId,
             name: event.toolName,
             arguments: event.toolInput || {},
             status: 'running'
@@ -929,7 +982,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
             content: JSON.stringify(event.toolInput, null, 2),
             metadata: {
               toolName: event.toolName,
-              toolCallId: event.toolCallId,
+              toolCallId,
               toolInput: JSON.stringify(event.toolInput ?? {})
             }
           })
@@ -964,13 +1017,20 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
       }
 
       case 'tool_result':
-        if (event.toolCallId) {
+        {
+          const targetToolCall = (event.toolCallId
+            ? state.toolCalls.find(tool => tool.id === event.toolCallId)
+            : null) || [...state.toolCalls].reverse().find(tool => tool.status === 'running')
+          const resolvedToolCallId = targetToolCall?.id || event.toolCallId
+          if (!resolvedToolCallId) {
+            break
+          }
           const result = typeof event.toolResult === 'string'
             ? event.toolResult
             : JSON.stringify(event.toolResult, null, 2)
           const isError = false
 
-          const tc = state.toolCalls.find(t => t.id === event.toolCallId)
+          const tc = state.toolCalls.find(t => t.id === resolvedToolCallId)
           if (tc) {
             tc.result = result
             tc.status = isError ? 'error' : 'success'
@@ -984,7 +1044,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
             type: 'tool_result',
             content: result,
             metadata: {
-              toolCallId: event.toolCallId,
+              toolCallId: resolvedToolCallId,
               toolResult: result,
               isError
             }
@@ -1056,10 +1116,22 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
 
   async function saveTaskExecutionResult(input: SaveTaskExecutionResultInput): Promise<void> {
     await saveTaskExecutionResultToBackend(input)
+    const taskStore = useTaskStore()
+    const task = taskStore.tasks.find(item => item.id === input.task_id)
+    if (task) {
+      recentPlanResultsCache.value.delete(task.planId)
+    }
   }
 
   async function listRecentPlanResults(planId: string, limit: number = 5): Promise<TaskExecutionResultRecord[]> {
-    return listRecentPlanResultsFromBackend(planId, limit)
+    const cached = recentPlanResultsCache.value.get(planId)
+    if (cached && cached.limit >= limit) {
+      return cached.records.slice(0, limit)
+    }
+
+    const records = await listRecentPlanResultsFromBackend(planId, limit)
+    recentPlanResultsCache.value.set(planId, { limit, records })
+    return records
   }
 
   async function getPlanExecutionProgress(planId: string): Promise<PlanExecutionProgress | null> {
@@ -1071,6 +1143,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
   async function clearPlanExecutionResults(planId: string): Promise<number> {
     try {
       const deletedCount = await clearPlanExecutionResultsFromBackend(planId)
+      recentPlanResultsCache.value.delete(planId)
 
       const taskStore = useTaskStore()
       const planTasks = taskStore.tasks.filter(t => t.planId === planId)

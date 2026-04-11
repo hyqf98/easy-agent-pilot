@@ -26,6 +26,7 @@ function createPlan(overrides: Partial<Plan> = {}): Plan {
     id: 'plan-1',
     projectId: 'project-1',
     name: 'Regression Plan',
+    memoryLibraryIds: [],
     splitMode: 'manual',
     status: 'executing',
     executionStatus: 'running',

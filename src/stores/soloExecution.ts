@@ -43,6 +43,7 @@ import {
   compactSoloSummary,
   parseSoloCoordinatorDecision
 } from '@/services/solo/prompts'
+import { loadMountedMemoryPrompt } from '@/services/memory/mountedMemoryPrompt'
 import type {
   CreateSoloLogInput,
   CreateSoloStepInput,
@@ -196,6 +197,19 @@ function buildSoloBindingKey(
   }
 
   return `${runtimeKey}::solo::expert::${expertId?.trim() || 'default'}`
+}
+
+function collectMountedMemoryLibraryIds(
+  projectIds: string[] | undefined,
+  runIds: string[] | undefined
+): string[] {
+  return Array.from(
+    new Set(
+      [...(projectIds ?? []), ...(runIds ?? [])]
+        .map((id) => id.trim())
+        .filter(Boolean)
+    )
+  )
 }
 
 export const useSoloExecutionStore = defineStore('soloExecution', () => {
@@ -787,6 +801,14 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
   async function executeControlTurn(run: SoloRun, runtime: Awaited<ReturnType<typeof resolveCoordinatorRuntime>>): Promise<ReturnType<typeof parseSoloCoordinatorDecision>> {
     const state = initExecutionState(run.id)
     const steps = getSteps.value(run.id)
+    const projectStore = useProjectStore()
+    if (!projectStore.projects.some((project) => project.id === run.projectId)) {
+      await projectStore.loadProjects()
+    }
+    const project = projectStore.projects.find((project) => project.id === run.projectId)
+    const mountedMemoryPrompt = await loadMountedMemoryPrompt(
+      collectMountedMemoryLibraryIds(project?.memoryLibraryIds, run.memoryLibraryIds)
+    )
     state.accumulatedContent = ''
     state.accumulatedThinking = ''
     state.currentStepId = null
@@ -805,6 +827,7 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
       workingDirectory: runtime.workingDirectory,
       mcpServers: undefined,
       messages: [
+        ...(mountedMemoryPrompt ? [createMessage(run.id, 'system', mountedMemoryPrompt)] : []),
         createMessage(run.id, 'system', systemPrompt),
         createMessage(run.id, 'user', buildSoloControlPrompt({
           run,
@@ -833,6 +856,14 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
     options: { resume?: boolean } = {}
   ): Promise<void> {
     const state = initExecutionState(run.id)
+    const projectStore = useProjectStore()
+    if (!projectStore.projects.some((project) => project.id === run.projectId)) {
+      await projectStore.loadProjects()
+    }
+    const project = projectStore.projects.find((project) => project.id === run.projectId)
+    const mountedMemoryPrompt = await loadMountedMemoryPrompt(
+      collectMountedMemoryLibraryIds(project?.memoryLibraryIds, run.memoryLibraryIds)
+    )
     const stepRuntime = await resolveStepRuntime(run, step)
     const binding = stepRuntime.bindingKey ? await getSoloRuntimeBinding(run.id, stepRuntime.bindingKey).catch(() => null) : null
     const selectedExpert = resolveExpertById(step.selectedExpertId, useAgentTeamsStore().experts)
@@ -868,6 +899,9 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
       workingDirectory: stepRuntime.workingDirectory,
       mcpServers: stepRuntime.mcpServers,
       messages: [
+        ...(!resumeSessionId && mountedMemoryPrompt
+          ? [createMessage(run.id, 'system', mountedMemoryPrompt)]
+          : []),
         ...(!resumeSessionId
           ? [createMessage(run.id, 'system', buildSoloExecutionSystemPrompt(selectedExpert?.prompt || stepRuntime.expertPrompt))]
           : []),

@@ -4,14 +4,13 @@ import { useSessionExecutionStore } from '@/stores/sessionExecution'
 import { useAgentStore } from '@/stores/agent'
 import { useTokenStore, type CompressionStrategy } from '@/stores/token'
 import type { AgentConfig } from '@/stores/agent'
-import type { MemoryLibrary } from '@/types/memory'
 import { useSettingsStore } from '@/stores/settings'
 import { useNotificationStore } from '@/stores/notification'
 import { useProjectStore } from '@/stores/project'
 import { useAiEditTraceStore } from '@/stores/aiEditTrace'
 import { useTracePreviewStore } from '@/stores/tracePreview'
 import { buildConversationMessages } from '@/services/conversation/buildConversationMessages'
-import { buildProjectMemorySystemPrompt } from '@/services/memory'
+import { loadMountedMemoryPrompt } from '@/services/memory/mountedMemoryPrompt'
 import i18n from '@/i18n'
 import { extractExecutionResult } from '@/utils/structuredContent'
 import type { FileEditTrace } from '@/types/fileTrace'
@@ -407,24 +406,7 @@ export class CompressionService {
   }
 
   private async buildProjectMemoryPrompt(memoryLibraryIds: string[]): Promise<string | null> {
-    if (memoryLibraryIds.length === 0) {
-      return null
-    }
-
-    const memoryStore = await import('@/stores/memory').then(module => module.useMemoryStore())
-    const missingLibraryIds = memoryLibraryIds.filter(
-      (libraryId) => !memoryStore.libraries.some((library) => library.id === libraryId)
-    )
-
-    if (missingLibraryIds.length > 0) {
-      await memoryStore.loadLibraries()
-    }
-
-    const mountedLibraries = memoryLibraryIds
-      .map((libraryId) => memoryStore.libraries.find((library) => library.id === libraryId))
-      .filter((library): library is MemoryLibrary => Boolean(library))
-
-    return buildProjectMemorySystemPrompt(mountedLibraries)
+    return loadMountedMemoryPrompt(memoryLibraryIds)
   }
 
   /**

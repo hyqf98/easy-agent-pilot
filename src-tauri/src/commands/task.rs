@@ -35,6 +35,7 @@ pub struct Task {
     pub implementation_steps: Option<Vec<String>>,
     pub test_steps: Option<Vec<String>>,
     pub acceptance_criteria: Option<Vec<String>>,
+    pub memory_library_ids: Option<Vec<String>>,
     pub block_reason: Option<String>,
     pub input_request: Option<serde_json::Value>,
     pub input_response: Option<serde_json::Value>,
@@ -80,6 +81,7 @@ pub struct RustTask {
     pub implementation_steps: Option<String>, // JSON 字符串
     pub test_steps: Option<String>,           // JSON 字符串
     pub acceptance_criteria: Option<String>,  // JSON 字符串
+    pub memory_library_ids: Option<String>,   // JSON 字符串
     pub block_reason: Option<String>,
     pub input_request: Option<String>,  // JSON 字符串
     pub input_response: Option<String>, // JSON 字符串
@@ -116,6 +118,7 @@ pub struct CreateTaskInput {
     pub implementation_steps: Option<Vec<String>>,
     pub test_steps: Option<Vec<String>>,
     pub acceptance_criteria: Option<Vec<String>>,
+    pub memory_library_ids: Option<Vec<String>>,
 }
 
 /// 更新任务输入
@@ -159,6 +162,8 @@ pub struct UpdateTaskInput {
     pub test_steps: UpdateField<Vec<String>>,
     #[serde(default)]
     pub acceptance_criteria: UpdateField<Vec<String>>,
+    #[serde(default)]
+    pub memory_library_ids: UpdateField<Vec<String>>,
     #[serde(default)]
     pub block_reason: UpdateField<String>,
     #[serde(default)]
@@ -221,11 +226,74 @@ fn bind_update_json<T: Serialize>(
     Ok(())
 }
 
+fn normalize_memory_library_ids(library_ids: &[String]) -> Vec<String> {
+    let mut normalized = Vec::new();
+
+    for library_id in library_ids {
+        let trimmed = library_id.trim();
+        if trimmed.is_empty() || normalized.iter().any(|existing| existing == trimmed) {
+            continue;
+        }
+        normalized.push(trimmed.to_string());
+    }
+
+    normalized
+}
+
+fn replace_task_memory_libraries(
+    conn: &rusqlite::Connection,
+    task_id: &str,
+    library_ids: &[String],
+    now: &str,
+) -> Result<(), String> {
+    conn.execute(
+        "DELETE FROM task_memory_libraries WHERE task_id = ?1",
+        [task_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    for library_id in normalize_memory_library_ids(library_ids) {
+        conn.execute(
+            r#"
+            INSERT INTO task_memory_libraries (task_id, library_id, created_at)
+            VALUES (?1, ?2, ?3)
+            "#,
+            rusqlite::params![task_id, library_id, now],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+fn list_task_memory_library_ids(
+    conn: &Connection,
+    task_id: &str,
+) -> Result<Vec<String>, String> {
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT library_id
+            FROM task_memory_libraries
+            WHERE task_id = ?1
+            ORDER BY created_at ASC, library_id ASC
+            "#,
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([task_id], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?;
+
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())
+}
+
 const TASK_SELECT_BY_ID_SQL: &str = r#"
     SELECT id, plan_id, parent_id, title, description, status, priority,
            assignee, expert_id, agent_id, model_id, session_id, cli_session_provider, progress_file, dependencies, task_order,
            retry_count, max_retries, error_message,
-           implementation_steps, test_steps, acceptance_criteria,
+           implementation_steps, test_steps, acceptance_criteria, memory_library_ids,
            block_reason, input_request, input_response,
            created_at, updated_at
     FROM tasks
@@ -235,7 +303,7 @@ const TASK_SELECT_BY_PLAN_SQL: &str = r#"
     SELECT id, plan_id, parent_id, title, description, status, priority,
            assignee, expert_id, agent_id, model_id, session_id, cli_session_provider, progress_file, dependencies, task_order,
            retry_count, max_retries, error_message,
-           implementation_steps, test_steps, acceptance_criteria,
+           implementation_steps, test_steps, acceptance_criteria, memory_library_ids,
            block_reason, input_request, input_response,
            created_at, updated_at
     FROM tasks
@@ -246,7 +314,7 @@ const TASK_SELECT_BY_PARENT_SQL: &str = r#"
     SELECT id, plan_id, parent_id, title, description, status, priority,
            assignee, expert_id, agent_id, model_id, session_id, cli_session_provider, progress_file, dependencies, task_order,
            retry_count, max_retries, error_message,
-           implementation_steps, test_steps, acceptance_criteria,
+           implementation_steps, test_steps, acceptance_criteria, memory_library_ids,
            block_reason, input_request, input_response,
            created_at, updated_at
     FROM tasks
@@ -257,7 +325,7 @@ const TASK_SELECT_BY_SESSION_SQL: &str = r#"
     SELECT id, plan_id, parent_id, title, description, status, priority,
            assignee, expert_id, agent_id, model_id, session_id, cli_session_provider, progress_file, dependencies, task_order,
            retry_count, max_retries, error_message,
-           implementation_steps, test_steps, acceptance_criteria,
+           implementation_steps, test_steps, acceptance_criteria, memory_library_ids,
            block_reason, input_request, input_response,
            created_at, updated_at
     FROM tasks
@@ -289,12 +357,32 @@ fn map_rust_task_row(row: &Row<'_>) -> rusqlite::Result<RustTask> {
         implementation_steps: row.get(19)?,
         test_steps: row.get(20)?,
         acceptance_criteria: row.get(21)?,
-        block_reason: row.get(22)?,
-        input_request: row.get(23)?,
-        input_response: row.get(24)?,
-        created_at: row.get(25)?,
-        updated_at: row.get(26)?,
+        memory_library_ids: row.get(22)?,
+        block_reason: row.get(23)?,
+        input_request: row.get(24)?,
+        input_response: row.get(25)?,
+        created_at: row.get(26)?,
+        updated_at: row.get(27)?,
     })
+}
+
+fn map_rust_task_with_conn(
+    conn: &Connection,
+    row: &Row<'_>,
+) -> rusqlite::Result<RustTask> {
+    let task_id: String = row.get(0)?;
+    let memory_library_ids = list_task_memory_library_ids(conn, &task_id)
+        .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            error,
+        ))))?;
+
+    let mut task = map_rust_task_row(row)?;
+    task.memory_library_ids = Some(
+        serde_json::to_string(&memory_library_ids)
+            .unwrap_or_else(|_| "[]".to_string()),
+    );
+    Ok(task)
 }
 
 fn collect_task_subtree_ids(conn: &Connection, task_id: &str) -> Result<Vec<String>, String> {
@@ -426,7 +514,7 @@ where
 {
     let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
     let rows = stmt
-        .query_map(params, map_rust_task_row)
+        .query_map(params, |row| map_rust_task_with_conn(conn, row))
         .map_err(|e| e.to_string())?;
 
     rows.collect::<Result<Vec<_>, _>>()
@@ -438,7 +526,7 @@ fn fetch_task<P>(conn: &Connection, sql: &str, params: P) -> Result<Task, String
 where
     P: Params,
 {
-    conn.query_row(sql, params, map_rust_task_row)
+    conn.query_row(sql, params, |row| map_rust_task_with_conn(conn, row))
         .map(transform_task)
         .map_err(|e| e.to_string())
 }
@@ -447,7 +535,7 @@ fn fetch_optional_task<P>(conn: &Connection, sql: &str, params: P) -> Result<Opt
 where
     P: Params,
 {
-    match conn.query_row(sql, params, map_rust_task_row) {
+    match conn.query_row(sql, params, |row| map_rust_task_with_conn(conn, row)) {
         Ok(task) => Ok(Some(transform_task(task))),
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
         Err(error) => Err(error.to_string()),
@@ -504,6 +592,9 @@ fn transform_task(rust_task: RustTask) -> Task {
     let acceptance_criteria = rust_task
         .acceptance_criteria
         .and_then(|s| serde_json::from_str(&s).ok());
+    let memory_library_ids = rust_task
+        .memory_library_ids
+        .and_then(|s| serde_json::from_str(&s).ok());
     let input_request = rust_task
         .input_request
         .and_then(|s| serde_json::from_str(&s).ok());
@@ -534,6 +625,7 @@ fn transform_task(rust_task: RustTask) -> Task {
         implementation_steps,
         test_steps,
         acceptance_criteria,
+        memory_library_ids,
         block_reason: rust_task.block_reason,
         input_request,
         input_response,
@@ -573,6 +665,8 @@ pub fn create_task(input: CreateTaskInput) -> Result<Task, String> {
         serialize_json_option(input.implementation_steps.as_ref(), "[]");
     let test_steps_json = serialize_json_option(input.test_steps.as_ref(), "[]");
     let acceptance_criteria_json = serialize_json_option(input.acceptance_criteria.as_ref(), "[]");
+    let memory_library_ids_json =
+        serialize_json_option(input.memory_library_ids.as_ref(), "[]");
 
     // 如果没有指定顺序，获取当前最大顺序 + 1
     let task_order = match input.order {
@@ -593,9 +687,9 @@ pub fn create_task(input: CreateTaskInput) -> Result<Task, String> {
         "INSERT INTO tasks (id, plan_id, parent_id, title, description, status, priority,
          assignee, expert_id, agent_id, model_id, session_id, cli_session_provider, progress_file, dependencies, task_order,
          retry_count, max_retries, error_message,
-         implementation_steps, test_steps, acceptance_criteria,
+         implementation_steps, test_steps, acceptance_criteria, memory_library_ids,
          created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
         rusqlite::params![
             &id,
             &input.plan_id,
@@ -619,11 +713,19 @@ pub fn create_task(input: CreateTaskInput) -> Result<Task, String> {
             &implementation_steps_json,
             &test_steps_json,
             &acceptance_criteria_json,
+            &memory_library_ids_json,
             &now,
             &now
         ],
     )
     .map_err(|e| e.to_string())?;
+
+    replace_task_memory_libraries(
+        &conn,
+        &id,
+        input.memory_library_ids.as_deref().unwrap_or(&[]),
+        &now,
+    )?;
 
     // 更新计划的 updated_at 时间
     conn.execute(
@@ -655,6 +757,9 @@ pub fn create_task(input: CreateTaskInput) -> Result<Task, String> {
         implementation_steps: input.implementation_steps,
         test_steps: input.test_steps,
         acceptance_criteria: input.acceptance_criteria,
+        memory_library_ids: Some(
+            normalize_memory_library_ids(input.memory_library_ids.as_deref().unwrap_or(&[])),
+        ),
         block_reason: None,
         input_request: None,
         input_response: None,
@@ -697,6 +802,11 @@ pub fn update_task(id: String, input: UpdateTaskInput) -> Result<Task, String> {
         &mut updates,
         "acceptance_criteria",
         &input.acceptance_criteria,
+    );
+    push_update(
+        &mut updates,
+        "memory_library_ids",
+        &input.memory_library_ids,
     );
     push_update(&mut updates, "block_reason", &input.block_reason);
     push_update(&mut updates, "input_request", &input.input_request);
@@ -747,6 +857,8 @@ pub fn update_task(id: String, input: UpdateTaskInput) -> Result<Task, String> {
         "[]",
     )
     .map_err(|e| e.to_string())?;
+    bind_update_json(&mut stmt, &mut param_count, &input.memory_library_ids, "[]")
+        .map_err(|e| e.to_string())?;
     bind_update_field(&mut stmt, &mut param_count, &input.block_reason)
         .map_err(|e| e.to_string())?;
     bind_update_json(&mut stmt, &mut param_count, &input.input_request, "{}")
@@ -755,6 +867,15 @@ pub fn update_task(id: String, input: UpdateTaskInput) -> Result<Task, String> {
         .map_err(|e| e.to_string())?;
     bind_value(&mut stmt, &mut param_count, &id).map_err(|e| e.to_string())?;
     stmt.raw_execute().map_err(|e| e.to_string())?;
+
+    if !matches!(input.memory_library_ids, UpdateField::Missing) {
+        let library_ids = match input.memory_library_ids {
+            UpdateField::Value(ref value) => value.clone(),
+            UpdateField::Null => Vec::new(),
+            UpdateField::Missing => Vec::new(),
+        };
+        replace_task_memory_libraries(&conn, &id, &library_ids, &now)?;
+    }
 
     // 更新计划的 updated_at 时间
     let plan_id: String = conn
@@ -978,6 +1099,8 @@ pub fn batch_create_tasks(
         let test_steps_json = serialize_json_option(task_input.test_steps.as_ref(), "[]");
         let acceptance_criteria_json =
             serialize_json_option(task_input.acceptance_criteria.as_ref(), "[]");
+        let memory_library_ids_json =
+            serialize_json_option(task_input.memory_library_ids.as_ref(), "[]");
 
         max_order += 1;
         let task_order = task_input.order.unwrap_or(max_order);
@@ -986,9 +1109,9 @@ pub fn batch_create_tasks(
             "INSERT INTO tasks (id, plan_id, parent_id, title, description, status, priority,
              assignee, expert_id, agent_id, model_id, session_id, cli_session_provider, progress_file, dependencies, task_order,
              retry_count, max_retries, error_message,
-             implementation_steps, test_steps, acceptance_criteria,
+             implementation_steps, test_steps, acceptance_criteria, memory_library_ids,
              created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
             rusqlite::params![
                 &id,
                 &plan_id,
@@ -1012,11 +1135,19 @@ pub fn batch_create_tasks(
                 &implementation_steps_json,
                 &test_steps_json,
                 &acceptance_criteria_json,
+                &memory_library_ids_json,
                 &now,
                 &now
             ],
         )
         .map_err(|e| e.to_string())?;
+
+        replace_task_memory_libraries(
+            &tx,
+            &id,
+            task_input.memory_library_ids.as_deref().unwrap_or(&[]),
+            &now,
+        )?;
 
         created_tasks.push(Task {
             id,
@@ -1041,6 +1172,9 @@ pub fn batch_create_tasks(
             implementation_steps: task_input.implementation_steps,
             test_steps: task_input.test_steps,
             acceptance_criteria: task_input.acceptance_criteria,
+            memory_library_ids: Some(normalize_memory_library_ids(
+                task_input.memory_library_ids.as_deref().unwrap_or(&[]),
+            )),
             block_reason: None,
             input_request: None,
             input_response: None,

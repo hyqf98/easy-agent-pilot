@@ -39,6 +39,9 @@ export interface Plan {
   projectId: string
   name: string
   description?: string
+  memoryLibraryIds: string[]
+  executionOverview?: string
+  executionOverviewUpdatedAt?: string
   splitMode: PlanSplitMode    // 拆分模式: ai | manual
   splitExpertId?: string
   splitAgentId?: string
@@ -82,6 +85,7 @@ export interface Task {
   implementationSteps?: string[]
   testSteps?: string[]
   acceptanceCriteria?: string[]
+  memoryLibraryIds?: string[]
   blockReason?: BlockReason         // 阻塞原因
   inputRequest?: TaskInputRequest   // 等待输入的表单请求
   inputResponse?: Record<string, any> // 用户提交的表单数据
@@ -94,6 +98,7 @@ export interface CreatePlanInput {
   projectId: string
   name: string
   description?: string
+  memoryLibraryIds?: string[]
   splitMode?: PlanSplitMode    // 拆分模式: ai | manual
   splitExpertId?: string
   splitAgentId?: string
@@ -108,6 +113,9 @@ export interface CreatePlanInput {
 export interface UpdatePlanInput {
   name?: string
   description?: string
+  memoryLibraryIds?: string[]
+  executionOverview?: string
+  executionOverviewUpdatedAt?: string
   splitMode?: PlanSplitMode    // 拆分模式: ai | manual
   splitExpertId?: string
   splitAgentId?: string
@@ -142,6 +150,7 @@ export interface CreateTaskInput {
   implementationSteps?: string[]
   testSteps?: string[]
   acceptanceCriteria?: string[]
+  memoryLibraryIds?: string[]
 }
 
 // 更新任务输入
@@ -168,6 +177,7 @@ export interface UpdateTaskInput {
   implementationSteps?: string[]
   testSteps?: string[]
   acceptanceCriteria?: string[]
+  memoryLibraryIds?: string[]
   blockReason?: BlockReason
   inputRequest?: TaskInputRequest
   inputResponse?: Record<string, any>
@@ -355,6 +365,7 @@ export interface AITaskItem {
   implementationSteps: string[]
   testSteps: string[]
   acceptanceCriteria: string[]
+  memoryLibraryIds?: string[]
   dependsOn?: string[]  // 依赖的任务标题列表
 }
 

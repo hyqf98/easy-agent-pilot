@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import MemoryLibraryPicker from '@/components/memory/MemoryLibraryPicker.vue'
 import { useAgentTeamsStore } from '@/stores/agentTeams'
 import type { AITaskItem, TaskPriority } from '@/types/plan'
 import { useSafeOutsideClick } from '@/composables/useSafeOutsideClick'
@@ -57,6 +58,7 @@ function resetDraft() {
     description: props.task.description || '',
     priority: props.task.priority || 'medium',
     expertId: rawExpertId || '',
+    memoryLibraryIds: [...(props.task.memoryLibraryIds || [])],
     implementationSteps: [...(props.task.implementationSteps || [])],
     testSteps: [...(props.task.testSteps || [])],
     acceptanceCriteria: [...(props.task.acceptanceCriteria || [])],
@@ -95,6 +97,7 @@ function save() {
   const updates = {
     ...draft.value,
     expertId: draft.value.expertId || undefined,
+    memoryLibraryIds: [...(draft.value.memoryLibraryIds || [])],
     implementationSteps: [...draft.value.implementationSteps],
     testSteps: [...draft.value.testSteps],
     acceptanceCriteria: [...draft.value.acceptanceCriteria],
@@ -183,6 +186,13 @@ defineExpose({ triggerSave: save })
           </option>
         </select>
       </div>
+    </div>
+
+    <div class="form-row">
+      <MemoryLibraryPicker
+        v-model="draft.memoryLibraryIds"
+        hint="任务未单独设置时会沿用计划默认记忆库。"
+      />
     </div>
 
     <div

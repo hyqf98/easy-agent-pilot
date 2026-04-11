@@ -7,14 +7,23 @@ import { useAgentConfigStore } from '@/stores/agentConfig'
 import type { TimelineEntry } from '@/types/timeline'
 import type { TaskExecutionResultRecord } from '@/types/taskExecution'
 import { buildToolCallMapFromLogs } from '@/utils/toolCallLog'
-import { containsFormSchema, extractExecutionResult } from '@/utils/structuredContent'
+import {
+  containsFormSchema,
+  extractExecutionResult,
+  stripExecutionResultFromContent
+} from '@/utils/structuredContent'
 import { buildStructuredResultContentFromRecord } from '@/utils/taskExecutionResult'
 import { getTaskExecutionStatusMeta, resolveTaskExecutionStatus } from '@/utils/taskExecutionStatus'
+import {
+  extractTodoSnapshotFromToolCalls,
+  sortTodoItems,
+  type TodoItem,
+  type TodoSnapshot
+} from '@/utils/todoToolCall'
 import {
   DEFAULT_CONTEXT_WINDOW,
   resolveConfiguredContextWindow
 } from '@/utils/configuredModelContext'
-import type { ToolCall } from '@/stores/message'
 
 interface UseTaskExecutionLogOptions {
   props: {
@@ -23,71 +32,6 @@ interface UseTaskExecutionLogOptions {
 }
 
 export function useTaskExecutionLog(options: UseTaskExecutionLogOptions) {
-  interface TodoItem {
-    id: string
-    content: string
-    status: 'pending' | 'in_progress' | 'completed'
-    activeForm?: string
-  }
-
-  interface TodoSnapshot {
-    items: TodoItem[]
-    updatedAt: string
-  }
-
-  function normalizeTodoStatus(value: unknown): TodoItem['status'] {
-    if (value === 'completed') return 'completed'
-    if (value === 'in_progress') return 'in_progress'
-    return 'pending'
-  }
-
-  function parseClaudeTodos(toolCall: ToolCall): TodoItem[] {
-    const todos = Array.isArray(toolCall.arguments?.todos) ? toolCall.arguments.todos : []
-    return todos.flatMap((todo: unknown, index: number) => {
-      if (!todo || typeof todo !== 'object') return []
-      const entry = todo as Record<string, unknown>
-      const content = typeof entry.content === 'string' ? entry.content.trim() : ''
-      if (!content) return []
-      return [{
-        id: `${toolCall.id}-${index}`,
-        content,
-        status: normalizeTodoStatus(entry.status),
-        activeForm: typeof entry.activeForm === 'string' ? entry.activeForm.trim() : undefined
-      }]
-    })
-  }
-
-  function parseCodexPlan(toolCall: ToolCall): TodoItem[] {
-    const plan = Array.isArray(toolCall.arguments?.plan) ? toolCall.arguments.plan : []
-    return plan.flatMap((item: unknown, index: number) => {
-      if (!item || typeof item !== 'object') return []
-      const entry = item as Record<string, unknown>
-      const content = typeof entry.step === 'string' ? entry.step.trim() : ''
-      if (!content) return []
-      return [{
-        id: `${toolCall.id}-${index}`,
-        content,
-        status: normalizeTodoStatus(entry.status)
-      }]
-    })
-  }
-
-  function parseTodoSnapshotFromToolCalls(toolCalls: ToolCall[], timestamp: string): TodoSnapshot | null {
-    for (let i = toolCalls.length - 1; i >= 0; i--) {
-      const toolCall = toolCalls[i]
-      const normalizedName = toolCall.name.trim().toLowerCase()
-      if (normalizedName === 'todowrite') {
-        const items = parseClaudeTodos(toolCall)
-        if (items.length > 0) return { items, updatedAt: timestamp }
-      }
-      if (normalizedName === 'update_plan' || normalizedName === 'functions.update_plan') {
-        const items = parseCodexPlan(toolCall)
-        if (items.length > 0) return { items, updatedAt: timestamp }
-      }
-    }
-    return null
-  }
-
   function formatTodoStatusLabel(status: TodoItem['status']) {
     switch (status) {
       case 'in_progress': return '进行中'
@@ -176,19 +120,11 @@ export function useTaskExecutionLog(options: UseTaskExecutionLogOptions) {
     const lastTimestamp = logs.value.length > 0
       ? logs.value[logs.value.length - 1].timestamp
       : ''
-    return parseTodoSnapshotFromToolCalls(allToolCalls, lastTimestamp)
+    return extractTodoSnapshotFromToolCalls(allToolCalls, lastTimestamp)
   })
 
   const sortedTodoItems = computed(() => {
-    const items = todoSnapshot.value?.items ?? []
-    const weight = (status: TodoItem['status']) => {
-      switch (status) {
-        case 'in_progress': return 0
-        case 'pending': return 1
-        default: return 2
-      }
-    }
-    return [...items].sort((left, right) => weight(left.status) - weight(right.status))
+    return sortTodoItems(todoSnapshot.value?.items ?? [])
   })
 
   const todoCompletedCount = computed(() =>
@@ -331,6 +267,7 @@ export function useTaskExecutionLog(options: UseTaskExecutionLogOptions) {
     })
     let lastThinkingEntry: TimelineEntry | null = null
     let lastContentEntry: TimelineEntry | null = null
+    let lastContentRaw = ''
 
     return logs.value.reduce<TimelineEntry[]>((entries, log) => {
       if (log.type === 'tool_result' || log.type === 'tool_input_delta') {
@@ -345,6 +282,7 @@ export function useTaskExecutionLog(options: UseTaskExecutionLogOptions) {
       ) {
         lastThinkingEntry = null
         lastContentEntry = null
+        lastContentRaw = ''
         return entries
       }
 
@@ -378,19 +316,23 @@ export function useTaskExecutionLog(options: UseTaskExecutionLogOptions) {
           entries.push(lastThinkingEntry)
         }
         lastContentEntry = null
+        lastContentRaw = ''
         return entries
       }
 
       if (log.type === 'content') {
+        lastContentRaw = `${lastContentRaw}${log.content}`
+        const displayContent = stripExecutionResultFromContent(lastContentRaw)
+
         if (lastContentEntry) {
-          lastContentEntry.content = `${lastContentEntry.content || ''}${log.content}`
+          lastContentEntry.content = displayContent
           lastContentEntry.timestamp = log.timestamp
           lastContentEntry.animate = isRunning.value
-        } else {
+        } else if (displayContent) {
           lastContentEntry = {
             id: `entry-${log.id}`,
             type: 'content',
-            content: log.content,
+            content: displayContent,
             timestamp: log.timestamp,
             animate: isRunning.value
           }
@@ -402,6 +344,7 @@ export function useTaskExecutionLog(options: UseTaskExecutionLogOptions) {
 
       lastThinkingEntry = null
       lastContentEntry = null
+      lastContentRaw = ''
 
       if (log.type === 'tool_use') {
         const toolCall = toolCallMap.get(log.id)
@@ -483,10 +426,6 @@ export function useTaskExecutionLog(options: UseTaskExecutionLogOptions) {
   )
 
   return {
-    normalizeTodoStatus,
-    parseClaudeTodos,
-    parseCodexPlan,
-    parseTodoSnapshotFromToolCalls,
     formatTodoStatusLabel,
     taskExecutionStore,
     taskStore,

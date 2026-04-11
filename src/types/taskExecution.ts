@@ -130,6 +130,8 @@ export interface PlanExecutionTaskProgress {
 
 export interface PlanExecutionProgress {
   plan_id: string
+  execution_overview: string | null
+  execution_overview_updated_at: string | null
   total_tasks: number
   pending_count: number
   in_progress_count: number

@@ -30,6 +30,7 @@ interface TaskEditFormState {
   expertId?: string
   agentId?: string
   modelId: string
+  memoryLibraryIds: string[]
   implementationSteps: string[]
   testSteps: string[]
   acceptanceCriteria: string[]
@@ -214,6 +215,7 @@ export function useTaskEditModal(props: TaskEditModalProps, emit: TaskEditModalE
       expertId: form.value.expertId,
       agentId: runtime?.agent.id || form.value.agentId,
       modelId: runtime?.modelId || undefined,
+      memoryLibraryIds: [...form.value.memoryLibraryIds],
       implementationSteps: form.value.implementationSteps.map(sanitizeText).filter(step => step.trim()),
       testSteps: form.value.testSteps.map(sanitizeText).filter(step => step.trim()),
       acceptanceCriteria: form.value.acceptanceCriteria.map(sanitizeText).filter(step => step.trim()),
@@ -374,6 +376,7 @@ function buildFormState(task: Task, planStore: ReturnType<typeof usePlanStore>):
     expertId: task.expertId || relatedPlan?.splitExpertId || undefined,
     agentId: task.agentId || relatedPlan?.splitAgentId || undefined,
     modelId: task.modelId ?? relatedPlan?.splitModelId ?? '',
+    memoryLibraryIds: [...(task.memoryLibraryIds ?? relatedPlan?.memoryLibraryIds ?? [])],
     implementationSteps: sanitizeTextList(task.implementationSteps),
     testSteps: sanitizeTextList(task.testSteps),
     acceptanceCriteria: sanitizeTextList(task.acceptanceCriteria),

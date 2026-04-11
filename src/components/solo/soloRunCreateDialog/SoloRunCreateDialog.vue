@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import MemoryLibraryPicker from '@/components/memory/MemoryLibraryPicker.vue'
 import {
   useSoloRunCreateDialog,
   type SoloRunCreateDialogEmits,
@@ -73,6 +74,14 @@ const {
               rows="4"
               placeholder="描述最终交付结果、成功标准和验收目标。"
               @input="updateField('goal', ($event.target as HTMLTextAreaElement).value)"
+            />
+          </div>
+
+          <div class="solo-create-dialog__field">
+            <MemoryLibraryPicker
+              :model-value="form.memoryLibraryIds"
+              hint="挂载后会作为 SOLO 协调者和步骤执行的长期记忆上下文。"
+              @update:model-value="updateField('memoryLibraryIds', $event)"
             />
           </div>
 

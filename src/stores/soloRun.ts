@@ -17,6 +17,7 @@ interface RustSoloRun {
   name: string
   requirement: string
   goal: string
+  memory_library_ids_json?: string | null
   participant_expert_ids_json?: string | null
   coordinator_expert_id?: string | null
   coordinator_agent_id?: string | null
@@ -53,6 +54,7 @@ function transformRun(raw: RustSoloRun): SoloRun {
     name: raw.name,
     requirement: raw.requirement,
     goal: raw.goal,
+    memoryLibraryIds: parseJson<string[]>(raw.memory_library_ids_json) ?? [],
     participantExpertIds: parseJson<string[]>(raw.participant_expert_ids_json) ?? [],
     coordinatorExpertId: raw.coordinator_expert_id || undefined,
     coordinatorAgentId: raw.coordinator_agent_id || undefined,
@@ -130,6 +132,7 @@ export const useSoloRunStore = defineStore('soloRun', () => {
           name: input.name,
           requirement: input.requirement,
           goal: input.goal,
+          memory_library_ids_json: JSON.stringify(input.memoryLibraryIds ?? []),
           participant_expert_ids_json: JSON.stringify(input.participantExpertIds ?? []),
           coordinator_expert_id: input.coordinatorExpertId ?? null,
           coordinator_agent_id: input.coordinatorAgentId ?? null,
@@ -155,6 +158,7 @@ export const useSoloRunStore = defineStore('soloRun', () => {
     if ('name' in updates) input.name = updates.name ?? null
     if ('requirement' in updates) input.requirement = updates.requirement ?? null
     if ('goal' in updates) input.goal = updates.goal ?? null
+    if ('memoryLibraryIds' in updates) input.memory_library_ids_json = updates.memoryLibraryIds ? JSON.stringify(updates.memoryLibraryIds) : null
     if ('participantExpertIds' in updates) input.participant_expert_ids_json = updates.participantExpertIds ? JSON.stringify(updates.participantExpertIds) : null
     if ('coordinatorExpertId' in updates) input.coordinator_expert_id = updates.coordinatorExpertId ?? null
     if ('coordinatorAgentId' in updates) input.coordinator_agent_id = updates.coordinatorAgentId ?? null

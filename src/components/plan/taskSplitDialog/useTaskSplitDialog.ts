@@ -1125,6 +1125,7 @@ async function confirmSplit() {
   }
 
   const planId = splitContext.planId
+  const currentPlan = planStore.plans.find(plan => plan.id === planId) || null
   isConfirming.value = true
 
   try {
@@ -1153,6 +1154,9 @@ async function confirmSplit() {
         implementationSteps: task.implementationSteps,
         testSteps: task.testSteps,
         acceptanceCriteria: task.acceptanceCriteria,
+        memoryLibraryIds: task.memoryLibraryIds?.length
+          ? [...task.memoryLibraryIds]
+          : [...(currentPlan?.memoryLibraryIds ?? [])],
         dependsOn: task.dependsOn,
         order: index
       }

@@ -38,6 +38,7 @@ interface RustTask {
   implementation_steps?: string | string[] // JSON 字符串或数组
   test_steps?: string | string[] // JSON 字符串或数组
   acceptance_criteria?: string | string[] // JSON 字符串或数组
+  memory_library_ids?: string | string[] // JSON 字符串或数组
   block_reason?: string
   input_request?: string | Record<string, unknown> // JSON 字符串或对象
   input_response?: string | Record<string, unknown> // JSON 字符串或对象
@@ -70,6 +71,7 @@ function transformTask(rustTask: RustTask): Task {
   const implementationSteps = parseStringArray(rustTask.implementation_steps)
   const testSteps = parseStringArray(rustTask.test_steps)
   const acceptanceCriteria = parseStringArray(rustTask.acceptance_criteria)
+  const memoryLibraryIds = parseStringArray(rustTask.memory_library_ids)
 
   // 解析 input_request 和 input_response
   const parseJsonValue = (
@@ -114,6 +116,7 @@ function transformTask(rustTask: RustTask): Task {
     implementationSteps,
     testSteps,
     acceptanceCriteria,
+    memoryLibraryIds,
     blockReason: rustTask.block_reason as 'waiting_input' | undefined,
     inputRequest: inputRequest as any,
     inputResponse,
@@ -301,7 +304,8 @@ export const useTaskStore = defineStore('task', () => {
       max_retries: input.maxRetries ?? null,
       implementation_steps: input.implementationSteps ?? null,
       test_steps: input.testSteps ?? null,
-      acceptance_criteria: input.acceptanceCriteria ?? null
+      acceptance_criteria: input.acceptanceCriteria ?? null,
+      memory_library_ids: input.memoryLibraryIds ?? null
     }
 
     try {
@@ -343,6 +347,7 @@ export const useTaskStore = defineStore('task', () => {
     if ('implementationSteps' in updates) input.implementation_steps = updates.implementationSteps ?? null
     if ('testSteps' in updates) input.test_steps = updates.testSteps ?? null
     if ('acceptanceCriteria' in updates) input.acceptance_criteria = updates.acceptanceCriteria ?? null
+    if ('memoryLibraryIds' in updates) input.memory_library_ids = updates.memoryLibraryIds ?? null
     if ('blockReason' in updates) input.block_reason = updates.blockReason ?? null
     if ('inputRequest' in updates) input.input_request = updates.inputRequest ?? null
     if ('inputResponse' in updates) input.input_response = updates.inputResponse ?? null
@@ -650,7 +655,8 @@ export const useTaskStore = defineStore('task', () => {
       max_retries: input.maxRetries ?? null,
       implementation_steps: input.implementationSteps ?? null,
       test_steps: input.testSteps ?? null,
-      acceptance_criteria: input.acceptanceCriteria ?? null
+      acceptance_criteria: input.acceptanceCriteria ?? null,
+      memory_library_ids: input.memoryLibraryIds ?? null
     }))
 
     try {

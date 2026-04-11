@@ -25,6 +25,14 @@ interface ExecutionEventState {
   sawError: boolean
 }
 
+interface ActiveExecution {
+  runId: symbol
+  sessionId: string
+  abortController: AbortController
+  eventState: ExecutionEventState
+  unlistenStream: UnlistenFn | null
+}
+
 function parseToolPayload(value?: string): Record<string, unknown> | undefined {
   if (!value) return undefined
 
@@ -44,9 +52,7 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
   abstract readonly name: string
   protected abstract readonly runtimeKey: AgentRuntimeKey
 
-  private abortController: AbortController | null = null
-  private unlistenStream: UnlistenFn | null = null
-  private currentSessionId: string | null = null
+  private readonly activeExecutions = new Map<string, ActiveExecution>()
 
   supports(agent: AgentConfig): boolean {
     return matchesAgentRuntimeProfile(agent, this.runtimeKey)
@@ -76,22 +82,15 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
       return
     }
 
-    this.currentSessionId = context.sessionId
-    this.abortController = new AbortController()
+    const execution = this.createExecution(context.sessionId)
 
     try {
-      const eventState: ExecutionEventState = {
-        sawMeaningfulOutput: false,
-        sawDone: false,
-        sawError: false
-      }
-
-      this.unlistenStream = await listen<BackendStreamEvent>(
+      execution.unlistenStream = await listen<BackendStreamEvent>(
         this.getEventName(context.sessionId),
         (event) => {
           const streamEvent = this.transformEvent(event.payload)
           if (streamEvent) {
-            this.recordEventState(eventState, streamEvent)
+            this.recordEventState(execution.eventState, streamEvent)
             onEvent(streamEvent)
           }
         }
@@ -109,7 +108,7 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
 
       await invoke('execute_agent', { request })
 
-      await this.waitForTerminalEvent(eventState)
+      await this.waitForTerminalEvent(execution.eventState)
 
       console.info('[AI Execute] done', {
         provider: request.provider,
@@ -117,23 +116,23 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
         sessionId: context.sessionId
       })
     } catch (error) {
-      if (this.abortController?.signal.aborted) {
+      if (execution.abortController.signal.aborted) {
         onEvent({ type: 'done' })
         return
       }
 
-      const eventState = this.getSafeEventState()
+      const eventState = this.getSafeEventState(execution.eventState)
 
       const errorMessage = getErrorMessage(error, '智能体执行失败')
       console.error('[AI Execute] failed', {
         provider: this.name,
-        sessionId: this.currentSessionId,
+        sessionId: context.sessionId,
         error: errorMessage
       })
       void writeFrontendRuntimeLog(
         'ERROR',
         'conversation-frontend',
-        `[AI Execute] failed | provider=${this.name} | sessionId=${this.currentSessionId || ''} | error=${errorMessage}`,
+        `[AI Execute] failed | provider=${this.name} | sessionId=${context.sessionId} | error=${errorMessage}`,
         error
       )
 
@@ -146,14 +145,19 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
         error: errorMessage
       })
     } finally {
-      this.cleanup()
+      this.cleanup(context.sessionId, execution.runId)
     }
   }
 
-  abort(): void {
-    this.abortController?.abort()
-    this.abortExecution()
-    this.cleanup()
+  abort(sessionId?: string): void {
+    if (sessionId) {
+      this.abortExecution(sessionId)
+      return
+    }
+
+    for (const currentSessionId of this.activeExecutions.keys()) {
+      this.abortExecution(currentSessionId)
+    }
   }
 
   protected getEventName(sessionId: string): string {
@@ -279,14 +283,25 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
     }
   }
 
-  private lastEventState: ExecutionEventState = {
-    sawMeaningfulOutput: false,
-    sawDone: false,
-    sawError: false
+  private createExecution(sessionId: string): ActiveExecution {
+    const execution: ActiveExecution = {
+      runId: Symbol(sessionId),
+      sessionId,
+      abortController: new AbortController(),
+      eventState: {
+        sawMeaningfulOutput: false,
+        sawDone: false,
+        sawError: false
+      },
+      unlistenStream: null
+    }
+
+    this.activeExecutions.set(sessionId, execution)
+    return execution
   }
 
-  private getSafeEventState(): ExecutionEventState {
-    return { ...this.lastEventState }
+  private getSafeEventState(state: ExecutionEventState): ExecutionEventState {
+    return { ...state }
   }
 
   private recordEventState(state: ExecutionEventState, event: StreamEvent): void {
@@ -309,13 +324,9 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
       default:
         break
     }
-
-    this.lastEventState = { ...state }
   }
 
   private async waitForTerminalEvent(state: ExecutionEventState): Promise<void> {
-    this.lastEventState = { ...state }
-
     const deadline = Date.now() + (state.sawMeaningfulOutput ? 5000 : 1500)
     while (Date.now() < deadline) {
       if (state.sawDone || state.sawError) {
@@ -325,23 +336,28 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
     }
   }
 
-  private abortExecution(): void {
-    if (!this.currentSessionId) return
+  private abortExecution(sessionId: string): void {
+    const execution = this.activeExecutions.get(sessionId)
+    if (!execution) {
+      return
+    }
 
-    invoke(this.getAbortCommand(), { sessionId: this.currentSessionId }).catch((error) => {
+    execution.abortController.abort()
+    execution.unlistenStream?.()
+    execution.unlistenStream = null
+
+    invoke(this.getAbortCommand(), { sessionId }).catch((error) => {
       console.warn('[AI Execute] abort failed', error)
     })
   }
 
-  private cleanup(): void {
-    this.unlistenStream?.()
-    this.unlistenStream = null
-    this.abortController = null
-    this.currentSessionId = null
-    this.lastEventState = {
-      sawMeaningfulOutput: false,
-      sawDone: false,
-      sawError: false
+  private cleanup(sessionId: string, runId: symbol): void {
+    const execution = this.activeExecutions.get(sessionId)
+    if (!execution || execution.runId !== runId) {
+      return
     }
+
+    execution.unlistenStream?.()
+    this.activeExecutions.delete(sessionId)
   }
 }

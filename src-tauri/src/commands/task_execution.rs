@@ -62,6 +62,8 @@ pub struct PlanExecutionTaskProgress {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanExecutionProgress {
     pub plan_id: String,
+    pub execution_overview: Option<String>,
+    pub execution_overview_updated_at: Option<String>,
     pub total_tasks: i32,
     pub pending_count: i32,
     pub in_progress_count: i32,
@@ -84,6 +86,69 @@ fn parse_json_string_array(value: Option<String>) -> Vec<String> {
         }),
         None => Vec::new(),
     }
+}
+
+fn build_plan_execution_overview(
+    conn: &rusqlite::Connection,
+    plan_id: &str,
+) -> Result<String, String> {
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT title, last_result_status, last_result_summary, last_result_files, last_fail_reason
+            FROM tasks
+            WHERE plan_id = ?1
+              AND last_result_status IS NOT NULL
+            ORDER BY COALESCE(last_result_at, updated_at) ASC, task_order ASC
+            "#,
+        )
+        .map_err(|e| e.to_string())?;
+
+    let lines = stmt
+        .query_map([plan_id], |row| {
+            let title: String = row.get(0)?;
+            let status: Option<String> = row.get(1)?;
+            let summary: Option<String> = row.get(2)?;
+            let files_raw: Option<String> = row.get(3)?;
+            let fail_reason: Option<String> = row.get(4)?;
+            Ok((title, status, summary, parse_json_string_array(files_raw), fail_reason))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|(title, status, summary, files, fail_reason)| {
+            let summary_text = summary.unwrap_or_default().trim().to_string();
+            let files_text = if files.is_empty() {
+                String::new()
+            } else {
+                format!("；文件：{}", files.join("、"))
+            };
+            match status.as_deref() {
+                Some("success") => {
+                    if summary_text.is_empty() {
+                        format!("任务《{}》执行成功{}", title, files_text)
+                    } else {
+                        format!("任务《{}》执行成功：{}{}", title, summary_text, files_text)
+                    }
+                }
+                Some("failed") => {
+                    let reason = fail_reason
+                        .unwrap_or_else(|| summary_text.clone())
+                        .trim()
+                        .to_string();
+                    if reason.is_empty() {
+                        format!("任务《{}》执行失败", title)
+                    } else {
+                        format!("任务《{}》执行失败：{}", title, reason)
+                    }
+                }
+                _ => format!("任务《{}》已记录执行结果", title),
+            }
+        })
+        .collect::<Vec<_>>();
+
+    Ok(lines.join("\n"))
 }
 
 /// 创建任务执行日志
@@ -238,6 +303,25 @@ pub fn save_task_execution_result(
     )
     .map_err(|e| e.to_string())?;
 
+    let execution_overview = build_plan_execution_overview(&conn, &plan_id)?;
+    conn.execute(
+        "UPDATE plans
+         SET execution_overview = ?1,
+             execution_overview_updated_at = ?2,
+             updated_at = ?2
+         WHERE id = ?3",
+        rusqlite::params![
+            if execution_overview.trim().is_empty() {
+                None::<String>
+            } else {
+                Some(execution_overview.clone())
+            },
+            &now,
+            &plan_id
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+
     Ok(TaskExecutionResultRecord {
         id,
         task_id: input.task_id,
@@ -336,8 +420,21 @@ pub fn list_plan_execution_progress(plan_id: String) -> Result<PlanExecutionProg
         .collect::<std::result::Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
 
+    let (execution_overview, execution_overview_updated_at): (
+        Option<String>,
+        Option<String>,
+    ) = conn
+        .query_row(
+            "SELECT execution_overview, execution_overview_updated_at FROM plans WHERE id = ?1",
+            [&plan_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|e| e.to_string())?;
+
     let mut progress = PlanExecutionProgress {
         plan_id,
+        execution_overview,
+        execution_overview_updated_at,
         total_tasks: tasks.len() as i32,
         pending_count: 0,
         in_progress_count: 0,
@@ -453,6 +550,16 @@ pub fn clear_plan_execution_results(plan_id: String) -> Result<i32, String> {
          last_result_files = NULL, last_fail_reason = NULL, last_result_at = NULL
          WHERE plan_id = ?1",
         [&plan_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    tx.execute(
+        "UPDATE plans
+         SET execution_overview = NULL,
+             execution_overview_updated_at = NULL,
+             updated_at = ?1
+         WHERE id = ?2",
+        rusqlite::params![now_rfc3339(), &plan_id],
     )
     .map_err(|e| e.to_string())?;
 
