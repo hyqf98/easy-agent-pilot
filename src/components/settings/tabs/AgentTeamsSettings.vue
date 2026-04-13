@@ -5,7 +5,8 @@ import { useAgentStore } from '@/stores/agent'
 import { useAgentConfigStore } from '@/stores/agentConfig'
 import { useAgentTeamsStore, type AgentExpert, type AgentExpertCategory } from '@/stores/agentTeams'
 import { useNotificationStore } from '@/stores/notification'
-import { inferAgentProvider } from '@/stores/agent'
+import { inferAgentProvider, type CliTool } from '@/stores/agent'
+import DetectedCliToolsBanner from '@/components/settings/agent-settings/DetectedCliToolsBanner.vue'
 
 interface ExpertFormState {
   id?: string
@@ -30,6 +31,7 @@ const { t } = useI18n()
 const searchQuery = ref('')
 const isCreating = ref(false)
 const isSaving = ref(false)
+const addingToolName = ref<string | null>(null)
 
 const emptyForm = (): ExpertFormState => ({
   name: '',
@@ -206,6 +208,20 @@ async function handleSave() {
   }
 }
 
+async function handleQuickAdd(tool: CliTool) {
+  addingToolName.value = tool.name
+  try {
+    await agentStore.addDetectedTool(tool)
+    notificationStore.success(t('settings.agentList.addSuccess'))
+    syncRuntimeAgentSelection()
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    notificationStore.error(t('settings.agentList.addError'), msg)
+  } finally {
+    addingToolName.value = null
+  }
+}
+
 async function handleDelete(expert: AgentExpert) {
   if (expert.isBuiltin) {
     return
@@ -249,6 +265,7 @@ watch(
 
 onMounted(async () => {
   await agentStore.loadAgents()
+  void agentStore.scanCliTools()
   await teamsStore.loadExperts(true)
 
   const initialExpert = teamsStore.selectedExpert || teamsStore.builtinGeneralExpert || teamsStore.experts[0] || null
@@ -337,6 +354,13 @@ onMounted(async () => {
           </button>
         </div>
       </div>
+
+      <DetectedCliToolsBanner
+        class="agent-teams-editor__banner"
+        :tools="agentStore.availableToolsToAdd"
+        :adding-tool-name="addingToolName"
+        @quick-add="handleQuickAdd"
+      />
 
       <div class="editor-grid">
         <label>
@@ -506,6 +530,10 @@ onMounted(async () => {
   margin: 0;
   color: var(--color-text-secondary);
   font-size: 13px;
+}
+
+.agent-teams-editor__banner {
+  margin-bottom: 16px;
 }
 
 .search-input,

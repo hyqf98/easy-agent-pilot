@@ -2,10 +2,14 @@ use anyhow::Result;
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use uuid::Uuid;
 
-use crate::commands::cli_support::{find_cli_executables, get_cli_version};
+use crate::commands::cli_support::{
+    configure_windows_std_command, find_cli_executable, find_cli_executables, get_cli_version,
+};
 
 /// CLI 工具信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,45 +56,128 @@ fn get_db_connection() -> Result<Connection, String> {
 /// 获取不同操作系统的扫描路径
 pub fn get_scan_paths_public() -> Vec<PathBuf> {
     let mut paths = Vec::new();
+    let mut seen = HashSet::new();
     let home = dirs::home_dir();
 
     #[cfg(target_os = "macos")]
     {
-        paths.push(PathBuf::from("/usr/local/bin"));
-        paths.push(PathBuf::from("/opt/homebrew/bin"));
+        push_scan_path(&mut paths, &mut seen, PathBuf::from("/usr/local/bin"));
+        push_scan_path(&mut paths, &mut seen, PathBuf::from("/opt/homebrew/bin"));
         if let Some(h) = &home {
-            paths.push(h.join(".local/bin"));
-            paths.push(h.join("Applications"));
+            push_scan_path(&mut paths, &mut seen, h.join(".local/bin"));
+            push_scan_path(&mut paths, &mut seen, h.join(".npm-global/bin"));
+            push_scan_path(&mut paths, &mut seen, h.join("Applications"));
         }
-        paths.push(PathBuf::from("/Applications"));
+        push_scan_path(&mut paths, &mut seen, PathBuf::from("/Applications"));
     }
 
     #[cfg(target_os = "linux")]
     {
-        paths.push(PathBuf::from("/usr/local/bin"));
-        paths.push(PathBuf::from("/usr/bin"));
+        push_scan_path(&mut paths, &mut seen, PathBuf::from("/usr/local/bin"));
+        push_scan_path(&mut paths, &mut seen, PathBuf::from("/usr/bin"));
         if let Some(h) = &home {
-            paths.push(h.join(".local/bin"));
-            paths.push(h.join(".npm-global/bin"));
+            push_scan_path(&mut paths, &mut seen, h.join(".local/bin"));
+            push_scan_path(&mut paths, &mut seen, h.join(".npm-global/bin"));
         }
-        paths.push(PathBuf::from("/snap/bin"));
+        push_scan_path(&mut paths, &mut seen, PathBuf::from("/snap/bin"));
     }
 
     #[cfg(target_os = "windows")]
     {
         if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
-            paths.push(PathBuf::from(&local_app_data).join("npm"));
-            paths.push(PathBuf::from(&local_app_data).join("Programs"));
+            push_scan_path(
+                &mut paths,
+                &mut seen,
+                PathBuf::from(&local_app_data).join("npm"),
+            );
+            push_scan_path(
+                &mut paths,
+                &mut seen,
+                PathBuf::from(&local_app_data).join("Programs"),
+            );
         }
         if let Ok(app_data) = std::env::var("APPDATA") {
-            paths.push(PathBuf::from(&app_data).join("npm"));
+            push_scan_path(&mut paths, &mut seen, PathBuf::from(&app_data).join("npm"));
         }
         if let Some(h) = &home {
-            paths.push(h.join(".local/bin"));
+            push_scan_path(&mut paths, &mut seen, h.join(".local/bin"));
+        }
+    }
+
+    append_npm_global_bin_paths(&mut paths, &mut seen);
+
+    paths
+}
+
+fn push_scan_path(paths: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, path: PathBuf) {
+    if path.as_os_str().is_empty() {
+        return;
+    }
+
+    if seen.insert(path.clone()) {
+        paths.push(path);
+    }
+}
+
+fn append_npm_global_bin_paths(paths: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>) {
+    for path in resolve_npm_global_bin_paths(paths) {
+        push_scan_path(paths, seen, path);
+    }
+}
+
+fn resolve_npm_global_bin_paths(base_paths: &[PathBuf]) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    let mut seen = HashSet::new();
+
+    for env_name in ["npm_config_prefix", "NPM_CONFIG_PREFIX"] {
+        let Some(prefix) = std::env::var_os(env_name) else {
+            continue;
+        };
+
+        let path = npm_prefix_to_bin_dir(Path::new(&prefix));
+        if seen.insert(path.clone()) {
+            paths.push(path);
+        }
+    }
+
+    if let Some(path) = resolve_npm_global_bin_path_via_command(base_paths) {
+        if seen.insert(path.clone()) {
+            paths.push(path);
         }
     }
 
     paths
+}
+
+fn resolve_npm_global_bin_path_via_command(base_paths: &[PathBuf]) -> Option<PathBuf> {
+    let npm_path = find_cli_executable("npm", base_paths)?;
+    let mut command = Command::new(npm_path);
+    configure_windows_std_command(&mut command);
+    let output = command.args(["prefix", "-g"]).output().ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let prefix = stdout
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())?;
+
+    Some(npm_prefix_to_bin_dir(Path::new(prefix)))
+}
+
+fn npm_prefix_to_bin_dir(prefix: &Path) -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        prefix.to_path_buf()
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        prefix.join("bin")
+    }
 }
 
 /// 检测单个 CLI 工具

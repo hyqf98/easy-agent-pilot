@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::ffi::OsString;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -240,14 +241,54 @@ pub fn find_cli_executable(cli_name: &str, extra_dirs: &[PathBuf]) -> Option<Pat
         .next()
 }
 
-#[cfg(target_os = "windows")]
-pub fn run_cli_command(cli_path: &Path, args: &[&str]) -> std::io::Result<Output> {
-    let resolved_cli_path = if !cli_path.is_absolute() && cli_path.components().count() == 1 {
+fn resolve_command_path(cli_path: &Path) -> PathBuf {
+    if !cli_path.is_absolute() && cli_path.components().count() == 1 {
         find_cli_executable(cli_path.to_string_lossy().as_ref(), &[])
             .unwrap_or_else(|| cli_path.to_path_buf())
     } else {
         cli_path.to_path_buf()
-    };
+    }
+}
+
+fn build_cli_runtime_path(cli_path: &Path) -> Option<OsString> {
+    let cli_dir = cli_path.parent()?;
+    let existing_path = std::env::var_os("PATH");
+    let mut path_entries = Vec::new();
+    let mut seen = HashSet::new();
+
+    if seen.insert(cli_dir.to_path_buf()) {
+        path_entries.push(cli_dir.to_path_buf());
+    }
+
+    if let Some(value) = existing_path {
+        for entry in std::env::split_paths(&value) {
+            if entry.as_os_str().is_empty() {
+                continue;
+            }
+            if seen.insert(entry.clone()) {
+                path_entries.push(entry);
+            }
+        }
+    }
+
+    std::env::join_paths(path_entries).ok()
+}
+
+fn configure_cli_std_command_env(command: &mut Command, cli_path: &Path) {
+    if let Some(path_value) = build_cli_runtime_path(cli_path) {
+        command.env("PATH", path_value);
+    }
+}
+
+fn configure_cli_tokio_command_env(command: &mut TokioCommand, cli_path: &Path) {
+    if let Some(path_value) = build_cli_runtime_path(cli_path) {
+        command.env("PATH", path_value);
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn run_cli_command(cli_path: &Path, args: &[&str]) -> std::io::Result<Output> {
+    let resolved_cli_path = resolve_command_path(cli_path);
     let extension = cli_path
         .extension()
         .and_then(|ext| ext.to_str())
@@ -264,12 +305,14 @@ pub fn run_cli_command(cli_path: &Path, args: &[&str]) -> std::io::Result<Output
     {
         let mut command = Command::new("cmd");
         configure_windows_std_command(&mut command);
+        configure_cli_std_command_env(&mut command, &resolved_cli_path);
         command.arg("/C").arg(&resolved_cli_path);
         command.args(args);
         command.output()
     } else {
         let mut command = Command::new(&resolved_cli_path);
         configure_windows_std_command(&mut command);
+        configure_cli_std_command_env(&mut command, &resolved_cli_path);
         command.args(args);
         command.output()
     }
@@ -277,7 +320,9 @@ pub fn run_cli_command(cli_path: &Path, args: &[&str]) -> std::io::Result<Output
 
 #[cfg(not(target_os = "windows"))]
 pub fn run_cli_command(cli_path: &Path, args: &[&str]) -> std::io::Result<Output> {
-    let mut command = Command::new(cli_path);
+    let resolved_cli_path = resolve_command_path(cli_path);
+    let mut command = Command::new(&resolved_cli_path);
+    configure_cli_std_command_env(&mut command, &resolved_cli_path);
     command.args(args);
     command.output()
 }
@@ -285,13 +330,9 @@ pub fn run_cli_command(cli_path: &Path, args: &[&str]) -> std::io::Result<Output
 #[cfg(target_os = "windows")]
 pub fn build_tokio_cli_command(cli_path: &str, args: &[String]) -> TokioCommand {
     let raw_path = Path::new(cli_path);
-    let resolved_cli_path = if !raw_path.is_absolute() && raw_path.components().count() == 1 {
-        find_cli_executable(cli_path, &[])
-            .map(|path| path.to_string_lossy().to_string())
-            .unwrap_or_else(|| cli_path.to_string())
-    } else {
-        cli_path.to_string()
-    };
+    let resolved_cli_path = resolve_command_path(raw_path)
+        .to_string_lossy()
+        .to_string();
     let extension = raw_path
         .extension()
         .and_then(|ext| ext.to_str())
@@ -308,6 +349,7 @@ pub fn build_tokio_cli_command(cli_path: &str, args: &[String]) -> TokioCommand 
     {
         let mut command = TokioCommand::new("cmd");
         configure_windows_tokio_command(&mut command);
+        configure_cli_tokio_command_env(&mut command, Path::new(&resolved_cli_path));
         command.arg("/C").arg(&resolved_cli_path);
         command.args(args);
         return command;
@@ -315,6 +357,7 @@ pub fn build_tokio_cli_command(cli_path: &str, args: &[String]) -> TokioCommand 
 
     let mut command = TokioCommand::new(&resolved_cli_path);
     configure_windows_tokio_command(&mut command);
+    configure_cli_tokio_command_env(&mut command, Path::new(&resolved_cli_path));
     command.args(args);
     command
 }
@@ -383,33 +426,51 @@ pub fn build_cli_launch_error_message(
 
 #[cfg(not(target_os = "windows"))]
 pub fn build_tokio_cli_command(cli_path: &str, args: &[String]) -> TokioCommand {
-    let mut command = TokioCommand::new(cli_path);
+    let resolved_cli_path = resolve_command_path(Path::new(cli_path));
+    let mut command = TokioCommand::new(&resolved_cli_path);
+    configure_cli_tokio_command_env(&mut command, &resolved_cli_path);
     command.args(args);
     command
 }
 
 pub fn get_cli_version(cli_path: &Path) -> Option<String> {
-    let output = run_cli_command(cli_path, &["--version"]).ok()?;
-    if !output.status.success() {
+    if !cli_path.exists() || cli_path.is_dir() {
         return None;
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if !stdout.is_empty() {
-        return Some(stdout);
+    for args in [["--version"].as_slice(), ["-v"].as_slice(), ["version"].as_slice()] {
+        let Ok(output) = run_cli_command(cli_path, args) else {
+            continue;
+        };
+        if !output.status.success() {
+            continue;
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !stdout.is_empty() {
+            return Some(stdout);
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if !stderr.is_empty() {
+            return Some(stderr);
+        }
     }
 
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    if stderr.is_empty() {
-        None
-    } else {
-        Some(stderr)
-    }
+    None
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_cli_identifier, resolve_cli_name};
+    use super::{get_cli_version, normalize_cli_identifier, resolve_cli_name};
+    #[cfg(unix)]
+    use std::fs;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+    #[cfg(unix)]
+    use std::path::PathBuf;
+    #[cfg(unix)]
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn normalize_cli_identifier_supports_windows_wrappers() {
@@ -453,5 +514,36 @@ mod tests {
             ),
             "codex"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn get_cli_version_supports_env_node_wrappers() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "easy-agent-pilot-cli-support-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp_root).expect("create temp dir");
+
+        let fake_node_path = temp_root.join("node");
+        let fake_cli_path = temp_root.join("codex");
+
+        fs::write(&fake_node_path, "#!/bin/sh\necho \"codex-cli 9.9.9-test\"\n")
+            .expect("write fake node");
+        fs::write(&fake_cli_path, "#!/usr/bin/env node\n").expect("write fake cli");
+
+        let executable_mode = fs::Permissions::from_mode(0o755);
+        fs::set_permissions(&fake_node_path, executable_mode.clone()).expect("chmod node");
+        fs::set_permissions(&fake_cli_path, executable_mode).expect("chmod cli");
+
+        let version = get_cli_version(fake_cli_path.as_path());
+        assert_eq!(version.as_deref(), Some("codex-cli 9.9.9-test"));
+
+        let _ = fs::remove_file(&fake_node_path);
+        let _ = fs::remove_file(&fake_cli_path);
+        let _ = fs::remove_dir(&temp_root);
     }
 }

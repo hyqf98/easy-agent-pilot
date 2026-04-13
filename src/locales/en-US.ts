@@ -875,6 +875,8 @@ export default {
       // Detected tools
       detectedTools: 'Detected available CLI tools',
       quickAdd: 'Quick Add',
+      addSuccess: 'Added successfully!',
+      addError: 'Failed to add agent',
       // Migration related
       migrationTitle: 'Configuration Migration',
       migrationAvailable: 'Detected {n} CLI path configuration(s) to migrate',

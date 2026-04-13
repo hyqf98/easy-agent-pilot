@@ -363,6 +363,12 @@ async fn test_cli_connection(agent: &Agent) -> (bool, String) {
     if !path.exists() {
         return (false, format!("CLI 路径不存在: {}", cli_path));
     }
+    if path.is_dir() {
+        return (
+            false,
+            format!("CLI 路径指向目录而不是可执行文件: {}", cli_path),
+        );
+    }
 
     match get_cli_version(path) {
         Some(version) => (true, format!("连接成功: {}", version)),
