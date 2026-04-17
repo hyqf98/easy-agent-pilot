@@ -20,8 +20,7 @@ export interface AppSettings {
   compressionStrategy: 'simple' | 'smart' | 'summary'
   compressionThreshold: number
   autoCompressionEnabled: boolean
-  planSplitMaxRetries: number
-  conversationMaxRetries: number
+  cliFailureMaxRetries: number
   retryIntervalMinutes: number
 }
 
@@ -47,8 +46,7 @@ export const defaultSettings: AppSettings = {
   compressionStrategy: 'summary',
   compressionThreshold: 80,
   autoCompressionEnabled: true,
-  planSplitMaxRetries: 5,
-  conversationMaxRetries: 5,
+  cliFailureMaxRetries: 5,
   retryIntervalMinutes: 5
 }
 
@@ -139,8 +137,7 @@ export const settingsFieldCodecs: SettingsFieldCodec[] = [
   enumCodec('compressionStrategy', ['simple', 'smart', 'summary'] as const, defaultSettings.compressionStrategy),
   integerCodec('compressionThreshold', defaultSettings.compressionThreshold),
   booleanCodec('autoCompressionEnabled'),
-  integerCodec('planSplitMaxRetries', defaultSettings.planSplitMaxRetries),
-  integerCodec('conversationMaxRetries', defaultSettings.conversationMaxRetries),
+  integerCodec('cliFailureMaxRetries', defaultSettings.cliFailureMaxRetries),
   integerCodec('retryIntervalMinutes', defaultSettings.retryIntervalMinutes)
 ]
 
@@ -158,6 +155,17 @@ export function parseStoredSettings(savedSettings: Record<string, string>): Part
     }
 
     ;(parsedSettings as Record<keyof AppSettings, SettingsValue>)[codec.key] = codec.parse(rawValue)
+  }
+
+  if (parsedSettings.cliFailureMaxRetries === undefined) {
+    const legacyRetryValues = [
+      parseInteger(savedSettings.planSplitMaxRetries ?? '', defaultSettings.cliFailureMaxRetries),
+      parseInteger(savedSettings.conversationMaxRetries ?? '', defaultSettings.cliFailureMaxRetries)
+    ].filter((value) => Number.isFinite(value))
+
+    if (legacyRetryValues.length > 0) {
+      parsedSettings.cliFailureMaxRetries = Math.max(...legacyRetryValues)
+    }
   }
 
   return parsedSettings

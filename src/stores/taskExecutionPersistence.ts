@@ -14,6 +14,7 @@ import {
   createStreamLogEntry,
   FLUSH_INTERVAL_MS,
   FLUSH_THRESHOLD_CHARS,
+  mapRustExecutionLog,
   type PendingLogBuffer
 } from './taskExecutionShared'
 
@@ -141,20 +142,34 @@ export function addStreamLogToBuffer(
 }
 
 export async function persistExecutionLog(input: CreateExecutionLogInput): Promise<ExecutionLogEntry> {
-  const entry = createExecutionLogEntry(input)
-
   try {
-    await invoke('create_task_execution_log', {
+    const persisted = await invoke<RustExecutionLog>('create_task_execution_log', {
       taskId: input.taskId,
       logType: input.type,
       content: input.content,
       metadata: input.metadata ? JSON.stringify(input.metadata) : null
     })
+    return mapRustExecutionLog(persisted)
   } catch (error) {
     console.warn('[TaskExecution] Failed to persist log:', error)
+    return createExecutionLogEntry(input)
   }
+}
 
-  return entry
+export async function updateExecutionLog(
+  id: string,
+  content: string,
+  metadata?: CreateExecutionLogInput['metadata']
+): Promise<void> {
+  try {
+    await invoke('update_task_execution_log', {
+      id,
+      content,
+      metadata: metadata ? JSON.stringify(metadata) : null
+    })
+  } catch (error) {
+    console.warn('[TaskExecution] Failed to update log:', error)
+  }
 }
 
 export async function saveTaskExecutionResultToBackend(input: SaveTaskExecutionResultInput): Promise<void> {

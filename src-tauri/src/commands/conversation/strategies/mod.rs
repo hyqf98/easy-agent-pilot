@@ -1,3 +1,4 @@
+pub(crate) mod abnormal_completion;
 mod claude_cli;
 mod claude_sdk;
 mod cli_common;

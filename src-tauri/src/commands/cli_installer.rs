@@ -11,18 +11,25 @@ use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
-use crate::commands::cli_support::{
-    configure_windows_std_command, find_cli_executable, get_cli_version,
-};
+use crate::commands::cli_support::{find_cli_executable, get_cli_version};
+#[cfg(target_os = "windows")]
+use crate::commands::cli_support::configure_windows_std_command;
 
 /// 安装进行中标�?
 static INSTALLING: AtomicBool = AtomicBool::new(false);
 
 fn create_command(program: &str) -> Command {
-    let mut command = Command::new(program);
     #[cfg(target_os = "windows")]
-    configure_windows_std_command(&mut command);
-    command
+    {
+        let mut command = Command::new(program);
+        configure_windows_std_command(&mut command);
+        command
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Command::new(program)
+    }
 }
 
 /// 包管理器信息

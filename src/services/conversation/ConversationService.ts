@@ -32,6 +32,11 @@ import {
 import { loadAgentMcpServers } from '@/utils/mcpServerConfig'
 import { mergeToolInputArguments } from '@/utils/toolInput'
 import { getErrorMessage } from '@/utils/api'
+import {
+  classifyCliFailureFragments,
+  createCliFailureFragment,
+  type CliFailureMatch
+} from '@/utils/cliFailureMonitor'
 import { recordAgentCliUsageInBackground, resolveRecordedModelId } from '@/services/usage/agentCliUsageRecorder'
 import { buildExpertSystemPrompt, resolveExpertById } from '@/services/agentTeams/runtime'
 import { writeFrontendRuntimeLog } from '@/services/runtimeLog/client'
@@ -57,6 +62,14 @@ interface StreamTimingMetrics {
   firstToolAt?: number
   doneAt?: number
   persistedAt?: number
+}
+
+function removeRuntimeNoticeById(
+  notices: RuntimeNotice[] | undefined,
+  noticeId: string
+): RuntimeNotice[] | undefined {
+  const filtered = notices?.filter(notice => notice.id !== noticeId) ?? []
+  return filtered.length > 0 ? filtered : undefined
 }
 
 const REFERENCED_MEMORY_BLOCK_HEADER = '[用户主动引用的历史记忆]'
@@ -751,6 +764,7 @@ export class ConversationService {
       ?? sessionStore.sessions.find(session => session.id === sessionId)?.projectId
       ?? null
     const runtimeProvider = inferAgentProvider(context.agent) ?? context.agent.provider ?? context.agent.type
+    const runtimeLabel = runtimeProvider.toUpperCase()
 
     if (!context.resumeSessionId || runtimeProvider !== 'codex') {
       this.usageBaselines.delete(sessionId)
@@ -1030,7 +1044,8 @@ export class ConversationService {
      * 统一处理“执行过程中出现失败”的收尾逻辑，覆盖抛异常与 error 事件两种路径。
      */
     const handleFailure = async (errorMessage: string) => {
-      const shouldAutoRetry = this.checkConversationAutoRetry(sessionId, errorMessage)
+      const classifiedFailure = detectCliFailure(errorMessage)
+      const shouldAutoRetry = this.checkConversationAutoRetry(sessionId, classifiedFailure)
       if (shouldAutoRetry) {
         clearScheduledUiFlush()
         pendingUiUpdate = null
@@ -1051,11 +1066,11 @@ export class ConversationService {
         const settingsStore = useSettingsStore()
         const intervalMinutes = settingsStore.settings.retryIntervalMinutes ?? 5
         const retryCount = this.conversationRetryCount.get(sessionId) ?? 0
-        const maxRetries = settingsStore.settings.conversationMaxRetries ?? 5
+        const maxRetries = settingsStore.settings.cliFailureMaxRetries ?? 5
         const retryNotice: RuntimeNotice = {
           id: 'conversation-auto-retry',
           title: '自动重试',
-          content: `自动重试中... 第 ${retryCount}/${maxRetries} 次，${intervalMinutes} 分钟后重试\n原因: ${errorMessage.slice(0, 200)}`,
+          content: `自动重试中... 第 ${retryCount}/${maxRetries} 次，${intervalMinutes} 分钟后重试\n原因: ${(classifiedFailure?.message || errorMessage).slice(0, 200)}`,
           tone: 'warning'
         }
         runtimeNoticesState = upsertRuntimeNotice(runtimeNoticesState, retryNotice)
@@ -1087,6 +1102,19 @@ export class ConversationService {
       recordTimingSummary()
       recordUsageOnce(new Date().toISOString())
       this.finalizeSend(sessionId)
+    }
+
+    const detectCliFailure = (errorMessage?: string | null): CliFailureMatch | null => {
+      const fragments = [
+        createCliFailureFragment('error', errorMessage),
+        createCliFailureFragment('content', accumulatedContent),
+        ...toolCalls.flatMap((toolCall) => [
+          createCliFailureFragment('tool_result', typeof toolCall.result === 'string' ? toolCall.result : undefined),
+          createCliFailureFragment('error', toolCall.errorMessage)
+        ])
+      ].filter((item): item is NonNullable<typeof item> => Boolean(item))
+
+      return classifyCliFailureFragments(runtimeLabel, fragments)
     }
 
     try {
@@ -1284,6 +1312,13 @@ export class ConversationService {
         return
       }
 
+      const abnormalCompletion = detectCliFailure()
+      if (abnormalCompletion && !isAiMessageInterrupted()) {
+        markMetric('doneAt')
+        await handleFailure(abnormalCompletion.message)
+        return
+      }
+
       markMetric('persistedAt')
       recordTimingSummary()
 
@@ -1385,9 +1420,13 @@ export class ConversationService {
   /**
    * 检查主会话是否应自动重试。返回 true 表示应继续等待重试。
    */
-  private checkConversationAutoRetry(sessionId: string, errorMessage: string): boolean {
+  private checkConversationAutoRetry(sessionId: string, failure: CliFailureMatch | null): boolean {
+    if (!failure || failure.kind !== 'retryable') {
+      return false
+    }
+
     const settingsStore = useSettingsStore()
-    const maxRetries = settingsStore.settings.conversationMaxRetries ?? 5
+    const maxRetries = settingsStore.settings.cliFailureMaxRetries ?? 5
     if (maxRetries <= 0) {
       return false
     }
@@ -1401,7 +1440,7 @@ export class ConversationService {
     void writeFrontendRuntimeLog(
       'INFO',
       'conversation-service',
-      `auto-retry scheduled | sessionId=${sessionId} | retry=${currentCount + 1}/${maxRetries} | originalError=${errorMessage.slice(0, 200)}`
+      `auto-retry scheduled | sessionId=${sessionId} | retry=${currentCount + 1}/${maxRetries} | originalError=${failure.message.slice(0, 200)}`
     )
     return true
   }
@@ -1433,6 +1472,7 @@ export class ConversationService {
           thinkingActive: false,
           toolCalls: [],
           editTraces: [],
+          runtimeNotices: removeRuntimeNoticeById(currentMessage.runtimeNotices, 'conversation-auto-retry'),
           errorMessage: '',
           status: 'streaming'
         })

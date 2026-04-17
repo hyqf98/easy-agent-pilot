@@ -2,6 +2,9 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useNotificationStore } from './notification'
+import { useTaskExecutionStore } from './taskExecution'
+import { useTaskStore } from './task'
+import { useTaskSplitStore } from './taskSplit'
 import { getErrorMessage } from '@/utils/api'
 import type { Plan, PlanStatus, PlanExecutionStatus, ScheduleStatus, CreatePlanInput, UpdatePlanInput, AgentRole, PlanSplitMode } from '@/types/plan'
 import { DEFAULT_SPLIT_GRANULARITY } from '@/constants/plan'
@@ -292,17 +295,14 @@ export const usePlanStore = defineStore('plan', () => {
     try {
       // 先清理前端 store 中的相关数据
       // 1. 清理任务执行状态
-      const { useTaskExecutionStore } = await import('./taskExecution')
       const taskExecutionStore = useTaskExecutionStore()
       taskExecutionStore.clearPlanExecution(id)
 
       // 2. 清理任务列表中该计划的任务
-      const { useTaskStore } = await import('./task')
       const taskStore = useTaskStore()
       taskStore.clearPlanTasks(id)
 
       // 3. 清理任务拆分会话
-      const { useTaskSplitStore } = await import('./taskSplit')
       const taskSplitStore = useTaskSplitStore()
       taskSplitStore.clearPlanSplitSessions(id)
 

@@ -1,6 +1,7 @@
 # 仓库协作规范
 
 ## 项目概览
+
 本项目是 `Tauri 2 + Vue 3 + TypeScript + Rust` 的桌面应用。
 
 - 前端开发服务使用 Vite，固定端口为 `1430`
@@ -9,314 +10,78 @@
 - Tauri 调试态启用了 `tauri-plugin-mcp-bridge`
 - Tauri MCP Bridge 基准端口为 `9423`
 
-开发、联调、自动化测试时，默认按“前端 1430 + Tauri 2 宿主 + MCP Bridge 9423”理解当前运行环境，不要自行改成其他端口，除非任务明确要求。
+开发、联调、自动化测试时，默认按"前端 1430 + Tauri 2 宿主 + MCP Bridge 9423"理解当前运行环境，不要自行改成其他端口，除非任务明确要求。
 
-## 快速索引
+---
 
-### 前端入口速查
-- 工作台主页
-  `src/views/HomeView.vue`、`src/components/layout/MainLayout.vue`、`src/components/layout/PanelContainer.vue`
-- 主会话与消息区
-  `src/components/layout/SessionPanel.vue`、`src/components/layout/ConversationComposer.vue`、`src/components/layout/MessageArea.vue`、`src/components/message/MessageBubble.vue`
-- 计划列表与执行
-  `src/components/plan/PlanList.vue`、`src/components/plan/TaskBoard.vue`、`src/components/plan/TaskExecutionLog.vue`、`src/components/plan/TaskEditModal.vue`
-- 计划拆分
-  `src/components/plan/TaskSplitDialog.vue`、`src/components/plan/taskSplitDialog/useTaskSplitDialog.ts`
-- 文件树与文件编辑
-  `src/components/fileTree/FileTree.vue`、`src/modules/file-editor/components/FileEditorWorkspace.vue`
-- SOLO 单兵执行
-  `src/components/solo/SoloModePanel.vue`、`src/components/solo/SoloExecutionLogPanel.vue`、`src/components/solo/SoloRunCreateDialog.vue`
-- 无人值守
-  `src/components/unattended/UnattendedPanel.vue`、`src/components/settings/tabs/UnattendedSettings.vue`
-- 设置中心
-  `src/views/SettingsView.vue`、`src/components/settings/SettingsNav.vue`、`src/components/settings/settingsTabs.ts`
-- Agent / MCP / Skill / Plugin 配置
-  `src/components/agent/`、`src/components/skill-config/`、`src/components/marketplace/`
+## 文档索引
 
-### 大组件拆分索引
-- 主会话 sidecar
-  `src/components/layout/conversationComposer/`、`src/components/layout/messageArea/`、`src/components/layout/sessionPanel/`
-- 消息渲染 sidecar
-  `src/components/message/messageBubble/`、`src/components/message/messageList/`
-- 计划模块 sidecar
-  `src/components/plan/planList/`、`src/components/plan/taskBoard/`、`src/components/plan/taskEditModal/`、`src/components/plan/taskExecutionLog/`、`src/components/plan/taskSplitDialog/`
-- 文件树 sidecar
-  `src/components/fileTree/`
-- 记忆模块 sidecar
-  `src/components/memory/memoryModePanel/`
-- 设置模块 sidecar
-  `src/components/settings/tabs/agentCliUsageSettings/`
-- SOLO sidecar
-  `src/components/solo/soloModePanel/`
-- 无人值守 sidecar
-  `src/components/unattended/unattendedPanel/`
+以下文档从本文件拆分出去，各自聚焦一个领域，修改时只需编辑对应文件：
 
-### 后端入口速查
-- Tauri 应用入口
-  `src-tauri/src/lib.rs`
-- 会话执行命令
-  `src-tauri/src/commands/conversation/`
-- 计划 / 任务 / 拆分命令
-  `src-tauri/src/commands/plan.rs`、`src-tauri/src/commands/plan_split.rs`、`src-tauri/src/commands/task.rs`、`src-tauri/src/commands/task_execution.rs`
-- 设置 / Agent / Marketplace / 无人值守命令
-  `src-tauri/src/commands/settings.rs`、`src-tauri/src/commands/agent*.rs`、`src-tauri/src/commands/*market*.rs`、`src-tauri/src/commands/unattended.rs`
+| 文档 | 内容 | 路径 |
+|------|------|------|
+| 模块与目录说明 | 前后端模块职责、目录结构、业务入口、sidecar 索引 | [docs/modules.md](docs/modules.md) |
+| 前端开发风格指南 | Vue 组件结构、Pinia Store、Composable、样式管理、Tauri IPC、注释标准 | [docs/frontend-style.md](docs/frontend-style.md) |
+| 后端开发风格指南 | Rust 命令结构、数据库访问、多线程、错误处理、设计模式、注释标准 | [docs/backend-style.md](docs/backend-style.md) |
 
-## 目录与模块说明
-
-### AgentTeams 与专家运行时
-- 本项目已引入 `AgentTeams / Expert` 机制。主会话、计划拆分、任务执行都允许绑定“专家”而不是只绑定底层 CLI。
-- 专家层负责提示词、默认模型、角色分工；运行时层负责 Claude CLI / Codex CLI 等具体执行器。修改链路时必须同时考虑“专家选择 + 运行时选择 + 模型选择”的组合。
-- 主会话、计划拆分、任务执行中出现的上下文策略提示、运行时提示、token 统计都属于同一条执行链，前后端字段必须保持一致，不能只改展示层。
-- 动态表单属于专家交互协议的一部分。`form_request`、`form_response`、继续拆分、继续执行、停止后恢复都必须视为一套完整状态机。
-
-### 前端模块
-`src/` 为前端主目录，按业务域拆分，而不是按纯技术层堆叠。
-
-- 大文件拆分约定
-  超过约 1000 行的 Vue 组件优先拆为 `Component.vue + camelCase 目录 + useXxx.ts + styles.css`。
-  新增 sidecar 目录和文件统一使用 camelCase，避免再出现 `use-task-edit-modal` 这类横杆命名。
-
-- `src/views/`
-  路由级页面入口。当前包含主页工作台、设置页、MCP 测试页、Mini Panel 页面。
-- `src/components/layout/`
-  主工作区骨架。负责顶部栏、侧边导航、项目区、会话区、消息区、统一面板、文件编辑器切换。
-  关键文件：`MainLayout.vue`、`PanelContainer.vue`、`SessionPanel.vue`、`ConversationComposer.vue`、`MessageArea.vue`。
-- `src/components/settings/`
-  设置中心。当前菜单包括：通用设置、智能体设置、Agent 配置、无人值守、Marketplace、Provider Switch、会话管理、主题、LSP、数据管理、日志管理、软件更新、Token 统计。
-  关键文件：`tabs/AgentCliUsageSettings.vue`、`tabs/agentCliUsageSettings/useAgentCliUsageSettings.ts`、`tabs/agentCliUsageSettings/chartUtils.ts`。
-- `src/components/plan/`
-  计划模式核心模块。负责计划列表、计划新建/编辑、任务拆分、拆分预览、任务看板、任务详情、计划进度、执行日志、继续拆分等流程。
-  关键文件：`PlanList.vue`、`TaskBoard.vue`、`TaskSplitDialog.vue`、`TaskExecutionLog.vue`、`TaskEditModal.vue`。
-- `src/components/memory/`
-  记忆模式模块。负责记忆库、原始记忆池、AI 合并、批量删除、Markdown 记忆维护。
-  关键文件：`MemoryModePanel.vue`、`memoryModePanel/useMemoryModePanel.ts`。
-- `src/components/message/`
-  会话消息渲染模块。负责消息气泡、Markdown 渲染、Thinking 展示、工具调用展示、执行时间线、结构化结果渲染。
-  关键文件：`MessageBubble.vue`、`MessageList.vue`、`messageList/useMessageList.ts`、`MarkdownRenderer.vue`、`ToolCallRenderer.vue`、`ThinkingBlock.vue`。
-- `src/components/unattended/`
-  无人值守渠道模块。负责微信渠道创建、扫码登录、监听状态管理、默认项目 / Agent / 模型绑定、远程线程日志回看。
-  关键文件：`UnattendedPanel.vue` 及其 `unattendedPanel/` sidecar 目录。
-- `src/components/marketplace/`
-  市场模块。负责 MCP、Skill、Plugin 的列表、详情、安装、启停、更新入口。
-- `src/components/skill-config/`
-  Agent 维度的 MCP / Skill / Plugin 配置中心，包含配置列表、编辑器、文件工作区、详情侧栏等。
-  关键文件：`SkillConfigPage.vue`、`modals/CliConfigSyncModal.vue`、`common/ConfigFileWorkspace.vue`、`views/PluginDetailView.vue`。
-- `src/components/fileTree/`
-  项目文件树与文件操作模块，负责重命名、移动、删除、上下文菜单等。
-  关键文件：`FileTree.vue`、`FileTreeContextMenu.vue`、`FileTreeCreateDialog.vue`、`FileTreeRenameDialog.vue`。
-- `src/components/agent/`
-  智能体配置与模型管理模块，负责 Agent 表单、模型编辑、Claude 配置扫描等。
-- `src/components/project/`
-  项目创建与项目入口相关组件。
-- `src/components/common/`
-  通用 UI 组件库，如按钮、输入框、弹窗、选择器、图标、骨架屏、进度条、提示组件。
-- `src/modules/file-editor/`
-  文件编辑子系统。基于 Monaco，负责编辑器工作区、语言策略、文件编辑服务、LSP 接入。
-  关键文件：`components/FileEditorWorkspace.vue`、`components/MonacoCodeEditor.vue`、`services/fileEditorService.ts`、`services/lspService.ts`。
-- `src/stores/`
-  Pinia 状态管理层。覆盖项目、会话、消息、计划、任务、任务执行、设置、主题、窗口状态、记忆、Marketplace、Agent 配置、Provider Profile、应用更新、无人值守渠道、CLI 用量统计等状态。
-- `src/services/appUpdate/`
-  应用更新服务层。负责版本读取、更新检查、下载进度、安装与重启策略适配。
-- `src/services/conversation/`
-  会话执行服务层。统一封装 Claude/Codex 的 CLI 与 SDK 执行策略、消息构建、执行器、文件追踪。
-- `src/services/plan/`
-  计划编排服务层。负责任务拆分编排、动态表单、执行进度管理、计划提示词。
-- `src/services/memory/`
-  记忆合并服务层，负责原始记忆压缩、项目记忆提示词、记忆库合成逻辑。
-- `src/services/compression/`
-  会话压缩能力，负责长上下文压缩与压缩结果组织。
-- `src/services/unattended/`
-  无人值守服务层。负责渠道 CRUD、微信登录、运行时状态查询、线程上下文更新、消息事件记录与远程发送。
-- `src/services/usage/`
-  CLI 用量服务层。负责从会话、任务拆分、任务执行流程中提取 token 使用数据并异步入库。
-- `src/composables/`
-  组合式逻辑封装，如消息编辑、会话视图、快捷键、异步操作、对话框、外部点击处理等。
-- `src/router/`
-  路由定义与页面标题更新逻辑。
-- `src/locales/`
-  中英文文案资源。
-- `src/types/`
-  统一类型定义，如计划、任务执行、记忆、时间线、文件追踪等。
-- `src/utils/`
-  工具层，负责日志、校验、MCP 配置、会话工具输入、计划执行文本、结构化内容转换等。
-- `src/styles/`
-  全局样式、变量与动画定义。
-
-### 当前页面与业务入口说明
-- 主会话
-  位于主页工作台，核心由 `MainLayout`、`PanelContainer`、`SessionTabs`、`MessageArea` 组成，用于项目上下文下的多会话对话、消息展示和文件编辑切换。
-  同时负责专家切换、运行时提示、动态表单渲染、记忆引用、压缩提示与 token 展示。
-  关键文件：`src/components/layout/SessionPanel.vue`、`src/components/layout/ConversationComposer.vue`、`src/components/layout/MessageArea.vue`。
-- 菜单设置
-  入口在顶部 `AppHeader` 设置按钮，进入 `SettingsView`。设置导航由 `SettingsNav` 和 `settingsTabs.ts` 管理，当前覆盖通用设置、Agent 配置、无人值守、技能市场、Provider Switch、会话管理、主题、LSP、数据管理、日志管理、软件更新、Token 统计等页签。
-- 计划拆分
-  从计划列表进入，核心弹窗为 `TaskSplitDialog`。该流程负责 AI 拆分、表单补充、停止 / 继续拆分、拆分预览、二次拆分、确认生成任务。
-  关键文件：`src/components/plan/TaskSplitDialog.vue`、`src/components/plan/taskSplitDialog/useTaskSplitDialog.ts`。
-- 计划执行
-  由 `TaskBoard`、`KanbanColumn`、`TaskExecutionLog`、`PlanProgressDetail` 组成。支持待办执行、一键执行、暂停、恢复、失败重试、日志查看，以及任务改派专家 / 模型后的继续执行。
-  关键文件：`src/components/plan/TaskBoard.vue`、`src/components/plan/TaskExecutionLog.vue`、`src/components/plan/TaskEditModal.vue`。
-- 记忆管理
-  由 `MemoryModePanel` 负责，支持记忆库维护、原始记忆筛选、批量删除、AI 合并入库。
-  关键文件：`src/components/memory/MemoryModePanel.vue`、`src/components/memory/memoryModePanel/useMemoryModePanel.ts`。
-- 无人值守
-  入口在设置中心 `UnattendedSettings`。核心由 `UnattendedPanel` 组成，负责微信渠道创建、扫码登录、默认项目 / Agent / 模型绑定、监听状态控制、线程日志回看。
-  关键文件：`src/components/unattended/UnattendedPanel.vue`、`src/components/settings/tabs/UnattendedSettings.vue`。
-- SOLO 单兵执行
-  入口在工作台的 SOLO 模式区域，核心由 `SoloModePanel`、`SoloRunList`、`SoloExecutionLogPanel` 组成，负责单兵运行的创建、调度、时间线和日志查看。
-  关键文件：`src/components/solo/SoloModePanel.vue`、`src/components/solo/SoloRunCreateDialog.vue`、`src/components/solo/SoloExecutionLogPanel.vue`。
-- 软件更新
-  入口在设置中心 `AppUpdateSettings`。负责读取当前版本、检查 GitHub Release 更新、展示下载进度并触发安装。
-- Token 统计
-  入口在设置中心 `AgentCliUsageSettings`。负责聚合 Claude CLI / Codex CLI 的调用次数、输入输出 Token、费用估算与趋势排行。
-  关键文件：`src/components/settings/tabs/AgentCliUsageSettings.vue`、`src/components/settings/tabs/agentCliUsageSettings/useAgentCliUsageSettings.ts`、`src/components/settings/tabs/agentCliUsageSettings/chartUtils.ts`。
-
-### 后端模块
-`src-tauri/src/` 为 Tauri 2 Rust 后端。
-
-- `src-tauri/src/lib.rs`
-  Tauri 应用入口。负责插件注册、命令注册、数据库初始化、日志初始化、计划调度恢复、MCP Bridge 启动。
-- `src-tauri/src/database/`
-  数据库初始化与表结构准备逻辑，当前持久化核心为本地 SQLite。
-- `src-tauri/src/logging.rs`
-  运行时日志初始化与日志写入。
-- `src-tauri/src/scheduler/`
-  计划调度模块，负责定时计划恢复、定时触发与后台调度。
-- `src-tauri/src/commands/agent.rs`
-  智能体管理命令。
-- `src-tauri/src/commands/agent_config.rs`
-  Agent 关联的 MCP、Skill、Plugin、Model 配置命令。
-- `src-tauri/src/commands/app_state.rs`
-  应用状态读写命令。
-- `src-tauri/src/commands/cli.rs`
-  CLI 工具检测、路径管理、迁移等命令。
-- `src-tauri/src/commands/cli_config.rs`
-  CLI 配置文件读写与同步命令。
-- `src-tauri/src/commands/cli_installer.rs`
-  CLI 安装、升级、取消安装等命令。
-- `src-tauri/src/commands/conversation/`
-  会话执行后端能力，负责 Claude/Codex CLI/SDK 执行、流式输出、中断、执行策略与统一执行器。
-- `src-tauri/src/commands/data.rs`
-  数据导出、导入、清空、统计命令。
-- `src-tauri/src/commands/file_editor.rs`
-  项目文件读取、写入、语言识别命令。
-- `src-tauri/src/commands/install.rs`
-  安装会话记录、回滚、安装状态维护命令。
-- `src-tauri/src/commands/lsp.rs`
-  LSP 服务下载、移除、激活等命令。
-- `src-tauri/src/commands/marketplace.rs`
-  市场源管理命令。
-- `src-tauri/src/commands/mcp.rs`
-  MCP Server 管理、测试、工具调用命令。
-- `src-tauri/src/commands/mcp_market.rs`
-  MCP 市场拉取、安装、启停、卸载、更新命令。
-- `src-tauri/src/commands/mcpmarket_source.rs`
-  MCP 市场源选项与来源处理命令。
-- `src-tauri/src/commands/memory.rs`
-  记忆库、原始记忆、记忆合并命令。
-- `src-tauri/src/commands/message.rs`
-  消息 CRUD、清空、图片上传命令。
-- `src-tauri/src/commands/mini_panel.rs`
-  Mini Panel 显示、隐藏、目录、快捷键等命令。
-- `src-tauri/src/commands/mini_panel_windows_shortcut.rs`
-  Mini Panel 在 Windows 下的快捷键注册与原生钩子处理命令。
-- `src-tauri/src/commands/plan.rs`
-  计划 CRUD、计划状态、计划调度命令。
-- `src-tauri/src/commands/plan_split.rs`
-  计划拆分会话、拆分日志、开始/继续/停止拆分、提交表单命令。
-- `src-tauri/src/commands/plugins_market.rs`
-  插件市场拉取、安装、启停、卸载命令。
-- `src-tauri/src/commands/project.rs`
-  项目 CRUD、目录校验、文件列举、文件移动删除重命名命令。
-- `src-tauri/src/commands/project_access.rs`
-  最近项目访问记录命令。
-- `src-tauri/src/commands/provider_profile.rs`
-  Provider Profile 管理与切换命令。
-- `src-tauri/src/commands/runtime_log.rs`
-  运行日志摘要、文件列表、内容读取、清理命令。
-- `src-tauri/src/commands/scan.rs`
-  CLI 配置、MCP、会话扫描命令。
-- `src-tauri/src/commands/scan_session_shared.rs`
-  会话扫描复用查询与结构转换逻辑。
-- `src-tauri/src/commands/scan_shared.rs`
-  扫描链路通用结构、路径与排序辅助逻辑。
-- `src-tauri/src/commands/session.rs`
-  会话 CRUD、置顶命令。
-- `src-tauri/src/commands/settings.rs`
-  应用设置读写命令。
-- `src-tauri/src/commands/skill_plugin.rs`
-  Skill / Plugin 文件读写与脚手架命令。
-- `src-tauri/src/commands/skills_market.rs`
-  Skill 市场拉取、安装、启停、卸载、更新命令。
-- `src-tauri/src/commands/task.rs`
-  任务 CRUD、排序、重试、批量更新、拆分会话存储命令。
-- `src-tauri/src/commands/task_execution.rs`
-  任务执行日志、执行结果、计划执行进度命令。
-- `src-tauri/src/commands/unattended.rs`
-  无人值守渠道、账号、线程、事件、运行时管理与远程消息发送命令。
-- `src-tauri/src/commands/window.rs`
-  多窗口与会话锁定相关命令。
+---
 
 ## 开发约束
 
 ### 通用原则
+
 - 所有变更优先遵守现有业务结构与命名风格，不要顺手做无关重构。
 - 任何新增功能先判断应放入现有业务域，优先复用现有 store、service、command、component。
 - 前后端都要优先写可读代码，避免炫技式抽象。
 
 ### 代码风格要求
+
 - 禁止出现过深 `if` 嵌套。优先使用卫语句、提前返回、状态映射、策略分发。
 - 同类分支逻辑超过 3 个时，优先考虑 `enum`、常量映射、策略模式、工厂模式，而不是继续堆 `if/else if`。
 - 跨平台差异、Provider 差异、Agent 差异、执行策略差异，优先使用设计模式封装，禁止把差异逻辑散落在页面或命令入口里。
 - 共享字符串、状态值、事件名、命令名、路由名、表单字段名，优先抽成常量或枚举，禁止魔法字符串满天飞。
 - 公共数据结构必须先定义类型，再落地实现，禁止大量 `any`、隐式对象、无约束返回值。
-- 复杂流程要拆为“小函数 + 主流程编排”，不要让单个函数承担过多职责。
+- 复杂流程要拆为"小函数 + 主流程编排"，不要让单个函数承担过多职责。
 - Vue 组件保持单一职责。页面组件负责装配，复杂业务逻辑优先下沉到 store / composable / service。
 - Rust 命令层只负责输入输出编排，数据库访问、执行策略、状态判断优先下沉到可复用函数。
 
 ### 设计建议
+
 - Provider、CLI、SDK、不同 Agent 的执行流程优先使用策略模式。
 - 市场安装、回滚、升级、同步等流程优先使用命令模式或服务对象封装。
 - 会话状态、计划状态、执行状态优先使用枚举和显式状态流转，禁止散乱布尔值堆叠。
 - 表单、任务拆分、执行时间线等动态流程优先采用配置驱动和映射表，而不是硬编码分支。
 
-## 注释规范
-
-### 前端注释要求
-- Vue 组件、Pinia store、composable、service 中的公共方法、异步编排、复杂状态流转必须写标准注释。
-- 组件注释要说明“用途、关键依赖、主要事件或状态”。
-- store action 注释要说明“输入、输出、副作用、依赖的 Tauri 命令”。
-- service / composable 注释要说明“封装目的、适用范围、关键边界条件”。
-- 对明显简单的赋值或模板渲染不要写废话注释。
-- 推荐使用 JSDoc 风格，例如 `/** 重新加载当前计划任务，并保持当前选中态 */`。
-
-### 后端注释要求
-- `pub` 级别结构体、枚举、函数、Tauri command 必须使用 Rust 文档注释 `///`。
-- 命令注释至少说明“用途、主要参数、返回值、关键副作用”。
-- 涉及数据库写入、文件写入、进程调用、网络请求、调度恢复时，必须说明边界与风险。
-- 私有复杂逻辑使用简洁行注释 `//`，解释为什么这样做，不要解释表面代码。
+---
 
 ## 开发与提交流程
+
 - 修改前先确认变更属于前端、后端还是跨端联动。
 - 涉及 UI 的功能开发，必须同步检查会话页、计划页、设置页是否受影响。
 - 涉及计划拆分或任务执行的改动，必须考虑创建、继续、停止、重试、日志、结果回写链路。
 - 涉及设置项或 Provider 配置的改动，必须考虑持久化、初始化加载、切换回显。
 - 提交信息建议使用简短 Conventional Commit 风格，如 `fix: 修复计划继续拆分状态异常`、`feat: 新增日志筛选能力`。
 
+---
+
 ## 测试要求
 
 ### 基础要求
-- 所有变更至少满足“编译通过”。
+
+- 所有变更至少满足"编译通过"。
 - 前端改动后至少执行 `pnpm build`。
 - 后端或跨端改动后至少执行 `cargo check --manifest-path src-tauri/Cargo.toml`。
 - 涉及 Vue 组件、store、composable 的改动，补充执行 `pnpm lint`。
 
 ### Tauri MCP 验证要求
+
 - 所有页面级改动都必须使用 Tauri MCP 做页面访问验证，至少确认对应页面可以正常打开、主要区域正常渲染、无明显报错。
 - 涉及设置菜单、主会话、计划拆分、计划执行、记忆管理、Marketplace 的改动，必须使用 Tauri MCP 实际进入对应页面或弹窗验证。
 - 如果是功能开发，不接受只看代码不走流程，必须使用 Tauri MCP 自动化工具完成全流程验证。
 - 涉及专家切换、运行时切换、动态表单、上下文策略提示、压缩提示、token 进度的改动，必须验证 UI 展示、实际执行、日志 / 状态回写三者一致。
 
 ### 全流程验证要求
+
 - 主会话相关改动：至少验证项目进入、会话切换、消息区展示、必要操作按钮可用。
 - 主会话涉及专家链路时：至少验证专家切换、运行时提示、动态表单请求 / 提交、表单提交后的消息状态清理、记忆引用和压缩 / token 展示。
 - 设置相关改动：至少验证设置入口、对应菜单页签、表单项读写或展示正常。
@@ -326,7 +91,10 @@
 - 涉及任务状态拖拽或跨列变更的改动：必须验证列位置、任务状态、计划汇总数字、详情面板状态和执行日志显示保持一致。
 - 涉及 Claude / Codex 双运行时的改动：如果改动覆盖运行时选择或上下文构建，至少各验证一条真实链路；若受环境限制无法双跑，必须在结论里明确说明未覆盖原因。
 
+---
+
 ## 安全与清理
+
 - 禁止提交本机日志、运行截图、临时测试文件、导出数据、数据库文件、密钥和机器相关配置。
 - 修改 `src-tauri/src/commands/`、数据库初始化逻辑、安装回滚逻辑时，必须优先考虑数据安全和可回滚性。
 - 除非任务明确要求，否则不要改动端口、持久化目录结构、数据库关键字段和 Tauri 权限配置。

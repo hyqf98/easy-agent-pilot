@@ -5,6 +5,7 @@ import type { AgentConfig } from '@/stores/agent'
 import { inferAgentProvider, useAgentStore } from '@/stores/agent'
 import { useAgentTeamsStore } from '@/stores/agentTeams'
 import { useProjectStore } from '@/stores/project'
+import { useSettingsStore } from '@/stores/settings'
 import { useSoloRunStore } from './soloRun'
 import { agentExecutor } from '@/services/conversation/AgentExecutor'
 import type { ConversationContext, McpServerConfig, StreamEvent } from '@/services/conversation/strategies/types'
@@ -56,8 +57,14 @@ import type {
 import type { ExecutionLogMetadata } from '@/types/taskExecution'
 import type { ToolCall } from '@/stores/message'
 import type { AgentRuntimeKey } from '@/services/conversation/runtimeProfiles'
+import {
+  classifyCliFailureFragments,
+  createCliFailureFragment,
+  type CliFailureMatch
+} from '@/utils/cliFailureMonitor'
 
 const SOLO_STOPPED_ERROR = '__SOLO_STOPPED__'
+const SOLO_CLI_FAILURE_RETRY_DELAY_MS = 10_000
 
 interface RustSoloStep {
   id: string
@@ -98,6 +105,12 @@ function parseJson<T>(raw?: string | null): T | undefined {
   } catch {
     return undefined
   }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
 }
 
 function transformStep(raw: RustSoloStep): SoloStep {
@@ -216,6 +229,7 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
   const stepsByRun = ref<Map<string, SoloStep[]>>(new Map())
   const executionStates = ref<Map<string, SoloExecutionState>>(new Map())
   const stopRequestedRunIds = ref<Set<string>>(new Set())
+  const pendingLogWrites = new Map<string, Set<Promise<unknown>>>()
 
   const getSteps = computed(() => (runId: string) => stepsByRun.value.get(runId) ?? [])
   const getExecutionState = computed(() => (runId: string) => executionStates.value.get(runId))
@@ -242,8 +256,68 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
     return state
   }
 
+  function trackPendingLogWrite<T>(runId: string, task: Promise<T>): Promise<T> {
+    let tasks = pendingLogWrites.get(runId)
+    if (!tasks) {
+      tasks = new Set()
+      pendingLogWrites.set(runId, tasks)
+    }
+
+    const tracked = task.finally(() => {
+      const currentTasks = pendingLogWrites.get(runId)
+      currentTasks?.delete(tracked)
+      if (currentTasks && currentTasks.size === 0) {
+        pendingLogWrites.delete(runId)
+      }
+    })
+
+    tasks.add(tracked)
+    return tracked
+  }
+
+  async function waitForPendingLogWrites(runId: string): Promise<void> {
+    const tasks = pendingLogWrites.get(runId)
+    if (!tasks || tasks.size === 0) {
+      return
+    }
+
+    await Promise.allSettled(Array.from(tasks))
+  }
+
   function setSteps(runId: string, steps: SoloStep[]): void {
     stepsByRun.value.set(runId, steps.sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()))
+  }
+
+  function detectSoloCliFailure(
+    runId: string,
+    runtimeLabel: string,
+    options: {
+      errorMessage?: string | null
+      logStartIndex?: number
+    } = {}
+  ): CliFailureMatch | null {
+    const state = executionStates.value.get(runId)
+    if (!state) {
+      return null
+    }
+
+    const logStartIndex = options.logStartIndex ?? 0
+    const fragments = [
+      createCliFailureFragment('error', options.errorMessage),
+      createCliFailureFragment('content', state.accumulatedContent),
+      ...state.logs.slice(logStartIndex).flatMap((log) => [
+        createCliFailureFragment(
+          log.type === 'error' ? 'error' : log.type === 'tool_result' ? 'tool_result' : log.type === 'system' ? 'system' : 'content',
+          log.content
+        )
+      ]),
+      ...state.toolCalls.flatMap((toolCall) => [
+        createCliFailureFragment('tool_result', typeof toolCall.result === 'string' ? toolCall.result : undefined),
+        createCliFailureFragment('error', toolCall.errorMessage)
+      ])
+    ].filter((item): item is NonNullable<typeof item> => Boolean(item))
+
+    return classifyCliFailureFragments(runtimeLabel, fragments)
   }
 
   async function loadSteps(runId: string): Promise<SoloStep[]> {
@@ -339,6 +413,20 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
     const log = transformLog(rawLog)
     initExecutionState(input.runId).logs.push(log)
     return log
+  }
+
+  async function updateLog(
+    id: string,
+    content: string,
+    metadata?: CreateSoloLogInput['metadata']
+  ): Promise<void> {
+    await invoke('update_solo_log', {
+      id,
+      content,
+      metadata: metadata ? JSON.stringify(metadata) : null
+    }).catch((error) => {
+      console.warn('[SoloExecution] Failed to update log:', error)
+    })
   }
 
   function updateTokenUsage(runId: string, usage: Pick<StreamEvent, 'inputTokens' | 'outputTokens' | 'model'>, requestedModelId?: string | null) {
@@ -552,6 +640,9 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
     state.sessionId = sessionId
     const turnTokens = { inputTokens: 0, outputTokens: 0, model: undefined as string | undefined }
     let latestExternalSessionId = resumeSessionId
+    const settingsStore = useSettingsStore()
+    const maxCliRetries = settingsStore.settings.cliFailureMaxRetries ?? 5
+    const runtimeFailureLabel = runtimeLabel
 
     const contextNotice = buildContextStrategyNotice({
       strategy,
@@ -594,35 +685,117 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
       resumeSessionId
     }
 
-    let fullContent = ''
+    let fullContent: string
 
     try {
-      await agentExecutor.execute(context, (event) => {
-        if (event.inputTokens !== undefined || event.outputTokens !== undefined || event.model) {
-          updateTokenUsage(run.id, event, agent.modelId)
-          if (typeof event.inputTokens === 'number') turnTokens.inputTokens = event.inputTokens
-          if (typeof event.outputTokens === 'number') turnTokens.outputTokens = event.outputTokens
-          if (event.model) turnTokens.model = event.model
-        }
+      let cliRetryCount = 0
+      let cliRetryLogId: string | null = null
 
-        if (event.externalSessionId?.trim()) {
-          latestExternalSessionId = event.externalSessionId.trim()
-          if (runtimeBindingKey) {
-            void upsertSoloRuntimeBinding(run.id, runtimeBindingKey, latestExternalSessionId)
+      while (true) {
+        const logStartIndex = state.logs.length
+        state.accumulatedContent = ''
+        state.accumulatedThinking = ''
+        state.toolCalls = []
+        fullContent = ''
+
+        try {
+          await agentExecutor.execute(context, (event) => {
+            if (event.inputTokens !== undefined || event.outputTokens !== undefined || event.model) {
+              updateTokenUsage(run.id, event, agent.modelId)
+              if (typeof event.inputTokens === 'number') turnTokens.inputTokens = event.inputTokens
+              if (typeof event.outputTokens === 'number') turnTokens.outputTokens = event.outputTokens
+              if (event.model) turnTokens.model = event.model
+            }
+
+            if (event.externalSessionId?.trim()) {
+              latestExternalSessionId = event.externalSessionId.trim()
+              if (runtimeBindingKey) {
+                void upsertSoloRuntimeBinding(run.id, runtimeBindingKey, latestExternalSessionId)
+              }
+            }
+
+            handleStreamEvent(run.id, event, { stepId, scope, persistContentLogs, fullContentRef: (value) => { fullContent = value } })
+          })
+
+          await waitForPendingLogWrites(run.id)
+
+          if (stopRequestedRunIds.value.has(run.id)) {
+            throw new Error(SOLO_STOPPED_ERROR)
           }
+
+          const abnormalCompletion = detectSoloCliFailure(run.id, runtimeFailureLabel, { logStartIndex })
+          if (!abnormalCompletion) {
+            break
+          }
+
+          throw new Error(abnormalCompletion.message)
+        } catch (error) {
+          await waitForPendingLogWrites(run.id)
+
+          const errorMessage = error instanceof Error ? error.message : String(error)
+          const classifiedFailure = detectSoloCliFailure(run.id, runtimeFailureLabel, {
+            errorMessage,
+            logStartIndex
+          })
+
+          if (errorMessage === SOLO_STOPPED_ERROR || stopRequestedRunIds.value.has(run.id)) {
+            throw error
+          }
+
+          if (!classifiedFailure || classifiedFailure.kind !== 'retryable' || cliRetryCount >= maxCliRetries) {
+            throw error
+          }
+
+          cliRetryCount += 1
+          const metadata: ExecutionLogMetadata = {
+            retryGroup: 'cli_failure_retry',
+            retryCount: cliRetryCount,
+            maxRetries: maxCliRetries,
+            retryDelaySeconds: SOLO_CLI_FAILURE_RETRY_DELAY_MS / 1000,
+            runtime: runtimeFailureLabel
+          }
+          const content = `检测到可恢复的 ${runtimeFailureLabel} CLI 异常，10 秒后开始第 ${cliRetryCount}/${maxCliRetries} 次底层重试...`
+
+          if (cliRetryLogId) {
+            const existingLog = state.logs.find((log) => log.id === cliRetryLogId)
+            if (existingLog) {
+              existingLog.content = content
+              existingLog.metadata = {
+                ...existingLog.metadata,
+                ...metadata
+              }
+              await updateLog(cliRetryLogId, content, existingLog.metadata)
+            } else {
+              const createdLog = await addLog({
+                runId: run.id,
+                stepId,
+                scope,
+                type: 'system',
+                content,
+                metadata
+              })
+              cliRetryLogId = createdLog.id
+            }
+          } else {
+            const createdLog = await addLog({
+              runId: run.id,
+              stepId,
+              scope,
+              type: 'system',
+              content,
+              metadata
+            })
+            cliRetryLogId = createdLog.id
+          }
+          await sleep(SOLO_CLI_FAILURE_RETRY_DELAY_MS)
         }
-
-        handleStreamEvent(run.id, event, { stepId, scope, persistContentLogs, fullContentRef: (value) => { fullContent = value } })
-      })
-
-      if (stopRequestedRunIds.value.has(run.id)) {
-        throw new Error(SOLO_STOPPED_ERROR)
       }
 
       if (runtimeBindingKey && latestExternalSessionId && latestExternalSessionId !== resumeSessionId) {
         await upsertSoloRuntimeBinding(run.id, runtimeBindingKey, latestExternalSessionId)
       }
     } finally {
+      await waitForPendingLogWrites(run.id)
       state.sessionId = null
     }
 
@@ -668,36 +841,36 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
             }
           }
           if (options.persistContentLogs) {
-            void addLog({
+            trackPendingLogWrite(runId, addLog({
               runId,
               stepId: options.stepId,
               scope: options.scope,
               type: 'content',
               content: event.content
-            })
+            }))
           }
         }
         break
       case 'thinking_start':
-        void addLog({
+        trackPendingLogWrite(runId, addLog({
           runId,
           stepId: options.stepId,
           scope: options.scope,
           type: 'thinking_start',
           content: ''
-        })
+        }))
         break
       case 'thinking':
         if (event.content) {
           state.accumulatedThinking += event.content
           if (options.persistContentLogs) {
-            void addLog({
+            trackPendingLogWrite(runId, addLog({
               runId,
               stepId: options.stepId,
               scope: options.scope,
               type: 'thinking',
               content: event.content
-            })
+            }))
           }
         }
         break
@@ -715,7 +888,7 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
           } else {
             state.toolCalls.push(toolCall)
           }
-          void addLog({
+          trackPendingLogWrite(runId, addLog({
             runId,
             stepId: options.stepId,
             scope: options.scope,
@@ -726,7 +899,7 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
               toolCallId: event.toolCallId,
               toolInput: JSON.stringify(event.toolInput ?? {})
             }
-          })
+          }))
         }
         break
       case 'tool_input_delta': {
@@ -739,7 +912,7 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
         }
 
         if (event.toolInput) {
-          void addLog({
+          trackPendingLogWrite(runId, addLog({
             runId,
             stepId: options.stepId,
             scope: options.scope,
@@ -753,7 +926,7 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
                 ? event.toolInput.raw
                 : JSON.stringify(event.toolInput)
             }
-          })
+          }))
         }
         break
       }
@@ -768,7 +941,7 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
           toolCall.result = result
           toolCall.status = 'success'
         }
-        void addLog({
+        trackPendingLogWrite(runId, addLog({
           runId,
           stepId: options.stepId,
           scope: options.scope,
@@ -779,18 +952,18 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
             toolResult: result,
             isError: false
           }
-        })
+        }))
         break
       }
       case 'error':
         if (event.error) {
-          void addLog({
+          trackPendingLogWrite(runId, addLog({
             runId,
             stepId: options.stepId,
             scope: options.scope,
             type: 'error',
             content: event.error
-          })
+          }))
         }
         break
       default:

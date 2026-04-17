@@ -9,6 +9,10 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 use tokio::time::sleep;
 use uuid::Uuid;
 
+use super::abnormal_completion::{
+    classify_cli_completion, is_shared_benign_stderr_warning, CliTextFragment,
+    CliTextSource,
+};
 use super::cli_common::{
     build_content_event, build_error_event, build_execution_summary, build_system_event,
     build_timeout_error_message, describe_timeout_config, detect_cli_timeout, emit_cli_event,
@@ -81,6 +85,7 @@ struct StdoutReadOutcome {
     emitted_content: bool,
     emitted_error: bool,
     emitted_non_error_event: bool,
+    fragments: Vec<CliTextFragment>,
 }
 
 impl StdoutReadOutcome {
@@ -89,18 +94,21 @@ impl StdoutReadOutcome {
             emitted_content: false,
             emitted_error: false,
             emitted_non_error_event: false,
+            fragments: Vec::new(),
         }
     }
 }
 
 struct StderrReadOutcome {
     emitted_error: bool,
+    fragments: Vec<CliTextFragment>,
 }
 
 impl StderrReadOutcome {
     fn none() -> Self {
         Self {
             emitted_error: false,
+            fragments: Vec::new(),
         }
     }
 }
@@ -132,6 +140,36 @@ fn should_treat_process_failure_as_success(
     (stdout_outcome.emitted_content || stdout_outcome.emitted_non_error_event)
         && !stdout_outcome.emitted_error
         && !stderr_outcome.emitted_error
+}
+
+fn should_ignore_stderr_line(line: &str) -> bool {
+    is_shared_benign_stderr_warning(line)
+}
+
+fn collect_event_fragments(event: &CliStreamEvent) -> Vec<CliTextFragment> {
+    let mut fragments = Vec::new();
+
+    if let Some(fragment) = CliTextFragment::new(CliTextSource::Content, event.content.clone().unwrap_or_default()) {
+        fragments.push(fragment);
+    }
+    if let Some(fragment) = CliTextFragment::new(CliTextSource::Error, event.error.clone().unwrap_or_default()) {
+        fragments.push(fragment);
+    }
+    if let Some(fragment) = CliTextFragment::new(
+        CliTextSource::ToolResult,
+        event.tool_result.clone().unwrap_or_default(),
+    ) {
+        fragments.push(fragment);
+    }
+    if event.event_type == "system" {
+        if let Some(fragment) =
+            CliTextFragment::new(CliTextSource::System, event.content.clone().unwrap_or_default())
+        {
+            fragments.push(fragment);
+        }
+    }
+
+    fragments
 }
 
 fn should_use_prompt_file(_request: &ExecutionRequest, input_text: &str) -> bool {
@@ -485,6 +523,7 @@ impl AgentExecutionStrategy for OpenCodeCliStrategy {
                                     is_successful_event_type(&event.event_type);
                                 outcome.emitted_content |= event.event_type == "content";
                                 outcome.emitted_error |= event.event_type == "error";
+                                outcome.fragments.extend(collect_event_fragments(&event));
                                 stdout_monitor
                                     .note_activity(is_meaningful_event_type(&event.event_type));
                                 log_info!(
@@ -522,6 +561,7 @@ impl AgentExecutionStrategy for OpenCodeCliStrategy {
 
         let stderr_handle = tokio::spawn(async move {
             let mut reader = tokio::io::BufReader::new(stderr);
+            let mut outcome = StderrReadOutcome::none();
             let mut error_output = String::new();
             if reader.read_to_string(&mut error_output).await.is_err() {
                 return StderrReadOutcome::none();
@@ -540,6 +580,10 @@ impl AgentExecutionStrategy for OpenCodeCliStrategy {
                     if trimmed.is_empty() {
                         return false;
                     }
+                    if should_ignore_stderr_line(trimmed) {
+                        stderr_monitor.note_stderr_warning();
+                        return false;
+                    }
                     stderr_monitor.note_activity(false);
                     let line_lower = line.to_lowercase();
                     line_lower.contains("error")
@@ -550,6 +594,13 @@ impl AgentExecutionStrategy for OpenCodeCliStrategy {
 
             if !error_lines.is_empty() {
                 let error_msg = error_lines.join("\n");
+                for line in &error_lines {
+                    if let Some(fragment) =
+                        CliTextFragment::new(CliTextSource::Stderr, (*line).to_string())
+                    {
+                        outcome.fragments.push(fragment);
+                    }
+                }
                 let event = build_error_event(&session_id_clone, error_msg);
                 emit_cli_event(
                     &app_clone,
@@ -557,12 +608,10 @@ impl AgentExecutionStrategy for OpenCodeCliStrategy {
                     plan_id_clone.as_ref(),
                     &event,
                 );
-                return StderrReadOutcome {
-                    emitted_error: true,
-                };
+                outcome.emitted_error = true;
             }
 
-            StderrReadOutcome::none()
+            outcome
         });
 
         let mut timeout_error_message: Option<String> = None;
@@ -627,9 +676,16 @@ impl AgentExecutionStrategy for OpenCodeCliStrategy {
 
         let should_treat_failure_as_success =
             should_treat_process_failure_as_success(&stdout_outcome, &stderr_outcome);
+        let mut completion_fragments = stdout_outcome.fragments.clone();
+        completion_fragments.extend(stderr_outcome.fragments.clone());
+        let detected_failure = classify_cli_completion(
+            "OpenCode",
+            &completion_fragments,
+            stdout_outcome.emitted_error || stderr_outcome.emitted_error,
+        );
         let execution_succeeded = status.success() || should_treat_failure_as_success;
 
-        if timeout_error_message.is_none() && execution_succeeded {
+        if timeout_error_message.is_none() && detected_failure.is_none() && execution_succeeded {
             let done_event = CliStreamEvent {
                 event_type: "done".to_string(),
                 session_id: session_id.clone(),
@@ -651,6 +707,14 @@ impl AgentExecutionStrategy for OpenCodeCliStrategy {
 
         if let Some(error_message) = timeout_error_message {
             return Err(anyhow::anyhow!(error_message));
+        }
+
+        if let Some(failure) = detected_failure {
+            if !(stdout_outcome.emitted_error || stderr_outcome.emitted_error) {
+                let error_event = build_error_event(&session_id, failure.message.clone());
+                emit_cli_event(&app, &event_name, plan_id.as_ref(), &error_event);
+            }
+            return Err(anyhow::anyhow!(failure.message));
         }
 
         if !status.success() {

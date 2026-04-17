@@ -5,7 +5,6 @@ use tauri::{AppHandle, Emitter};
 
 use crate::commands::conversation::types::CliStreamEvent;
 use crate::commands::conversation::types::MessageInput;
-use crate::commands::message::MessageAttachment;
 use crate::commands::plan_split::{record_plan_split_event, SplitStreamRecord};
 
 pub fn emit_cli_event(
@@ -342,15 +341,6 @@ pub fn extract_image_paths(messages: &[MessageInput]) -> Vec<String> {
         .filter(|a| !a.path.trim().is_empty())
         .map(|a| a.path.clone())
         .collect()
-}
-
-pub fn has_image_attachments(messages: &[MessageInput]) -> bool {
-    messages.iter().filter(|m| m.role == "user").any(|m| {
-        m.attachments.as_ref().map_or(false, |a| {
-            a.iter()
-                .any(|a| a.mime_type.starts_with("image/") && !a.path.trim().is_empty())
-        })
-    })
 }
 
 pub fn extract_runtime_system_notice(json: &serde_json::Value) -> Option<String> {

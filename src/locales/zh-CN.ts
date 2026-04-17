@@ -607,10 +607,8 @@ const zhCN = {
       compressionThresholdDesc: '当 token 使用率达到此阈值时触发压缩',
       // Retry settings
       retrySettings: '失败重试',
-      planSplitMaxRetries: '计划拆分重试次数',
-      planSplitMaxRetriesDesc: '计划拆分调用 CLI 失败时的最大重试次数',
-      conversationMaxRetries: '主会话重试次数',
-      conversationMaxRetriesDesc: '主会话调用 CLI 失败时的最大重试次数',
+      cliFailureMaxRetries: '失败重试次数',
+      cliFailureMaxRetriesDesc: '用于控制底层 CLI 调用失败次数，包括主会话、任务拆分、任务执行和 SOLO',
       retryIntervalMinutes: '重试间隔（分钟）',
       retryIntervalMinutesDesc: '每次重试之间的等待时间'
     },

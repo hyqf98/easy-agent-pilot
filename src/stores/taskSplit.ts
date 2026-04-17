@@ -27,6 +27,10 @@ import type { RuntimeNotice } from '@/utils/runtimeNotice'
 import { buildCliEnvironmentNotice, buildContextStrategyNotice } from '@/utils/runtimeNotice'
 import { loadAgentMcpServers } from '@/utils/mcpServerConfig'
 import {
+  classifyCliFailureFragments,
+  createCliFailureFragment
+} from '@/utils/cliFailureMonitor'
+import {
   findLatestUsageSnapshot,
   recordAgentCliUsageInBackground,
   resolveRecordedModelId
@@ -80,6 +84,18 @@ interface PlanSplitRuntimeMetrics {
 
 const STALE_PLAN_SPLIT_SESSION_TIMEOUT_MS = 2_000
 const PLAN_SPLIT_AUTO_RETRY_DELAY_MS = 10_000
+const PLAN_SPLIT_AUTO_RETRY_GROUP = 'cli_failure_retry'
+
+interface RustPlanSplitLogRecord {
+  id: string
+  planId: string
+  sessionId: string
+  logType?: PlanSplitLogRecord['type']
+  type?: PlanSplitLogRecord['type']
+  content: string
+  metadata?: string | null
+  createdAt: string
+}
 
 function formatOptionValue(field: DynamicFormSchema['fields'][number], value: unknown): string {
   if (value === undefined || value === null || value === '') return '-'
@@ -206,10 +222,10 @@ function toSplitResult(raw?: string | null): AITaskItem[] | null {
   return parsed.tasks ?? null
 }
 
-function toPlanSplitLogs(logs: PlanSplitLogRecord[]): PlanSplitLogRecord[] {
+function toPlanSplitLogs(logs: RustPlanSplitLogRecord[]): PlanSplitLogRecord[] {
   return logs.map(log => ({
     ...log,
-    type: log.type
+    type: log.type ?? log.logType ?? 'system'
   }))
 }
 
@@ -225,6 +241,14 @@ function trimTrailingAssistantMessages<T extends { role: string }>(items: T[]): 
   }
 
   return items.slice(0, endIndex)
+}
+
+function isAutoRetryProgressLog(log: Pick<PlanSplitLogRecord, 'type' | 'metadata'>): boolean {
+  if (log.type !== 'system' || typeof log.metadata !== 'string') {
+    return false
+  }
+
+  return log.metadata.includes(`"retryGroup":"${PLAN_SPLIT_AUTO_RETRY_GROUP}"`)
 }
 
 async function buildSplitSystemPrompt(expertId?: string): Promise<string> {
@@ -317,13 +341,80 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     autoRetryNextRunAt.value = null
   }
 
+  function upsertAutoRetryProgressLog(retryNumber: number, maxRetries: number, delaySeconds: number) {
+    if (!context.value || !session.value) {
+      return
+    }
+
+    const metadata = JSON.stringify({
+      retryGroup: PLAN_SPLIT_AUTO_RETRY_GROUP,
+      retryCount: retryNumber,
+      maxRetries,
+      delaySeconds,
+      nextRunAt: autoRetryNextRunAt.value
+    })
+    const content = `自动重试准备中... 第 ${retryNumber}/${maxRetries} 次，${delaySeconds} 秒后重试`
+    const existingLog = [...logs.value].reverse().find(isAutoRetryProgressLog)
+
+    if (existingLog) {
+      existingLog.content = content
+      existingLog.metadata = metadata
+      void invoke('update_plan_split_log', {
+        id: existingLog.id,
+        content,
+        metadata
+      }).catch((error) => {
+        logger.warn('[TaskSplit] Failed to update auto-retry progress log:', error)
+      })
+      return
+    }
+
+    const tempLog: PlanSplitLogRecord = {
+      id: `auto-retry-${Date.now()}`,
+      planId: context.value.planId,
+      sessionId: session.value.executionSessionId || '',
+      type: 'system',
+      content,
+      metadata,
+      createdAt: new Date().toISOString()
+    }
+    logs.value.push(tempLog)
+
+    void invoke<RustPlanSplitLogRecord>('create_plan_split_log', {
+      planId: context.value.planId,
+      sessionId: tempLog.sessionId,
+      logType: tempLog.type,
+      content,
+      metadata
+    }).then((persistedLog) => {
+      const index = logs.value.findIndex(log => log.id === tempLog.id)
+      if (index < 0) {
+        return
+      }
+      logs.value[index] = toPlanSplitLogs([persistedLog])[0]
+    }).catch((error) => {
+      logger.warn('[TaskSplit] Failed to persist auto-retry progress log:', error)
+    })
+  }
+
   function scheduleAutoRetry() {
     if (!context.value || !session.value || session.value.status !== 'failed') {
       return
     }
 
+    const retryableFailure = classifyCliFailureFragments('Plan Split CLI', [
+      createCliFailureFragment('error', session.value.errorMessage),
+      createCliFailureFragment('error', session.value.parseError),
+      createCliFailureFragment('content', session.value.rawContent)
+    ].filter((item): item is NonNullable<typeof item> => Boolean(item)))
+    if (!retryableFailure || retryableFailure.kind !== 'retryable') {
+      autoRetryScheduled.value = false
+      autoRetryNextRunAt.value = null
+      return
+    }
+
     const settingsStore = useSettingsStore()
-    const maxRetries = settingsStore.settings.planSplitMaxRetries ?? 5
+    const maxRetries = settingsStore.settings.cliFailureMaxRetries ?? 5
 
     if (autoRetryCount.value >= maxRetries) {
       autoRetryScheduled.value = false
@@ -336,20 +427,7 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     const delaySeconds = Math.ceil(PLAN_SPLIT_AUTO_RETRY_DELAY_MS / 1000)
     autoRetryNextRunAt.value = Date.now() + PLAN_SPLIT_AUTO_RETRY_DELAY_MS
 
-    logs.value.push({
-      id: `auto-retry-${retryNumber}-${Date.now()}`,
-      planId: context.value.planId,
-      sessionId: session.value.executionSessionId || '',
-      type: 'system',
-      content: `自动重试准备中... 第 ${retryNumber}/${maxRetries} 次，${delaySeconds} 秒后重试`,
-      metadata: JSON.stringify({
-        retryCount: retryNumber,
-        maxRetries,
-        delaySeconds,
-        nextRunAt: autoRetryNextRunAt.value
-      }),
-      createdAt: new Date().toISOString()
-    })
+    upsertAutoRetryProgressLog(retryNumber, maxRetries, delaySeconds)
 
     autoRetryTimer.value = setTimeout(async () => {
       autoRetryScheduled.value = false
@@ -441,7 +519,7 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
   async function loadSession(planId: string) {
     const [snapshot, splitLogs] = await Promise.all([
       invoke<PlanSplitSessionRecord | null>('get_plan_split_session', { planId }),
-      invoke<PlanSplitLogRecord[]>('list_plan_split_logs', { planId }).catch(() => [])
+      invoke<RustPlanSplitLogRecord[]>('list_plan_split_logs', { planId }).catch(() => [])
     ])
 
     logs.value = toPlanSplitLogs(splitLogs)

@@ -695,10 +695,8 @@ export default {
       compressionThresholdDesc: 'Trigger compression when token usage reaches this threshold',
       // Retry settings
       retrySettings: 'Failure Retry',
-      planSplitMaxRetries: 'Plan Split Retry Count',
-      planSplitMaxRetriesDesc: 'Maximum retry attempts when plan split CLI call fails',
-      conversationMaxRetries: 'Conversation Retry Count',
-      conversationMaxRetriesDesc: 'Maximum retry attempts when conversation CLI call fails',
+      cliFailureMaxRetries: 'CLI Failure Retry Count',
+      cliFailureMaxRetriesDesc: 'Maximum retry attempts for underlying CLI failures across conversation, plan split, task execution, and SOLO',
       retryIntervalMinutes: 'Retry Interval (min)',
       retryIntervalMinutesDesc: 'Wait time between retry attempts'
     },

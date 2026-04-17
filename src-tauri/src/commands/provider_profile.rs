@@ -1240,44 +1240,73 @@ pub struct OpenCodeAuthProvider {
     pub has_key: bool,
 }
 
-/// 通过 auth.json + opencode CLI 查询已连接的 Provider 列表
+/// 通过 opencode CLI 获取所有支持的 Provider，并从 auth.json 判断是否已配置凭据
 #[tauri::command]
 pub fn read_opencode_auth_providers() -> Result<Vec<OpenCodeAuthProvider>, String> {
-    let auth_dir = opencode_auth_dir()?;
-    let auth_path = auth_dir.join("auth.json");
-
     let mut providers = Vec::new();
 
-    // 1. 从 auth.json 读取 provider ID（key 就是权威 ID）
-    let mut auth_entries: Vec<(String, bool)> = Vec::new();
+    // 1. 从 opencode CLI 获取所有支持的 Provider ID（通过不带参数的 models 命令提取唯一前缀）
+    let all_provider_ids = fetch_all_opencode_provider_ids()?;
+
+    // 2. 从 auth.json 读取已配置凭据的 provider ID
+    let auth_dir = opencode_auth_dir()?;
+    let auth_path = auth_dir.join("auth.json");
+    let mut auth_keys_set: std::collections::HashSet<String> = std::collections::HashSet::new();
     if auth_path.exists() {
         if let Ok(content) = fs::read_to_string(&auth_path) {
             if let Ok(auth) = serde_json::from_str::<serde_json::Value>(&content) {
                 if let Some(obj) = auth.as_object() {
                     for (key, val) in obj {
-                        let has_key = val.get("key").and_then(|v| v.as_str()).is_some();
-                        auth_entries.push((key.clone(), has_key));
+                        if val.get("key").and_then(|v| v.as_str()).is_some() {
+                            auth_keys_set.insert(key.clone());
+                        }
                     }
                 }
             }
         }
     }
 
-    // 2. 从 provider ID 生成 display name
-    let auth_keys: Vec<String> = auth_entries.iter().map(|(id, _)| id.clone()).collect();
-    let display_names = build_provider_display_names(&auth_keys);
-
-    // 3. 组装结果
-    for (id, has_key) in &auth_entries {
+    // 3. 生成 display name 并组装结果
+    let display_names = build_provider_display_names(&all_provider_ids);
+    for id in &all_provider_ids {
         let display_name = display_names.get(id).cloned().unwrap_or_else(|| id.clone());
         providers.push(OpenCodeAuthProvider {
             id: id.clone(),
             display_name,
-            has_key: *has_key,
+            has_key: auth_keys_set.contains(id),
         });
     }
 
     Ok(providers)
+}
+
+/// 通过 `opencode models` 命令（不带参数）获取所有可用模型的 provider 前缀，
+/// 去重后返回所有 CLI 支持的 provider ID 列表。
+fn fetch_all_opencode_provider_ids() -> Result<Vec<String>, String> {
+    let cli_path = crate::commands::cli_support::find_cli_executable("opencode", &[])
+        .ok_or_else(|| "未找到 opencode CLI".to_string())?;
+
+    let output = crate::commands::cli_support::run_cli_command(&cli_path, &["models"])
+        .map_err(|e| format!("执行 opencode models 失败: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        return Err(format!("查询模型列表失败: {}", stderr.trim()));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let mut provider_set = std::collections::BTreeSet::new();
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if let Some(slash_pos) = trimmed.find('/') {
+            let prefix = &trimmed[..slash_pos];
+            if !prefix.is_empty() {
+                provider_set.insert(prefix.to_string());
+            }
+        }
+    }
+
+    Ok(provider_set.into_iter().collect())
 }
 
 /// 从 auth.json 的 provider ID 直接生成 display_name

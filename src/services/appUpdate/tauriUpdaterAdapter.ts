@@ -1,5 +1,5 @@
 import { getVersion } from '@tauri-apps/api/app'
-import { isTauri } from '@tauri-apps/api/core'
+import { invoke, isTauri } from '@tauri-apps/api/core'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { check, type DownloadEvent, type Update } from '@tauri-apps/plugin-updater'
 import type {
@@ -56,6 +56,21 @@ function toDownloadEvent(event: DownloadEvent): AppUpdateDownloadEvent {
   }
 }
 
+interface AppUpdateProxyInfo {
+  proxy: string | null
+  source: string | null
+}
+
+async function resolveUpdaterProxy(): Promise<string | undefined> {
+  try {
+    const result = await invoke<AppUpdateProxyInfo>('resolve_app_update_proxy')
+    return result.proxy?.trim() ? result.proxy.trim() : undefined
+  } catch (error) {
+    console.warn('Failed to resolve updater proxy:', error)
+    return undefined
+  }
+}
+
 class TauriUpdateHandle implements AppUpdateHandle {
   metadata: AppUpdateInfo
 
@@ -95,7 +110,11 @@ export class TauriUpdaterAdapter implements AppUpdaterAdapter {
       throw new Error('当前环境不支持应用内更新')
     }
 
-    const update = await check()
+    const proxy = await resolveUpdaterProxy()
+    const update = await check({
+      timeout: 20_000,
+      ...(proxy ? { proxy } : {})
+    })
     return update ? new TauriUpdateHandle(update) : null
   }
 

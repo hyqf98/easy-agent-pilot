@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type {
   ExecutionLogEntry,
+  ExecutionLogMetadata,
   TaskExecutionState,
   ExecutionQueue,
   CreateExecutionLogInput,
@@ -17,6 +18,7 @@ import { usePlanStore } from '@/stores/plan'
 import { useProjectStore } from '@/stores/project'
 import { useAgentStore, type AgentConfig, inferAgentProvider } from '@/stores/agent'
 import { useAgentTeamsStore } from '@/stores/agentTeams'
+import { useSettingsStore } from '@/stores/settings'
 import { agentExecutor } from '@/services/conversation/AgentExecutor'
 import type { ConversationContext } from '@/services/conversation/strategies/types'
 import { extractFirstFormRequest } from '@/utils/structuredContent'
@@ -45,6 +47,7 @@ import {
   loadTaskLogsFromBackend,
   persistExecutionLog,
   saveTaskExecutionResultToBackend,
+  updateExecutionLog,
 } from './taskExecutionPersistence'
 import {
   clearPlanExecutionRuntime,
@@ -86,6 +89,11 @@ import {
 } from '@/services/conversation/runtimeBindings'
 import { loadMountedMemoryPrompt } from '@/services/memory/mountedMemoryPrompt'
 import { resolveUsageModelHint } from '@/services/conversation/usageModelHint'
+import {
+  classifyCliFailureFragments,
+  createCliFailureFragment,
+  type CliFailureMatch
+} from '@/utils/cliFailureMonitor'
 
 function finalizeRunningToolCalls(toolCalls: ToolCall[]): void {
   for (const toolCall of toolCalls) {
@@ -97,6 +105,7 @@ function finalizeRunningToolCalls(toolCalls: ToolCall[]): void {
 
 const TASK_EXECUTION_STOPPED_ERROR = '__TASK_EXECUTION_STOPPED__'
 const TASK_AUTO_RETRY_DELAY_MS = 10_000
+const CLI_FAILURE_RETRY_DELAY_MS = 10_000
 
 function isMissingRecordError(error: unknown): boolean {
   return /query returned no rows/i.test(getErrorMessage(error))
@@ -104,6 +113,12 @@ function isMissingRecordError(error: unknown): boolean {
 
 function createFallbackToolCallId(taskId: string): string {
   return `tool-${taskId}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
 }
 
 function collectMountedMemoryLibraryIds(
@@ -138,6 +153,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
 
   // 待持久化的日志缓冲区 (taskId -> PendingLogBuffer)
   const pendingLogBuffers = ref<Map<string, PendingLogBuffer>>(new Map())
+  const pendingLogWrites = new Map<string, Set<Promise<unknown>>>()
   const usageBaselines = new Map<string, UsageBaseline>()
 
   // ==================== Getters ====================
@@ -240,6 +256,34 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
     await flushTaskPendingLogs(taskId, pendingLogBuffers.value)
   }
 
+  function trackPendingLogWrite<T>(taskId: string, task: Promise<T>): Promise<T> {
+    let tasks = pendingLogWrites.get(taskId)
+    if (!tasks) {
+      tasks = new Set()
+      pendingLogWrites.set(taskId, tasks)
+    }
+
+    const tracked = task.finally(() => {
+      const currentTasks = pendingLogWrites.get(taskId)
+      currentTasks?.delete(tracked)
+      if (currentTasks && currentTasks.size === 0) {
+        pendingLogWrites.delete(taskId)
+      }
+    })
+
+    tasks.add(tracked)
+    return tracked
+  }
+
+  async function waitForPendingLogWrites(taskId: string): Promise<void> {
+    const tasks = pendingLogWrites.get(taskId)
+    if (!tasks || tasks.size === 0) {
+      return
+    }
+
+    await Promise.allSettled(Array.from(tasks))
+  }
+
   function addStreamLogToBuffer(taskId: string, type: 'content' | 'thinking', content: string): void {
     addBufferedStreamLog(taskId, type, content, executionStates.value, pendingLogBuffers.value)
   }
@@ -282,6 +326,38 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
       }
       throw error
     }
+  }
+
+  function detectTaskCliFailure(
+    taskId: string,
+    runtimeLabel: string,
+    options: {
+      errorMessage?: string | null
+      logStartIndex?: number
+    } = {}
+  ): CliFailureMatch | null {
+    const state = executionStates.value.get(taskId)
+    if (!state) {
+      return null
+    }
+
+    const logStartIndex = options.logStartIndex ?? 0
+    const fragments = [
+      createCliFailureFragment('error', options.errorMessage),
+      createCliFailureFragment('content', state.accumulatedContent),
+      ...state.logs.slice(logStartIndex).flatMap((log) => [
+        createCliFailureFragment(
+          log.type === 'error' ? 'error' : log.type === 'tool_result' ? 'tool_result' : log.type === 'system' ? 'system' : 'content',
+          log.content
+        )
+      ]),
+      ...state.toolCalls.flatMap((toolCall) => [
+        createCliFailureFragment('tool_result', typeof toolCall.result === 'string' ? toolCall.result : undefined),
+        createCliFailureFragment('error', toolCall.errorMessage)
+      ])
+    ].filter((item): item is NonNullable<typeof item> => Boolean(item))
+
+    return classifyCliFailureFragments(runtimeLabel, fragments)
   }
 
   function updateTaskTokenUsage(
@@ -568,6 +644,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
     const projectStore = useProjectStore()
     const agentStore = useAgentStore()
     const agentTeamsStore = useAgentTeamsStore()
+    const settingsStore = useSettingsStore()
 
     const task = taskStore.tasks.find(t => t.id === taskId)
     if (!task) {
@@ -590,6 +667,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
     const workingDirectory = project?.path
 
     const maxRetries = plan.maxRetryCount ?? 3
+    const maxCliRetries = settingsStore.settings.cliFailureMaxRetries ?? 5
 
     const state = initExecutionState(taskId)
     const isResume = options.resume === true
@@ -610,6 +688,9 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
       state.toolCalls = []
       state.logs = []
       resetExecutionRuntime(taskId)
+      await clearTaskLogsFromBackend(taskId).catch((error) => {
+        console.warn('[TaskExecution] Failed to clear previous execution logs:', error)
+      })
     }
 
     await addExecutionLog({
@@ -825,31 +906,84 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
         })
       }
 
-      await agentExecutor.execute(context, (event: StreamEvent) => {
-        const externalSessionId = event.externalSessionId?.trim()
-        if (externalSessionId && agentProvider) {
-          void (async () => {
-            try {
-              if (runtimeKey) {
-                await upsertTaskRuntimeBinding(taskId, runtimeKey, externalSessionId)
-              }
-              await updateTaskSafely(taskId, {
-                sessionId: externalSessionId,
-                cliSessionProvider: agentProvider
-              })
-            } catch (error) {
-              console.warn('[TaskExecution] Failed to persist external session binding:', error)
+      let cliRetryCount = 0
+      let cliRetryLogId: string | null = null
+      const runtimeLabel = agentProvider?.toUpperCase() || agent.type
+      let latestAttemptLogStartIndex = state.logs.length
+
+      while (true) {
+        const logStartIndex = state.logs.length
+        latestAttemptLogStartIndex = logStartIndex
+        state.accumulatedContent = ''
+        state.accumulatedThinking = ''
+        state.toolCalls = []
+
+        try {
+          await agentExecutor.execute(context, (event: StreamEvent) => {
+            const externalSessionId = event.externalSessionId?.trim()
+            if (externalSessionId && agentProvider) {
+              void (async () => {
+                try {
+                  if (runtimeKey) {
+                    await upsertTaskRuntimeBinding(taskId, runtimeKey, externalSessionId)
+                  }
+                  await updateTaskSafely(taskId, {
+                    sessionId: externalSessionId,
+                    cliSessionProvider: agentProvider
+                  })
+                } catch (error) {
+                  console.warn('[TaskExecution] Failed to persist external session binding:', error)
+                }
+              })()
             }
-          })()
+            handleStreamEvent(taskId, event, agent.modelId, agentProvider)
+          })
+
+          await flushPendingLogs(taskId)
+          await waitForPendingLogWrites(taskId)
+
+          const abnormalCompletion = detectTaskCliFailure(taskId, runtimeLabel, { logStartIndex })
+          if (!abnormalCompletion) {
+            break
+          }
+
+          throw new Error(abnormalCompletion.message)
+        } catch (error) {
+          await flushPendingLogs(taskId)
+          await waitForPendingLogWrites(taskId)
+
+          const errorMessage = error instanceof Error ? error.message : String(error)
+          const classifiedFailure = detectTaskCliFailure(taskId, runtimeLabel, {
+            errorMessage,
+            logStartIndex
+          })
+
+          if (errorMessage === TASK_EXECUTION_STOPPED_ERROR || isTaskStopRequested(taskId, stopRequestedTaskIds.value)) {
+            throw error
+          }
+
+          if (!classifiedFailure || classifiedFailure.kind !== 'retryable' || cliRetryCount >= maxCliRetries) {
+            throw error
+          }
+
+          cliRetryCount += 1
+          cliRetryLogId = await upsertCliRetryProgressLog(
+            taskId,
+            cliRetryLogId,
+            runtimeLabel,
+            cliRetryCount,
+            maxCliRetries
+          )
+          await sleep(CLI_FAILURE_RETRY_DELAY_MS)
         }
-        handleStreamEvent(taskId, event, agent.modelId, agentProvider)
-      })
+      }
 
       if (isTaskStopRequested(taskId, stopRequestedTaskIds.value)) {
         throw new Error(TASK_EXECUTION_STOPPED_ERROR)
       }
 
       const fatalErrorLog = [...state.logs]
+        .slice(latestAttemptLogStartIndex)
         .reverse()
         .find(log => log.type === 'error' && log.content.trim().length > 0)
 
@@ -958,6 +1092,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
     } finally {
       clearTaskStopRequested(taskId, stopRequestedTaskIds.value)
       await flushPendingLogs(taskId)
+      await waitForPendingLogWrites(taskId)
       if (!skipQueueAdvance) {
         await processNextInQueue(planId)
       }
@@ -1005,11 +1140,11 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
         break
 
       case 'thinking_start':
-        void addExecutionLog({
+        trackPendingLogWrite(taskId, addExecutionLog({
           taskId,
           type: 'thinking_start',
           content: ''
-        })
+        }))
         break
 
       case 'thinking':
@@ -1036,7 +1171,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
             state.toolCalls.push(toolCall)
           }
 
-          addExecutionLog({
+          trackPendingLogWrite(taskId, addExecutionLog({
             taskId,
             type: 'tool_use',
             content: JSON.stringify(normalizedEvent.toolInput, null, 2),
@@ -1045,7 +1180,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
               toolCallId,
               toolInput: JSON.stringify(normalizedEvent.toolInput ?? {})
             }
-          })
+          }))
         }
         break
 
@@ -1059,7 +1194,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
         }
 
         if (normalizedEvent.toolInput) {
-          void addExecutionLog({
+          trackPendingLogWrite(taskId, addExecutionLog({
             taskId,
             type: 'tool_input_delta',
             content: typeof normalizedEvent.toolInput.raw === 'string'
@@ -1071,7 +1206,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
                 ? normalizedEvent.toolInput.raw
                 : JSON.stringify(normalizedEvent.toolInput)
             }
-          })
+          }))
         }
         break
       }
@@ -1099,7 +1234,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
             }
           }
 
-          addExecutionLog({
+          trackPendingLogWrite(taskId, addExecutionLog({
             taskId,
             type: 'tool_result',
             content: result,
@@ -1108,17 +1243,17 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
               toolResult: result,
               isError
             }
-          })
+          }))
         }
         break
 
       case 'error':
         if (normalizedEvent.error) {
-          addExecutionLog({
+          trackPendingLogWrite(taskId, addExecutionLog({
             taskId,
             type: 'error',
             content: normalizedEvent.error
-          })
+          }))
         }
         break
 
@@ -1132,15 +1267,59 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
 
   /**
    */
-  async function addExecutionLog(input: CreateExecutionLogInput, persist: boolean = true): Promise<void> {
+  async function addExecutionLog(input: CreateExecutionLogInput, persist: boolean = true): Promise<ExecutionLogEntry | null> {
     const state = executionStates.value.get(input.taskId)
-    if (!state) return
+    if (!state) return null
 
     const entry = persist
       ? await persistExecutionLog(input)
       : createExecutionLogEntry(input)
 
     state.logs.push(entry)
+    return entry
+  }
+
+  async function upsertCliRetryProgressLog(
+    taskId: string,
+    existingLogId: string | null,
+    runtimeLabel: string,
+    retryCount: number,
+    maxRetries: number
+  ): Promise<string | null> {
+    const state = executionStates.value.get(taskId)
+    if (!state) {
+      return existingLogId
+    }
+
+    const metadata: ExecutionLogMetadata = {
+      retryGroup: 'cli_failure_retry',
+      retryCount,
+      maxRetries,
+      retryDelaySeconds: CLI_FAILURE_RETRY_DELAY_MS / 1000,
+      runtime: runtimeLabel
+    }
+    const content = `检测到可恢复的 ${runtimeLabel} CLI 异常，10 秒后开始第 ${retryCount}/${maxRetries} 次底层重试...`
+
+    if (existingLogId) {
+      const existingEntry = state.logs.find((log) => log.id === existingLogId)
+      if (existingEntry) {
+        existingEntry.content = content
+        existingEntry.metadata = {
+          ...existingEntry.metadata,
+          ...metadata
+        }
+        await updateExecutionLog(existingLogId, content, existingEntry.metadata)
+        return existingLogId
+      }
+    }
+
+    const entry = await addExecutionLog({
+      taskId,
+      type: 'system',
+      content,
+      metadata
+    })
+    return entry?.id ?? existingLogId
   }
 
   async function appendExecutionUsageNotice(taskId: string): Promise<void> {

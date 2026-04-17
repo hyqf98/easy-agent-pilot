@@ -417,6 +417,24 @@ pub fn create_task_execution_log(
     })
 }
 
+/// 更新任务执行日志内容。
+#[tauri::command]
+pub fn update_task_execution_log(
+    id: String,
+    content: String,
+    metadata: Option<String>,
+) -> Result<(), String> {
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "UPDATE task_execution_logs SET content = ?1, metadata = ?2 WHERE id = ?3",
+        rusqlite::params![&content, &metadata, &id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
 /// 获取任务的执行日志列表
 #[tauri::command]
 pub fn list_task_execution_logs(task_id: String) -> Result<Vec<ExecutionLog>, String> {

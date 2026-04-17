@@ -790,6 +790,24 @@ pub fn create_solo_log(input: CreateSoloLogInput) -> Result<SoloLog, String> {
     })
 }
 
+/// 更新 SOLO 运行日志内容。
+#[tauri::command]
+pub fn update_solo_log(
+    id: String,
+    content: String,
+    metadata: Option<String>,
+) -> Result<(), String> {
+    let conn = open_db_connection().map_err(|error| error.to_string())?;
+
+    conn.execute(
+        "UPDATE solo_logs SET content = ?1, metadata = ?2 WHERE id = ?3",
+        rusqlite::params![&content, &metadata, &id],
+    )
+    .map_err(|error| error.to_string())?;
+
+    Ok(())
+}
+
 /// 列出 SOLO 运行日志。
 #[tauri::command]
 pub fn list_solo_logs(run_id: String, step_id: Option<String>) -> Result<Vec<SoloLog>, String> {

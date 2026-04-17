@@ -13,6 +13,10 @@ export interface ExecutionLogMetadata {
   toolInput?: string
   toolResult?: string
   isError?: boolean
+  retryGroup?: string
+  retryCount?: number
+  maxRetries?: number
+  retryDelaySeconds?: number
   model?: string
   inputTokens?: number
   outputTokens?: number

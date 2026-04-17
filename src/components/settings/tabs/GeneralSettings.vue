@@ -274,25 +274,11 @@ const compressionThresholdOptions = computed(() => [
     <SettingsSectionCard :title="t('settings.general.retrySettings')">
       <div class="settings-item">
         <div class="settings-item__info">
-          <span class="settings-item__label">{{ t('settings.general.planSplitMaxRetries') }}</span>
-          <span class="settings-item__desc">{{ t('settings.general.planSplitMaxRetriesDesc') }}</span>
+          <span class="settings-item__label">{{ t('settings.general.cliFailureMaxRetries') }}</span>
+          <span class="settings-item__desc">{{ t('settings.general.cliFailureMaxRetriesDesc') }}</span>
         </div>
         <input
-          v-model.number="settingsStore.settings.planSplitMaxRetries"
-          type="number"
-          class="settings-input settings-input--small"
-          min="0"
-          max="10"
-        >
-      </div>
-
-      <div class="settings-item">
-        <div class="settings-item__info">
-          <span class="settings-item__label">{{ t('settings.general.conversationMaxRetries') }}</span>
-          <span class="settings-item__desc">{{ t('settings.general.conversationMaxRetriesDesc') }}</span>
-        </div>
-        <input
-          v-model.number="settingsStore.settings.conversationMaxRetries"
+          v-model.number="settingsStore.settings.cliFailureMaxRetries"
           type="number"
           class="settings-input settings-input--small"
           min="0"

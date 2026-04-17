@@ -8,6 +8,7 @@ import { useSettingsStore } from '@/stores/settings'
 import { useNotificationStore } from '@/stores/notification'
 import { useProjectStore } from '@/stores/project'
 import { useTracePreviewStore } from '@/stores/tracePreview'
+import { agentExecutor } from '@/services/conversation/AgentExecutor'
 import { buildConversationMessages } from '@/services/conversation/buildConversationMessages'
 import { loadMountedMemoryPrompt } from '@/services/memory/mountedMemoryPrompt'
 import i18n from '@/i18n'
@@ -421,8 +422,6 @@ export class CompressionService {
     messages: Message[],
     onContent: (content: string) => void
   ): Promise<void> {
-    const { agentExecutor } = await import('@/services/conversation/AgentExecutor')
-
     const context = {
       sessionId,
       agent,

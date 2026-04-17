@@ -4,6 +4,14 @@ import { invoke } from '@tauri-apps/api/core'
 import { useNotificationStore } from './notification'
 import { getErrorMessage } from '@/utils/api'
 import { useLayoutStore } from './layout'
+import { useSessionStore } from './session'
+import { useMessageStore } from './message'
+import { useTokenStore } from './token'
+import { useAiEditTraceStore } from './aiEditTrace'
+import { usePlanStore } from './plan'
+import { useTaskStore } from './task'
+import { useTaskExecutionStore } from './taskExecution'
+import { useTaskSplitStore } from './taskSplit'
 
 export interface Project {
   id: string
@@ -227,26 +235,6 @@ export const useProjectStore = defineStore('project', () => {
     const notificationStore = useNotificationStore()
 
     try {
-      const [
-        { useSessionStore },
-        { useMessageStore },
-        { useTokenStore },
-        { useAiEditTraceStore },
-        { usePlanStore },
-        { useTaskStore },
-        { useTaskExecutionStore },
-        { useTaskSplitStore }
-      ] = await Promise.all([
-        import('./session'),
-        import('./message'),
-        import('./token'),
-        import('./aiEditTrace'),
-        import('./plan'),
-        import('./task'),
-        import('./taskExecution'),
-        import('./taskSplit')
-      ])
-
       const sessionStore = useSessionStore()
       const planStore = usePlanStore()
       await sessionStore.loadSessions(projectId)

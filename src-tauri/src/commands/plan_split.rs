@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter};
 
+use super::conversation::strategies::abnormal_completion::{
+    classify_cli_completion, CliCompletionFailureKind, CliTextFragment, CliTextSource,
+};
 use super::conversation::executor::{get_registry, is_execution_session_active_internal};
 use super::conversation::set_abort_flag;
 use super::conversation::types::{ExecutionRequest, MessageInput};
@@ -887,14 +890,33 @@ fn refresh_session_after_turn(
         }
         Err(error_message) => {
             let llm_messages = load_llm_messages_json(session.llm_messages_json.as_ref());
-            session.status = "stopped".to_string();
+            let failure = CliTextFragment::new(CliTextSource::Content, raw_content.clone())
+                .into_iter()
+                .collect::<Vec<_>>();
+            let classified_failure = classify_cli_completion("Plan Split", &failure, false);
+
+            let is_retryable_failure = matches!(
+                classified_failure.as_ref().map(|item| item.kind),
+                Some(CliCompletionFailureKind::Retryable)
+            );
+            session.status = if is_retryable_failure {
+                "failed".to_string()
+            } else {
+                "stopped".to_string()
+            };
             session.parse_error = Some(error_message.clone());
-            session.error_message = None;
+            session.error_message = classified_failure
+                .as_ref()
+                .map(|item| item.message.clone());
             session.llm_messages_json = Some(serialize_json(&llm_messages)?);
             session.form_queue_json = None;
             session.current_form_index = None;
             session.result_json = None;
-            session.stopped_at = session.completed_at.clone();
+            session.stopped_at = if is_retryable_failure {
+                None
+            } else {
+                session.completed_at.clone()
+            };
         }
     }
 
@@ -1104,6 +1126,70 @@ pub fn list_plan_split_logs(plan_id: String) -> Result<Vec<PlanSplitLog>, String
         .map_err(|error| error.to_string())?;
 
     Ok(logs)
+}
+
+/// 创建计划拆分日志。
+///
+/// 用途：
+/// - 记录前端补充的系统态日志，例如自动重试进度；
+/// - 返回落库后的日志主键，便于前端后续原地更新同一条记录。
+///
+/// 关键副作用：
+/// - 写入 `plan_split_logs` 表；
+/// - 不会触发会话状态流转。
+#[tauri::command]
+pub fn create_plan_split_log(
+    plan_id: String,
+    session_id: String,
+    log_type: String,
+    content: String,
+    metadata: Option<String>,
+) -> Result<PlanSplitLog, String> {
+    let conn = open_db_connection().map_err(|error| error.to_string())?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = now_rfc3339();
+
+    conn.execute(
+        "INSERT INTO plan_split_logs (id, plan_id, session_id, log_type, content, metadata, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params![&id, &plan_id, &session_id, &log_type, &content, &metadata, &now],
+    )
+    .map_err(|error| error.to_string())?;
+
+    Ok(PlanSplitLog {
+        id,
+        plan_id,
+        session_id,
+        log_type,
+        content,
+        metadata,
+        created_at: now,
+    })
+}
+
+/// 更新计划拆分日志内容。
+///
+/// 用途：
+/// - 原地刷新自动重试等累积型系统日志，避免重复插入多条近似记录。
+///
+/// 关键副作用：
+/// - 更新 `plan_split_logs` 表中指定主键对应的内容与元数据；
+/// - 不改动日志创建时间，也不会触发会话状态变更。
+#[tauri::command]
+pub fn update_plan_split_log(
+    id: String,
+    content: String,
+    metadata: Option<String>,
+) -> Result<(), String> {
+    let conn = open_db_connection().map_err(|error| error.to_string())?;
+
+    conn.execute(
+        "UPDATE plan_split_logs SET content = ?1, metadata = ?2 WHERE id = ?3",
+        rusqlite::params![&content, &metadata, &id],
+    )
+    .map_err(|error| error.to_string())?;
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -1327,7 +1413,13 @@ pub async fn reset_plan_split_turn_for_restart(
     if let Some(execution_session_id) = session.execution_session_id.clone() {
         set_abort_flag(&execution_session_id, true).await;
         conn.execute(
-            "DELETE FROM plan_split_logs WHERE plan_id = ?1 AND session_id = ?2",
+            "DELETE FROM plan_split_logs
+             WHERE plan_id = ?1
+               AND session_id = ?2
+               AND NOT (
+                   log_type = 'system'
+                   AND metadata LIKE '%\"retryGroup\":\"cli_failure_retry\"%'
+               )",
             rusqlite::params![&plan_id, &execution_session_id],
         )
         .map_err(|error| error.to_string())?;
