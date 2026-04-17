@@ -34,7 +34,7 @@ defineProps<{
         v-else-if="segment.type === 'memory'"
         class="conversation-composer__memory-tag"
         :title="segment.titleContent"
-      >{{ segment.displayContent || segment.content }}</span>
+      >{{ segment.content }}</span>
       <span
         v-else
         class="conversation-composer__slash-tag"

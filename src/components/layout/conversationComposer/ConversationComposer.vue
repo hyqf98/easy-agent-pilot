@@ -62,6 +62,8 @@ const {
   handleMessageFormSubmit,
   handleMemorySuggestionPointerEnter,
   handleMemorySuggestionPointerLeave,
+  handleMemoryPreviewPointerEnter,
+  handleMemoryPreviewPointerLeave,
   handleOpenCompress,
   handlePaste,
   hasVisibleMemorySuggestions,
@@ -90,6 +92,7 @@ const {
   pendingImages,
   previewMemoryReference,
   previewMemorySuggestion,
+  scheduleClearMemoryPreview,
   presetModelOptions,
   queuedDraftEditText,
   queuedMessages,
@@ -433,6 +436,31 @@ defineExpose({
         :remove-attachment="removeImage"
       />
 
+      <ConversationComposerMemoryAssist
+        :t="t"
+        :is-main-panel="isMainPanel"
+        :current-memory-references="currentMemoryReferences"
+        :current-memory-preview="currentMemoryPreview"
+        :should-show-memory-suggestions="shouldShowMemorySuggestions"
+        :has-visible-memory-suggestions="hasVisibleMemorySuggestions"
+        :is-memory-suggestion-loading="isMemorySuggestionLoading"
+        :should-show-memory-suggestion-empty-state="shouldShowMemorySuggestionEmptyState"
+        :should-show-memory-suggestion-idle-hint="shouldShowMemorySuggestionIdleHint"
+        :visible-memory-suggestions="visibleMemorySuggestions"
+        :is-active-memory-suggestion="isActiveMemorySuggestion"
+        :preview-memory-reference="previewMemoryReference"
+        :preview-memory-suggestion="previewMemorySuggestion"
+        :clear-memory-preview="clearMemoryPreview"
+        :schedule-clear-memory-preview="scheduleClearMemoryPreview"
+        :handle-memory-preview-pointer-enter="handleMemoryPreviewPointerEnter"
+        :handle-memory-preview-pointer-leave="handleMemoryPreviewPointerLeave"
+        :handle-memory-suggestion-pointer-enter="handleMemorySuggestionPointerEnter"
+        :handle-memory-suggestion-pointer-leave="handleMemorySuggestionPointerLeave"
+        :dismiss-memory-suggestion="dismissMemorySuggestion"
+        :insert-memory-reference="insertMemoryReference"
+        :remove-memory-reference-from-draft="removeMemoryReferenceFromDraft"
+      />
+
       <div
         v-if="isMainPanel"
         class="conversation-composer__main-header"
@@ -548,28 +576,6 @@ defineExpose({
         multiple
         @change="handleAttachmentFileChange"
       >
-
-      <ConversationComposerMemoryAssist
-        :t="t"
-        :is-main-panel="isMainPanel"
-        :current-memory-references="currentMemoryReferences"
-        :current-memory-preview="currentMemoryPreview"
-        :should-show-memory-suggestions="shouldShowMemorySuggestions"
-        :has-visible-memory-suggestions="hasVisibleMemorySuggestions"
-        :is-memory-suggestion-loading="isMemorySuggestionLoading"
-        :should-show-memory-suggestion-empty-state="shouldShowMemorySuggestionEmptyState"
-        :should-show-memory-suggestion-idle-hint="shouldShowMemorySuggestionIdleHint"
-        :visible-memory-suggestions="visibleMemorySuggestions"
-        :is-active-memory-suggestion="isActiveMemorySuggestion"
-        :preview-memory-reference="previewMemoryReference"
-        :preview-memory-suggestion="previewMemorySuggestion"
-        :clear-memory-preview="clearMemoryPreview"
-        :handle-memory-suggestion-pointer-enter="handleMemorySuggestionPointerEnter"
-        :handle-memory-suggestion-pointer-leave="handleMemorySuggestionPointerLeave"
-        :dismiss-memory-suggestion="dismissMemorySuggestion"
-        :insert-memory-reference="insertMemoryReference"
-        :remove-memory-reference-from-draft="removeMemoryReferenceFromDraft"
-      />
 
       <ConversationComposerAttachments
         v-if="!isMainPanel"

@@ -93,6 +93,7 @@ const MEMORY_SUGGESTION_AUTO_HIDE_MS = 3000
 const MEMORY_SUGGESTION_EMPTY_STATE_DELAY_MS = 3000
 const MEMORY_SUGGESTION_EMPTY_STATE_RECHECK_MS = 240
 const MEMORY_SUGGESTION_KEYBOARD_ACTIVE_MS = 800
+const MEMORY_PREVIEW_HIDE_DELAY_MS = 120
 
 function buildMemoryReferenceToken(sourceType: MemorySuggestionSourceType, sourceId: string): string {
   return `[[memory-ref:${sourceType}:${sourceId}]]`
@@ -265,6 +266,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
   let memorySuggestionTimer: ReturnType<typeof setTimeout> | null = null
   let memorySuggestionAutoHideTimer: ReturnType<typeof setTimeout> | null = null
   let memorySuggestionEmptyTimer: ReturnType<typeof setTimeout> | null = null
+  let memoryPreviewHideTimer: ReturnType<typeof setTimeout> | null = null
   let memorySuggestionRequestId = 0
 
   const currentSessionId = computed(() => toValue(options.sessionId) || null)
@@ -697,16 +699,50 @@ export function useConversationComposer(options: UseConversationComposerOptions)
   )
 
   const previewMemorySuggestion = (suggestion: MemorySuggestion) => {
+    if (memoryPreviewHideTimer) {
+      clearTimeout(memoryPreviewHideTimer)
+      memoryPreviewHideTimer = null
+    }
     hoveredMemoryPreview.value = buildMemoryPreviewFromSuggestion(suggestion)
     armMemorySuggestionAutoHide()
   }
 
   const previewMemoryReference = (reference: ComposerMemoryReference) => {
+    if (memoryPreviewHideTimer) {
+      clearTimeout(memoryPreviewHideTimer)
+      memoryPreviewHideTimer = null
+    }
     hoveredMemoryPreview.value = buildMemoryPreviewFromReference(reference)
   }
 
   const clearMemoryPreview = () => {
+    if (memoryPreviewHideTimer) {
+      clearTimeout(memoryPreviewHideTimer)
+      memoryPreviewHideTimer = null
+    }
     hoveredMemoryPreview.value = null
+  }
+
+  const scheduleClearMemoryPreview = () => {
+    if (memoryPreviewHideTimer) {
+      clearTimeout(memoryPreviewHideTimer)
+    }
+
+    memoryPreviewHideTimer = setTimeout(() => {
+      hoveredMemoryPreview.value = null
+      memoryPreviewHideTimer = null
+    }, MEMORY_PREVIEW_HIDE_DELAY_MS)
+  }
+
+  const handleMemoryPreviewPointerEnter = () => {
+    if (memoryPreviewHideTimer) {
+      clearTimeout(memoryPreviewHideTimer)
+      memoryPreviewHideTimer = null
+    }
+  }
+
+  const handleMemoryPreviewPointerLeave = () => {
+    scheduleClearMemoryPreview()
   }
 
   const clearMemorySuggestionTimer = () => {
@@ -736,8 +772,8 @@ export function useConversationComposer(options: UseConversationComposerOptions)
 
   const hideMemorySuggestionPanel = () => {
     clearMemorySuggestionAutoHideTimer()
+    clearMemoryPreview()
     activeMemorySuggestionIndex.value = -1
-    hoveredMemoryPreview.value = null
     isMemorySuggestionPanelActive.value = false
     isMemorySuggestionPending.value = false
     memorySuggestionEmptyStateVisible.value = false
@@ -1062,6 +1098,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     clearMemorySuggestionTimer()
     clearMemorySuggestionAutoHideTimer()
     clearMemorySuggestionEmptyTimer()
+    clearMemoryPreview()
   })
 
   useSafeOutsideClick(
@@ -1323,7 +1360,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
       activeMemorySuggestionIndex.value = -1
     }
     if (hoveredMemoryPreview.value?.key === buildMemoryReferenceKey(suggestion.sourceType, suggestion.sourceId)) {
-      hoveredMemoryPreview.value = null
+      clearMemoryPreview()
     }
     sessionExecutionStore.dismissMemorySuggestion(currentSessionId.value, suggestion)
     if (!hasVisibleMemorySuggestions.value) {
@@ -1355,7 +1392,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     inputText.value = newText
     sessionExecutionStore.removeMemoryReference(sessionId, reference.sourceType, reference.sourceId)
     if (hoveredMemoryPreview.value?.key === buildMemoryReferenceKey(reference.sourceType, reference.sourceId)) {
-      hoveredMemoryPreview.value = null
+      clearMemoryPreview()
     }
     focusInput()
   }
@@ -2141,6 +2178,8 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     handleMessageFormSubmit,
     handleMemorySuggestionPointerEnter,
     handleMemorySuggestionPointerLeave,
+    handleMemoryPreviewPointerEnter,
+    handleMemoryPreviewPointerLeave,
     insertMemoryReference,
     handleOpenCompress,
     handlePaste,
@@ -2199,6 +2238,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     tokenUsage,
     visibleMemorySuggestions,
     clearMemoryPreview,
+    scheduleClearMemoryPreview,
     activeMemorySuggestionKey
   }
 }

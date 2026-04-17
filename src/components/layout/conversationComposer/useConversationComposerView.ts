@@ -46,7 +46,7 @@ export function useConversationComposerView(props: Readonly<ConversationComposer
   })
 
   const shouldUseRichTextOverlay = computed(() => (
-    composer.parsedInputText.value.some(segment => segment.type !== 'text')
+    composer.parsedInputText.value.some(segment => segment.type === 'file' || segment.type === 'slash')
   ))
 
   const composerSendShortcutHint = computed(() => (

@@ -25,6 +25,9 @@ defineProps<{
   previewMemoryReference: (reference: MemoryReference) => void
   previewMemorySuggestion: (suggestion: MemorySuggestion) => void
   clearMemoryPreview: () => void
+  scheduleClearMemoryPreview: () => void
+  handleMemoryPreviewPointerEnter: () => void
+  handleMemoryPreviewPointerLeave: () => void
   handleMemorySuggestionPointerEnter: () => void
   handleMemorySuggestionPointerLeave: () => void
   dismissMemorySuggestion: (suggestion: MemorySuggestion) => void
@@ -50,9 +53,9 @@ defineProps<{
           type="button"
           :title="reference.fullContent"
           @mouseenter="previewMemoryReference(reference)"
-          @mouseleave="clearMemoryPreview"
+          @mouseleave="scheduleClearMemoryPreview"
           @focus="previewMemoryReference(reference)"
-          @blur="clearMemoryPreview"
+          @blur="scheduleClearMemoryPreview"
           @click="removeMemoryReferenceFromDraft(reference)"
         >
           <span class="conversation-composer__memory-chip-type">
@@ -74,6 +77,8 @@ defineProps<{
         'conversation-composer__memory-preview--library': currentMemoryPreview.sourceType === 'library_chunk',
         'conversation-composer__memory-preview--raw': currentMemoryPreview.sourceType === 'raw_record'
       }"
+      @mouseenter="handleMemoryPreviewPointerEnter"
+      @mouseleave="handleMemoryPreviewPointerLeave"
     >
       <div class="conversation-composer__memory-preview-header">
         <span class="conversation-composer__memory-preview-label">
@@ -126,6 +131,8 @@ defineProps<{
           'conversation-composer__memory-preview--library': currentMemoryPreview.sourceType === 'library_chunk',
           'conversation-composer__memory-preview--raw': currentMemoryPreview.sourceType === 'raw_record'
         }"
+        @mouseenter="handleMemoryPreviewPointerEnter"
+        @mouseleave="handleMemoryPreviewPointerLeave"
       >
         <div class="conversation-composer__memory-preview-header">
           <span class="conversation-composer__memory-preview-label">
@@ -179,7 +186,7 @@ defineProps<{
             :aria-selected="isActiveMemorySuggestion(suggestion)"
             :title="suggestion.fullContent"
             @mouseenter="previewMemorySuggestion(suggestion)"
-            @mouseleave="clearMemoryPreview"
+            @mouseleave="scheduleClearMemoryPreview"
           >
             <div class="conversation-composer__memory-card-body">
               <div class="conversation-composer__memory-card-top">
@@ -229,7 +236,7 @@ defineProps<{
             :aria-selected="isActiveMemorySuggestion(suggestion)"
             :title="suggestion.fullContent"
             @mouseenter="previewMemorySuggestion(suggestion)"
-            @mouseleave="clearMemoryPreview"
+            @mouseleave="scheduleClearMemoryPreview"
           >
             <div class="conversation-composer__memory-card-body">
               <div class="conversation-composer__memory-card-top">
