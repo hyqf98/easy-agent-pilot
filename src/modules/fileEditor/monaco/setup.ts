@@ -29,6 +29,8 @@ import 'monaco-editor/esm/vs/basic-languages/shell/shell.contribution'
 import { registerVueLanguage } from './vueLanguage'
 
 let initialized = false
+let prewarmedEditor = false
+let prewarmPromise: Promise<void> | null = null
 
 function getCssVar(name: string, fallback: string): string {
   const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
@@ -164,4 +166,58 @@ export function ensureMonacoSetup(): void {
   applyMonacoTheme(document.documentElement.getAttribute('data-theme') === 'dark')
 
   initialized = true
+}
+
+export function prewarmMonacoEditor(): Promise<void> {
+  if (prewarmedEditor) {
+    return Promise.resolve()
+  }
+
+  if (prewarmPromise) {
+    return prewarmPromise
+  }
+
+  prewarmPromise = Promise.resolve()
+    .then(() => {
+      ensureMonacoSetup()
+
+      if (typeof document === 'undefined' || !document.body) {
+        prewarmedEditor = true
+        return
+      }
+
+      const host = document.createElement('div')
+      host.style.position = 'fixed'
+      host.style.left = '-10000px'
+      host.style.top = '-10000px'
+      host.style.width = '1px'
+      host.style.height = '1px'
+      host.style.opacity = '0'
+      host.style.pointerEvents = 'none'
+      document.body.append(host)
+
+      const model = monaco.editor.createModel('', 'typescript')
+      const editor = monaco.editor.create(host, {
+        model,
+        automaticLayout: false,
+        minimap: { enabled: false },
+        lineNumbers: 'off',
+        scrollBeyondLastLine: false,
+        readOnly: true
+      })
+
+      editor.layout({ width: 1, height: 1 })
+      editor.dispose()
+      model.dispose()
+      host.remove()
+      prewarmedEditor = true
+    })
+    .catch((error) => {
+      console.warn('[Monaco] prewarm failed:', error)
+    })
+    .finally(() => {
+      prewarmPromise = null
+    })
+
+  return prewarmPromise
 }

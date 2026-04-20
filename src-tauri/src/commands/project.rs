@@ -1463,6 +1463,22 @@ pub fn search_file_mentions(
     }
 }
 
+#[tauri::command]
+pub fn warm_project_file_index(project_path: String) -> Result<usize, String> {
+    let resolved_path = resolve_path(&project_path)?;
+
+    if !resolved_path.exists() {
+        return Err(format!("项目路径不存在: {}", project_path));
+    }
+
+    if !resolved_path.is_dir() {
+        return Err(format!("项目路径不是目录: {}", project_path));
+    }
+
+    let files = get_project_file_index(&resolved_path)?;
+    Ok(files.len())
+}
+
 fn validate_create_entry_name(name: &str) -> Result<&str, String> {
     let trimmed = name.trim();
     if trimmed.is_empty() {

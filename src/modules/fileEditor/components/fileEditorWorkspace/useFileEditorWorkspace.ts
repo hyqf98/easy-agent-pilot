@@ -1,8 +1,10 @@
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useSessionFileReference } from '@/composables'
 import { useSettingsStore } from '@/stores/settings'
 import { createFileLineRangeMention } from '@/utils/composerFileMention'
+import { prewarmMonacoEditor } from '../../monaco/setup'
 import { useFileEditorStore } from '../../stores/fileEditor'
+import type { MarkdownEditorMode } from '../../types'
 
 const languageNameMap: Record<string, string> = {
   plaintext: 'Plain Text',
@@ -49,6 +51,14 @@ export function useFileEditorWorkspace() {
     return '已保存'
   })
 
+  const markdownModeText = computed(() => {
+    if (fileEditorStore.effectiveMarkdownMode === 'rich') {
+      return '所见即所得'
+    }
+
+    return '源码'
+  })
+
   const handleSave = async (): Promise<void> => {
     await fileEditorStore.saveFile()
   }
@@ -73,13 +83,33 @@ export function useFileEditorWorkspace() {
     })
   }
 
+  const handleMarkdownModeChange = (mode: MarkdownEditorMode): void => {
+    fileEditorStore.setMarkdownMode(mode)
+  }
+
+  onMounted(() => {
+    if (typeof window !== 'undefined') {
+      const run = () => {
+        void prewarmMonacoEditor()
+      }
+
+      if (typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(() => run(), { timeout: 240 })
+      } else {
+        globalThis.setTimeout(run, 60)
+      }
+    }
+  })
+
   return {
     fileEditorStore,
     fileSizeLabel,
     handleBack,
+    handleMarkdownModeChange,
     handleSave,
     handleSendSelectionToSession,
     languageName,
+    markdownModeText,
     saveStatusText,
     settingsStore
   }

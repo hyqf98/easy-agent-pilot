@@ -13,6 +13,8 @@ export type MonacoLanguageId =
   | 'shell'
   | 'yaml'
 
+export type MarkdownEditorMode = 'rich' | 'source'
+
 export type CompletionKind = 'keyword' | 'function' | 'snippet' | 'variable' | 'class' | 'property'
 
 export interface CompletionEntry {

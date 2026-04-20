@@ -176,11 +176,34 @@ fn contains_error_context(normalized: &str) -> bool {
         .any(|pattern| normalized.contains(pattern))
 }
 
+fn has_structured_task_result(normalized: &str) -> bool {
+    normalized.contains("<task_result>") && normalized.contains("</task_result>")
+}
+
+fn starts_with_error_context(normalized: &str) -> bool {
+    ERROR_CONTEXT_PATTERNS.iter().any(|pattern| {
+        normalized.starts_with(pattern)
+            || normalized.starts_with(&format!("{pattern}:"))
+            || normalized.starts_with(&format!("{pattern}："))
+            || normalized.starts_with(&format!("[{pattern}]"))
+    })
+}
+
+fn has_structured_error_payload(normalized: &str) -> bool {
+    normalized.contains("{\"error\"")
+        || normalized.contains("\"error\":")
+        || normalized.contains("'error':")
+}
+
 fn source_allows_retryable_match(source: CliTextSource, normalized: &str) -> bool {
     match source {
         CliTextSource::Error | CliTextSource::Stderr => true,
         CliTextSource::Content | CliTextSource::ToolResult | CliTextSource::System => {
-            contains_error_context(normalized) || normalized.contains("{\"error\"")
+            if has_structured_task_result(normalized) {
+                return false;
+            }
+
+            starts_with_error_context(normalized) || has_structured_error_payload(normalized)
         }
     }
 }
@@ -189,7 +212,11 @@ fn is_non_retryable_failure(source: CliTextSource, normalized: &str) -> bool {
     match source {
         CliTextSource::Error | CliTextSource::Stderr => contains_error_context(normalized),
         CliTextSource::Content | CliTextSource::ToolResult | CliTextSource::System => {
-            contains_error_context(normalized)
+            if has_structured_task_result(normalized) {
+                return false;
+            }
+
+            starts_with_error_context(normalized) || has_structured_error_payload(normalized)
         }
     }
 }
@@ -220,5 +247,17 @@ mod tests {
         assert!(is_shared_benign_stderr_warning(
             "worker quit with fatal: Transport channel closed, when UnexpectedContentType(Missing-Content-Type)"
         ));
+    }
+
+    #[test]
+    fn does_not_treat_task_result_report_as_failure() {
+        let fragments = vec![CliTextFragment::new(
+            CliTextSource::Content,
+            "task_id: ses_xxx <task_result> Now I have a thorough understanding of the homepage architecture. File path contains error.log but this is a result report. </task_result>",
+        )
+        .expect("fragment")];
+
+        let failure = classify_cli_completion("OpenCode", &fragments, false);
+        assert!(failure.is_none());
     }
 }

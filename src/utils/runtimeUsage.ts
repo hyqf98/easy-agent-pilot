@@ -16,12 +16,12 @@ export interface NormalizeRuntimeUsageResult {
   nextBaseline: UsageBaseline | null
 }
 
-function isCodexRuntime(provider?: string | null): boolean {
+function isCumulativeUsageRuntime(provider?: string | null): boolean {
   const normalized = provider?.trim().toLowerCase() ?? ''
-  return normalized.includes('codex')
+  return normalized.includes('codex') || normalized.includes('opencode')
 }
 
-function normalizeCodexCounter(nextValue: number | undefined, previousValue: number): number | undefined {
+function normalizeCumulativeCounter(nextValue: number | undefined, previousValue: number): number | undefined {
   if (typeof nextValue !== 'number') {
     return undefined
   }
@@ -35,14 +35,14 @@ function normalizeCodexCounter(nextValue: number | undefined, previousValue: num
 }
 
 /**
- * Codex CLI 在 resume 多轮时返回的是线程累计 usage。
+ * Codex / OpenCode CLI 在 resume 多轮时可能返回线程累计 usage。
  * 这里统一转换成当前轮次的增量，避免 UI 将累计值误认为上下文窗口占用。
  */
 export function normalizeRuntimeUsage(
   options: NormalizeRuntimeUsageOptions
 ): NormalizeRuntimeUsageResult {
   const { provider, inputTokens, outputTokens, baseline } = options
-  if (!isCodexRuntime(provider)) {
+  if (!isCumulativeUsageRuntime(provider)) {
     return {
       inputTokens,
       outputTokens,
@@ -54,8 +54,8 @@ export function normalizeRuntimeUsage(
   const previousOutputTokens = baseline?.rawOutputTokens ?? 0
 
   return {
-    inputTokens: normalizeCodexCounter(inputTokens, previousInputTokens),
-    outputTokens: normalizeCodexCounter(outputTokens, previousOutputTokens),
+    inputTokens: normalizeCumulativeCounter(inputTokens, previousInputTokens),
+    outputTokens: normalizeCumulativeCounter(outputTokens, previousOutputTokens),
     nextBaseline: {
       rawInputTokens: typeof inputTokens === 'number' ? inputTokens : previousInputTokens,
       rawOutputTokens: typeof outputTokens === 'number' ? outputTokens : previousOutputTokens

@@ -4,7 +4,7 @@ import { useNotificationStore } from '@/stores/notification'
 import { useUIStore } from '@/stores/ui'
 import { getErrorMessage } from '@/utils/api'
 import { readProjectFile, writeProjectFile } from '../services/fileEditorService'
-import type { CompletionEntry, FileEditorOpenInput, MonacoLanguageId } from '../types'
+import type { CompletionEntry, FileEditorOpenInput, MarkdownEditorMode, MonacoLanguageId } from '../types'
 import { resolveFileEditorLanguageState } from './languageState'
 import {
   isLargeEditorFile,
@@ -31,6 +31,7 @@ export const useFileEditorStore = defineStore('fileEditor', () => {
   const lineCount = ref(0)
   const selectedText = ref('')
   const selectionRange = ref<FileEditorSelectionRange | null>(null)
+  const markdownMode = ref<MarkdownEditorMode>('source')
 
   const isLoading = ref(false)
   const isSaving = ref(false)
@@ -42,6 +43,14 @@ export const useFileEditorStore = defineStore('fileEditor', () => {
   const hasActiveFile = computed(() => Boolean(activeFilePath.value))
   const hasSelection = computed(() => Boolean(selectedText.value.trim()) && selectionRange.value !== null)
   const isLargeFile = computed(() => isLargeEditorFile(fileSizeBytes.value, lineCount.value))
+  const isMarkdownFile = computed(() => languageId.value === 'markdown')
+  const effectiveMarkdownMode = computed<MarkdownEditorMode>(() => {
+    if (!isMarkdownFile.value || isLargeFile.value) {
+      return 'source'
+    }
+
+    return markdownMode.value
+  })
 
   const canSwitchFile = (): boolean => {
     if (!isDirty.value) {
@@ -64,6 +73,7 @@ export const useFileEditorStore = defineStore('fileEditor', () => {
     lineCount.value = 0
     selectedText.value = ''
     selectionRange.value = null
+    markdownMode.value = 'source'
     isLoading.value = false
     isSaving.value = false
     loadError.value = null
@@ -78,6 +88,9 @@ export const useFileEditorStore = defineStore('fileEditor', () => {
     strategyId.value = languageState.strategyId
     languageId.value = languageState.languageId
     completionEntries.value = languageState.completionEntries
+    if (languageState.languageId !== 'markdown') {
+      markdownMode.value = 'source'
+    }
   }
 
   const openFile = async (input: FileEditorOpenInput): Promise<boolean> => {
@@ -90,6 +103,9 @@ export const useFileEditorStore = defineStore('fileEditor', () => {
       strategyId.value = languageState.strategyId
       languageId.value = languageState.languageId
       completionEntries.value = languageState.completionEntries
+      if (languageState.languageId !== 'markdown') {
+        markdownMode.value = 'source'
+      }
 
       uiStore.setMainContentMode('fileEditor')
       return true
@@ -99,16 +115,39 @@ export const useFileEditorStore = defineStore('fileEditor', () => {
       return false
     }
 
+    const previousState = {
+      activeProjectId: activeProjectId.value,
+      activeProjectPath: activeProjectPath.value,
+      activeFilePath: activeFilePath.value,
+      content: content.value,
+      originalContent: originalContent.value,
+      languageId: languageId.value,
+      strategyId: strategyId.value,
+      completionEntries: [...completionEntries.value],
+      fileSizeBytes: fileSizeBytes.value,
+      lineCount: lineCount.value,
+      markdownMode: markdownMode.value,
+      selectedText: selectedText.value,
+      selectionRange: selectionRange.value
+    }
+
     isLoading.value = true
     loadError.value = null
+    activeProjectId.value = input.projectId
+    activeProjectPath.value = input.projectPath
+    activeFilePath.value = input.filePath
+    content.value = ''
+    originalContent.value = ''
+    fileSizeBytes.value = 0
+    lineCount.value = 0
+    selectedText.value = ''
+    selectionRange.value = null
+    uiStore.setMainContentMode('fileEditor')
 
     try {
       const filePayload = await readProjectFile(input.projectPath, input.filePath)
       const languageState = await resolveFileEditorLanguageState(input.filePath)
 
-      activeProjectId.value = input.projectId
-      activeProjectPath.value = input.projectPath
-      activeFilePath.value = input.filePath
       content.value = filePayload.content
       originalContent.value = filePayload.content
       strategyId.value = languageState.strategyId
@@ -119,11 +158,23 @@ export const useFileEditorStore = defineStore('fileEditor', () => {
       lineCount.value = filePayload.lineCount
       selectedText.value = ''
       selectionRange.value = null
-
-      uiStore.setMainContentMode('fileEditor')
+      markdownMode.value = languageState.languageId === 'markdown' ? 'rich' : 'source'
       return true
     } catch (error) {
       const message = getErrorMessage(error)
+      activeProjectId.value = previousState.activeProjectId
+      activeProjectPath.value = previousState.activeProjectPath
+      activeFilePath.value = previousState.activeFilePath
+      content.value = previousState.content
+      originalContent.value = previousState.originalContent
+      languageId.value = previousState.languageId
+      strategyId.value = previousState.strategyId
+      completionEntries.value = previousState.completionEntries
+      fileSizeBytes.value = previousState.fileSizeBytes
+      lineCount.value = previousState.lineCount
+      markdownMode.value = previousState.markdownMode
+      selectedText.value = previousState.selectedText
+      selectionRange.value = previousState.selectionRange
       loadError.value = message
       notificationStore.error('打开文件失败', message)
       return false
@@ -134,6 +185,10 @@ export const useFileEditorStore = defineStore('fileEditor', () => {
 
   const updateContent = (nextContent: string): void => {
     content.value = nextContent
+  }
+
+  const setMarkdownMode = (nextMode: MarkdownEditorMode): void => {
+    markdownMode.value = nextMode
   }
 
   /**
@@ -208,8 +263,12 @@ export const useFileEditorStore = defineStore('fileEditor', () => {
     selectionRange,
     isLargeFile,
     hasSelection,
+    isMarkdownFile,
+    markdownMode,
+    effectiveMarkdownMode,
     openFile,
     updateContent,
+    setMarkdownMode,
     updateSelection,
     saveFile,
     switchBackToChat,

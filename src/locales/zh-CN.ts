@@ -1691,6 +1691,10 @@ const zhCN = {
   },
   fileTree: {
     ...enUS.fileTree,
+    searchPlaceholder: '搜索文件...',
+    clearSearch: '清空搜索',
+    searching: '正在搜索文件...',
+    noSearchResults: '没有匹配的文件',
     selectedCount: '已选择 {count} 项',
     createFile: '新建文件',
     createFolder: '新建文件夹',

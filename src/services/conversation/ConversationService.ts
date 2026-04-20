@@ -132,6 +132,11 @@ function estimateConversationInputTokens(messages: Message[]): number {
   return messages.reduce((total, message) => total + estimateTextTokens(message.content), 0)
 }
 
+function isCumulativeUsageRuntime(provider?: string | null): boolean {
+  const normalized = provider?.trim().toLowerCase() ?? ''
+  return normalized.includes('codex') || normalized.includes('opencode')
+}
+
 /**
  * 对话服务
  * 封装消息发送逻辑，处理流式事件更新
@@ -239,6 +244,7 @@ export class ConversationService {
     this.activeSendSessions.add(sessionId)
     sessionExecutionStore.startSending(sessionId)
     this.clearConversationRetryState(sessionId)
+    tokenStore.clearRealtimeTokens(sessionId)
 
     try {
       const existingUserMessageId = options?.existingUserMessageId?.trim()
@@ -766,7 +772,7 @@ export class ConversationService {
     const runtimeProvider = inferAgentProvider(context.agent) ?? context.agent.provider ?? context.agent.type
     const runtimeLabel = runtimeProvider.toUpperCase()
 
-    if (!context.resumeSessionId || runtimeProvider !== 'codex') {
+    if (!context.resumeSessionId || !isCumulativeUsageRuntime(runtimeProvider)) {
       this.usageBaselines.delete(sessionId)
     }
 

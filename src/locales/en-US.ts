@@ -1761,6 +1761,10 @@ export default {
   },
   fileTree: {
     selectedCount: '{count} selected',
+    searchPlaceholder: 'Search files...',
+    clearSearch: 'Clear search',
+    searching: 'Searching files...',
+    noSearchResults: 'No matching files',
     createFile: 'New File',
     createFolder: 'New Folder',
     fileNamePlaceholder: 'Enter file name',

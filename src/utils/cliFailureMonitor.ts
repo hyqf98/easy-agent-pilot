@@ -79,6 +79,25 @@ function hasErrorContext(normalized: string): boolean {
   return ERROR_CONTEXT_PATTERNS.some(pattern => normalized.includes(pattern))
 }
 
+function hasStructuredTaskResult(normalized: string): boolean {
+  return normalized.includes('<task_result>') && normalized.includes('</task_result>')
+}
+
+function startsWithErrorContext(normalized: string): boolean {
+  return ERROR_CONTEXT_PATTERNS.some(pattern =>
+    normalized.startsWith(pattern)
+    || normalized.startsWith(`${pattern}:`)
+    || normalized.startsWith(`${pattern}：`)
+    || normalized.startsWith(`[${pattern}]`)
+  )
+}
+
+function hasStructuredErrorPayload(normalized: string): boolean {
+  return normalized.includes('{"error"')
+    || normalized.includes('"error":')
+    || normalized.includes("'error':")
+}
+
 function sourceAllowsRetryableMatch(
   source: CliFailureFragmentSource,
   normalized: string
@@ -87,7 +106,11 @@ function sourceAllowsRetryableMatch(
     return true
   }
 
-  return hasErrorContext(normalized) || normalized.includes('{"error"')
+  if (hasStructuredTaskResult(normalized)) {
+    return false
+  }
+
+  return startsWithErrorContext(normalized) || hasStructuredErrorPayload(normalized)
 }
 
 function isNonRetryableFailure(
@@ -98,7 +121,11 @@ function isNonRetryableFailure(
     return hasErrorContext(normalized)
   }
 
-  return hasErrorContext(normalized)
+  if (hasStructuredTaskResult(normalized)) {
+    return false
+  }
+
+  return startsWithErrorContext(normalized) || hasStructuredErrorPayload(normalized)
 }
 
 function buildFailureMessage(

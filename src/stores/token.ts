@@ -137,6 +137,18 @@ export const useTokenStore = defineStore('token', () => {
   // 鐎圭偞锟?token 鐎涙ê鍋嶉敍鍫熸降锟?CLI 鏉╂柨娲栭敍?
   const realtimeTokens = ref<Map<string, RealtimeTokenData>>(new Map())
 
+  function calculateSessionEstimatedTokens(sessionId: string): number {
+    const messageStore = useMessageStore()
+    const messages = messageStore.messagesBySession(sessionId)
+
+    let estimatedTokens = 0
+    for (const message of messages) {
+      estimatedTokens += estimateMessageTokens(message.content)
+    }
+
+    return estimatedTokens
+  }
+
   function persistSessionTokenCaches() {
     if (typeof window === 'undefined') {
       return
@@ -297,14 +309,7 @@ export const useTokenStore = defineStore('token', () => {
   /**
    */
   function updateSessionTokenCache(sessionId: string) {
-    const messageStore = useMessageStore()
-    const messages = messageStore.messagesBySession(sessionId)
-
-    let estimatedTokens = 0
-    for (const message of messages) {
-      estimatedTokens += estimateMessageTokens(message.content)
-    }
-
+    const estimatedTokens = calculateSessionEstimatedTokens(sessionId)
     const persistedTotal = sessionTokenCaches.value.get(sessionId)?.totalTokens ?? 0
     const totalTokens = Math.max(estimatedTokens, persistedTotal)
 
@@ -313,6 +318,25 @@ export const useTokenStore = defineStore('token', () => {
       totalTokens,
       lastUpdated: Date.now()
     })
+    persistSessionTokenCaches()
+  }
+
+  function rebuildSessionTokenCacheFromMessages(
+    sessionId: string,
+    options?: { clearRealtime?: boolean }
+  ) {
+    const estimatedTokens = calculateSessionEstimatedTokens(sessionId)
+
+    sessionTokenCaches.value = replaceMapEntry(sessionTokenCaches.value, sessionId, {
+      sessionId,
+      totalTokens: estimatedTokens,
+      lastUpdated: Date.now()
+    })
+
+    if (options?.clearRealtime) {
+      realtimeTokens.value = deleteMapEntry(realtimeTokens.value, sessionId)
+    }
+
     persistSessionTokenCaches()
   }
 
@@ -361,6 +385,7 @@ export const useTokenStore = defineStore('token', () => {
     updateRealtimeOutputEstimate,
     clearRealtimeTokens,
     updateSessionTokenCache,
+    rebuildSessionTokenCacheFromMessages,
     clearSessionTokenCache,
     clearProjectSessionTokenCaches,
     clearAllTokenCaches,

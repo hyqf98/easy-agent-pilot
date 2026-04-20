@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { EaButton, EaIcon } from '@/components/common'
 import MonacoCodeEditor from '../monacoCodeEditor/MonacoCodeEditor.vue'
+import RichMarkdownEditor from '../richMarkdownEditor/RichMarkdownEditor.vue'
 import { useFileEditorWorkspace } from './useFileEditorWorkspace'
 
 const {
   fileEditorStore,
   fileSizeLabel,
   handleBack,
+  handleMarkdownModeChange,
   handleSave,
   handleSendSelectionToSession,
   languageName,
+  markdownModeText,
   saveStatusText,
   settingsStore
 } = useFileEditorWorkspace()
@@ -54,6 +57,41 @@ const {
       </div>
 
       <div class="file-editor-workspace__toolbar-right">
+        <div
+          v-if="fileEditorStore.isMarkdownFile"
+          class="file-editor-workspace__mode-switch"
+        >
+          <button
+            type="button"
+            :class="[
+              'file-editor-workspace__mode-btn',
+              { 'file-editor-workspace__mode-btn--active': fileEditorStore.effectiveMarkdownMode === 'rich' }
+            ]"
+            :disabled="fileEditorStore.isLargeFile"
+            @click="handleMarkdownModeChange('rich')"
+          >
+            <EaIcon
+              name="lucide:book-open"
+              :size="13"
+            />
+            所见即所得
+          </button>
+          <button
+            type="button"
+            :class="[
+              'file-editor-workspace__mode-btn',
+              { 'file-editor-workspace__mode-btn--active': fileEditorStore.effectiveMarkdownMode === 'source' }
+            ]"
+            @click="handleMarkdownModeChange('source')"
+          >
+            <EaIcon
+              name="file-code"
+              :size="13"
+            />
+            源码
+          </button>
+        </div>
+
         <EaButton
           type="primary"
           size="small"
@@ -85,7 +123,16 @@ const {
       v-if="fileEditorStore.hasActiveFile"
       class="file-editor-workspace__content"
     >
+      <RichMarkdownEditor
+        v-if="fileEditorStore.effectiveMarkdownMode === 'rich'"
+        :model-value="fileEditorStore.content"
+        :read-only="fileEditorStore.isLoading"
+        :placeholder="`开始编辑 ${markdownModeText} Markdown...`"
+        @update:model-value="fileEditorStore.updateContent"
+        @save-shortcut="handleSave"
+      />
       <MonacoCodeEditor
+        v-else
         :model-value="fileEditorStore.content"
         :language="fileEditorStore.languageId"
         :font-size="settingsStore.settings.editorFontSize"

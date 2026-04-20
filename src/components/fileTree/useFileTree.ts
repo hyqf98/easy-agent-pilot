@@ -1,4 +1,4 @@
-import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, h, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { invoke } from '@tauri-apps/api/core'
 import type { UnwatchFn } from '@tauri-apps/plugin-fs'
@@ -23,9 +23,122 @@ export type FileTreeEmits = {
 
 interface LoadTreeDataOptions {
   resetChildCache?: boolean
+  force?: boolean
 }
 
 const DRAG_AUTO_EXPAND_DELAY_MS = 420
+const TREE_RELOAD_DEBOUNCE_MS = 180
+
+interface FileTreeRuntimeCache {
+  rootNodes: FileTreeNode[] | null
+  rootLoadedAt: number
+  childrenByDir: Map<string, FileTreeNode[]>
+  expandedKeys: string[]
+  staleDirs: Set<string>
+  pendingLoads: Map<string, Promise<FileTreeNode[]>>
+  rootLoadPromise: Promise<FileTreeNode[]> | null
+  scrollTop: number
+}
+
+interface ProjectFileSearchResult {
+  name: string
+  path: string
+  insertPath: string
+  displayPath: string
+  nodeType: 'file' | 'directory'
+  extension?: string
+  scope: 'project' | 'global'
+}
+
+const projectFileTreeCaches = new Map<string, FileTreeRuntimeCache>()
+
+function buildCacheKey(projectId: string, projectPath: string): string {
+  return `${projectId}:${projectPath}`
+}
+
+function createRuntimeCache(): FileTreeRuntimeCache {
+  return {
+    rootNodes: null,
+    rootLoadedAt: 0,
+    childrenByDir: new Map(),
+    expandedKeys: [],
+    staleDirs: new Set(),
+    pendingLoads: new Map(),
+    rootLoadPromise: null,
+    scrollTop: 0
+  }
+}
+
+function getRuntimeCache(projectId: string, projectPath: string): FileTreeRuntimeCache {
+  const key = buildCacheKey(projectId, projectPath)
+  const cached = projectFileTreeCaches.get(key)
+  if (cached) {
+    return cached
+  }
+
+  const nextCache = createRuntimeCache()
+  projectFileTreeCaches.set(key, nextCache)
+  return nextCache
+}
+
+function cloneTreeNodes(nodes: FileTreeNode[]): FileTreeNode[] {
+  return nodes.map(node => ({
+    ...node,
+    children: node.children ? cloneTreeNodes(node.children) : undefined
+  }))
+}
+
+async function loadProjectRootNodes(
+  projectId: string,
+  projectPath: string,
+  force = false
+): Promise<FileTreeNode[]> {
+  const cache = getRuntimeCache(projectId, projectPath)
+
+  if (!force && cache.rootNodes) {
+    return cloneTreeNodes(cache.rootNodes)
+  }
+
+  if (!force && cache.rootLoadPromise) {
+    return cloneTreeNodes(await cache.rootLoadPromise)
+  }
+
+  const loadPromise = invoke<FileTreeNode[]>('list_project_files', { projectPath })
+  cache.rootLoadPromise = loadPromise
+
+  try {
+    const nodes = await loadPromise
+    cache.rootNodes = cloneTreeNodes(nodes)
+    cache.rootLoadedAt = Date.now()
+    cache.staleDirs.delete(projectPath)
+    return cloneTreeNodes(nodes)
+  } finally {
+    if (cache.rootLoadPromise === loadPromise) {
+      cache.rootLoadPromise = null
+    }
+  }
+}
+
+export async function prewarmProjectFileTreeCache(projectId: string, projectPath: string): Promise<void> {
+  const cache = getRuntimeCache(projectId, projectPath)
+  if (cache.rootNodes || cache.rootLoadPromise) {
+    return
+  }
+
+  try {
+    await loadProjectRootNodes(projectId, projectPath)
+  } catch (error) {
+    console.error('Failed to prewarm project file tree:', error)
+  }
+}
+
+export async function prewarmProjectFileSearchIndex(projectPath: string): Promise<void> {
+  try {
+    await invoke<number>('warm_project_file_index', { projectPath })
+  } catch (error) {
+    console.error('Failed to warm project file index:', error)
+  }
+}
 
 /**
  * 文件树视图状态。
@@ -37,6 +150,7 @@ export function useFileTree(props: FileTreeProps, emit: FileTreeEmits) {
   const { sendFileReferencesToSession } = useSessionFileReference()
 
   const rootRef = ref<HTMLElement | null>(null)
+  const searchInputRef = ref<HTMLInputElement | null>(null)
   const treeData = ref<TreeOption[]>([])
   const expandedKeys = ref<string[]>([])
   const selectedPaths = ref<string[]>([])
@@ -53,14 +167,22 @@ export function useFileTree(props: FileTreeProps, emit: FileTreeEmits) {
   const batchDeleteConfirmVisible = ref(false)
   const isLoading = ref(false)
   const pendingReload = ref(false)
-  const pendingResetChildCache = ref(false)
   const unwatchFileTree = ref<UnwatchFn | null>(null)
   const reloadTimer = ref<ReturnType<typeof setTimeout> | null>(null)
-  const directoryChildrenCache = ref<Map<string, FileTreeNode[]>>(new Map())
+  const watcherStartTimer = ref<ReturnType<typeof setTimeout> | null>(null)
+  const watcherIdleCallbackId = ref<number | null>(null)
+  const activeWatchTargets = ref<string[]>([])
+  const pendingRefreshDirs = ref<Set<string>>(new Set())
   const dragPaths = ref<string[]>([])
   const dragOverKey = ref<string | null>(null)
   const dragExpandTargetKey = ref<string | null>(null)
   const dragExpandTimer = ref<ReturnType<typeof setTimeout> | null>(null)
+  const searchQuery = ref('')
+  const searchResults = ref<ProjectFileSearchResult[]>([])
+  const searchActiveIndex = ref(0)
+  const isSearching = ref(false)
+  const searchTimer = ref<ReturnType<typeof setTimeout> | null>(null)
+  const searchRequestId = ref(0)
 
   const rootContextNode = computed<FileTreeNodeData>(() => ({
     key: props.projectPath,
@@ -73,6 +195,8 @@ export function useFileTree(props: FileTreeProps, emit: FileTreeEmits) {
 
   const selectedActionPaths = computed(() => dedupePaths(selectedPaths.value))
   const selectedPathSet = computed(() => new Set(selectedPaths.value))
+  const normalizedSearchQuery = computed(() => searchQuery.value.trim())
+  const isSearchActive = computed(() => normalizedSearchQuery.value.length > 0)
 
   function extractProjectLabel(projectPath: string): string {
     const normalized = projectPath.replace(/[\\/]+$/, '').replace(/\\/g, '/')
@@ -128,6 +252,112 @@ export function useFileTree(props: FileTreeProps, emit: FileTreeEmits) {
     }
 
     return dedupePaths([node.key])
+  }
+
+  function currentCache(): FileTreeRuntimeCache {
+    return getRuntimeCache(props.projectId, props.projectPath)
+  }
+
+  function buildWatchTargets(): string[] {
+    const targets = new Set<string>([props.projectPath])
+
+    for (const path of expandedKeys.value) {
+      const node = findTreeNodeByKey(treeData.value, path)
+      if (!node || (node.nodeType !== 'directory' && node.isLeaf !== false)) {
+        continue
+      }
+
+      targets.add(path)
+    }
+
+    return Array.from(targets)
+  }
+
+  function hasSameWatchTargets(left: string[], right: string[]): boolean {
+    if (left.length !== right.length) {
+      return false
+    }
+
+    return left.every((value, index) => value === right[index])
+  }
+
+  function syncExpandedKeysToCache(): void {
+    currentCache().expandedKeys = [...expandedKeys.value]
+  }
+
+  function getPathDepth(path: string): number {
+    return path.split(/[\\/]/).filter(Boolean).length
+  }
+
+  function resolveDirectoryPath(path: string): string {
+    const normalized = path.replace(/[\\/]+$/, '')
+    if (!normalized || normalizeComparablePath(normalized) === normalizeComparablePath(props.projectPath)) {
+      return props.projectPath
+    }
+
+    const targetNode = findTreeNodeByKey(treeData.value, normalized)
+    if (targetNode && ((targetNode as { nodeType?: string }).nodeType === 'directory' || targetNode.isLeaf === false)) {
+      return normalized
+    }
+
+    const separatorIndex = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf('\\'))
+    return separatorIndex >= 0 ? normalized.slice(0, separatorIndex) : props.projectPath
+  }
+
+  function resolveParentDirectoryPath(path: string): string {
+    const normalized = path.replace(/[\\/]+$/, '')
+    const separatorIndex = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf('\\'))
+    return separatorIndex >= 0 ? normalized.slice(0, separatorIndex) : props.projectPath
+  }
+
+  function buildAncestorDirectories(targetPath: string): string[] {
+    const ancestors: string[] = []
+    let current = resolveParentDirectoryPath(targetPath)
+
+    while (
+      current
+      && normalizeComparablePath(current) !== normalizeComparablePath(props.projectPath)
+      && !ancestors.some(item => normalizeComparablePath(item) === normalizeComparablePath(current))
+    ) {
+      ancestors.unshift(current)
+      current = resolveParentDirectoryPath(current)
+    }
+
+    return ancestors
+  }
+
+  function resolveScrollElement(): HTMLElement | null {
+    return rootRef.value?.querySelector('.file-tree__n-tree') as HTMLElement | null
+  }
+
+  function saveScrollPosition(): void {
+    const element = resolveScrollElement()
+    if (!element) {
+      return
+    }
+
+    currentCache().scrollTop = element.scrollTop
+  }
+
+  function restoreScrollPosition(): void {
+    nextTick(() => {
+      const element = resolveScrollElement()
+      if (!element) {
+        return
+      }
+
+      element.scrollTop = currentCache().scrollTop
+    })
+  }
+
+  function clearSearch(): void {
+    searchQuery.value = ''
+    searchResults.value = []
+    searchActiveIndex.value = 0
+    if (searchTimer.value) {
+      clearTimeout(searchTimer.value)
+      searchTimer.value = null
+    }
   }
 
   function clearDragState(): void {
@@ -207,21 +437,27 @@ export function useFileTree(props: FileTreeProps, emit: FileTreeEmits) {
   async function loadTreeData(options: LoadTreeDataOptions = {}) {
     if (isLoading.value) {
       pendingReload.value = true
-      pendingResetChildCache.value = pendingResetChildCache.value || Boolean(options.resetChildCache)
       return
     }
 
     isLoading.value = true
     try {
-      if (options.resetChildCache && directoryChildrenCache.value.size > 0) {
-        directoryChildrenCache.value = new Map()
+      const cache = currentCache()
+      if (options.resetChildCache) {
+        cache.childrenByDir.clear()
+        cache.staleDirs.clear()
       }
 
-      const result = await invoke<FileTreeNode[]>('list_project_files', {
-        projectPath: props.projectPath
-      })
+      const shouldForce = Boolean(options.force || options.resetChildCache)
+      const result = await loadProjectRootNodes(props.projectId, props.projectPath, shouldForce)
+      cache.rootNodes = cloneTreeNodes(result)
       treeData.value = convertToTreeOptions(result)
+      if (cache.expandedKeys.length > 0 && expandedKeys.value.length === 0) {
+        expandedKeys.value = [...cache.expandedKeys]
+      }
       await restoreExpandedDirectories()
+      syncExpandedKeysToCache()
+      restoreScrollPosition()
 
       selectedPaths.value = selectedPaths.value.filter(path => !!findTreeNodeByKey(treeData.value, path))
 
@@ -238,16 +474,10 @@ export function useFileTree(props: FileTreeProps, emit: FileTreeEmits) {
       isLoading.value = false
 
       if (pendingReload.value) {
-        const shouldResetChildCache = pendingResetChildCache.value
         pendingReload.value = false
-        pendingResetChildCache.value = false
-        await loadTreeData({ resetChildCache: shouldResetChildCache })
+        await loadTreeData({ force: true })
       }
     }
-  }
-
-  function getPathDepth(path: string): number {
-    return path.split(/[\\/]/).filter(Boolean).length
   }
 
   async function restoreExpandedDirectories() {
@@ -271,25 +501,32 @@ export function useFileTree(props: FileTreeProps, emit: FileTreeEmits) {
     }
   }
 
-  function scheduleTreeReload() {
+  function queueDirectoryRefresh(dirPath: string): void {
+    pendingRefreshDirs.value.add(dirPath)
+
     if (reloadTimer.value) {
       clearTimeout(reloadTimer.value)
     }
 
     reloadTimer.value = setTimeout(() => {
       reloadTimer.value = null
-      void loadTreeData({ resetChildCache: true })
-    }, 250)
-  }
-
-  function cloneTreeNodes(nodes: FileTreeNode[]): FileTreeNode[] {
-    return nodes.map(node => ({
-      ...node,
-      children: node.children ? cloneTreeNodes(node.children) : undefined
-    }))
+      const targetDirs = Array.from(pendingRefreshDirs.value)
+      pendingRefreshDirs.value.clear()
+      void refreshDirectories(targetDirs)
+    }, TREE_RELOAD_DEBOUNCE_MS)
   }
 
   function stopFileWatcher() {
+    if (watcherIdleCallbackId.value !== null && typeof window !== 'undefined' && typeof window.cancelIdleCallback === 'function') {
+      window.cancelIdleCallback(watcherIdleCallbackId.value)
+      watcherIdleCallbackId.value = null
+    }
+
+    if (watcherStartTimer.value) {
+      clearTimeout(watcherStartTimer.value)
+      watcherStartTimer.value = null
+    }
+
     if (reloadTimer.value) {
       clearTimeout(reloadTimer.value)
       reloadTimer.value = null
@@ -299,28 +536,86 @@ export function useFileTree(props: FileTreeProps, emit: FileTreeEmits) {
       unwatchFileTree.value()
       unwatchFileTree.value = null
     }
+
+    activeWatchTargets.value = []
   }
 
-  async function startFileWatcher(projectPath: string) {
-    stopFileWatcher()
+  async function startFileWatcher(paths: string[]) {
+    const normalizedTargets = Array.from(new Set(paths.filter(Boolean))).sort()
+    if (normalizedTargets.length === 0) {
+      return
+    }
+
+    if (hasSameWatchTargets(activeWatchTargets.value, normalizedTargets) && unwatchFileTree.value) {
+      return
+    }
+
+    if (unwatchFileTree.value) {
+      unwatchFileTree.value()
+      unwatchFileTree.value = null
+    }
 
     try {
       unwatchFileTree.value = await startFsWatcher(
-        projectPath,
-        () => {
-          scheduleTreeReload()
+        normalizedTargets,
+        (event) => {
+          const eventType = event.type
+          if (typeof eventType === 'object' && 'access' in eventType) {
+            return
+          }
+
+          const affectedDirs = event.paths
+            .flatMap(path => [resolveDirectoryPath(path), resolveParentDirectoryPath(path)])
+            .filter(Boolean)
+
+          if (affectedDirs.length === 0) {
+            queueDirectoryRefresh(props.projectPath)
+            return
+          }
+
+          affectedDirs.forEach(queueDirectoryRefresh)
         },
         {
-          recursive: true,
+          recursive: false,
           delayMs: 300
         }
       )
+      activeWatchTargets.value = normalizedTargets
     } catch (error) {
       console.error('Failed to watch project directory:', error)
     }
   }
 
+  function scheduleFileWatcherStart(): void {
+    if (watcherIdleCallbackId.value !== null && typeof window !== 'undefined' && typeof window.cancelIdleCallback === 'function') {
+      window.cancelIdleCallback(watcherIdleCallbackId.value)
+      watcherIdleCallbackId.value = null
+    }
+
+    if (watcherStartTimer.value) {
+      clearTimeout(watcherStartTimer.value)
+      watcherStartTimer.value = null
+    }
+
+    const targets = buildWatchTargets()
+
+    const run = () => {
+      watcherStartTimer.value = null
+      watcherIdleCallbackId.value = null
+      void startFileWatcher(targets)
+    }
+
+    if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+      watcherIdleCallbackId.value = window.requestIdleCallback(() => run(), { timeout: 1200 })
+      return
+    }
+
+    watcherStartTimer.value = setTimeout(run, 420)
+  }
+
   function convertToTreeOptions(nodes: FileTreeNode[]): TreeOption[] {
+    const cache = currentCache()
+
     return nodes.map(node => {
       const isFile = node.nodeType === 'file'
       const option: TreeOption = {
@@ -333,7 +628,7 @@ export function useFileTree(props: FileTreeProps, emit: FileTreeEmits) {
       }
 
       if (!isFile) {
-        const cachedChildren = directoryChildrenCache.value.get(node.path)
+        const cachedChildren = cache.childrenByDir.get(node.path)
         option.children = cachedChildren ? convertToTreeOptions(cachedChildren) : []
       }
 
@@ -359,18 +654,31 @@ export function useFileTree(props: FileTreeProps, emit: FileTreeEmits) {
 
   async function loadChildrenForNode(node: TreeOption, forceRefresh = false): Promise<void> {
     const nodePath = node.key as string
-    const cachedChildren = directoryChildrenCache.value.get(nodePath)
-    const children = !forceRefresh && cachedChildren
-      ? cachedChildren
-      : await invoke<FileTreeNode[]>('load_directory_children', { dirPath: nodePath })
+    const cache = currentCache()
+    const isStale = cache.staleDirs.has(nodePath)
+    const cachedChildren = cache.childrenByDir.get(nodePath)
 
-    if (forceRefresh || !cachedChildren) {
-      const nextCache = new Map(directoryChildrenCache.value)
-      nextCache.set(nodePath, cloneTreeNodes(children))
-      directoryChildrenCache.value = nextCache
+    let children = cachedChildren
+
+    if (forceRefresh || isStale || !cachedChildren) {
+      let pendingLoad = cache.pendingLoads.get(nodePath)
+      if (!pendingLoad) {
+        pendingLoad = invoke<FileTreeNode[]>('load_directory_children', { dirPath: nodePath })
+        cache.pendingLoads.set(nodePath, pendingLoad)
+      }
+
+      try {
+        children = await pendingLoad
+        cache.childrenByDir.set(nodePath, cloneTreeNodes(children))
+        cache.staleDirs.delete(nodePath)
+      } finally {
+        if (cache.pendingLoads.get(nodePath) === pendingLoad) {
+          cache.pendingLoads.delete(nodePath)
+        }
+      }
     }
 
-    node.children = children.map(child => {
+    node.children = (children ?? []).map(child => {
       const isFile = child.nodeType === 'file'
       const option: TreeOption = {
         key: child.path,
@@ -393,6 +701,7 @@ export function useFileTree(props: FileTreeProps, emit: FileTreeEmits) {
     }
 
     expandedKeys.value = [...expandedKeys.value, path]
+    syncExpandedKeysToCache()
     const node = findTreeNodeByKey(treeData.value, path)
     if (!node || node.nodeType !== 'directory') {
       return
@@ -400,6 +709,7 @@ export function useFileTree(props: FileTreeProps, emit: FileTreeEmits) {
 
     try {
       await loadChildrenForNode(node)
+      scheduleFileWatcherStart()
     } catch (error) {
       console.error('Failed to load node children on auto expand:', error)
     }
@@ -408,9 +718,11 @@ export function useFileTree(props: FileTreeProps, emit: FileTreeEmits) {
   async function handleExpandChange(keys: string[]) {
     const previousKeys = new Set(expandedKeys.value)
     expandedKeys.value = keys
+    syncExpandedKeysToCache()
 
     const justExpandedKeys = keys.filter(key => !previousKeys.has(key))
     if (justExpandedKeys.length === 0) {
+      scheduleFileWatcherStart()
       return
     }
 
@@ -426,6 +738,41 @@ export function useFileTree(props: FileTreeProps, emit: FileTreeEmits) {
         console.error('Failed to refresh node children on expand:', error)
       }
     }))
+
+    scheduleFileWatcherStart()
+  }
+
+  async function refreshDirectories(dirPaths: string[]): Promise<void> {
+    const cache = currentCache()
+    const uniqueDirs = Array.from(new Set(dirPaths.map(resolveDirectoryPath))).filter(Boolean)
+
+    if (uniqueDirs.length === 0) {
+      return
+    }
+
+    const shouldRefreshRoot = uniqueDirs.some(dir => normalizeComparablePath(dir) === normalizeComparablePath(props.projectPath))
+    uniqueDirs.forEach(dir => cache.staleDirs.add(dir))
+
+    if (shouldRefreshRoot) {
+      await loadTreeData({ force: true })
+      return
+    }
+
+    await Promise.all(uniqueDirs.map(async dirPath => {
+      const node = findTreeNodeByKey(treeData.value, dirPath)
+      if (!node || !expandedKeys.value.includes(dirPath)) {
+        return
+      }
+
+      try {
+        await loadChildrenForNode(node, true)
+      } catch (error) {
+        console.error('Failed to refresh directory children:', error)
+      }
+    }))
+
+    treeData.value = convertToTreeOptions(cache.rootNodes ?? [])
+    restoreScrollPosition()
   }
 
   function handleNodeClick(event: MouseEvent, node: TreeOption) {
@@ -480,9 +827,14 @@ export function useFileTree(props: FileTreeProps, emit: FileTreeEmits) {
   }
 
   function handleRootClick(event: MouseEvent) {
+    const target = event.target
+    if (target instanceof Element && target.closest('.file-tree__search')) {
+      closeContextMenu()
+      return
+    }
+
     rootRef.value?.focus()
 
-    const target = event.target
     if (target instanceof Element && target.closest('.n-tree-node')) {
       return
     }
@@ -503,7 +855,7 @@ export function useFileTree(props: FileTreeProps, emit: FileTreeEmits) {
   async function confirmRename(oldPath: string, newName: string) {
     const result = await renameFile(oldPath, newName)
     if (result?.success) {
-      await loadTreeData({ resetChildCache: true })
+      await refreshDirectories([resolveParentDirectoryPath(oldPath), resolveParentDirectoryPath(result.newPath ?? oldPath)])
     }
   }
 
@@ -531,7 +883,7 @@ export function useFileTree(props: FileTreeProps, emit: FileTreeEmits) {
       if (!node.isRoot && node.nodeType === 'directory') {
         await ensureExpanded(node.key)
       }
-      await loadTreeData({ resetChildCache: true })
+      await refreshDirectories([parentPath])
     }
   }
 
@@ -571,16 +923,17 @@ export function useFileTree(props: FileTreeProps, emit: FileTreeEmits) {
       return
     }
 
-    const result = await deleteFile(deleteNode.value.key)
+    const targetPath = deleteNode.value.key
+    const result = await deleteFile(targetPath)
     if (result?.success) {
-      selectedPaths.value = selectedPaths.value.filter(path => path !== deleteNode.value?.key)
-      if (activePath.value === deleteNode.value.key) {
+      selectedPaths.value = selectedPaths.value.filter(path => path !== targetPath)
+      if (activePath.value === targetPath) {
         activePath.value = null
       }
-      if (anchorPath.value === deleteNode.value.key) {
+      if (anchorPath.value === targetPath) {
         anchorPath.value = null
       }
-      await loadTreeData({ resetChildCache: true })
+      await refreshDirectories([resolveParentDirectoryPath(targetPath)])
     }
 
     deleteConfirmVisible.value = false
@@ -592,7 +945,7 @@ export function useFileTree(props: FileTreeProps, emit: FileTreeEmits) {
     const result = await batchDeleteFiles(paths)
     if (result?.success) {
       clearSelectionState()
-      await loadTreeData({ resetChildCache: true })
+      await refreshDirectories(paths.map(resolveParentDirectoryPath))
     }
 
     batchDeleteConfirmVisible.value = false
@@ -723,7 +1076,7 @@ export function useFileTree(props: FileTreeProps, emit: FileTreeEmits) {
 
     if (results.every(result => result?.success)) {
       clearSelectionState()
-      await loadTreeData({ resetChildCache: true })
+      await refreshDirectories([...movablePaths.map(resolveParentDirectoryPath), targetPath])
     }
   }
 
@@ -733,6 +1086,134 @@ export function useFileTree(props: FileTreeProps, emit: FileTreeEmits) {
       sourceProjectId: props.projectId,
       mentions
     })
+  }
+
+  async function revealPath(targetPath: string): Promise<void> {
+    const ancestorDirs = buildAncestorDirectories(targetPath)
+    for (const dirPath of ancestorDirs) {
+      await ensureExpanded(dirPath)
+    }
+
+    setSingleSelection(targetPath)
+    saveScrollPosition()
+  }
+
+  async function selectSearchResult(result: ProjectFileSearchResult): Promise<void> {
+    clearSearch()
+    await revealPath(result.path)
+
+    if (result.nodeType === 'directory') {
+      await ensureExpanded(result.path)
+      return
+    }
+
+    emit('fileSelect', result.path)
+  }
+
+  async function runFileSearch(query: string, requestId: number): Promise<void> {
+    if (!query) {
+      searchResults.value = []
+      searchActiveIndex.value = 0
+      isSearching.value = false
+      return
+    }
+
+    isSearching.value = true
+    try {
+      const results = await invoke<ProjectFileSearchResult[]>('search_file_mentions', {
+        input: {
+          query,
+          scope: 'project',
+          projectPath: props.projectPath,
+          limit: 60
+        }
+      })
+
+      if (requestId !== searchRequestId.value) {
+        return
+      }
+
+      searchResults.value = results
+      searchActiveIndex.value = 0
+    } catch (error) {
+      if (requestId !== searchRequestId.value) {
+        return
+      }
+
+      console.error('Failed to search project files:', error)
+      searchResults.value = []
+    } finally {
+      if (requestId === searchRequestId.value) {
+        isSearching.value = false
+      }
+    }
+  }
+
+  function handleSearchInput(value: string): void {
+    searchQuery.value = value
+
+    if (searchTimer.value) {
+      clearTimeout(searchTimer.value)
+      searchTimer.value = null
+    }
+
+    const nextQuery = value.trim()
+    const requestId = searchRequestId.value + 1
+    searchRequestId.value = requestId
+
+    if (!nextQuery) {
+      searchResults.value = []
+      searchActiveIndex.value = 0
+      isSearching.value = false
+      return
+    }
+
+    searchTimer.value = setTimeout(() => {
+      searchTimer.value = null
+      void runFileSearch(nextQuery, requestId)
+    }, 120)
+  }
+
+  function handleSearchInputEvent(event: Event): void {
+    const target = event.target
+    handleSearchInput(target instanceof HTMLInputElement ? target.value : '')
+  }
+
+  async function handleSearchKeydown(event: KeyboardEvent): Promise<void> {
+    if (!isSearchActive.value || searchResults.value.length === 0) {
+      if (event.key === 'Escape') {
+        clearSearch()
+        rootRef.value?.focus()
+      }
+      return
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      searchActiveIndex.value = (searchActiveIndex.value + 1) % searchResults.value.length
+      return
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      searchActiveIndex.value = (searchActiveIndex.value - 1 + searchResults.value.length) % searchResults.value.length
+      return
+    }
+
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      const activeResult = searchResults.value[searchActiveIndex.value] ?? searchResults.value[0]
+      if (activeResult) {
+        await selectSearchResult(activeResult)
+      }
+      return
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      clearSearch()
+      rootRef.value?.focus()
+    }
   }
 
   function renderLabel({ option }: { option: TreeOption }) {
@@ -820,34 +1301,59 @@ export function useFileTree(props: FileTreeProps, emit: FileTreeEmits) {
     handleDelete(buildNodeData(selectedNode))
   }
 
+  function hydrateFromCache(): void {
+    const cache = currentCache()
+    expandedKeys.value = [...cache.expandedKeys]
+    treeData.value = cache.rootNodes ? convertToTreeOptions(cache.rootNodes) : []
+  }
+
+  function handleTreeScroll(): void {
+    saveScrollPosition()
+  }
+
   onMounted(() => {
     document.addEventListener('click', handleClickOutside)
     document.addEventListener('keydown', handleDocumentKeydown)
-    void loadTreeData()
-    void startFileWatcher(props.projectPath)
+    hydrateFromCache()
+    nextTick(() => {
+      resolveScrollElement()?.addEventListener('scroll', handleTreeScroll, { passive: true })
+      restoreScrollPosition()
+    })
+    void loadTreeData({ force: treeData.value.length === 0 })
+    scheduleFileWatcherStart()
   })
 
   onUnmounted(() => {
     document.removeEventListener('click', handleClickOutside)
     document.removeEventListener('keydown', handleDocumentKeydown)
+    resolveScrollElement()?.removeEventListener('scroll', handleTreeScroll)
+    if (searchTimer.value) {
+      clearTimeout(searchTimer.value)
+      searchTimer.value = null
+    }
+    saveScrollPosition()
     stopFileWatcher()
     clearDragState()
   })
 
   watch(
-    () => props.projectPath,
-    async (newPath, oldPath) => {
-      if (newPath === oldPath) {
+    () => [props.projectId, props.projectPath] as const,
+    async ([nextProjectId, nextProjectPath], [previousProjectId, previousProjectPath]) => {
+      if (nextProjectId === previousProjectId && nextProjectPath === previousProjectPath) {
         return
       }
 
-      directoryChildrenCache.value = new Map()
-      pendingResetChildCache.value = false
+      const scrollElement = resolveScrollElement()
+      if (scrollElement) {
+        getRuntimeCache(previousProjectId, previousProjectPath).scrollTop = scrollElement.scrollTop
+      }
       clearSelectionState()
       closeContextMenu()
       clearDragState()
-      await loadTreeData({ resetChildCache: true })
-      await startFileWatcher(newPath)
+      clearSearch()
+      hydrateFromCache()
+      await loadTreeData({ force: treeData.value.length === 0 })
+      scheduleFileWatcherStart()
     }
   )
 
@@ -889,6 +1395,17 @@ export function useFileTree(props: FileTreeProps, emit: FileTreeEmits) {
     handleTreeDragEnd,
     handleDrop,
     handleSendToSession,
+    searchInputRef,
+    searchQuery,
+    searchResults,
+    searchActiveIndex,
+    isSearchActive,
+    isSearching,
+    handleSearchInput,
+    handleSearchInputEvent,
+    handleSearchKeydown,
+    selectSearchResult,
+    clearSearch,
     renderLabel,
     resolveNodeProps
   }

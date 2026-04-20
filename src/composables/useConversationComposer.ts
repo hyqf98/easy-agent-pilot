@@ -2001,6 +2001,10 @@ export function useConversationComposer(options: UseConversationComposerOptions)
         await messageStore.deleteMessage(replaceMessageId)
       }
 
+      tokenStore.rebuildSessionTokenCacheFromMessages(sessionId, {
+        clearRealtime: true
+      })
+
       await conversationService.sendMessage(
         sessionId,
         normalizedContent,

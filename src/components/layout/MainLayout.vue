@@ -131,12 +131,15 @@ watch(
           </template>
 
           <div class="main-layout__main">
-            <template v-if="uiStore.mainContentMode === 'chat'">
+            <div
+              v-show="uiStore.mainContentMode === 'chat'"
+              class="main-layout__chat-content"
+            >
               <SessionTabs />
               <MessageArea />
-            </template>
+            </div>
             <FileEditorWorkspace
-              v-else
+              v-show="uiStore.mainContentMode === 'fileEditor'"
               class="main-layout__file-editor"
             />
           </div>
@@ -191,6 +194,13 @@ watch(
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.main-layout__chat-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .main-layout__file-editor {

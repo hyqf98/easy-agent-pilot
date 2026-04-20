@@ -13,6 +13,12 @@ const {
   t,
   loading,
   rootRef,
+  searchInputRef,
+  searchQuery,
+  searchResults,
+  searchActiveIndex,
+  isSearchActive,
+  isSearching,
   treeData,
   expandedKeys,
   contextMenuContext,
@@ -44,6 +50,10 @@ const {
   handleTreeDragEnd,
   handleDrop,
   handleSendToSession,
+  handleSearchInputEvent,
+  handleSearchKeydown,
+  selectSearchResult,
+  clearSearch,
   renderLabel,
   resolveNodeProps
 } = useFileTree(props, emit)
@@ -57,7 +67,74 @@ const {
     @click="handleRootClick"
     @contextmenu="handleTreeRootContextMenu"
   >
+    <div class="file-tree__search">
+      <div class="file-tree__search-input-shell">
+        <EaIcon
+          name="search"
+          :size="13"
+          class="file-tree__search-icon"
+        />
+        <input
+          ref="searchInputRef"
+          :value="searchQuery"
+          class="file-tree__search-input"
+          type="text"
+          :placeholder="t('fileTree.searchPlaceholder')"
+          @input="handleSearchInputEvent"
+          @keydown="handleSearchKeydown"
+        >
+        <button
+          v-if="searchQuery"
+          type="button"
+          class="file-tree__search-clear"
+          :title="t('fileTree.clearSearch')"
+          @click="clearSearch"
+        >
+          <EaIcon
+            name="x"
+            :size="12"
+          />
+        </button>
+      </div>
+    </div>
+
+    <div
+      v-if="isSearchActive"
+      class="file-tree__search-results"
+    >
+      <div
+        v-if="isSearching"
+        class="file-tree__search-empty"
+      >
+        {{ t('fileTree.searching') }}
+      </div>
+      <template v-else-if="searchResults.length > 0">
+        <button
+          v-for="(item, index) in searchResults"
+          :key="item.path"
+          type="button"
+          :class="['file-tree__search-item', { 'file-tree__search-item--active': index === searchActiveIndex }]"
+          @click="selectSearchResult(item)"
+        >
+          <EaIcon
+            :name="item.nodeType === 'directory' ? 'folder' : 'file-code'"
+            :size="14"
+            class="file-tree__search-item-icon"
+          />
+          <span class="file-tree__search-item-name">{{ item.name }}</span>
+          <span class="file-tree__search-item-path">{{ item.displayPath }}</span>
+        </button>
+      </template>
+      <div
+        v-else
+        class="file-tree__search-empty"
+      >
+        {{ t('fileTree.noSearchResults') }}
+      </div>
+    </div>
+
     <n-tree
+      v-show="!isSearchActive"
       :data="treeData"
       :expanded-keys="expandedKeys"
       virtual-scroll
