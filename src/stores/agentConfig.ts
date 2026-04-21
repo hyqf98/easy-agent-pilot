@@ -602,7 +602,7 @@ export const useAgentConfigStore = defineStore('agentConfig', () => {
   async function createModelConfig(config: Omit<AgentModelConfig, 'id' | 'createdAt' | 'updatedAt'>) {
     const notificationStore = useNotificationStore()
     try {
-      const rawConfig = await invoke<RawAgentModelConfig>('create_agent_model', {
+        const rawConfig = await invoke<RawAgentModelConfig>('create_agent_model', {
         input: {
           agent_id: config.agentId,
           model_id: config.modelId,

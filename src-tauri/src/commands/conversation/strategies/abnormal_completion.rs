@@ -99,6 +99,9 @@ pub fn is_shared_benign_stderr_warning(line: &str) -> bool {
             && normalized.contains("line 1 column"))
         || (normalized.contains("rmcp::transport::worker")
             && normalized.contains("transport channel closed"))
+        || (normalized.contains("failed to terminate mcp process group")
+            && (normalized.contains("operation not permitted")
+                || normalized.contains("os error 1")))
 }
 
 pub fn classify_cli_completion(
@@ -112,7 +115,8 @@ pub fn classify_cli_completion(
             continue;
         }
 
-        if is_retryable_failure(&normalized) && source_allows_retryable_match(fragment.source, &normalized)
+        if is_retryable_failure(&normalized)
+            && source_allows_retryable_match(fragment.source, &normalized)
         {
             return Some(build_failure(
                 provider,
@@ -246,6 +250,13 @@ mod tests {
     fn ignores_known_rmcp_warning() {
         assert!(is_shared_benign_stderr_warning(
             "worker quit with fatal: Transport channel closed, when UnexpectedContentType(Missing-Content-Type)"
+        ));
+    }
+
+    #[test]
+    fn ignores_rmcp_process_group_termination_eperm_warning() {
+        assert!(is_shared_benign_stderr_warning(
+            "codex_rmcp_client::rmcp_client: Failed to terminate MCP process group 37060: Operation not permitted (os error 1)"
         ));
     }
 

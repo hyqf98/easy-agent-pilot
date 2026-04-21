@@ -215,6 +215,17 @@ export const useAgentStore = defineStore('agent', () => {
 
   async function updateAgent(id: string, updates: Partial<AgentConfig>) {
     const notificationStore = useNotificationStore()
+    const agentConfigStore = useAgentConfigStore()
+    const existingAgent = agents.value.find(agent => agent.id === id)
+    const nextType = updates.type ?? existingAgent?.type
+    const nextProvider = updates.provider ?? existingAgent?.provider
+    const providerChanged = Boolean(
+      existingAgent
+      && (
+        existingAgent.type !== nextType
+        || existingAgent.provider !== nextProvider
+      )
+    )
 
     try {
       const rawAgent = await invoke<RawAgentData>('update_agent', {
@@ -236,6 +247,17 @@ export const useAgentStore = defineStore('agent', () => {
       const index = agents.value.findIndex(a => a.id === id)
       if (index !== -1) {
         agents.value[index] = transformAgent(rawAgent)
+      }
+
+      if (providerChanged) {
+        agentConfigStore.clearConfigs(id)
+        if (rawAgent.type === 'cli' && rawAgent.provider) {
+          try {
+            await agentConfigStore.initBuiltinModels(id, rawAgent.provider)
+          } catch (modelError) {
+            console.error('Failed to sync builtin models after provider change:', modelError)
+          }
+        }
       }
     } catch (error) {
       console.error('Failed to update agent:', error)

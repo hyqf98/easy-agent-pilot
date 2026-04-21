@@ -10,8 +10,7 @@ use tokio::time::sleep;
 use uuid::Uuid;
 
 use super::abnormal_completion::{
-    classify_cli_completion, is_shared_benign_stderr_warning, CliTextFragment,
-    CliTextSource,
+    classify_cli_completion, is_shared_benign_stderr_warning, CliTextFragment, CliTextSource,
 };
 use super::cli_common::{
     build_content_event, build_error_event, build_execution_summary, build_system_event,
@@ -149,10 +148,16 @@ fn should_ignore_stderr_line(line: &str) -> bool {
 fn collect_event_fragments(event: &CliStreamEvent) -> Vec<CliTextFragment> {
     let mut fragments = Vec::new();
 
-    if let Some(fragment) = CliTextFragment::new(CliTextSource::Content, event.content.clone().unwrap_or_default()) {
+    if let Some(fragment) = CliTextFragment::new(
+        CliTextSource::Content,
+        event.content.clone().unwrap_or_default(),
+    ) {
         fragments.push(fragment);
     }
-    if let Some(fragment) = CliTextFragment::new(CliTextSource::Error, event.error.clone().unwrap_or_default()) {
+    if let Some(fragment) = CliTextFragment::new(
+        CliTextSource::Error,
+        event.error.clone().unwrap_or_default(),
+    ) {
         fragments.push(fragment);
     }
     if let Some(fragment) = CliTextFragment::new(
@@ -162,9 +167,10 @@ fn collect_event_fragments(event: &CliStreamEvent) -> Vec<CliTextFragment> {
         fragments.push(fragment);
     }
     if event.event_type == "system" {
-        if let Some(fragment) =
-            CliTextFragment::new(CliTextSource::System, event.content.clone().unwrap_or_default())
-        {
+        if let Some(fragment) = CliTextFragment::new(
+            CliTextSource::System,
+            event.content.clone().unwrap_or_default(),
+        ) {
             fragments.push(fragment);
         }
     }
@@ -367,7 +373,10 @@ impl AgentExecutionStrategy for OpenCodeCliStrategy {
         if use_prompt_file {
             let temp_file = TempPromptFile::create(&input_text).await?;
             let prompt_file_path = temp_file.to_path_string();
-            log_info!("OpenCode CLI 使用临时提示文件承载输入: {}", prompt_file_path);
+            log_info!(
+                "OpenCode CLI 使用临时提示文件承载输入: {}",
+                prompt_file_path
+            );
             args.push("-f".to_string());
             args.push(prompt_file_path);
             args.push(build_prompt_file_instruction(request.execution_mode.as_deref()).to_string());
@@ -401,8 +410,7 @@ impl AgentExecutionStrategy for OpenCodeCliStrategy {
             cmd.stdin(Stdio::piped());
         }
 
-        cmd.stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
         if let Some(servers) = &mcp_servers {
             if !servers.is_empty() {
@@ -787,13 +795,7 @@ fn extract_textish_value(value: Option<&serde_json::Value>) -> Option<String> {
             }
             serde_json::Value::Object(map) => {
                 for key in [
-                    "thinking",
-                    "summary",
-                    "text",
-                    "content",
-                    "message",
-                    "value",
-                    "title",
+                    "thinking", "summary", "text", "content", "message", "value", "title",
                 ] {
                     if let Some(nested) = map.get(key) {
                         collect_textish_parts(nested, parts);
@@ -1300,7 +1302,7 @@ fn parse_opencode_response_item(
                     .or_else(|| payload.get("message"))
                     .or_else(|| payload.get("text")),
             )
-                .map(|text| build_content_event(session_id, text))
+            .map(|text| build_content_event(session_id, text))
         }
         "function_call" => parse_opencode_part_event(
             session_id,
@@ -1401,33 +1403,31 @@ fn parse_opencode_json_output(
         // 文本内容增量（流式）/ OpenCode text 事件
         "content_block_delta" | "text_delta" | "delta" | "text" => {
             let text = extract_textish_value(
-                json
-                .get("text")
-                .or_else(|| json.pointer("/part/text"))
-                .or_else(|| json.pointer("/delta/text"))
-                .or_else(|| json.pointer("/properties/text"))
-                .or_else(|| json.pointer("/data/text"))
-                .or_else(|| json.get("content"))
-                .or_else(|| json.pointer("/delta/content")),
+                json.get("text")
+                    .or_else(|| json.pointer("/part/text"))
+                    .or_else(|| json.pointer("/delta/text"))
+                    .or_else(|| json.pointer("/properties/text"))
+                    .or_else(|| json.pointer("/data/text"))
+                    .or_else(|| json.get("content"))
+                    .or_else(|| json.pointer("/delta/content")),
             )?;
             Some(build_content_event(session_id, text.to_string()))
         }
         // thinking / reasoning 内容
         "thinking_delta" | "thinking" | "reasoning" | "reasoning_delta" => {
             let text = extract_textish_value(
-                json
-                .get("thinking")
-                .or_else(|| json.pointer("/part/thinking"))
-                .or_else(|| json.pointer("/delta/thinking"))
-                .or_else(|| json.pointer("/data/thinking"))
-                .or_else(|| json.pointer("/part/summary"))
-                .or_else(|| json.pointer("/part/text"))
-                .or_else(|| json.pointer("/data/summary"))
-                .or_else(|| json.pointer("/data/text"))
-                .or_else(|| json.get("content"))
-                .or_else(|| json.get("text"))
-                .or_else(|| json.pointer("/payload/content"))
-                .or_else(|| json.pointer("/payload/text")),
+                json.get("thinking")
+                    .or_else(|| json.pointer("/part/thinking"))
+                    .or_else(|| json.pointer("/delta/thinking"))
+                    .or_else(|| json.pointer("/data/thinking"))
+                    .or_else(|| json.pointer("/part/summary"))
+                    .or_else(|| json.pointer("/part/text"))
+                    .or_else(|| json.pointer("/data/summary"))
+                    .or_else(|| json.pointer("/data/text"))
+                    .or_else(|| json.get("content"))
+                    .or_else(|| json.get("text"))
+                    .or_else(|| json.pointer("/payload/content"))
+                    .or_else(|| json.pointer("/payload/text")),
             )?;
             Some(CliStreamEvent {
                 event_type: "thinking".to_string(),
@@ -1783,12 +1783,11 @@ fn parse_opencode_json_output(
                 }
                 "reasoning" | "thinking" | "reasoning_content" => {
                     let text = extract_textish_value(
-                        json
-                        .get("thinking")
-                        .or_else(|| json.pointer("/data/thinking"))
-                        .or_else(|| json.get("content"))
-                        .or_else(|| json.pointer("/data/content"))
-                        .or_else(|| json.get("text")),
+                        json.get("thinking")
+                            .or_else(|| json.pointer("/data/thinking"))
+                            .or_else(|| json.get("content"))
+                            .or_else(|| json.pointer("/data/content"))
+                            .or_else(|| json.get("text")),
                     );
                     text.map(|t| CliStreamEvent {
                         event_type: "thinking".to_string(),
@@ -1816,11 +1815,10 @@ fn parse_opencode_json_output(
                 _ => {
                     // 尝试从 delta/data 中提取文本
                     let text = extract_textish_value(
-                        json
-                        .get("text")
-                        .or_else(|| json.pointer("/properties/text"))
-                        .or_else(|| json.pointer("/delta/text"))
-                        .or_else(|| json.pointer("/data/text")),
+                        json.get("text")
+                            .or_else(|| json.pointer("/properties/text"))
+                            .or_else(|| json.pointer("/delta/text"))
+                            .or_else(|| json.pointer("/data/text")),
                     );
                     if let Some(t) = text {
                         Some(build_content_event(session_id, t))

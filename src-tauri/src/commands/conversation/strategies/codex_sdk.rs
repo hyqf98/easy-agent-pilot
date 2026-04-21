@@ -430,7 +430,8 @@ fn parse_openai_stream_event(session_id: &str, json: &serde_json::Value) -> Opti
     }
 
     if let Some(thinking) = extract_textish_value(
-        delta.get("reasoning")
+        delta
+            .get("reasoning")
             .or_else(|| delta.get("reasoning_content"))
             .or_else(|| delta.get("thinking"))
             .or_else(|| delta.get("summary")),

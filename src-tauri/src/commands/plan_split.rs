@@ -4,11 +4,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter};
 
+use super::conversation::executor::{get_registry, is_execution_session_active_internal};
+use super::conversation::set_abort_flag;
 use super::conversation::strategies::abnormal_completion::{
     classify_cli_completion, CliCompletionFailureKind, CliTextFragment, CliTextSource,
 };
-use super::conversation::executor::{get_registry, is_execution_session_active_internal};
-use super::conversation::set_abort_flag;
 use super::conversation::types::{ExecutionRequest, MessageInput};
 use super::support::{now_rfc3339, open_db_connection};
 
@@ -622,8 +622,8 @@ fn parse_split_output(
             .and_then(|value| value.as_bool())
             .unwrap_or(false)
             || as_non_empty_string(record.get("status"))
-            .map(|value| value.to_uppercase() == "DONE")
-            .unwrap_or(false);
+                .map(|value| value.to_uppercase() == "DONE")
+                .unwrap_or(false);
 
         if output_type == "task_split" || (is_done && record.get("tasks").is_some()) {
             if !is_done {
@@ -905,9 +905,7 @@ fn refresh_session_after_turn(
                 "stopped".to_string()
             };
             session.parse_error = Some(error_message.clone());
-            session.error_message = classified_failure
-                .as_ref()
-                .map(|item| item.message.clone());
+            session.error_message = classified_failure.as_ref().map(|item| item.message.clone());
             session.llm_messages_json = Some(serialize_json(&llm_messages)?);
             session.form_queue_json = None;
             session.current_form_index = None;

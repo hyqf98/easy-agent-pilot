@@ -1009,7 +1009,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
       const defaultModel = configs.find(config => config.enabled && config.modelId === preferredModel)
         || configs.find(config => config.isDefault && config.enabled)
         || configs.find(config => config.enabled)
-      selectedModelId.value = defaultModel?.modelId || expert?.defaultModelId || ''
+      selectedModelId.value = defaultModel?.modelId || ''
     } else {
       selectedModelId.value = ''
     }
@@ -1133,6 +1133,9 @@ export function useConversationComposer(options: UseConversationComposerOptions)
       const expert = resolveExpertById(expertId, agentTeamsStore.experts)
       const runtime = resolveExpertRuntime(expert, agentStore.agents)
       const agent = runtime?.agent
+      if (agent?.id) {
+        await agentConfigStore.ensureModelsConfigs(agent.id, inferAgentProvider(agent))
+      }
       await sessionStore.updateSession(sessionId, {
         expertId,
         agentId: agent?.id,
@@ -1140,7 +1143,13 @@ export function useConversationComposer(options: UseConversationComposerOptions)
         cliSessionId: '',
         cliSessionProvider: ''
       })
-      selectedModelId.value = runtime?.modelId || agent?.modelId || ''
+      const configs = agent?.id
+        ? agentConfigStore.getModelsConfigs(agent.id).filter(config => config.enabled)
+        : []
+      const matchedModel = configs.find(config => config.modelId === runtime?.modelId)
+        || configs.find(config => config.isDefault)
+        || configs[0]
+      selectedModelId.value = matchedModel?.modelId || ''
       isAgentDropdownOpen.value = false
     } catch (error) {
       console.error('Failed to update session expert:', error)

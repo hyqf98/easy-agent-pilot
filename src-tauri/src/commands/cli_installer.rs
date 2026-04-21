@@ -11,9 +11,9 @@ use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
-use crate::commands::cli_support::{find_cli_executable, get_cli_version};
 #[cfg(target_os = "windows")]
 use crate::commands::cli_support::configure_windows_std_command;
+use crate::commands::cli_support::{find_cli_executable, get_cli_version};
 
 /// 安装进行中标�?
 static INSTALLING: AtomicBool = AtomicBool::new(false);

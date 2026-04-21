@@ -31,7 +31,9 @@ const { t } = useI18n()
 const searchQuery = ref('')
 const isCreating = ref(false)
 const isSaving = ref(false)
+const isBulkSwitching = ref(false)
 const addingToolName = ref<string | null>(null)
+const bulkRuntimeAgentId = ref('')
 
 const emptyForm = (): ExpertFormState => ({
   name: '',
@@ -94,6 +96,16 @@ const runtimeAgentIds = computed(() =>
 const runtimeModelOptions = computed(() => {
   if (!form.runtimeAgentId) return []
   return agentConfigStore.getModelsConfigs(form.runtimeAgentId).filter(model => model.enabled)
+})
+
+const bulkRuntimeModelOptions = computed(() => {
+  if (!bulkRuntimeAgentId.value) return []
+  return agentConfigStore.getModelsConfigs(bulkRuntimeAgentId.value).filter(model => model.enabled)
+})
+
+const bulkSwitchPreviewCount = computed(() => {
+  if (!bulkRuntimeAgentId.value) return 0
+  return teamsStore.experts.filter(expert => expert.runtimeAgentId !== bulkRuntimeAgentId.value).length
 })
 
 const selectedExpert = computed(() =>
@@ -162,6 +174,7 @@ async function ensureModels(agentId?: string) {
 function syncRuntimeAgentSelection() {
   if (runtimeAgentIds.value.length === 0) {
     form.runtimeAgentId = ''
+    bulkRuntimeAgentId.value = ''
     form.defaultModelId = ''
     return
   }
@@ -169,6 +182,23 @@ function syncRuntimeAgentSelection() {
   if (!runtimeAgentIds.value.includes(form.runtimeAgentId)) {
     form.runtimeAgentId = runtimeAgentIds.value[0]
   }
+
+  if (!runtimeAgentIds.value.includes(bulkRuntimeAgentId.value)) {
+    bulkRuntimeAgentId.value = form.runtimeAgentId || runtimeAgentIds.value[0]
+  }
+}
+
+function resolveBulkDefaultModelId(expert: AgentExpert): string | undefined {
+  const availableModels = bulkRuntimeModelOptions.value
+  if (availableModels.length === 0) {
+    return undefined
+  }
+
+  const preservedModel = expert.defaultModelId
+    ? availableModels.find(model => model.modelId === expert.defaultModelId)
+    : null
+  const fallbackModel = availableModels.find(model => model.isDefault) || availableModels[0]
+  return preservedModel?.modelId ?? fallbackModel?.modelId ?? undefined
 }
 
 async function handleSave() {
@@ -219,6 +249,42 @@ async function handleQuickAdd(tool: CliTool) {
     notificationStore.error(t('settings.agentList.addError'), msg)
   } finally {
     addingToolName.value = null
+  }
+}
+
+async function handleBulkSwitchRuntime() {
+  if (!bulkRuntimeAgentId.value || bulkSwitchPreviewCount.value === 0) {
+    return
+  }
+
+  isBulkSwitching.value = true
+  try {
+    await ensureModels(bulkRuntimeAgentId.value)
+    const targetAgent = runtimeAgentOptions.value.find(agent => agent.id === bulkRuntimeAgentId.value)
+    const expertsToUpdate = teamsStore.experts.filter(expert => expert.runtimeAgentId !== bulkRuntimeAgentId.value)
+
+    for (const expert of expertsToUpdate) {
+      await teamsStore.updateExpert(expert.id, {
+        runtimeAgentId: bulkRuntimeAgentId.value,
+        defaultModelId: resolveBulkDefaultModelId(expert)
+      })
+    }
+
+    if (selectedExpert.value) {
+      applyExpertToForm(teamsStore.getExpertById(selectedExpert.value.id))
+    }
+
+    notificationStore.success(
+      t('settings.agentTeams.bulkSwitch.success', {
+        count: expertsToUpdate.length,
+        agent: targetAgent?.name || t('settings.agentTeams.bulkSwitch.unknownAgent')
+      })
+    )
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    notificationStore.error(t('settings.agentTeams.bulkSwitch.failed'), msg)
+  } finally {
+    isBulkSwitching.value = false
   }
 }
 
@@ -361,6 +427,43 @@ onMounted(async () => {
         :adding-tool-name="addingToolName"
         @quick-add="handleQuickAdd"
       />
+
+      <section class="bulk-runtime-card">
+        <div class="bulk-runtime-card__content">
+          <div>
+            <h4>{{ t('settings.agentTeams.bulkSwitch.title') }}</h4>
+            <p>{{ t('settings.agentTeams.bulkSwitch.description') }}</p>
+          </div>
+          <div class="bulk-runtime-card__controls">
+            <label class="bulk-runtime-card__select editor-grid__select">
+              <span>{{ t('settings.agentTeams.bulkSwitch.targetLabel') }}</span>
+              <select
+                v-model="bulkRuntimeAgentId"
+                class="select-input"
+                :disabled="runtimeAgentOptions.length === 0 || isBulkSwitching"
+              >
+                <option
+                  v-for="agent in runtimeAgentOptions"
+                  :key="agent.id"
+                  :value="agent.id"
+                >
+                  {{ agent.name }} ({{ agent.provider || agent.type }})
+                </option>
+              </select>
+            </label>
+            <button
+              class="primary-button"
+              :disabled="runtimeAgentOptions.length === 0 || bulkSwitchPreviewCount === 0 || isBulkSwitching"
+              @click="handleBulkSwitchRuntime"
+            >
+              {{ isBulkSwitching ? t('settings.agentTeams.bulkSwitch.switching') : t('settings.agentTeams.bulkSwitch.action') }}
+            </button>
+          </div>
+        </div>
+        <p class="bulk-runtime-card__hint">
+          {{ t('settings.agentTeams.bulkSwitch.hint', { count: bulkSwitchPreviewCount }) }}
+        </p>
+      </section>
 
       <div class="editor-grid">
         <label>
@@ -534,6 +637,53 @@ onMounted(async () => {
 
 .agent-teams-editor__banner {
   margin-bottom: 16px;
+}
+
+.bulk-runtime-card {
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-bg-primary);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+
+.bulk-runtime-card__content {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.bulk-runtime-card h4,
+.bulk-runtime-card p {
+  margin: 0;
+}
+
+.bulk-runtime-card h4 {
+  font-size: 15px;
+}
+
+.bulk-runtime-card__content p,
+.bulk-runtime-card__hint {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.bulk-runtime-card__controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.bulk-runtime-card__select {
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bulk-runtime-card__hint {
+  margin-top: 10px;
 }
 
 .search-input,
@@ -780,6 +930,20 @@ onMounted(async () => {
 @media (max-width: 1280px) {
   .agent-teams-page {
     grid-template-columns: 240px minmax(0, 1fr);
+  }
+
+  .bulk-runtime-card__content {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .bulk-runtime-card__controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .bulk-runtime-card__select {
+    min-width: 0;
   }
 }
 </style>

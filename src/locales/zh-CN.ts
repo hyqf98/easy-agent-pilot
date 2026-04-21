@@ -375,6 +375,17 @@ const zhCN = {
       deleteConfirm: '确认删除专家”{name}”吗？',
       saveSuccess: '保存成功',
       saveFailed: '保存失败',
+      bulkSwitch: {
+        title: '批量切换 CLI',
+        description: '将全部 Agent Teams 专家一键切换到同一个 CLI 运行时。',
+        targetLabel: '目标 CLI Agent',
+        action: '一键切换',
+        switching: '切换中...',
+        hint: '将更新 {count} 个专家；如果原默认模型在目标 CLI 中不可用，会自动回退到目标 Agent 的默认模型。',
+        success: '已将 {count} 个专家切换到 {agent}',
+        failed: '批量切换失败',
+        unknownAgent: '目标 Agent'
+      },
       fields: {
         name: '名称',
         category: '分类',

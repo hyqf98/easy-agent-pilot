@@ -666,7 +666,10 @@ fn prune_cli_installed_plugins_file(plugin_dir: &Path) -> Result<(), String> {
     let Some(root) = json.as_object_mut() else {
         return Ok(());
     };
-    let Some(plugins_obj) = root.get_mut("plugins").and_then(|value| value.as_object_mut()) else {
+    let Some(plugins_obj) = root
+        .get_mut("plugins")
+        .and_then(|value| value.as_object_mut())
+    else {
         return Ok(());
     };
 
@@ -677,7 +680,8 @@ fn prune_cli_installed_plugins_file(plugin_dir: &Path) -> Result<(), String> {
             .and_then(|value| value.as_array_mut())
             .map(|entries| {
                 entries.retain(|entry| {
-                    entry.get("installPath")
+                    entry
+                        .get("installPath")
                         .and_then(|value| value.as_str())
                         .map(|path| path != plugin_dir_str)
                         .unwrap_or(true)

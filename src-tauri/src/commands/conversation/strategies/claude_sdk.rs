@@ -300,13 +300,7 @@ fn parse_anthropic_stream_event(
                 }
                 serde_json::Value::Object(map) => {
                     for key in [
-                        "thinking",
-                        "summary",
-                        "text",
-                        "content",
-                        "message",
-                        "value",
-                        "title",
+                        "thinking", "summary", "text", "content", "message", "value", "title",
                     ] {
                         if let Some(nested) = map.get(key) {
                             collect(nested, parts);
@@ -335,7 +329,8 @@ fn parse_anthropic_stream_event(
         "content_block_delta" => {
             let delta = json.get("delta")?;
             if let Some(text) = extract_textish_value(
-                delta.get("text")
+                delta
+                    .get("text")
                     .or_else(|| delta.get("content"))
                     .or_else(|| delta.get("message")),
             ) {
@@ -355,25 +350,26 @@ fn parse_anthropic_stream_event(
                 })
             } else {
                 extract_textish_value(
-                    delta.get("thinking")
+                    delta
+                        .get("thinking")
                         .or_else(|| delta.get("summary"))
                         .or_else(|| delta.get("text"))
                         .or_else(|| delta.get("content")),
                 )
-                    .map(|thinking| SdkStreamEvent {
-                        event_type: "thinking".to_string(),
-                        session_id: session_id.to_string(),
-                        content: Some(thinking),
-                        tool_name: None,
-                        tool_call_id: None,
-                        tool_input: None,
-                        tool_result: None,
-                        error: None,
-                        input_tokens: None,
-                        output_tokens: None,
-                        model: None,
-                        external_session_id: None,
-                    })
+                .map(|thinking| SdkStreamEvent {
+                    event_type: "thinking".to_string(),
+                    session_id: session_id.to_string(),
+                    content: Some(thinking),
+                    tool_name: None,
+                    tool_call_id: None,
+                    tool_input: None,
+                    tool_result: None,
+                    error: None,
+                    input_tokens: None,
+                    output_tokens: None,
+                    model: None,
+                    external_session_id: None,
+                })
             }
         }
         "content_block_start" => {

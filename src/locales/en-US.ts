@@ -463,6 +463,17 @@ export default {
       deleteConfirm: 'Delete expert "{name}"?',
       saveSuccess: 'Saved successfully',
       saveFailed: 'Failed to save',
+      bulkSwitch: {
+        title: 'Bulk Switch CLI',
+        description: 'Switch all Agent Teams experts to the same CLI runtime in one step.',
+        targetLabel: 'Target CLI Agent',
+        action: 'Switch All',
+        switching: 'Switching...',
+        hint: 'This will update {count} experts. If an existing default model is unavailable on the target CLI, it will fall back to the target agent default model.',
+        success: 'Switched {count} experts to {agent}',
+        failed: 'Bulk switch failed',
+        unknownAgent: 'target agent'
+      },
       fields: {
         name: 'Name',
         category: 'Category',

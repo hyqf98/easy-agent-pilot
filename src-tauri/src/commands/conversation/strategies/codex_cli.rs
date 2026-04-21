@@ -1,4 +1,5 @@
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
@@ -10,8 +11,7 @@ use tokio::time::sleep;
 use uuid::Uuid;
 
 use super::abnormal_completion::{
-    classify_cli_completion, is_shared_benign_stderr_warning, CliTextFragment,
-    CliTextSource,
+    classify_cli_completion, is_shared_benign_stderr_warning, CliTextFragment, CliTextSource,
 };
 use super::cli_common::{
     build_content_event, build_error_event, build_execution_summary, build_system_event,
@@ -30,6 +30,16 @@ use crate::commands::conversation::types::{CliStreamEvent, ExecutionRequest};
 
 /// Codex CLI 策略
 pub struct CodexCliStrategy;
+
+const CODEX_RUNTIME_HOME_DIR: &str = "codex-home";
+const CODEX_RUNTIME_SYNC_FILES: &[&str] = &[
+    "config.toml",
+    "auth.json",
+    "version.json",
+    ".personality_migration",
+    "installation_id",
+];
+const CODEX_RUNTIME_SYNC_DIRS: &[&str] = &["skills", "plugins", "rules", "sessions", "memories"];
 
 // 简单的日志宏
 macro_rules! log_info {
@@ -139,10 +149,16 @@ fn should_treat_process_failure_as_success(
 fn collect_event_fragments(event: &CliStreamEvent) -> Vec<CliTextFragment> {
     let mut fragments = Vec::new();
 
-    if let Some(fragment) = CliTextFragment::new(CliTextSource::Content, event.content.clone().unwrap_or_default()) {
+    if let Some(fragment) = CliTextFragment::new(
+        CliTextSource::Content,
+        event.content.clone().unwrap_or_default(),
+    ) {
         fragments.push(fragment);
     }
-    if let Some(fragment) = CliTextFragment::new(CliTextSource::Error, event.error.clone().unwrap_or_default()) {
+    if let Some(fragment) = CliTextFragment::new(
+        CliTextSource::Error,
+        event.error.clone().unwrap_or_default(),
+    ) {
         fragments.push(fragment);
     }
     if let Some(fragment) = CliTextFragment::new(
@@ -152,14 +168,88 @@ fn collect_event_fragments(event: &CliStreamEvent) -> Vec<CliTextFragment> {
         fragments.push(fragment);
     }
     if event.event_type == "system" {
-        if let Some(fragment) =
-            CliTextFragment::new(CliTextSource::System, event.content.clone().unwrap_or_default())
-        {
+        if let Some(fragment) = CliTextFragment::new(
+            CliTextSource::System,
+            event.content.clone().unwrap_or_default(),
+        ) {
             fragments.push(fragment);
         }
     }
 
     fragments
+}
+
+fn copy_directory_recursive(source: &Path, target: &Path) -> Result<()> {
+    if !source.exists() {
+        return Ok(());
+    }
+
+    fs::create_dir_all(target)?;
+
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let source_path = entry.path();
+        let target_path = target.join(entry.file_name());
+
+        if source_path.is_dir() {
+            copy_directory_recursive(&source_path, &target_path)?;
+            continue;
+        }
+
+        if let Some(parent) = target_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::copy(&source_path, &target_path)?;
+    }
+
+    Ok(())
+}
+
+fn copy_file_if_exists(source_root: &Path, target_root: &Path, relative_path: &str) -> Result<()> {
+    let source_path = source_root.join(relative_path);
+    if !source_path.exists() {
+        return Ok(());
+    }
+
+    let target_path = target_root.join(relative_path);
+    if let Some(parent) = target_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::copy(source_path, target_path)?;
+    Ok(())
+}
+
+fn sync_codex_runtime_home(source_root: &Path, target_root: &Path) -> Result<()> {
+    for relative_path in CODEX_RUNTIME_SYNC_FILES {
+        copy_file_if_exists(source_root, target_root, relative_path)?;
+    }
+
+    for relative_path in CODEX_RUNTIME_SYNC_DIRS {
+        let source_path = source_root.join(relative_path);
+        if !source_path.exists() {
+            continue;
+        }
+
+        copy_directory_recursive(&source_path, &target_root.join(relative_path))?;
+    }
+
+    Ok(())
+}
+
+fn prepare_codex_runtime_home() -> Result<PathBuf> {
+    let runtime_home = crate::commands::get_persistence_dir_path()?
+        .join("cache")
+        .join(CODEX_RUNTIME_HOME_DIR);
+    fs::create_dir_all(&runtime_home)?;
+
+    if let Some(user_home) = dirs::home_dir() {
+        let source_root = user_home.join(".codex");
+        if source_root.exists() {
+            sync_codex_runtime_home(&source_root, &runtime_home)?;
+        }
+    }
+
+    Ok(runtime_home)
 }
 
 struct TempSchemaFile {
@@ -355,6 +445,7 @@ impl AgentExecutionStrategy for CodexCliStrategy {
         let mut command_args = global_args.clone();
         command_args.extend(args.clone());
         let mut cmd = build_tokio_cli_command(&cli_path, &command_args);
+        let codex_runtime_home = prepare_codex_runtime_home()?;
 
         // 设置工作目录
         if let Some(working_dir) = &working_directory {
@@ -372,7 +463,10 @@ impl AgentExecutionStrategy for CodexCliStrategy {
         })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .env("CODEX_HOME", &codex_runtime_home)
         .env_remove("CLAUDECODE");
+
+        log_info!("设置 CODEX_HOME: {}", codex_runtime_home.to_string_lossy());
 
         let execution_started_at = Instant::now();
         let monitor = CliExecutionMonitor::new();
@@ -1083,23 +1177,21 @@ fn parse_codex_json_output(session_id: &str, json: &serde_json::Value) -> Option
             let delta_type = delta.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
             match delta_type {
-                "text_delta" => {
-                    extract_text_value(
-                        delta.get("text")
-                            .or_else(|| delta.get("content"))
-                            .or_else(|| delta.get("message")),
-                    )
-                    .map(|text| build_content_event(session_id, text))
-                }
-                "thinking_delta" => {
-                    extract_text_value(
-                        delta.get("thinking")
-                            .or_else(|| delta.get("summary"))
-                            .or_else(|| delta.get("text"))
-                            .or_else(|| delta.get("content")),
-                    )
-                    .map(|thinking| build_thinking_event(session_id, thinking))
-                }
+                "text_delta" => extract_text_value(
+                    delta
+                        .get("text")
+                        .or_else(|| delta.get("content"))
+                        .or_else(|| delta.get("message")),
+                )
+                .map(|text| build_content_event(session_id, text)),
+                "thinking_delta" => extract_text_value(
+                    delta
+                        .get("thinking")
+                        .or_else(|| delta.get("summary"))
+                        .or_else(|| delta.get("text"))
+                        .or_else(|| delta.get("content")),
+                )
+                .map(|thinking| build_thinking_event(session_id, thinking)),
                 "input_json_delta" => {
                     let partial_json = delta.get("partial_json").and_then(|j| j.as_str())?;
                     let tool_call_id = json
@@ -1323,8 +1415,7 @@ fn parse_codex_json_output(session_id: &str, json: &serde_json::Value) -> Option
                                 .or_else(|| content_item.get("text"))
                                 .or_else(|| content_item.get("content"))
                                 .or_else(|| content_item.get("message")),
-                        )
-                        {
+                        ) {
                             log_debug!("[parse] 找到 thinking 内容，长度: {}", thinking_text.len());
                             return Some(CliStreamEvent {
                                 event_type: "thinking".to_string(),
@@ -1523,13 +1614,7 @@ fn extract_text_value(value: Option<&serde_json::Value>) -> Option<String> {
 
     if value.is_object() {
         for key in [
-            "thinking",
-            "summary",
-            "text",
-            "content",
-            "message",
-            "value",
-            "title",
+            "thinking", "summary", "text", "content", "message", "value", "title",
         ] {
             if let Some(text) = extract_text_value(value.get(key)) {
                 return Some(text);
@@ -1639,6 +1724,12 @@ mod tests {
     }
 
     #[test]
+    fn ignores_rmcp_process_group_termination_eperm_warning() {
+        let warning = "codex_rmcp_client::rmcp_client: Failed to terminate MCP process group 37060: Operation not permitted (os error 1)";
+        assert!(should_ignore_stderr_line(warning));
+    }
+
+    #[test]
     fn keeps_real_stderr_failures_as_errors() {
         let failure = "fatal: command exited because authentication failed";
         assert!(!should_ignore_stderr_line(failure));
@@ -1650,9 +1741,11 @@ mod tests {
             emitted_content: true,
             emitted_error: false,
             emitted_non_error_event: true,
+            fragments: Vec::new(),
         };
         let stderr_outcome = StderrReadOutcome {
             emitted_error: false,
+            fragments: Vec::new(),
         };
 
         assert!(should_treat_process_failure_as_success(
@@ -1667,9 +1760,11 @@ mod tests {
             emitted_content: true,
             emitted_error: true,
             emitted_non_error_event: true,
+            fragments: Vec::new(),
         };
         let stderr_outcome = StderrReadOutcome {
             emitted_error: false,
+            fragments: Vec::new(),
         };
 
         assert!(!should_treat_process_failure_as_success(

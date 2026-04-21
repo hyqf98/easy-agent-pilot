@@ -10,8 +10,7 @@ use tokio::time::sleep;
 use uuid::Uuid;
 
 use super::abnormal_completion::{
-    classify_cli_completion, is_shared_benign_stderr_warning, CliTextFragment,
-    CliTextSource,
+    classify_cli_completion, is_shared_benign_stderr_warning, CliTextFragment, CliTextSource,
 };
 use super::cli_common::{
     build_content_event, build_error_event, build_execution_summary, build_system_event,
@@ -26,9 +25,7 @@ use crate::commands::conversation::abort::{
     clear_abort_flag, register_session_pid, set_abort_flag, should_abort, unregister_session_pid,
 };
 use crate::commands::conversation::strategy::{AgentExecutionStrategy, AgentRuntimeKind};
-use crate::commands::conversation::types::{
-    CliStreamEvent, ExecutionRequest, McpServerConfig,
-};
+use crate::commands::conversation::types::{CliStreamEvent, ExecutionRequest, McpServerConfig};
 use crate::commands::mcp_shared::parse_args_string;
 
 /// Claude CLI 策略
@@ -134,10 +131,16 @@ fn should_treat_process_failure_as_success(
 fn collect_event_fragments(event: &CliStreamEvent) -> Vec<CliTextFragment> {
     let mut fragments = Vec::new();
 
-    if let Some(fragment) = CliTextFragment::new(CliTextSource::Content, event.content.clone().unwrap_or_default()) {
+    if let Some(fragment) = CliTextFragment::new(
+        CliTextSource::Content,
+        event.content.clone().unwrap_or_default(),
+    ) {
         fragments.push(fragment);
     }
-    if let Some(fragment) = CliTextFragment::new(CliTextSource::Error, event.error.clone().unwrap_or_default()) {
+    if let Some(fragment) = CliTextFragment::new(
+        CliTextSource::Error,
+        event.error.clone().unwrap_or_default(),
+    ) {
         fragments.push(fragment);
     }
     if let Some(fragment) = CliTextFragment::new(
@@ -147,9 +150,10 @@ fn collect_event_fragments(event: &CliStreamEvent) -> Vec<CliTextFragment> {
         fragments.push(fragment);
     }
     if event.event_type == "system" {
-        if let Some(fragment) =
-            CliTextFragment::new(CliTextSource::System, event.content.clone().unwrap_or_default())
-        {
+        if let Some(fragment) = CliTextFragment::new(
+            CliTextSource::System,
+            event.content.clone().unwrap_or_default(),
+        ) {
             fragments.push(fragment);
         }
     }
@@ -295,13 +299,7 @@ fn extract_textish_value(value: Option<&serde_json::Value>) -> Option<String> {
             }
             serde_json::Value::Object(map) => {
                 for key in [
-                    "thinking",
-                    "summary",
-                    "text",
-                    "content",
-                    "message",
-                    "value",
-                    "title",
+                    "thinking", "summary", "text", "content", "message", "value", "title",
                 ] {
                     if let Some(nested) = map.get(key) {
                         collect(nested, parts);
@@ -1046,23 +1044,21 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
             let delta_type = delta.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
             match delta_type {
-                "thinking_delta" => {
-                    extract_textish_value(
-                        delta.get("thinking")
-                            .or_else(|| delta.get("summary"))
-                            .or_else(|| delta.get("text"))
-                            .or_else(|| delta.get("content")),
-                    )
-                    .map(|thinking| build_thinking_event(session_id, thinking))
-                }
-                "text_delta" => {
-                    extract_textish_value(
-                        delta.get("text")
-                            .or_else(|| delta.get("content"))
-                            .or_else(|| delta.get("message")),
-                    )
-                    .map(|text| build_content_event(session_id, text))
-                }
+                "thinking_delta" => extract_textish_value(
+                    delta
+                        .get("thinking")
+                        .or_else(|| delta.get("summary"))
+                        .or_else(|| delta.get("text"))
+                        .or_else(|| delta.get("content")),
+                )
+                .map(|thinking| build_thinking_event(session_id, thinking)),
+                "text_delta" => extract_textish_value(
+                    delta
+                        .get("text")
+                        .or_else(|| delta.get("content"))
+                        .or_else(|| delta.get("message")),
+                )
+                .map(|text| build_content_event(session_id, text)),
                 "input_json_delta" => {
                     let partial_json = delta.get("partial_json").and_then(|j| j.as_str())?;
                     let tool_call_id = json
@@ -1347,8 +1343,7 @@ fn parse_claude_json_output(session_id: &str, json: &serde_json::Value) -> Optio
                                 .or_else(|| content_item.get("text"))
                                 .or_else(|| content_item.get("content"))
                                 .or_else(|| content_item.get("message")),
-                        )
-                        {
+                        ) {
                             log_debug!("[parse] 找到 thinking 内容，长度: {}", thinking_text.len());
                             return Some(CliStreamEvent {
                                 input_tokens,
@@ -1488,9 +1483,11 @@ mod tests {
             emitted_content: true,
             emitted_error: false,
             emitted_non_error_event: true,
+            fragments: Vec::new(),
         };
         let stderr_outcome = StderrReadOutcome {
             emitted_error: false,
+            fragments: Vec::new(),
         };
 
         assert!(should_treat_process_failure_as_success(
@@ -1505,9 +1502,11 @@ mod tests {
             emitted_content: true,
             emitted_error: false,
             emitted_non_error_event: true,
+            fragments: Vec::new(),
         };
         let stderr_outcome = StderrReadOutcome {
             emitted_error: true,
+            fragments: Vec::new(),
         };
 
         assert!(!should_treat_process_failure_as_success(
