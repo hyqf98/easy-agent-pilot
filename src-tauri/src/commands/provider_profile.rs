@@ -307,7 +307,10 @@ pub fn update_provider_profile(
         "opencode_provider_models",
         input.opencode_provider_models.is_some(),
     );
-    updates.push("opencode_provider_npm", input.opencode_provider_npm.is_some());
+    updates.push(
+        "opencode_provider_npm",
+        input.opencode_provider_npm.is_some(),
+    );
 
     let sql = updates.finish("provider_profiles", "id");
 
@@ -326,18 +329,10 @@ pub fn update_provider_profile(
     bind_optional(&mut stmt, &mut param_count, &input.sonnet_default).map_err(|e| e.to_string())?;
     bind_optional(&mut stmt, &mut param_count, &input.opus_default).map_err(|e| e.to_string())?;
     bind_optional(&mut stmt, &mut param_count, &input.codex_model).map_err(|e| e.to_string())?;
-    bind_optional(
-        &mut stmt,
-        &mut param_count,
-        &input.opencode_provider_models,
-    )
-    .map_err(|e| e.to_string())?;
-    bind_optional(
-        &mut stmt,
-        &mut param_count,
-        &input.opencode_provider_npm,
-    )
-    .map_err(|e| e.to_string())?;
+    bind_optional(&mut stmt, &mut param_count, &input.opencode_provider_models)
+        .map_err(|e| e.to_string())?;
+    bind_optional(&mut stmt, &mut param_count, &input.opencode_provider_npm)
+        .map_err(|e| e.to_string())?;
     bind_value(&mut stmt, &mut param_count, &id).map_err(|e| e.to_string())?;
 
     stmt.raw_execute().map_err(|e| e.to_string())?;
@@ -661,6 +656,11 @@ fn write_to_cli_config(profile: &ProviderProfile) -> Result<(), String> {
             let api_key = normalize_optional_text(profile.api_key.as_deref());
             let provider_npm = normalize_optional_text(profile.opencode_provider_npm.as_deref())
                 .unwrap_or_else(|| OPENCODE_DEFAULT_PROVIDER_NPM.to_string());
+            let has_explicit_models = profile
+                .opencode_provider_models
+                .as_deref()
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false);
             let provider_models = parse_opencode_model_names(
                 profile.opencode_provider_models.as_deref(),
                 profile.main_model.as_deref(),
@@ -678,8 +678,7 @@ fn write_to_cli_config(profile: &ProviderProfile) -> Result<(), String> {
 
                 if let Some(provider_name) = provider_name.as_ref() {
                     let mut providers_map = parse_json_object_map(obj.get("provider"));
-                    let should_write_custom_provider =
-                        base_url.is_some() || !provider_models.is_empty();
+                    let should_write_custom_provider = base_url.is_some() || has_explicit_models;
 
                     if should_write_custom_provider {
                         let mut provider_config =
@@ -710,10 +709,7 @@ fn write_to_cli_config(profile: &ProviderProfile) -> Result<(), String> {
                             );
                         }
 
-                        provider_config.insert(
-                            "npm".to_string(),
-                            serde_json::json!(provider_npm),
-                        );
+                        provider_config.insert("npm".to_string(), serde_json::json!(provider_npm));
 
                         let models_map = provider_models
                             .iter()
@@ -733,8 +729,6 @@ fn write_to_cli_config(profile: &ProviderProfile) -> Result<(), String> {
                             provider_name.clone(),
                             serde_json::Value::Object(provider_config),
                         );
-                    } else {
-                        providers_map.remove(provider_name);
                     }
 
                     if providers_map.is_empty() {
@@ -761,7 +755,8 @@ fn write_to_cli_config(profile: &ProviderProfile) -> Result<(), String> {
                 serde_json::json!({})
             };
 
-            if let (Some(provider_name), Some(api_key)) = (provider_name.as_ref(), api_key.as_ref()) {
+            if let (Some(provider_name), Some(api_key)) = (provider_name.as_ref(), api_key.as_ref())
+            {
                 if let Some(auth_obj) = auth.as_object_mut() {
                     auth_obj.insert(
                         provider_name.clone(),
@@ -941,7 +936,8 @@ pub fn read_current_cli_config(cli_type: String) -> Result<ProviderProfile, Stri
                             }
                         }
 
-                        if let Some(providers) = config.get("provider").and_then(|p| p.as_object()) {
+                        if let Some(providers) = config.get("provider").and_then(|p| p.as_object())
+                        {
                             if resolved_provider.is_none() {
                                 resolved_provider = providers.keys().next().cloned();
                             }
@@ -949,11 +945,16 @@ pub fn read_current_cli_config(cli_type: String) -> Result<ProviderProfile, Stri
                             if let Some(ref pname) = resolved_provider {
                                 profile.provider_name = Some(pname.clone());
 
-                                if let Some(pcfg) = providers.get(pname).and_then(|value| value.as_object()) {
-                                    profile.opencode_provider_npm =
-                                        normalize_optional_text(pcfg.get("npm").and_then(|v| v.as_str()));
+                                if let Some(pcfg) =
+                                    providers.get(pname).and_then(|value| value.as_object())
+                                {
+                                    profile.opencode_provider_npm = normalize_optional_text(
+                                        pcfg.get("npm").and_then(|v| v.as_str()),
+                                    );
 
-                                    if let Some(opts) = pcfg.get("options").and_then(|value| value.as_object()) {
+                                    if let Some(opts) =
+                                        pcfg.get("options").and_then(|value| value.as_object())
+                                    {
                                         profile.base_url = normalize_optional_text(
                                             opts.get("baseURL").and_then(|v| v.as_str()),
                                         );
@@ -1226,7 +1227,8 @@ pub fn read_cli_connection_info(cli_type: String) -> Result<CliConnectionInfo, S
                             }
                         }
 
-                        if let Some(providers) = config.get("provider").and_then(|p| p.as_object()) {
+                        if let Some(providers) = config.get("provider").and_then(|p| p.as_object())
+                        {
                             if resolved_provider.is_none() {
                                 resolved_provider = providers.keys().next().cloned();
                             }
@@ -1531,6 +1533,38 @@ fn build_provider_display_names(auth_keys: &[String]) -> std::collections::HashM
         .iter()
         .map(|id| (id.clone(), format_provider_display_name(id)))
         .collect()
+}
+
+/// 从 auth.json 或 opencode.json 配置中读取指定 provider 的 API Key
+#[tauri::command]
+pub fn read_opencode_provider_api_key(provider: String) -> Result<Option<String>, String> {
+    if let Some(config) = load_opencode_config_json() {
+        if let Some(pcfg) = config
+            .get("provider")
+            .and_then(|p| p.get(&provider))
+            .and_then(|v| v.as_object())
+        {
+            if let Some(api_key) = pcfg
+                .get("options")
+                .and_then(|o| o.get("apiKey"))
+                .and_then(|v| v.as_str())
+            {
+                return Ok(Some(api_key.to_string()));
+            }
+        }
+    }
+
+    if let Some(auth) = load_opencode_auth_json() {
+        if let Some(api_key) = auth
+            .get(&provider)
+            .and_then(|p| p.get("key"))
+            .and_then(|v| v.as_str())
+        {
+            return Ok(Some(api_key.to_string()));
+        }
+    }
+
+    Ok(None)
 }
 
 /// 通过 opencode CLI 查询指定 Provider 可用的模型列表

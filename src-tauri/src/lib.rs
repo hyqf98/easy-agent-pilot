@@ -311,6 +311,7 @@ pub fn run() {
             commands::provider_profile::read_all_cli_connections,
             commands::provider_profile::read_opencode_auth_providers,
             commands::provider_profile::list_opencode_models,
+            commands::provider_profile::read_opencode_provider_api_key,
             // Skill Plugin commands
             commands::skill_plugin::read_skill_file,
             commands::skill_plugin::list_skill_references,

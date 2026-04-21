@@ -128,6 +128,7 @@ const comboboxInputRef = ref<HTMLElement | null>(null)
 const comboboxDropdownStyle = ref<Record<string, string>>({})
 const opencodeProviderMode = ref<OpenCodeProviderMode>('preset')
 const opencodeProviderModelRows = ref<string[]>([''])
+const showApiKeyValue = ref(false)
 
 const hasOpenCodeProviderOptions = computed(() => opencodeProviders.value.length > 0)
 const isOpenCodeCustomProvider = computed(() => opencodeProviderMode.value === 'custom')
@@ -264,6 +265,24 @@ async function loadOpenCodeModels(autoOpen = true) {
   } finally {
     opencodeModelsLoading.value = false
   }
+}
+
+async function loadOpenCodeProviderApiKey() {
+  const provider = form.value.providerName.trim()
+  if (!provider) return
+  try {
+    const apiKey = await invoke<string | null>('read_opencode_provider_api_key', { provider })
+    if (apiKey) {
+      form.value.apiKey = apiKey
+    }
+  } catch {
+    // silently ignore
+  }
+}
+
+function handleOpenCodeProviderChange() {
+  loadOpenCodeModels(false)
+  loadOpenCodeProviderApiKey()
 }
 
 function selectOpenCodeModel(model: string) {
@@ -473,12 +492,24 @@ async function handleSubmit() {
 
               <div class="form-group">
                 <label class="form-label">{{ t('settings.providerSwitch.form.apiKey') }}</label>
-                <input
-                  v-model="form.apiKey"
-                  type="password"
-                  class="form-input"
-                  :placeholder="t('settings.providerSwitch.form.apiKeyPlaceholder')"
-                >
+                <div class="api-key-input-wrapper">
+                  <input
+                    v-model="form.apiKey"
+                    :type="showApiKeyValue ? 'text' : 'password'"
+                    class="form-input api-key-input"
+                    :placeholder="t('settings.providerSwitch.form.apiKeyPlaceholder')"
+                  >
+                  <button
+                    type="button"
+                    class="api-key-toggle"
+                    @click="showApiKeyValue = !showApiKeyValue"
+                  >
+                    <EaIcon
+                      :name="showApiKeyValue ? 'eye-off' : 'eye'"
+                      :size="14"
+                    />
+                  </button>
+                </div>
               </div>
 
               <div class="form-group">
@@ -552,12 +583,24 @@ async function handleSubmit() {
 
               <div class="form-group">
                 <label class="form-label">{{ t('settings.providerSwitch.form.apiKey') }}</label>
-                <input
-                  v-model="form.apiKey"
-                  type="password"
-                  class="form-input"
-                  :placeholder="t('settings.providerSwitch.form.apiKeyPlaceholder')"
-                >
+                <div class="api-key-input-wrapper">
+                  <input
+                    v-model="form.apiKey"
+                    :type="showApiKeyValue ? 'text' : 'password'"
+                    class="form-input api-key-input"
+                    :placeholder="t('settings.providerSwitch.form.apiKeyPlaceholder')"
+                  >
+                  <button
+                    type="button"
+                    class="api-key-toggle"
+                    @click="showApiKeyValue = !showApiKeyValue"
+                  >
+                    <EaIcon
+                      :name="showApiKeyValue ? 'eye-off' : 'eye'"
+                      :size="14"
+                    />
+                  </button>
+                </div>
               </div>
 
               <div class="form-group">
@@ -621,7 +664,7 @@ async function handleSubmit() {
                     class="form-input form-select"
                     :disabled="opencodeProvidersLoading"
                     required
-                    @change="loadOpenCodeModels(false)"
+                    @change="handleOpenCodeProviderChange"
                   >
                     <option
                       value=""
@@ -630,30 +673,13 @@ async function handleSubmit() {
                       {{ t('settings.providerSwitch.form.opencodeProviderPlaceholder') }}
                     </option>
                     <template v-if="opencodeProviders.length">
-                      <optgroup
-                        v-if="opencodeProviders.some(p => p.hasKey)"
-                        :label="t('settings.providerSwitch.form.connected')"
+                      <option
+                        v-for="p in opencodeProviders"
+                        :key="p.id"
+                        :value="p.id"
                       >
-                        <option
-                          v-for="p in opencodeProviders.filter(p => p.hasKey)"
-                          :key="p.id"
-                          :value="p.id"
-                        >
-                          {{ p.displayName }}
-                        </option>
-                      </optgroup>
-                      <optgroup
-                        v-if="opencodeProviders.some(p => !p.hasKey)"
-                        :label="t('settings.providerSwitch.form.other')"
-                      >
-                        <option
-                          v-for="p in opencodeProviders.filter(p => !p.hasKey)"
-                          :key="p.id"
-                          :value="p.id"
-                        >
-                          {{ p.displayName }}
-                        </option>
-                      </optgroup>
+                        {{ p.displayName }}
+                      </option>
                     </template>
                   </select>
                 </template>
@@ -689,12 +715,24 @@ async function handleSubmit() {
 
               <div class="form-group">
                 <label class="form-label">{{ t('settings.providerSwitch.form.apiKey') }}</label>
-                <input
-                  v-model="form.apiKey"
-                  type="password"
-                  class="form-input"
-                  :placeholder="t('settings.providerSwitch.form.apiKeyPlaceholder')"
-                >
+                <div class="api-key-input-wrapper">
+                  <input
+                    v-model="form.apiKey"
+                    :type="showApiKeyValue ? 'text' : 'password'"
+                    class="form-input api-key-input"
+                    :placeholder="t('settings.providerSwitch.form.apiKeyPlaceholder')"
+                  >
+                  <button
+                    type="button"
+                    class="api-key-toggle"
+                    @click="showApiKeyValue = !showApiKeyValue"
+                  >
+                    <EaIcon
+                      :name="showApiKeyValue ? 'eye-off' : 'eye'"
+                      :size="14"
+                    />
+                  </button>
+                </div>
               </div>
 
               <div
@@ -1063,6 +1101,32 @@ async function handleSubmit() {
   background: color-mix(in srgb, var(--color-primary, #7c3aed) 12%, transparent);
   color: var(--color-primary, #7c3aed);
   font-weight: 500;
+}
+
+.api-key-input-wrapper {
+  position: relative;
+}
+
+.api-key-input {
+  padding-right: 40px !important;
+}
+
+.api-key-toggle {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--color-text-tertiary, #999);
+  display: flex;
+  align-items: center;
+}
+
+.api-key-toggle:hover {
+  color: var(--color-text-secondary, #555);
 }
 
 .provider-mode-switch {
