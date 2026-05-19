@@ -40,6 +40,7 @@ pub struct SessionExport {
     pub agent_type: String,
     pub status: String,
     pub pinned: bool,
+    pub plan_mode: bool,
     pub last_message: Option<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -569,7 +570,7 @@ fn export_projects(conn: &Connection) -> Result<Vec<ProjectExport>, String> {
 
 fn export_sessions(conn: &Connection) -> Result<Vec<SessionExport>, String> {
     let mut stmt = conn
-        .prepare("SELECT id, project_id, name, agent_type, status, pinned, last_message, created_at, updated_at FROM sessions ORDER BY updated_at DESC")
+        .prepare("SELECT id, project_id, name, agent_type, status, pinned, COALESCE(plan_mode, 0) as plan_mode, last_message, created_at, updated_at FROM sessions ORDER BY updated_at DESC")
         .map_err(|e| e.to_string())?;
 
     let sessions = stmt
@@ -581,9 +582,10 @@ fn export_sessions(conn: &Connection) -> Result<Vec<SessionExport>, String> {
                 agent_type: row.get(3)?,
                 status: row.get(4)?,
                 pinned: row.get::<_, i32>(5)? != 0,
-                last_message: row.get(6)?,
-                created_at: row.get(7)?,
-                updated_at: row.get(8)?,
+                plan_mode: row.get::<_, i32>(6)? != 0,
+                last_message: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -1037,9 +1039,10 @@ pub fn import_data_from_file(file_path: String) -> Result<ImportResult, String> 
     // 导入会话
     for session in &data.sessions {
         let pinned = if session.pinned { 1 } else { 0 };
+        let plan_mode = if session.plan_mode { 1 } else { 0 };
         let res = tx.execute(
-            "INSERT OR REPLACE INTO sessions (id, project_id, name, agent_type, status, pinned, last_message, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT OR REPLACE INTO sessions (id, project_id, name, agent_type, status, pinned, plan_mode, last_message, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             [
                 &session.id,
                 &session.project_id,
@@ -1047,6 +1050,7 @@ pub fn import_data_from_file(file_path: String) -> Result<ImportResult, String> 
                 &session.agent_type,
                 &session.status,
                 &pinned.to_string(),
+                &plan_mode.to_string(),
                 &session.last_message.clone().unwrap_or_default(),
                 &session.created_at,
                 &session.updated_at,

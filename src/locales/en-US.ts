@@ -429,6 +429,12 @@ export default {
       builtinGroup: 'Built-in Commands',
       pluginGroup: 'Plugin / Extension Commands'
     },
+    planModeBanner: {
+      title: 'Plan Mode',
+      hint: 'Responses are read-only. Type to refine the plan.',
+      execute: 'Execute Plan',
+      cancel: 'Exit'
+    },
     thinking: 'Thinking',
     toolCall: 'Tool Call',
     parameters: 'Parameters',

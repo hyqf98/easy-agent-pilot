@@ -9,6 +9,7 @@ import ConversationComposerAttachments from './ConversationComposerAttachments.v
 import ConversationComposerMemoryAssist from './ConversationComposerMemoryAssist.vue'
 import ConversationComposerRichTextOverlay from './ConversationComposerRichTextOverlay.vue'
 import FileMentionDropdown from './FileMentionDropdown.vue'
+import PlanModeBanner from './PlanModeBanner.vue'
 import SlashCommandDropdown from './SlashCommandDropdown.vue'
 
 const props = withDefaults(defineProps<ConversationComposerProps>(), {
@@ -45,6 +46,8 @@ const {
   currentWorkingDirectory,
   clearMemoryPreview,
   dismissMemorySuggestion,
+  executePlan,
+  cancelPlan,
   editingQueuedDraftId,
   fileInputRef,
   fileMentionPosition,
@@ -314,6 +317,13 @@ defineExpose({
     </div>
 
     <div class="conversation-composer__panel">
+      <PlanModeBanner
+        v-if="sessionId"
+        :session-id="sessionId"
+        @execute-plan="executePlan"
+        @cancel-plan="cancelPlan"
+      />
+
       <ConversationTodoPanel
         v-if="sessionId"
         :session-id="sessionId"

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use rusqlite::{Connection, Row};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -1813,10 +1814,18 @@ fn format_provider_display_name(id: &str) -> String {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ConfiguredOpenCodeModelInfo {
+    pub model_name: String,
+    pub context_window: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ConfiguredOpenCodeProvider {
     pub provider: String,
     pub display_name: String,
     pub models: Vec<String>,
+    pub model_context_windows: HashMap<String, i32>,
     pub default_model: Option<String>,
     pub has_api_key: bool,
 }
@@ -1853,11 +1862,26 @@ pub fn read_configured_opencode_models() -> Result<Vec<ConfiguredOpenCodeProvide
     if let Some(providers) = providers_obj {
         for (provider_id, provider_val) in providers {
             let mut models = Vec::new();
+            let mut model_context_windows = HashMap::new();
             let mut is_default = false;
 
             if let Some(pcfg) = provider_val.as_object() {
                 if let Some(models_obj) = pcfg.get("models").and_then(|m| m.as_object()) {
-                    models = models_obj.keys().cloned().collect();
+                    for (model_name, model_val) in models_obj {
+                        models.push(model_name.clone());
+                        if let Some(limit_obj) = model_val.as_object()
+                            .and_then(|m| m.get("limit"))
+                            .and_then(|l| l.as_object())
+                        {
+                            if let Some(ctx) = limit_obj.get("context")
+                                .and_then(|c| c.as_i64())
+                                .and_then(|v| i32::try_from(v).ok())
+                                .filter(|v| *v > 0)
+                            {
+                                model_context_windows.insert(model_name.clone().to_lowercase(), ctx);
+                            }
+                        }
+                    }
                     models.sort();
                 }
             }
@@ -1883,6 +1907,7 @@ pub fn read_configured_opencode_models() -> Result<Vec<ConfiguredOpenCodeProvide
                 provider: provider_id.clone(),
                 display_name,
                 models,
+                model_context_windows,
                 default_model,
                 has_api_key,
             });
@@ -1897,6 +1922,7 @@ pub fn read_configured_opencode_models() -> Result<Vec<ConfiguredOpenCodeProvide
                 provider: dp.clone(),
                 display_name,
                 models: Vec::new(),
+                model_context_windows: HashMap::new(),
                 default_model: default_model_name.clone(),
                 has_api_key,
             });
@@ -1913,6 +1939,7 @@ pub fn read_configured_opencode_models() -> Result<Vec<ConfiguredOpenCodeProvide
                         provider: provider_id.clone(),
                         display_name,
                         models: Vec::new(),
+                        model_context_windows: HashMap::new(),
                         default_model: None,
                         has_api_key,
                     });

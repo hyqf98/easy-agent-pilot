@@ -26,6 +26,7 @@ export interface Session {
   lastMessage?: string
   errorMessage?: string
   messageCount: number
+  planMode?: boolean
   createdAt: string
   updatedAt: string
 }
@@ -45,6 +46,7 @@ interface RustSession {
   last_message?: string
   error_message?: string
   message_count: number
+  plan_mode?: boolean
   created_at: string
   updated_at: string
 }
@@ -65,6 +67,7 @@ function transformSession(rustSession: RustSession): Session {
     lastMessage: rustSession.last_message,
     errorMessage: rustSession.error_message,
     messageCount: rustSession.message_count,
+    planMode: rustSession.plan_mode ?? false,
     createdAt: rustSession.created_at,
     updatedAt: rustSession.updated_at
   }
@@ -308,7 +311,7 @@ export const useSessionStore = defineStore('session', () => {
 
   async function updateSession(
     id: string,
-    updates: Partial<Pick<Session, 'name' | 'status' | 'pinned' | 'lastMessage' | 'errorMessage' | 'agentType' | 'expertId' | 'agentId' | 'cliSessionId' | 'cliSessionProvider'>>
+    updates: Partial<Pick<Session, 'name' | 'status' | 'pinned' | 'lastMessage' | 'errorMessage' | 'agentType' | 'expertId' | 'agentId' | 'cliSessionId' | 'cliSessionProvider' | 'planMode'>>
   ) {
     const notificationStore = useNotificationStore()
     const input: Record<string, unknown> = {}
@@ -323,6 +326,7 @@ export const useSessionStore = defineStore('session', () => {
     if ('agentId' in updates) input.agent_id = updates.agentId ?? null
     if ('cliSessionId' in updates) input.cli_session_id = updates.cliSessionId ?? null
     if ('cliSessionProvider' in updates) input.cli_session_provider = updates.cliSessionProvider ?? null
+    if ('planMode' in updates) input.plan_mode = updates.planMode ?? false
 
     try {
       const rustSession = await invoke<RustSession>('update_session', { id, input })
@@ -451,6 +455,18 @@ export const useSessionStore = defineStore('session', () => {
       session.messageCount = (session.messageCount || 0) + 1
       session.updatedAt = new Date().toISOString()
     }
+  }
+
+  function isPlanMode(sessionId: string): boolean {
+    return sessions.value.find(s => s.id === sessionId)?.planMode === true
+  }
+
+  async function setPlanMode(sessionId: string, enabled: boolean): Promise<void> {
+    const session = sessions.value.find(s => s.id === sessionId)
+    if (session) {
+      session.planMode = enabled
+    }
+    await updateSession(sessionId, { planMode: enabled })
   }
 
   // 打开会话（添加到标签栏）
@@ -667,6 +683,8 @@ export const useSessionStore = defineStore('session', () => {
     togglePin,
     setSearchQuery,
     updateLastMessage,
+    isPlanMode,
+    setPlanMode,
     // 多会话管理
     openSession,
     closeSession,

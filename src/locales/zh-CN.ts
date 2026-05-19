@@ -345,6 +345,12 @@ const zhCN = {
       builtinGroup: '内置命令',
       pluginGroup: '插件/扩展命令'
     },
+    planModeBanner: {
+      title: '计划模式',
+      hint: '回复为只读，继续输入可调整计划。',
+      execute: '执行计划',
+      cancel: '退出'
+    },
     emptyWelcome: '欢迎使用 Easy Agent Pilot',
     emptyHint: '在下方输入框中开始与 AI 对话',
     emptyTip1: '按回车发送，Shift + 回车换行',

@@ -26,8 +26,8 @@ export interface SlashCommandContext {
   clearSession: () => Promise<void>
   setWorkingDirectory?: (path: string) => Promise<string>
   runProjectInit?: (extraPrompt?: string) => Promise<void>
-  createSessionAndSend?: (message?: string) => Promise<void>
-  sendWithPlanMode?: (message: string) => Promise<void>
+  createSessionAndSend?: (message?: string, displayContent?: string) => Promise<void>
+  sendWithPlanMode?: (message: string, options?: { persistPlanMode?: boolean; displayContent?: string }) => Promise<void>
   notifySuccess: (message: string) => void
   notifyWarning: (message: string) => void
   notifyError: (message: string) => void
@@ -36,6 +36,7 @@ export interface SlashCommandContext {
 export interface ParsedSlashCommand {
   name: string
   argsText: string
+  fullText: string
 }
 
 export interface SlashCommandExecutionResult {
@@ -161,13 +162,15 @@ export function parseSlashCommandInput(rawInput: string): ParsedSlashCommand | n
   if (firstWhitespace < 0) {
     return {
       name: normalizeName(body),
-      argsText: ''
+      argsText: '',
+      fullText: trimmed
     }
   }
 
   return {
     name: normalizeName(body.slice(0, firstWhitespace)),
-    argsText: body.slice(firstWhitespace + 1).trim()
+    argsText: body.slice(firstWhitespace + 1).trim(),
+    fullText: trimmed
   }
 }
 
@@ -266,7 +269,7 @@ const COMMAND_HANDLERS: Record<string, SlashCommandHandler> = {
     }
 
     try {
-      await context.createSessionAndSend(parsed.argsText || undefined)
+      await context.createSessionAndSend(parsed.argsText || undefined, parsed.fullText)
       return { handled: true, clearInput: true }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -286,7 +289,7 @@ const COMMAND_HANDLERS: Record<string, SlashCommandHandler> = {
     }
 
     try {
-      await context.sendWithPlanMode(parsed.argsText)
+      await context.sendWithPlanMode(parsed.argsText, { persistPlanMode: true, displayContent: parsed.fullText })
       return { handled: true, clearInput: true }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)

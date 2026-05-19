@@ -170,8 +170,8 @@ const handleSyncRemoteModels = async () => {
     if (isOpenCodeAgent.value) {
       await agentConfigStore.syncConfiguredOpencodeModels(props.agentId)
     } else {
-      const provider = currentAgent.value?.provider || 'claude'
-      await agentConfigStore.syncRemoteModels(props.agentId, provider)
+      const cliType = currentAgent.value?.provider || 'claude'
+      await agentConfigStore.syncRemoteModels(props.agentId, cliType)
     }
 
     const afterModels = agentConfigStore.getModelsConfigs(props.agentId)

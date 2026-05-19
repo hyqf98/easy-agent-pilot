@@ -74,29 +74,6 @@ export interface AgentModelConfig {
   updatedAt: string
 }
 
-export interface RemoteModelDef {
-  modelId: string
-  displayName: string
-  contextWindow?: number
-  sortOrder?: number
-}
-
-interface RemoteModelsJson {
-  version: number
-  updated: string
-  providers: Record<string, RemoteModelDef[]>
-}
-
-const REMOTE_MODELS_URL = 'https://raw.githubusercontent.com/hyqf98/easy-agent-pilot/main/models.json'
-async function loadRemoteModels(): Promise<RemoteModelsJson> {
-  const response = await fetch(REMOTE_MODELS_URL)
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-  }
-
-  return response.json() as Promise<RemoteModelsJson>
-}
-
 // 后端返回的原始数据结构（snake_case）
 interface RawAgentMcpConfig {
   id: string
@@ -782,25 +759,11 @@ export const useAgentConfigStore = defineStore('agentConfig', () => {
     return modelConfigs.value.get(agentId) || []
   }
 
-  async function syncRemoteModels(agentId: string, provider: string): Promise<AgentModelConfig[]> {
+  async function syncRemoteModels(agentId: string, cliType: string): Promise<AgentModelConfig[]> {
     const notificationStore = useNotificationStore()
     try {
-      const data = await loadRemoteModels()
-      const providerModels = data.providers[provider]
-      if (!providerModels || providerModels.length === 0) {
-        throw new Error(`未找到 ${provider} 的模型定义`)
-      }
-
-      const rawConfigs = await invoke<RawAgentModelConfig[]>('sync_remote_models', {
-        input: {
-          agent_id: agentId,
-          models: providerModels.map(m => ({
-            model_id: m.modelId,
-            display_name: m.displayName,
-            context_window: m.contextWindow,
-            sort_order: m.sortOrder
-          }))
-        }
+      const rawConfigs = await invoke<RawAgentModelConfig[]>('fetch_and_sync_api_models', {
+        input: { agentId, cliType }
       })
       const configs = rawConfigs.map(transformModelConfig)
       modelConfigs.value.set(agentId, configs)
@@ -808,46 +771,9 @@ export const useAgentConfigStore = defineStore('agentConfig', () => {
     } catch (error) {
       console.error('Failed to sync remote models:', error)
       notificationStore.databaseError(
-        '同步远程模型失败',
+        '同步模型失败',
         getErrorMessage(error),
-        async () => { void await syncRemoteModels(agentId, provider) }
-      )
-      throw error
-    }
-  }
-
-  async function syncOpencodeModels(agentId: string): Promise<AgentModelConfig[]> {
-    const notificationStore = useNotificationStore()
-    try {
-      let knownModels: RemoteModelDef[] = []
-      try {
-        const data = await loadRemoteModels()
-        knownModels = data.providers.opencode || []
-      } catch (error) {
-        console.warn('Failed to load remote OpenCode model fallback metadata:', error)
-      }
-
-      const contextWindows = Object.fromEntries(
-        knownModels
-          .filter(model => typeof model.contextWindow === 'number' && model.contextWindow > 0)
-          .map(model => [model.modelId.trim().toLowerCase(), model.contextWindow as number])
-      )
-
-      const rawConfigs = await invoke<RawAgentModelConfig[]>('sync_all_opencode_models', {
-        input: {
-          agent_id: agentId,
-          context_windows: contextWindows
-        }
-      })
-      const configs = rawConfigs.map(transformModelConfig)
-      modelConfigs.value.set(agentId, configs)
-      return configs
-    } catch (error) {
-      console.error('Failed to sync opencode models:', error)
-      notificationStore.databaseError(
-        '同步 OpenCode 模型失败',
-        getErrorMessage(error),
-        async () => { void await syncOpencodeModels(agentId) }
+        async () => { void await syncRemoteModels(agentId, cliType) }
       )
       throw error
     }
@@ -856,37 +782,8 @@ export const useAgentConfigStore = defineStore('agentConfig', () => {
   async function syncConfiguredOpencodeModels(agentId: string): Promise<AgentModelConfig[]> {
     const notificationStore = useNotificationStore()
     try {
-      const providers = await invoke<ConfiguredOpenCodeProvider[]>('read_configured_opencode_models')
-
-      let knownModels: RemoteModelDef[] = []
-      try {
-        const data = await loadRemoteModels()
-        knownModels = data.providers.opencode || []
-      } catch {
-        // ignore
-      }
-      const contextWindows = Object.fromEntries(
-        knownModels
-          .filter(m => typeof m.contextWindow === 'number' && m.contextWindow > 0)
-          .map(m => [m.modelId.trim().toLowerCase(), m.contextWindow as number])
-      )
-
-      type SyncInput = {
-        agentId: string
-        providers: { provider: string; models: string[]; defaultModel: string | null }[]
-        contextWindows: Record<string, number>
-      }
-
       const rawConfigs = await invoke<RawAgentModelConfig[]>('sync_configured_opencode_models', {
-        input: {
-          agentId: agentId,
-          providers: providers.map(p => ({
-            provider: p.provider,
-            models: p.models,
-            defaultModel: p.defaultModel
-          })),
-          contextWindows: contextWindows
-        } satisfies SyncInput
+        input: { agentId }
       })
       const configs = rawConfigs.map(transformModelConfig)
       modelConfigs.value.set(agentId, configs)
@@ -989,7 +886,6 @@ export const useAgentConfigStore = defineStore('agentConfig', () => {
     createModelConfig,
     initBuiltinModels,
     syncRemoteModels,
-    syncOpencodeModels,
     syncConfiguredOpencodeModels,
     addOpencodeModelToConfig,
     updateModelConfig,

@@ -372,7 +372,9 @@ onBeforeUnmount(() => {
         @click.stop
       >
         <div class="modal-header">
-          <h3 class="modal-title">添加模型</h3>
+          <h3 class="modal-title">
+            添加模型
+          </h3>
           <button
             class="modal-close"
             @click="handleClose"
@@ -467,11 +469,15 @@ onBeforeUnmount(() => {
             <div
               v-if="opencodeProvidersLoading && !isCustom"
               class="form-hint"
-            >加载中...</div>
+            >
+              加载中...
+            </div>
             <div
               v-else-if="opencodeProvidersError && !isCustom"
               class="form-error"
-            >{{ opencodeProvidersError }}</div>
+            >
+              {{ opencodeProvidersError }}
+            </div>
           </div>
 
           <div class="form-group">
@@ -552,7 +558,9 @@ onBeforeUnmount(() => {
                 </div>
               </div>
             </div>
-            <div class="form-hint">输入该 Provider 支持的模型 ID</div>
+            <div class="form-hint">
+              输入该 Provider 支持的模型 ID
+            </div>
           </div>
 
           <div
@@ -566,7 +574,9 @@ onBeforeUnmount(() => {
               class="form-input"
               :placeholder="OPENCODE_DEFAULT_PROVIDER_NPM"
             >
-            <div class="form-hint">npm 适配器包名，默认 @ai-sdk/openai-compatible</div>
+            <div class="form-hint">
+              npm 适配器包名，默认 @ai-sdk/openai-compatible
+            </div>
           </div>
 
           <div class="form-group">
@@ -616,11 +626,15 @@ onBeforeUnmount(() => {
             <div
               v-if="opencodeModelsLoading"
               class="form-hint"
-            >加载模型中...</div>
+            >
+              加载模型中...
+            </div>
             <div
               v-else-if="opencodeModelsError"
               class="form-error"
-            >{{ opencodeModelsError }}</div>
+            >
+              {{ opencodeModelsError }}
+            </div>
             <div
               v-else-if="providerName.trim() && opencodeModels.length === 0 && !opencodeModelsLoading"
               class="form-hint"
@@ -685,7 +699,9 @@ onBeforeUnmount(() => {
             <p
               v-if="contextWindowError"
               class="form-error"
-            >{{ contextWindowError }}</p>
+            >
+              {{ contextWindowError }}
+            </p>
           </div>
         </div>
 

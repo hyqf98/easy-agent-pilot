@@ -802,6 +802,7 @@ pub fn init_database() -> Result<()> {
         "ALTER TABLE sessions ADD COLUMN agent_id TEXT",
         "ALTER TABLE sessions ADD COLUMN cli_session_id TEXT",
         "ALTER TABLE sessions ADD COLUMN cli_session_provider TEXT",
+        "ALTER TABLE sessions ADD COLUMN plan_mode INTEGER DEFAULT 0",
         "ALTER TABLE unattended_channels ADD COLUMN default_model_id TEXT",
         "ALTER TABLE unattended_threads ADD COLUMN active_project_id TEXT",
         "ALTER TABLE provider_profiles ADD COLUMN opencode_provider_models TEXT",

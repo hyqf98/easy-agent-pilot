@@ -2412,7 +2412,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     }
   }
 
-  const createSessionAndSend = async (message?: string): Promise<void> => {
+  const createSessionAndSend = async (message?: string, displayContent?: string): Promise<void> => {
     if (!projectStore.currentProjectId) {
       throw new Error('当前没有可用项目')
     }
@@ -2424,9 +2424,10 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     const expert = agentTeamsStore.builtinGeneralExpert || agentTeamsStore.enabledExperts[0] || null
     const runtime = resolveExpertRuntime(expert, agentStore.agents)
 
+    const titleSource = displayContent ?? message
     const newSession = await sessionStore.createSession({
       projectId: projectStore.currentProjectId,
-      name: message ? message.replace(/\n/g, ' ').slice(0, 20).trim() + (message.length > 20 ? '...' : '') : '未命名会话',
+      name: titleSource ? titleSource.replace(/\n/g, ' ').slice(0, 20).trim() + (titleSource.length > 20 ? '...' : '') : '未命名会话',
       expertId: expert?.id,
       agentId: runtime?.agent.id,
       agentType: runtime?.agent.provider || runtime?.agent.type || 'claude',
@@ -2436,10 +2437,11 @@ export function useConversationComposer(options: UseConversationComposerOptions)
 
     await sessionStore.openSession(newSession.id)
 
-    if (message?.trim() && runtime?.agent) {
+    const contentToSend = displayContent ?? message?.trim()
+    if (contentToSend && runtime?.agent) {
       await conversationService.sendMessage(
         newSession.id,
-        message.trim(),
+        contentToSend,
         runtime.agent.id,
         projectStore.currentProjectId,
         [],
@@ -2447,7 +2449,6 @@ export function useConversationComposer(options: UseConversationComposerOptions)
           workingDirectory: currentWorkingDirectory.value || currentProjectPath.value || undefined,
           modelId: runtime.modelId || runtime.agent.modelId || undefined,
           injectedSystemMessages: expert ? [buildExpertSystemPrompt(expert.prompt)] : [],
-          previewContent: message.trim()
         }
       )
     }
@@ -2455,7 +2456,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
 
   const PLAN_MODE_SYSTEM_PROMPT = 'You are in plan mode. Analyze the task and provide a detailed plan, but do NOT make any file changes or execute any commands. Only read files to understand the codebase, then output your analysis and plan. Respond with a clear, actionable plan that another agent could execute.'
 
-  const sendWithPlanMode = async (message: string): Promise<void> => {
+  const sendWithPlanMode = async (message: string, options?: { persistPlanMode?: boolean; displayContent?: string }): Promise<void> => {
     const sessionId = currentSessionId.value
     if (!sessionId) {
       throw new Error('当前没有可用会话')
@@ -2493,7 +2494,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
 
     await conversationService.sendMessage(
       sessionId,
-      message,
+      options?.displayContent ?? message,
       executionAgent.id,
       projectStore.currentProjectId ?? undefined,
       [],
@@ -2502,9 +2503,29 @@ export function useConversationComposer(options: UseConversationComposerOptions)
         modelId: executionAgent.modelId?.trim() || undefined,
         extraCliArgs,
         injectedSystemMessages: systemMessages,
-        previewContent: `/plan ${message}`
       }
     )
+
+    if (options?.persistPlanMode) {
+      const lastMsg = messageStore.lastMessage(sessionId)
+      if (lastMsg?.status === 'completed') {
+        await sessionStore.setPlanMode(sessionId, true)
+      }
+    }
+  }
+
+  const executePlan = async (): Promise<void> => {
+    const sessionId = currentSessionId.value
+    if (!sessionId) return
+
+    await sessionStore.setPlanMode(sessionId, false)
+  }
+
+  const cancelPlan = async (): Promise<void> => {
+    const sessionId = currentSessionId.value
+    if (!sessionId) return
+
+    await sessionStore.setPlanMode(sessionId, false)
   }
 
   const runSlashCommand = async (parsedSlashCommand: ParsedSlashCommand) => {
@@ -2533,9 +2554,6 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     if (result.handled) {
       closeSlashCommand()
       closeCdPathSuggestions()
-      if (result.clearInput) {
-        inputText.value = ''
-      }
     }
 
     return result.handled
@@ -2564,10 +2582,14 @@ export function useConversationComposer(options: UseConversationComposerOptions)
 
     const parsedSlashCommand = attachments.length === 0 ? parseSlashCommandInput(userInput) : null
     if (parsedSlashCommand) {
+      clearComposerDraft(sessionId)
+      await nextTick()
       const handled = await runSlashCommand(parsedSlashCommand)
       if (handled) {
         return
       }
+      inputText.value = rawInput
+      focusInput()
     }
 
     if (isSending.value || isCurrentSessionDispatching.value) {
@@ -2649,18 +2671,32 @@ export function useConversationComposer(options: UseConversationComposerOptions)
       clearComposerDraft(sessionId)
       await nextTick()
 
-      const success = await sendWithCurrentAgent(userInput, attachments, {
-        displayPreviewContent: annotatedMessage.previewContent,
-        memoryReferences: orderedMemoryReferences,
-        targetSessionId: sessionId
-      })
-      if (success) {
-        focusInput()
+      if (sessionStore.isPlanMode(sessionId)) {
+        try {
+          await sendWithPlanMode(userInput)
+          focusInput()
+        } catch (error) {
+          inputText.value = rawInput
+          sessionExecutionStore.setMemoryReferences(sessionId, orderedMemoryReferences)
+          await restorePendingImages(attachments)
+          const normalizedError = error instanceof Error ? error : new Error(getErrorMessage(error, '发送失败'))
+          notificationStore.smartError('发送失败', normalizedError)
+          focusInput()
+        }
       } else {
-        inputText.value = rawInput
-        sessionExecutionStore.setMemoryReferences(sessionId, orderedMemoryReferences)
-        await restorePendingImages(attachments)
-        focusInput()
+        const success = await sendWithCurrentAgent(userInput, attachments, {
+          displayPreviewContent: annotatedMessage.previewContent,
+          memoryReferences: orderedMemoryReferences,
+          targetSessionId: sessionId
+        })
+        if (success) {
+          focusInput()
+        } else {
+          inputText.value = rawInput
+          sessionExecutionStore.setMemoryReferences(sessionId, orderedMemoryReferences)
+          await restorePendingImages(attachments)
+          focusInput()
+        }
       }
     } finally {
       isCompressing.value = false
@@ -2937,8 +2973,10 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     currentMemoryReferences,
     currentProjectPath,
     currentSessionId,
+    cancelPlan,
     currentWorkingDirectory,
     dismissMemorySuggestion,
+    executePlan,
     fileInputRef,
     fileMentionPosition,
     focusInput,

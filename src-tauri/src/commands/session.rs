@@ -24,6 +24,7 @@ pub struct Session {
     pub last_message: Option<String>,
     pub error_message: Option<String>,
     pub message_count: i32,
+    pub plan_mode: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -63,6 +64,7 @@ pub struct UpdateSessionInput {
     pub agent_type: Option<String>,
     pub cli_session_id: Option<String>,
     pub cli_session_provider: Option<String>,
+    pub plan_mode: Option<bool>,
 }
 
 /// 生成默认会话名称（带时间戳）
@@ -140,6 +142,7 @@ pub fn list_sessions(project_id: String) -> Result<Vec<Session>, String> {
                    s.cli_session_id, s.cli_session_provider, s.status,
                    COALESCE(s.pinned, 0) as pinned,
                    m.last_message, s.error_message, COALESCE(m.message_count, 0) as message_count,
+                   COALESCE(s.plan_mode, 0) as plan_mode,
                    s.created_at, s.updated_at
             FROM sessions s
             LEFT JOIN (
@@ -171,8 +174,9 @@ pub fn list_sessions(project_id: String) -> Result<Vec<Session>, String> {
                 last_message: row.get(10)?,
                 error_message: row.get(11)?,
                 message_count: row.get(12)?,
-                created_at: row.get(13)?,
-                updated_at: row.get(14)?,
+                plan_mode: row.get::<_, i32>(13)? != 0,
+                created_at: row.get(14)?,
+                updated_at: row.get(15)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -229,6 +233,7 @@ pub fn create_session(input: CreateSessionInput) -> Result<Session, String> {
         last_message: None,
         error_message: None,
         message_count: 0,
+        plan_mode: false,
         created_at: now.clone(),
         updated_at: now,
     })
@@ -283,6 +288,10 @@ pub fn update_session(id: String, input: UpdateSessionInput) -> Result<Session, 
     }
     if input.cli_session_provider.is_some() {
         updates.push(format!("cli_session_provider = ?{}", param_index));
+        param_index += 1;
+    }
+    if input.plan_mode.is_some() {
+        updates.push(format!("plan_mode = ?{}", param_index));
         param_index += 1;
     }
 
@@ -350,6 +359,11 @@ pub fn update_session(id: String, input: UpdateSessionInput) -> Result<Session, 
             .map_err(|e| e.to_string())?;
         param_count += 1;
     }
+    if let Some(plan_mode) = input.plan_mode {
+        stmt.raw_bind_parameter(param_count, if plan_mode { 1 } else { 0 })
+            .map_err(|e| e.to_string())?;
+        param_count += 1;
+    }
 
     stmt.raw_bind_parameter(param_count, &id)
         .map_err(|e| e.to_string())?;
@@ -371,6 +385,7 @@ fn get_session_by_id(conn: &Connection, id: &str) -> Result<Session, String> {
                    s.cli_session_id, s.cli_session_provider, s.status,
                    COALESCE(s.pinned, 0) as pinned,
                    m.last_message, s.error_message, COALESCE(m.message_count, 0) as message_count,
+                   COALESCE(s.plan_mode, 0) as plan_mode,
                    s.created_at, s.updated_at
             FROM sessions s
             LEFT JOIN (
@@ -401,8 +416,9 @@ fn get_session_by_id(conn: &Connection, id: &str) -> Result<Session, String> {
                 last_message: row.get(10)?,
                 error_message: row.get(11)?,
                 message_count: row.get(12)?,
-                created_at: row.get(13)?,
-                updated_at: row.get(14)?,
+                plan_mode: row.get::<_, i32>(13)? != 0,
+                created_at: row.get(14)?,
+                updated_at: row.get(15)?,
             })
         })
         .map_err(|e| e.to_string())?;

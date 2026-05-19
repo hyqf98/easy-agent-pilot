@@ -2,7 +2,7 @@ use super::support::{
     bind_optional, bind_optional_mapped, bind_value, bool_from_int, now_rfc3339,
     open_db_connection, UpdateSqlBuilder,
 };
-use super::provider_profile::read_current_cli_config;
+use super::provider_profile::{get_active_provider_profile, read_current_cli_config};
 use anyhow::Result;
 use rusqlite::{Connection, Row};
 use serde::{Deserialize, Serialize};
@@ -159,90 +159,6 @@ fn collect_model_aliases(model_id: &str) -> Vec<String> {
     }
 
     aliases
-}
-
-fn resolve_context_window_from_map(
-    model_id: &str,
-    context_windows: Option<&HashMap<String, i32>>,
-) -> Option<i32> {
-    let context_windows = context_windows?;
-    for alias in collect_model_aliases(model_id) {
-        if let Some(value) = context_windows.get(&alias) {
-            if *value > 0 {
-                return Some(*value);
-            }
-        }
-    }
-    None
-}
-
-#[derive(Debug, Deserialize)]
-struct OpencodeVerboseLimit {
-    context: Option<i64>,
-}
-
-#[derive(Debug, Deserialize)]
-struct OpencodeVerboseModel {
-    #[serde(rename = "providerID")]
-    provider_id: Option<String>,
-    id: Option<String>,
-    limit: Option<OpencodeVerboseLimit>,
-}
-
-fn parse_opencode_verbose_models(stdout: &str) -> Result<Vec<(String, Option<i32>)>, String> {
-    let mut models = Vec::new();
-    let mut pending_display_id: Option<String> = None;
-    let mut json_buffer = String::new();
-    let mut brace_depth = 0i32;
-
-    for line in stdout.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        if pending_display_id.is_none() {
-            if trimmed.contains('/') && !trimmed.starts_with('{') {
-                pending_display_id = Some(trimmed.to_string());
-                json_buffer.clear();
-                brace_depth = 0;
-            }
-            continue;
-        }
-
-        json_buffer.push_str(line);
-        json_buffer.push('\n');
-        brace_depth += line.matches('{').count() as i32;
-        brace_depth -= line.matches('}').count() as i32;
-
-        if brace_depth > 0 {
-            continue;
-        }
-
-        let display_id = pending_display_id.take().unwrap_or_default();
-        let parsed: OpencodeVerboseModel = serde_json::from_str(&json_buffer)
-            .map_err(|error| format!("解析 opencode models --verbose 输出失败 ({}): {}", display_id, error))?;
-
-        let model_id = match (
-            parsed.provider_id.as_deref().map(str::trim).filter(|value| !value.is_empty()),
-            parsed.id.as_deref().map(str::trim).filter(|value| !value.is_empty()),
-        ) {
-            (Some(provider_id), Some(id)) => format!("{}/{}", provider_id, id),
-            _ => display_id.clone(),
-        };
-
-        let context_window = parsed
-            .limit
-            .and_then(|limit| limit.context)
-            .and_then(|value| i32::try_from(value).ok())
-            .filter(|value| *value > 0);
-
-        models.push((model_id, context_window));
-        json_buffer.clear();
-        brace_depth = 0;
-    }
-
-    Ok(models)
 }
 
 fn _unused_legacy_builtin_models() {}
@@ -1186,140 +1102,6 @@ pub fn delete_agent_model(id: String) -> Result<(), String> {
     Ok(())
 }
 
-#[derive(Debug, Deserialize)]
-pub struct RemoteModelDef {
-    pub model_id: String,
-    pub display_name: String,
-    pub context_window: Option<i32>,
-    pub sort_order: Option<i32>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct SyncRemoteModelsInput {
-    pub agent_id: String,
-    pub models: Vec<RemoteModelDef>,
-}
-
-#[tauri::command]
-pub fn sync_remote_models(input: SyncRemoteModelsInput) -> Result<Vec<AgentModelConfig>, String> {
-    let mut conn = open_conn()?;
-    let now = now_rfc3339();
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
-
-    tx.execute(
-        "DELETE FROM agent_models WHERE agent_id = ?1 AND model_id != ''",
-        [&input.agent_id],
-    )
-    .map_err(|e| e.to_string())?;
-
-    for remote_model in &input.models {
-        let id = uuid::Uuid::new_v4().to_string();
-        let sort_order = remote_model.sort_order.unwrap_or(0);
-
-        tx.execute(
-            "INSERT INTO agent_models (id, agent_id, model_id, display_name, is_builtin, is_default, sort_order, enabled, context_window, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, 0, 0, ?5, 1, ?6, ?7, ?8)",
-            rusqlite::params![
-                &id,
-                &input.agent_id,
-                &remote_model.model_id,
-                &remote_model.display_name,
-                sort_order,
-                remote_model.context_window,
-                &now,
-                &now
-            ],
-        )
-        .map_err(|e| e.to_string())?;
-    }
-
-    tx.commit().map_err(|e| e.to_string())?;
-
-    list_models_for_agent(&conn, &input.agent_id)
-}
-
-#[derive(Debug, Deserialize)]
-pub struct SyncOpencodeModelsInput {
-    pub agent_id: String,
-    pub provider_name: String,
-}
-
-#[tauri::command]
-pub fn sync_opencode_models(
-    input: SyncOpencodeModelsInput,
-) -> Result<Vec<AgentModelConfig>, String> {
-    if input.provider_name.trim().is_empty() {
-        return Err("未配置 OpenCode Provider，请先在配置切换中设置 Provider".to_string());
-    }
-
-    let output = crate::commands::cli_support::run_cli_command(
-        std::path::Path::new("opencode"),
-        &["models", &input.provider_name],
-    )
-            .map_err(|e| format!("执行 opencode models {} 失败: {}", input.provider_name, e))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        return Err(format!("查询模型失败: {}", stderr.trim()));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let prefix = format!("{}/", input.provider_name);
-
-    let model_ids: Vec<String> = stdout
-        .lines()
-        .filter_map(|line| {
-            let trimmed = line.trim();
-            if trimmed.starts_with(&prefix) {
-                Some(trimmed[prefix.len()..].to_string())
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    if model_ids.is_empty() {
-        return Err(format!(
-            "未从 opencode CLI 获取到 {} 的模型列表",
-            input.provider_name
-        ));
-    }
-
-    let mut conn = open_conn()?;
-    let now = now_rfc3339();
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
-
-    tx.execute(
-        "DELETE FROM agent_models WHERE agent_id = ?1 AND model_id != ''",
-        [&input.agent_id],
-    )
-    .map_err(|e| e.to_string())?;
-
-    for (idx, model_id) in model_ids.iter().enumerate() {
-        let id = uuid::Uuid::new_v4().to_string();
-        let display_name = model_id.clone();
-
-        tx.execute(
-            "INSERT INTO agent_models (id, agent_id, model_id, display_name, is_builtin, is_default, sort_order, enabled, context_window, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, 0, 0, ?5, 1, NULL, ?6, ?7)",
-            rusqlite::params![
-                &id,
-                &input.agent_id,
-                model_id,
-                &display_name,
-                idx as i32 + 1,
-                &now,
-                &now
-            ],
-        )
-        .map_err(|e| e.to_string())?;
-    }
-
-    tx.commit().map_err(|e| e.to_string())?;
-
-    list_models_for_agent(&conn, &input.agent_id)
-}
-
 #[allow(dead_code)]
 #[tauri::command]
 pub fn reset_builtin_models(
@@ -1357,91 +1139,48 @@ pub struct OpencodeProviderModels {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct SyncAllOpencodeModelsInput {
-    pub agent_id: String,
-    pub context_windows: Option<HashMap<String, i32>>,
-}
-
-#[tauri::command]
-pub fn sync_all_opencode_models(
-    input: SyncAllOpencodeModelsInput,
-) -> Result<Vec<AgentModelConfig>, String> {
-    let output = crate::commands::cli_support::run_cli_command(
-        std::path::Path::new("opencode"),
-        &["models", "--verbose"],
-    )
-        .map_err(|e| format!("执行 opencode models 失败: {}", e))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        return Err(format!("查询模型列表失败: {}", stderr.trim()));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let verbose_models = parse_opencode_verbose_models(&stdout)?;
-
-    if verbose_models.is_empty() {
-        return Err("未从 opencode CLI 获取到任何模型".to_string());
-    }
-
-    let mut conn = open_conn()?;
-    let now = now_rfc3339();
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
-
-    tx.execute(
-        "DELETE FROM agent_models WHERE agent_id = ?1 AND model_id != ''",
-        [&input.agent_id],
-    )
-    .map_err(|e| e.to_string())?;
-
-    for (index, (model_id, verbose_context_window)) in verbose_models.iter().enumerate() {
-        let id = uuid::Uuid::new_v4().to_string();
-        let fallback_context_window =
-            resolve_context_window_from_map(model_id, input.context_windows.as_ref());
-        let context_window = verbose_context_window.or(fallback_context_window);
-
-        tx.execute(
-            "INSERT INTO agent_models (id, agent_id, model_id, display_name, is_builtin, is_default, sort_order, enabled, context_window, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, 0, 0, ?5, 1, ?6, ?7, ?8)",
-            rusqlite::params![
-                &id,
-                &input.agent_id,
-                model_id,
-                model_id,
-                index as i32 + 1,
-                context_window,
-                &now,
-                &now
-            ],
-        )
-        .map_err(|e| e.to_string())?;
-    }
-
-    tx.commit().map_err(|e| e.to_string())?;
-
-    list_models_for_agent(&conn, &input.agent_id)
-}
-
-#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncConfiguredOpencodeModelsInput {
     pub agent_id: String,
-    pub providers: Vec<ConfiguredProviderInput>,
-    pub context_windows: Option<HashMap<String, i32>>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConfiguredProviderInput {
-    pub provider: String,
-    pub models: Vec<String>,
-    pub default_model: Option<String>,
+fn resolve_opencode_context_window(
+    full_model_id: &str,
+    provider_ctx: Option<&HashMap<String, i32>>,
+    all_ctx: &HashMap<String, HashMap<String, i32>>,
+) -> Option<i32> {
+    if let Some(ctx) = provider_ctx {
+        for alias in collect_model_aliases(full_model_id) {
+            if let Some(v) = ctx.get(&alias) {
+                return Some(*v);
+            }
+        }
+    }
+    for ctx in all_ctx.values() {
+        for alias in collect_model_aliases(full_model_id) {
+            if let Some(v) = ctx.get(&alias) {
+                return Some(*v);
+            }
+        }
+    }
+    None
 }
 
 #[tauri::command]
 pub fn sync_configured_opencode_models(
     input: SyncConfiguredOpencodeModelsInput,
 ) -> Result<Vec<AgentModelConfig>, String> {
+    let configured = super::provider_profile::read_configured_opencode_models()?;
+
+    if configured.is_empty() {
+        return Err("未找到已配置的 OpenCode Provider，请先在设置中配置".to_string());
+    }
+
+    let all_context_windows: HashMap<String, HashMap<String, i32>> = configured
+        .iter()
+        .map(|p| (p.provider.clone(), p.model_context_windows.clone()))
+        .collect();
+
     let mut conn = open_conn()?;
     let now = now_rfc3339();
     let tx = conn.transaction().map_err(|e| e.to_string())?;
@@ -1454,18 +1193,21 @@ pub fn sync_configured_opencode_models(
 
     let mut sort_index = 1;
 
-    for provider in &input.providers {
+    for provider in &configured {
         if provider.models.is_empty() {
             continue;
         }
+
+        let provider_ctx = all_context_windows.get(&provider.provider);
 
         for model_name in &provider.models {
             let full_model_id = format!("{}/{}", provider.provider, model_name);
             let id = uuid::Uuid::new_v4().to_string();
             let is_default = provider.default_model.as_deref() == Some(model_name.as_str());
-            let context_window = resolve_context_window_from_map(
+            let context_window = resolve_opencode_context_window(
                 &full_model_id,
-                input.context_windows.as_ref(),
+                provider_ctx,
+                &all_context_windows,
             );
 
             tx.execute(
@@ -1487,6 +1229,207 @@ pub fn sync_configured_opencode_models(
 
             sort_index += 1;
         }
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
+
+    list_models_for_agent(&conn, &input.agent_id)
+}
+
+const DEFAULT_CONTEXT_WINDOW: i32 = 128000;
+
+struct FetchedModel {
+    model_id: String,
+    context_window: i32,
+}
+
+fn fetch_claude_api_models(base_url: &str, api_key: &str) -> Result<Vec<FetchedModel>, String> {
+    let url = format!(
+        "{}/v1/models?limit=1000",
+        base_url.trim_end_matches('/')
+    );
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
+
+    let response = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("anthropic-version", "2023-06-01")
+        .send()
+        .map_err(|e| format!("请求 Claude API 失败: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status().as_u16();
+        let body = response.text().unwrap_or_default();
+        let preview = if body.len() > 200 {
+            &body[..200]
+        } else {
+            &body
+        };
+        return Err(format!("Claude API 返回错误 ({}): {}", status, preview));
+    }
+
+    let body = response
+        .text()
+        .map_err(|e| format!("读取 Claude API 响应失败: {}", e))?;
+
+    let root: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|e| format!("解析 Claude API 响应失败: {}", e))?;
+
+    let data = root
+        .get("data")
+        .and_then(|v| v.as_array())
+        .ok_or("Claude API 响应缺少 data 字段")?;
+
+    let mut models = Vec::new();
+    for item in data {
+        if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
+            if id.trim().is_empty() {
+                continue;
+            }
+            let max_input = item
+                .get("max_input_tokens")
+                .and_then(|v| v.as_i64())
+                .and_then(|v| i32::try_from(v).ok())
+                .filter(|v| *v > 0)
+                .unwrap_or(DEFAULT_CONTEXT_WINDOW);
+            models.push(FetchedModel {
+                model_id: id.to_string(),
+                context_window: max_input,
+            });
+        }
+    }
+
+    Ok(models)
+}
+
+fn fetch_codex_api_models(base_url: &str, api_key: &str) -> Result<Vec<FetchedModel>, String> {
+    let url = format!("{}/models", base_url.trim_end_matches('/'));
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
+
+    let response = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .send()
+        .map_err(|e| format!("请求 API 失败: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status().as_u16();
+        let body = response.text().unwrap_or_default();
+        let preview = if body.len() > 200 {
+            &body[..200]
+        } else {
+            &body
+        };
+        return Err(format!("API 返回错误 ({}): {}", status, preview));
+    }
+
+    let body = response
+        .text()
+        .map_err(|e| format!("读取 API 响应失败: {}", e))?;
+
+    let root: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|e| format!("解析 API 响应失败: {}", e))?;
+
+    let data = root
+        .get("data")
+        .and_then(|v| v.as_array())
+        .ok_or("API 响应缺少 data 字段")?;
+
+    let mut models = Vec::new();
+    for item in data {
+        if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
+            if id.trim().is_empty() {
+                continue;
+            }
+            let ctx = item
+                .get("context_window")
+                .or_else(|| item.get("max_input_tokens"))
+                .and_then(|v| v.as_i64())
+                .and_then(|v| i32::try_from(v).ok())
+                .filter(|v| *v > 0)
+                .unwrap_or(DEFAULT_CONTEXT_WINDOW);
+            models.push(FetchedModel {
+                model_id: id.to_string(),
+                context_window: ctx,
+            });
+        }
+    }
+
+    Ok(models)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FetchAndSyncApiModelsInput {
+    pub agent_id: String,
+    pub cli_type: String,
+}
+
+#[tauri::command]
+pub fn fetch_and_sync_api_models(
+    input: FetchAndSyncApiModelsInput,
+) -> Result<Vec<AgentModelConfig>, String> {
+    let cli_type = input.cli_type.trim().to_lowercase();
+
+    let profile = get_active_provider_profile(cli_type.clone())?
+        .ok_or("未找到激活的 Provider 配置，请先在设置中配置 Provider")?;
+
+    let base_url = profile
+        .base_url
+        .as_deref()
+        .and_then(|v| if v.trim().is_empty() { None } else { Some(v.trim()) })
+        .ok_or("未配置 API 地址，请先在 Provider 配置中设置 Base URL")?;
+
+    let api_key = profile
+        .api_key
+        .as_deref()
+        .and_then(|v| if v.trim().is_empty() { None } else { Some(v.trim()) })
+        .ok_or("未配置 API 密钥，请先在 Provider 配置中设置 API Key")?;
+
+    let fetched_models = match cli_type.as_str() {
+        "claude" => fetch_claude_api_models(base_url, api_key)?,
+        "codex" => fetch_codex_api_models(base_url, api_key)?,
+        _ => return Err(format!("不支持的 CLI 类型: {}", cli_type)),
+    };
+
+    if fetched_models.is_empty() {
+        return Err("API 返回的模型列表为空".to_string());
+    }
+
+    let mut conn = open_conn()?;
+    let now = now_rfc3339();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    tx.execute(
+        "DELETE FROM agent_models WHERE agent_id = ?1 AND model_id != ''",
+        [&input.agent_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    for (index, model) in fetched_models.iter().enumerate() {
+        let id = uuid::Uuid::new_v4().to_string();
+        tx.execute(
+            "INSERT INTO agent_models (id, agent_id, model_id, display_name, is_builtin, is_default, sort_order, enabled, context_window, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, 0, 0, ?5, 1, ?6, ?7, ?8)",
+            rusqlite::params![
+                &id,
+                &input.agent_id,
+                &model.model_id,
+                &model.model_id,
+                (index + 1) as i32,
+                model.context_window,
+                &now,
+                &now
+            ],
+        )
+        .map_err(|e| e.to_string())?;
     }
 
     tx.commit().map_err(|e| e.to_string())?;
