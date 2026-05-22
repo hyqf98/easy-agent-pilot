@@ -417,7 +417,7 @@ fn map_agent_expert_row(row: &Row<'_>) -> rusqlite::Result<AgentExpert> {
 
 fn fetch_first_cli_agent_id(conn: &Connection) -> Result<Option<String>, String> {
     conn.query_row(
-        "SELECT id FROM agents WHERE type = 'cli' ORDER BY updated_at DESC LIMIT 1",
+        "SELECT id FROM agents WHERE type IN ('acp', 'cli') ORDER BY updated_at DESC LIMIT 1",
         [],
         |row| row.get::<_, String>(0),
     )
@@ -441,8 +441,8 @@ fn validate_runtime_agent(
         .map_err(|error| error.to_string())?;
 
     match agent_type.as_deref() {
-        Some("cli") => Ok(()),
-        Some(_) => Err("AgentTeams 专家只能绑定 CLI Agent".to_string()),
+        Some("acp") | Some("cli") => Ok(()),
+        Some(_) => Err("AgentTeams 专家只能绑定 ACP Agent".to_string()),
         None => Err("绑定的运行时 Agent 不存在".to_string()),
     }
 }
@@ -461,7 +461,7 @@ pub(crate) fn ensure_builtin_agent_experts(conn: &Connection) -> Result<(), Stri
            AND NOT EXISTS (
              SELECT 1 FROM agents
              WHERE agents.id = agent_experts.runtime_agent_id
-               AND agents.type = 'cli'
+                AND agents.type IN ('acp', 'cli')
            )",
         params![now_rfc3339()],
     )

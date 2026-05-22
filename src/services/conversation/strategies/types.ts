@@ -137,62 +137,12 @@ export interface AgentStrategy {
 
 /**
  */
-export interface CliExecutionRequest {
-  /** 会话 ID */
-  sessionId: string
-  /** CLI 命令名（兼容旧字段名） */
-  cliPath: string
-  /** 模型 ID */
-  modelId?: string
-  /** 消息历史 */
-  messages: Array<{
-    role: 'user' | 'assistant' | 'system'
-    content: string
-    attachments?: MessageAttachment[]
-  }>
-  /** 工作目录 */
-  workingDirectory?: string
-  /** 允许的工具列表 */
-  allowedTools?: string[]
-  mcpServers?: McpServerConfig[]
-}
-
-/**
- */
-export interface SdkExecutionRequest {
-  /** 会话 ID */
-  sessionId: string
-  /** API 密钥 */
-  apiKey: string
-  /** API 端点 */
-  baseUrl?: string
-  /** 模型 ID */
-  modelId: string
-  /** 消息历史 */
-  messages: Array<{
-    role: 'user' | 'assistant' | 'system'
-    content: string
-    attachments?: MessageAttachment[]
-  }>
-  /** 系统提示 */
-  systemPrompt?: string
-  maxTokens?: number
-  /** 工具定义 */
-  tools?: ToolDefinition[]
-  mcpServers?: McpServerConfig[]
-}
-
-/**
- */
 export interface ExecutionRequest {
   sessionId: string
   planId?: string
-  agentType: 'cli' | 'sdk'
+  agentType: 'acp'
   provider: string
-  /** CLI 命令名（兼容旧字段名） */
-  cliPath?: string
-  apiKey?: string
-  baseUrl?: string
+  acpCommand?: string
   modelId?: string
   messages: Array<{
     role: 'user' | 'assistant' | 'system'
@@ -204,9 +154,7 @@ export interface ExecutionRequest {
   systemPrompt?: string
   maxTokens?: number
   tools?: ToolDefinition[]
-  cliOutputFormat?: 'text' | 'json' | 'stream-json'
   jsonSchema?: string
-  extraCliArgs?: string[]
   mcpServers?: McpServerConfig[]
   executionMode?: 'chat' | 'task_split' | 'task_execution' | 'solo_execution'
   responseMode?: 'stream_text' | 'json_once'
@@ -255,3 +203,4 @@ export interface BackendStreamEvent {
 
 export type CliStreamEvent = BackendStreamEvent
 export type SdkStreamEvent = BackendStreamEvent
+export type AcpStreamEvent = BackendStreamEvent

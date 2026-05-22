@@ -1,13 +1,12 @@
 import type { AgentConfig, AgentProvider, AgentType } from '@/stores/agent'
-import { inferAgentProvider, normalizeCliCommand } from '@/stores/agent'
+import { inferAgentProvider } from '@/stores/agent'
 import { appendClaudeMcpAllowedTools } from '@/utils/mcpServerConfig'
-import type { ReasoningEffortLevel } from '@/types/reasoning'
 import type { ConversationContext, ExecutionRequest } from './strategies/types'
+import type { ReasoningEffortLevel } from '@/types/reasoning'
 
-export type AgentRuntimeKey = 'claude-cli' | 'codex-cli' | 'opencode-cli' | 'claude-sdk' | 'codex-sdk'
-export type AbortCommand = 'abort_cli_execution' | 'abort_sdk_execution'
+export type AgentRuntimeKey = 'claude-acp' | 'codex-acp' | 'opencode-acp' | 'custom-acp'
+export type AbortCommand = 'abort_agent_execution'
 
-type RuntimeResponseMode = ConversationContext['responseMode']
 type RuntimeMcpServers = ConversationContext['mcpServers']
 
 interface AgentRuntimeProfileDefinition {
@@ -16,103 +15,93 @@ interface AgentRuntimeProfileDefinition {
   agentType: AgentType
   provider: AgentProvider
   abortCommand: AbortCommand
-  defaultCliPath?: string
+  defaultAcpCommand?: string
   eventName: (sessionId: string) => string
   resolveAllowedTools?: (mcpServers?: RuntimeMcpServers) => string[]
-  resolveCliOutputFormat?: (responseMode?: RuntimeResponseMode) => ExecutionRequest['cliOutputFormat']
   validate?: (agent: AgentConfig) => string | null
 }
 
 const runtimeProfiles: Record<AgentRuntimeKey, AgentRuntimeProfileDefinition> = {
-  'claude-cli': {
-    key: 'claude-cli',
-    name: 'Claude CLI',
-    agentType: 'cli',
+  'claude-acp': {
+    key: 'claude-acp',
+    name: 'Claude',
+    agentType: 'acp',
     provider: 'claude',
-    abortCommand: 'abort_cli_execution',
-    defaultCliPath: 'claude',
-    eventName: (sessionId) => `claude-stream-${sessionId}`,
+    abortCommand: 'abort_agent_execution',
+    defaultAcpCommand: 'npx -y --prefer-offline @zed-industries/claude-code-acp@0.16.2',
+    eventName: (sessionId) => `acp-stream-${sessionId}`,
     resolveAllowedTools: (mcpServers) => appendClaudeMcpAllowedTools(
       ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'WebFetch', 'WebSearch'],
       mcpServers
     ),
-    resolveCliOutputFormat: (responseMode) => responseMode === 'json_once' ? 'json' : 'stream-json'
+    validate: (agent) => {
+      if (!agent.acpCommand && !agent.cliPath) {
+        return 'ACP 命令未配置，请在智能体设置中配置'
+      }
+      return null
+    }
   },
-  'codex-cli': {
-    key: 'codex-cli',
-    name: 'Codex CLI',
-    agentType: 'cli',
+  'codex-acp': {
+    key: 'codex-acp',
+    name: 'Codex',
+    agentType: 'acp',
     provider: 'codex',
-    abortCommand: 'abort_cli_execution',
-    defaultCliPath: 'codex',
-    eventName: (sessionId) => `codex-stream-${sessionId}`,
+    abortCommand: 'abort_agent_execution',
+    defaultAcpCommand: 'npx -y --prefer-offline @zed-industries/codex-acp@0.14.0',
+    eventName: (sessionId) => `acp-stream-${sessionId}`,
     resolveAllowedTools: () => ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'],
-    resolveCliOutputFormat: (responseMode) => responseMode === 'json_once' ? 'json' : 'stream-json'
+    validate: (agent) => {
+      if (!agent.acpCommand && !agent.cliPath) {
+        return 'ACP 命令未配置，请在智能体设置中配置'
+      }
+      return null
+    }
   },
-  'opencode-cli': {
-    key: 'opencode-cli',
-    name: 'OpenCode CLI',
-    agentType: 'cli',
+  'opencode-acp': {
+    key: 'opencode-acp',
+    name: 'OpenCode',
+    agentType: 'acp',
     provider: 'opencode',
-    abortCommand: 'abort_cli_execution',
-    defaultCliPath: 'opencode',
-    eventName: (sessionId) => `opencode-stream-${sessionId}`,
+    abortCommand: 'abort_agent_execution',
+    defaultAcpCommand: 'opencode acp',
+    eventName: (sessionId) => `acp-stream-${sessionId}`,
     resolveAllowedTools: (mcpServers) => appendClaudeMcpAllowedTools(
       ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'WebFetch', 'WebSearch'],
       mcpServers
     ),
-    resolveCliOutputFormat: () => 'json'
-  },
-  'claude-sdk': {
-    key: 'claude-sdk',
-    name: 'Claude SDK',
-    agentType: 'sdk',
-    provider: 'claude',
-    abortCommand: 'abort_sdk_execution',
-    eventName: (sessionId) => `sdk-stream-${sessionId}`,
     validate: (agent) => {
-      if (!agent.apiKey) {
-        return 'API Key 未配置，请在智能体设置中配置 API Key'
-      }
-      if (!agent.modelId) {
-        return '模型 ID 未配置，请在智能体设置中选择模型'
+      if (!agent.acpCommand && !agent.cliPath) {
+        return 'ACP 命令未配置，请在智能体设置中配置'
       }
       return null
     }
   },
-  'codex-sdk': {
-    key: 'codex-sdk',
-    name: 'Codex SDK',
-    agentType: 'sdk',
-    provider: 'codex',
-    abortCommand: 'abort_sdk_execution',
-    eventName: (sessionId) => `codex-sdk-stream-${sessionId}`,
+  'custom-acp': {
+    key: 'custom-acp',
+    name: 'Custom Agent',
+    agentType: 'acp',
+    provider: 'custom',
+    abortCommand: 'abort_agent_execution',
+    eventName: (sessionId) => `acp-stream-${sessionId}`,
     validate: (agent) => {
-      if (!agent.apiKey) {
-        return 'API Key 未配置，请在智能体设置中配置 API Key'
-      }
-      if (!agent.modelId) {
-        return '模型 ID 未配置，请在智能体设置中选择模型'
+      if (!agent.acpCommand && !agent.cliPath) {
+        return 'ACP 命令未配置，请在智能体设置中配置'
       }
       return null
     }
   }
 }
 
-function normalizeRuntimeProvider(agent: Pick<AgentConfig, 'type' | 'provider' | 'name' | 'cliPath'>): AgentProvider | undefined {
-  return inferAgentProvider(agent) ?? (agent.type === 'sdk' ? 'claude' : undefined)
+function normalizeRuntimeProvider(agent: Pick<AgentConfig, 'type' | 'provider' | 'name' | 'cliPath' | 'acpCommand'>): AgentProvider | undefined {
+  return inferAgentProvider(agent) ?? 'custom'
 }
 
-function normalizeRuntimeKey(agent: Pick<AgentConfig, 'type' | 'provider' | 'name' | 'cliPath'>): AgentRuntimeKey | null {
+function normalizeRuntimeKey(agent: Pick<AgentConfig, 'type' | 'provider' | 'name' | 'cliPath' | 'acpCommand'>): AgentRuntimeKey {
   const provider = normalizeRuntimeProvider(agent)
-  if (!provider) {
-    return null
-  }
-
-  return `${provider}-${agent.type}` as AgentRuntimeKey
+  return `${provider}-acp` as AgentRuntimeKey
 }
 
-function normalizeCliModelId(modelId?: string): string | undefined {
+function normalizeModelId(modelId?: string): string | undefined {
   const normalized = modelId?.trim()
   if (!normalized || normalized === 'default') {
     return undefined
@@ -120,24 +109,19 @@ function normalizeCliModelId(modelId?: string): string | undefined {
   return normalized
 }
 
-function normalizeSdkModelId(modelId?: string): string | undefined {
-  const normalized = modelId?.trim()
-  return normalized || undefined
-}
-
 export function getAgentRuntimeProfile(runtimeKey: AgentRuntimeKey): AgentRuntimeProfileDefinition {
   return runtimeProfiles[runtimeKey]
 }
 
 export function resolveAgentRuntimeProfile(
-  agent: Pick<AgentConfig, 'type' | 'provider' | 'name' | 'cliPath'>
+  agent: Pick<AgentConfig, 'type' | 'provider' | 'name' | 'cliPath' | 'acpCommand'>
 ): AgentRuntimeProfileDefinition | null {
   const runtimeKey = normalizeRuntimeKey(agent)
-  return runtimeKey ? runtimeProfiles[runtimeKey] : null
+  return runtimeProfiles[runtimeKey] ?? null
 }
 
 export function matchesAgentRuntimeProfile(
-  agent: Pick<AgentConfig, 'type' | 'provider' | 'name' | 'cliPath'>,
+  agent: Pick<AgentConfig, 'type' | 'provider' | 'name' | 'cliPath' | 'acpCommand'>,
   runtimeKey: AgentRuntimeKey
 ): boolean {
   return normalizeRuntimeKey(agent) === runtimeKey
@@ -158,9 +142,6 @@ interface BuildAgentExecutionRequestOptions {
   workingDirectory?: string
   mcpServers?: ExecutionRequest['mcpServers']
   tools?: ExecutionRequest['tools']
-  cliOutputFormat?: ExecutionRequest['cliOutputFormat']
-  jsonSchema?: ExecutionRequest['jsonSchema']
-  extraCliArgs?: ExecutionRequest['extraCliArgs']
   executionMode?: ExecutionRequest['executionMode']
   responseMode?: ExecutionRequest['responseMode']
   modelId?: string
@@ -168,6 +149,7 @@ interface BuildAgentExecutionRequestOptions {
   maxTokens?: number
   resumeSessionId?: string
   reasoningEffort?: ReasoningEffortLevel
+  jsonSchema?: string
 }
 
 export function buildAgentExecutionRequest(
@@ -178,32 +160,22 @@ export function buildAgentExecutionRequest(
     throw new Error(`不支持的智能体类型: ${options.agent.type} (${options.agent.provider || 'unknown'})`)
   }
 
-  const modelId = profile.agentType === 'cli'
-    ? normalizeCliModelId(options.modelId ?? options.agent.modelId)
-    : normalizeSdkModelId(options.modelId ?? options.agent.modelId)
+  const modelId = normalizeModelId(options.modelId ?? options.agent.modelId)
 
   return {
     sessionId: options.sessionId,
     planId: options.planId,
     agentType: profile.agentType,
     provider: profile.provider,
-    cliPath: profile.agentType === 'cli'
-      ? (normalizeCliCommand(options.agent.cliPath) || profile.defaultCliPath)
-      : undefined,
-    apiKey: profile.agentType === 'sdk' ? options.agent.apiKey : undefined,
-    baseUrl: profile.agentType === 'sdk' ? options.agent.baseUrl : undefined,
+    acpCommand: options.agent.acpCommand || options.agent.cliPath || profile.defaultAcpCommand,
     modelId,
     messages: options.messages,
     workingDirectory: options.workingDirectory,
     allowedTools: profile.resolveAllowedTools?.(options.mcpServers),
     systemPrompt: options.systemPrompt,
-    maxTokens: profile.agentType === 'sdk' ? (options.maxTokens ?? 4096) : undefined,
+    maxTokens: options.maxTokens,
     tools: options.tools,
-    cliOutputFormat: profile.agentType === 'cli'
-      ? (options.cliOutputFormat ?? profile.resolveCliOutputFormat?.(options.responseMode))
-      : undefined,
     jsonSchema: options.jsonSchema,
-    extraCliArgs: options.extraCliArgs,
     mcpServers: options.mcpServers,
     executionMode: options.executionMode ?? 'chat',
     responseMode: options.responseMode ?? 'stream_text',

@@ -86,7 +86,7 @@ const filteredExperts = computed(() => {
 })
 
 const runtimeAgentOptions = computed(() =>
-  agentStore.agents.filter(agent => agent.type === 'cli')
+  agentStore.agents
 )
 
 const runtimeAgentIds = computed(() =>

@@ -1814,6 +1814,7 @@ fn format_provider_display_name(id: &str) -> String {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct ConfiguredOpenCodeModelInfo {
     pub model_name: String,
     pub context_window: Option<i32>,

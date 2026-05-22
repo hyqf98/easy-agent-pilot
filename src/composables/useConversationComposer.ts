@@ -55,7 +55,7 @@ import {
   buildExpertSystemPrompt,
   resolveExpertById,
   resolveExpertRuntime,
-  resolveFallbackCliAgent
+  resolveFallbackAgent
 } from '@/services/agentTeams/runtime'
 
 interface TextSegment {
@@ -402,7 +402,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
         value: expert.id,
         modelId: runtime?.modelId,
         provider,
-        type: runtimeAgent?.type || 'cli',
+        type: 'acp' as const,
         isCustom: runtimeAgent?.customModelEnabled || false
       }
     })
@@ -424,7 +424,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     if (expertRuntime) {
       return expertRuntime.agent
     }
-    return resolveSessionAgent(currentSession.value, agentStore.agents) || resolveFallbackCliAgent(agentStore.agents)
+    return resolveSessionAgent(currentSession.value, agentStore.agents) || resolveFallbackAgent(agentStore.agents)
   })
 
   const currentAgentName = computed(() => {

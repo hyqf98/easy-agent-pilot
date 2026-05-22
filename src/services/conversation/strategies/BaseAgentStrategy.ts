@@ -28,9 +28,9 @@ interface ExecutionEventState {
   lastEventAt: number
 }
 
-const QUIET_WAIT_AFTER_STREAM_EVENT_MS = 1500
-const QUIET_WAIT_WITH_OUTPUT_MS = 5000
-const MAX_TERMINAL_EVENT_WAIT_MS = 30000
+const QUIET_WAIT_AFTER_STREAM_EVENT_MS = 800
+const QUIET_WAIT_WITH_OUTPUT_MS = 2000
+const MAX_TERMINAL_EVENT_WAIT_MS = 10000
 
 interface ActiveExecution {
   runId: symbol
@@ -136,7 +136,7 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
         provider: request.provider,
         mode: request.executionMode,
         responseMode: request.responseMode,
-        outputFormat: request.cliOutputFormat,
+        outputFormat: 'acp',
         sessionId: context.sessionId
       })
 
@@ -210,9 +210,6 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
       workingDirectory: context.workingDirectory,
       mcpServers: context.mcpServers,
       tools: context.tools,
-      cliOutputFormat: context.cliOutputFormat,
-      jsonSchema: context.jsonSchema,
-      extraCliArgs: context.extraCliArgs,
       executionMode: context.executionMode,
       responseMode: context.responseMode,
       resumeSessionId: context.resumeSessionId,
@@ -224,9 +221,7 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
     return messages
       .filter(message => !message.compressionMetadata)
       .map(message => {
-        const nonImageAttachmentPrompt = this.runtimeKey.endsWith('-cli')
-          ? ''
-          : buildNonImageAttachmentPrompt(message.attachments ?? [])
+        const nonImageAttachmentPrompt = buildNonImageAttachmentPrompt(message.attachments ?? [])
         const normalizedContent = [
           message.content.trim(),
           nonImageAttachmentPrompt
@@ -385,7 +380,7 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
   private async waitForTerminalEvent(state: ExecutionEventState): Promise<void> {
     const startedAt = Date.now()
     while (Date.now() - startedAt < MAX_TERMINAL_EVENT_WAIT_MS) {
-      if (state.sawDone) {
+      if (state.sawDone || state.sawError) {
         break
       }
 
@@ -396,7 +391,7 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
         break
       }
 
-      await new Promise(resolve => setTimeout(resolve, 50))
+      await new Promise(resolve => setTimeout(resolve, 16))
     }
   }
 

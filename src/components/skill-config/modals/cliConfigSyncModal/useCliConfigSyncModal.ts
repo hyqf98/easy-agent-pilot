@@ -45,8 +45,7 @@ export function useCliConfigSyncModal(
   const eligibleAgents = computed(() =>
     props.agents.filter(
       (agent) =>
-        agent.type === 'cli'
-        && !!(agent.cliPath || agent.provider)
+        !!(agent.acpCommand || agent.cliPath || agent.provider)
         && (agent.provider === 'claude' || agent.provider === 'codex' || agent.provider === 'opencode')
     )
   )

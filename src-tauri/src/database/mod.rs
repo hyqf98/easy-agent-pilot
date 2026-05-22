@@ -1590,6 +1590,19 @@ pub fn init_database() -> Result<()> {
         println!("Memory chunk FTS rebuild warning: {}", e);
     }
 
+    // agents 表添加 acp_command 字段（ACP 统一运行时命令）
+    let acp_migrations = [
+        "ALTER TABLE agents ADD COLUMN acp_command TEXT",
+    ];
+    for migration in acp_migrations {
+        if let Err(e) = conn.execute(migration, []) {
+            let err_str = e.to_string();
+            if !err_str.contains("duplicate column name") {
+                println!("ACP agent migration warning: {}", e);
+            }
+        }
+    }
+
     println!("Database initialized successfully");
     Ok(())
 }

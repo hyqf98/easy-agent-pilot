@@ -32,8 +32,8 @@ const { t } = useI18n()
 
 const showPagination = computed(() => props.filteredCount > props.pageSize)
 
-function getTypeIcon(type: AgentType): string {
-  return type === 'cli' ? 'terminal' : 'code'
+function getTypeIcon(_type: AgentType): string {
+  return 'terminal'
 }
 
 function getProviderIcon(provider?: AgentProvider): string {
@@ -46,12 +46,12 @@ function getProviderText(provider?: AgentProvider): string {
   return provider === 'claude' ? 'Claude' : provider === 'opencode' ? 'OpenCode' : 'Codex'
 }
 
-function getTypeText(type: AgentType): string {
-  return type === 'cli' ? 'CLI' : 'SDK'
+function getTypeText(_type: AgentType): string {
+  return 'ACP'
 }
 
 function getVersionUpdate(agent: AgentConfig): VersionInfo | null {
-  if (agent.type !== 'cli' || !agent.provider) return null
+  if (!agent.provider) return null
   return props.versionInfoMap[agent.provider as CliName] ?? null
 }
 

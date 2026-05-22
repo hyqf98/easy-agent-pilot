@@ -289,14 +289,9 @@ pub fn run() {
             commands::skill_plugin::write_file_content,
             commands::skill_plugin::list_directory_files,
             // Conversation commands
-            commands::conversation::execute_claude_cli,
-            commands::conversation::execute_codex_cli,
-            commands::conversation::execute_claude_sdk,
-            commands::conversation::execute_codex_sdk,
             commands::conversation::executor::execute_agent,
             commands::conversation::executor::is_execution_session_active,
-            commands::conversation::abort_cli_execution,
-            commands::conversation::abort_sdk_execution,
+            commands::conversation::abort_agent_execution,
             commands::conversation::clear_session_abort_flag,
             // Plan Mode commands
             commands::plan::list_plans,

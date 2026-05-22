@@ -15,9 +15,7 @@ interface ExecuteTurnParams {
   workingDirectory?: string
   messages: SplitChatMessage[]
   systemPrompt?: string
-  cliOutputFormat?: 'text' | 'json' | 'stream-json'
   jsonSchema?: string
-  extraCliArgs?: string[]
   executionMode?: 'chat' | 'task_split'
   responseMode?: 'stream_text' | 'json_once'
   onContent: (delta: string) => void
@@ -42,9 +40,7 @@ export class TaskSplitOrchestrator {
       workingDirectory,
       messages,
       systemPrompt,
-      cliOutputFormat,
       jsonSchema,
-      extraCliArgs,
       executionMode,
       responseMode,
       onContent
@@ -64,10 +60,8 @@ export class TaskSplitOrchestrator {
     let fullContent = ''
     const streamErrors: string[] = []
 
-    if (agent.type !== 'cli') {
-      if (!agent.apiKey) {
-        throw new Error('SDK API Key 未配置')
-      }
+    if (!agent.acpCommand && !agent.cliPath) {
+      throw new Error('ACP 命令未配置')
     }
 
     const request: ExecutionRequest = buildAgentExecutionRequest({
@@ -77,9 +71,7 @@ export class TaskSplitOrchestrator {
       modelId: modelId || undefined,
       workingDirectory,
       systemPrompt,
-      cliOutputFormat,
       jsonSchema,
-      extraCliArgs,
       executionMode: executionMode ?? 'task_split',
       responseMode: responseMode ?? 'json_once'
     })
@@ -122,9 +114,8 @@ export class TaskSplitOrchestrator {
   async abort(): Promise<void> {
     if (!this.activeSessionId || !this.activeAgentType) return
     const sessionId = this.activeSessionId
-    const isCli = this.activeAgentType === 'cli'
     try {
-      await invoke(isCli ? 'abort_cli_execution' : 'abort_sdk_execution', { sessionId })
+      await invoke('abort_agent_execution', { sessionId })
     } catch (error) {
       console.warn('[TaskSplitOrchestrator] abort failed:', error)
     } finally {

@@ -232,7 +232,7 @@ defineExpose({
             @click="toggleAgentDropdown"
           >
             <EaIcon
-              :name="currentAgent?.type === 'cli' ? 'terminal' : 'code'"
+              :name="currentAgent?.provider === 'codex' ? 'terminal' : 'code'"
               :size="12"
             />
             <span>{{ currentAgentName }}</span>
@@ -254,11 +254,11 @@ defineExpose({
                 @click="selectAgent(option.value)"
               >
                 <EaIcon
-                  :name="option.type === 'cli' ? 'terminal' : 'code'"
+                  :name="option.provider === 'codex' ? 'terminal' : 'code'"
                   :size="12"
                 />
                 <span>{{ option.label }}</span>
-                <span class="composer-chip__tag">{{ option.provider ? option.provider.toUpperCase() + ' CLI' : option.type === 'cli' ? 'CLI' : 'SDK' }}</span>
+                <span class="composer-chip__tag">{{ option.provider ? option.provider.toUpperCase() : 'ACP' }}</span>
               </div>
             </div>
           </Transition>
@@ -508,7 +508,7 @@ defineExpose({
               @click="toggleAgentDropdown"
             >
               <EaIcon
-                :name="currentAgent?.type === 'cli' ? 'terminal' : 'code'"
+                :name="currentAgent?.provider === 'codex' ? 'terminal' : 'code'"
                 :size="11"
               />
               <span>{{ currentAgentName }}</span>
@@ -530,11 +530,11 @@ defineExpose({
                   @click="selectAgent(option.value)"
                 >
                   <EaIcon
-                    :name="option.type === 'cli' ? 'terminal' : 'code'"
+                    :name="option.provider === 'codex' ? 'terminal' : 'code'"
                     :size="12"
                   />
                   <span>{{ option.label }}</span>
-                  <span class="composer-chip__tag">{{ option.provider ? option.provider.toUpperCase() + ' CLI' : option.type === 'cli' ? 'CLI' : 'SDK' }}</span>
+                  <span class="composer-chip__tag">{{ option.provider ? option.provider.toUpperCase() : 'ACP' }}</span>
                 </div>
               </div>
             </Transition>

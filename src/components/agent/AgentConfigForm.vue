@@ -94,33 +94,17 @@ watch(() => form.value.baseUrl, () => {
   }
 })
 
-const typeOptions = computed(() => (
-  isEditing.value
-    ? [
-        { value: 'cli', label: t('settings.agent.modeCli') },
-        { value: 'sdk', label: t('settings.agent.modeApi') }
-      ]
-    : [
-        { value: 'cli', label: t('settings.agent.modeCli') }
-      ]
-))
+const typeOptions = computed(() => [
+  { value: 'acp', label: 'ACP' }
+])
 
-const providerOptions = computed(() => {
-  if (form.value.type === 'cli') {
-    return [
-      { value: 'claude', label: t('settings.agent.providerClaudeCli') },
-      { value: 'codex', label: t('settings.agent.providerCodexCli') },
-      { value: 'opencode', label: t('settings.agent.providerOpencodeCli') }
-    ]
-  } else {
-    return [
-      { value: 'claude', label: t('settings.agent.providerClaudeSdk') },
-      { value: 'codex', label: t('settings.agent.providerCodexSdk') }
-    ]
-  }
-})
+const providerOptions = computed(() => [
+  { value: 'claude', label: t('settings.agent.providerClaudeCli') },
+  { value: 'codex', label: t('settings.agent.providerCodexCli') },
+  { value: 'opencode', label: t('settings.agent.providerOpencodeCli') }
+])
 
-const showSdkFields = computed(() => form.value.type === 'sdk')
+const showSdkFields = computed(() => false)
 
 // 验证 URL 格式（即时验证）
 const validateBaseUrlFormat = () => {
@@ -159,9 +143,6 @@ const isFormValid = computed(() => {
     return false
   }
 
-  // SDK 模式下 Base URL 必填
-  if (form.value.type === 'sdk' && !form.value.baseUrl.trim()) return false
-
   return true
 })
 
@@ -172,17 +153,9 @@ const validateForm = async (): Promise<boolean> => {
     return false
   }
 
-  // SDK 模式验证
-  if (form.value.type === 'sdk') {
-    if (!form.value.baseUrl.trim()) {
-      fieldErrors.value.baseUrl = t('settings.agent.baseUrlRequired')
-      return false
-    }
-
-    // 验证 URL 格式
-    if (!validateBaseUrlFormat()) {
-      return false
-    }
+  // ACP 模式验证
+  if (!form.value.provider) {
+    return false
   }
 
   return true
@@ -195,11 +168,9 @@ const handleSubmit = async () => {
   try {
     emit('submit', {
       name: form.value.name.trim(),
-      type: form.value.type,
+      type: 'acp',
       provider: form.value.provider,
-      apiKey: form.value.apiKey || undefined,
-      baseUrl: form.value.baseUrl || undefined,
-      cliPath: form.value.type === 'cli' ? form.value.provider : undefined
+      acpCommand: form.value.provider
     })
   } finally {
     isSubmitting.value = false

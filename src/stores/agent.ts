@@ -4,34 +4,22 @@ import { invoke } from '@tauri-apps/api/core'
 import { useNotificationStore } from './notification'
 import { useAgentConfigStore } from './agentConfig'
 import { getErrorMessage } from '@/utils/api'
-// 智能体类型：cli 或 sdk
-export type AgentType = 'cli' | 'sdk'
-// 提供方：claude、codex 或 opencode
-export type AgentProvider = 'claude' | 'codex' | 'opencode'
-// 智能体状态
+export type AgentType = 'acp'
+export type AgentProvider = 'claude' | 'codex' | 'opencode' | 'custom'
 export type AgentStatus = 'online' | 'offline' | 'error' | 'testing'
 
-/** 智能体配置 */
 export interface AgentConfig {
   id: string
   name: string
-  /** 智能体类型：cli 或 sdk */
   type: AgentType
-  /** 提供方：claude、codex 或 opencode */
   provider?: AgentProvider
-  /** CLI 命令名（兼容旧字段名） */
+  acpCommand?: string
   cliPath?: string
-  /** API 密钥 (SDK 类型专用) */
   apiKey?: string
-  /** API 端点 (SDK 类型专用) */
   baseUrl?: string
-  /** 模型 ID */
   modelId?: string
-  /** 是否启用自定义模型 */
   customModelEnabled?: boolean
-  /** 兼容旧字段：模式 */
   mode?: string
-  /** 兼容旧字段：模型 */
   model?: string
   status?: AgentStatus
   testMessage?: string
@@ -41,17 +29,17 @@ export interface AgentConfig {
 }
 
 export function inferAgentProvider(
-  agent?: Pick<AgentConfig, 'provider' | 'name' | 'cliPath'> | null
+  agent?: Pick<AgentConfig, 'provider' | 'name' | 'cliPath' | 'acpCommand'> | null
 ): AgentProvider | undefined {
   if (!agent) {
     return undefined
   }
 
-  if (agent.provider === 'claude' || agent.provider === 'codex' || agent.provider === 'opencode') {
+  if (agent.provider === 'claude' || agent.provider === 'codex' || agent.provider === 'opencode' || agent.provider === 'custom') {
     return agent.provider
   }
 
-  const hint = `${agent.name || ''} ${agent.cliPath || ''}`.toLowerCase()
+  const hint = `${agent.name || ''} ${agent.acpCommand || agent.cliPath || ''}`.toLowerCase()
   if (hint.includes('claude')) {
     return 'claude'
   }
@@ -71,31 +59,7 @@ export function normalizeCliCommand(value?: string | null): string | undefined {
     return undefined
   }
 
-  const tail = trimmed
-    .replace(/^["']|["']$/g, '')
-    .split(/[\\/]/)
-    .pop()
-    ?.toLowerCase()
-
-  if (!tail) {
-    return undefined
-  }
-
-  const normalized = tail.replace(/\.(exe|cmd|bat|com)$/i, '')
-
-  if (normalized === 'claude-code' || normalized === 'claude') {
-    return 'claude'
-  }
-
-  if (normalized === 'codex') {
-    return 'codex'
-  }
-
-  if (normalized === 'opencode') {
-    return 'opencode'
-  }
-
-  return normalized || undefined
+  return trimmed
 }
 
 // 后端返回的原始数据结构（snake_case）
@@ -105,6 +69,7 @@ interface RawAgentData {
   type: string
   provider?: string
   cli_path?: string
+  acp_command?: string
   api_key?: string
   base_url?: string
   model_id?: string
@@ -128,12 +93,14 @@ import type { CliTool, DetectionResult, CliStatus } from './settings'
 export type { CliTool, DetectionResult, CliStatus }
 
 function transformAgent(raw: RawAgentData): AgentConfig {
+  const acpCommand = raw.acp_command || raw.cli_path
   return {
     id: raw.id,
     name: raw.name,
-    type: raw.type as AgentType,
+    type: 'acp',
     provider: raw.provider as AgentProvider | undefined,
-    cliPath: normalizeCliCommand(raw.cli_path) || raw.cli_path,
+    acpCommand,
+    cliPath: raw.cli_path,
     apiKey: raw.api_key,
     baseUrl: raw.base_url,
     modelId: raw.model_id,
@@ -180,7 +147,7 @@ export const useAgentStore = defineStore('agent', () => {
     return detectedTools.value.filter(tool => {
       if (tool.status !== 'available') return false
       return !agents.value.some(agent =>
-        agent.type === 'cli' && agent.cliPath === tool.command
+        agent.acpCommand === tool.command || agent.cliPath === tool.command
       )
     })
   })
@@ -208,15 +175,15 @@ export const useAgentStore = defineStore('agent', () => {
   async function createAgent(agent: Omit<AgentConfig, 'id' | 'createdAt' | 'updatedAt' | 'status'>) {
     const notificationStore = useNotificationStore()
     const agentConfigStore = useAgentConfigStore()
-    const cliPath = normalizeCliCommand(agent.cliPath) || agent.cliPath
 
     try {
       const rawAgent = await invoke<RawAgentData>('create_agent', {
         input: {
           name: agent.name,
-          type: agent.type,
+          type: agent.type || 'acp',
           provider: agent.provider,
-          cli_path: cliPath,
+          cli_path: agent.cliPath,
+          acp_command: agent.acpCommand,
           api_key: agent.apiKey,
           base_url: agent.baseUrl,
           model_id: agent.modelId,
@@ -251,15 +218,9 @@ export const useAgentStore = defineStore('agent', () => {
     const notificationStore = useNotificationStore()
     const agentConfigStore = useAgentConfigStore()
     const existingAgent = agents.value.find(agent => agent.id === id)
-    const cliPath = normalizeCliCommand(updates.cliPath) || updates.cliPath
-    const nextType = updates.type ?? existingAgent?.type
     const nextProvider = updates.provider ?? existingAgent?.provider
     const providerChanged = Boolean(
-      existingAgent
-      && (
-        existingAgent.type !== nextType
-        || existingAgent.provider !== nextProvider
-      )
+      existingAgent && existingAgent.provider !== nextProvider
     )
 
     try {
@@ -269,7 +230,8 @@ export const useAgentStore = defineStore('agent', () => {
           name: updates.name,
           type: updates.type,
           provider: updates.provider,
-          cli_path: cliPath,
+          cli_path: updates.cliPath,
+          acp_command: updates.acpCommand,
           api_key: updates.apiKey,
           base_url: updates.baseUrl,
           model_id: updates.modelId,
@@ -284,14 +246,12 @@ export const useAgentStore = defineStore('agent', () => {
         agents.value[index] = transformAgent(rawAgent)
       }
 
-      if (providerChanged) {
+      if (providerChanged && rawAgent.provider) {
         agentConfigStore.clearConfigs(id)
-        if (rawAgent.type === 'cli' && rawAgent.provider) {
-          try {
-            await agentConfigStore.initBuiltinModels(id, rawAgent.provider)
-          } catch (modelError) {
-            console.error('Failed to sync builtin models after provider change:', modelError)
-          }
+        try {
+          await agentConfigStore.initBuiltinModels(id, rawAgent.provider)
+        } catch (modelError) {
+          console.error('Failed to sync builtin models after provider change:', modelError)
         }
       }
     } catch (error) {
@@ -420,8 +380,9 @@ export const useAgentStore = defineStore('agent', () => {
 
     return await createAgent({
       name,
-      type: 'cli',
+      type: 'acp',
       provider,
+      acpCommand: tool.command,
       cliPath: tool.command
     })
   }

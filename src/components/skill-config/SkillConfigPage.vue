@@ -90,9 +90,9 @@ watch(activeTab, () => {
 })
 
 watch(
-  () => [activeTab.value, skillConfigStore.selectedAgent?.id, skillConfigStore.selectedAgent?.type] as const,
-  ([tab, agentId, agentType]) => {
-    if (!agentId || agentType !== 'cli') {
+  () => [activeTab.value, skillConfigStore.selectedAgent?.id] as const,
+  ([tab, agentId]) => {
+    if (!agentId) {
       return
     }
 
@@ -125,7 +125,7 @@ watch(
 watch(
   () => projectStore.currentProject?.path,
   (nextPath, prevPath) => {
-    if (nextPath === prevPath || skillConfigStore.selectedAgent?.type !== 'cli') {
+    if (nextPath === prevPath || !skillConfigStore.selectedAgent) {
       return
     }
 
@@ -202,7 +202,7 @@ async function handleAddSkill() {
 }
 
 async function openSkillManualCreate(agent: AgentConfig) {
-  if (agent.type === 'cli') {
+  if (agent.cliPath || agent.acpCommand) {
     await skillConfigStore.resolveCliConfigPaths(agent)
     showSkillBuilder.value = true
     return
@@ -339,7 +339,7 @@ async function handleReloadConfigEditor() {
 
 const canSyncCliConfigs = computed(() => {
   const agent = skillConfigStore.selectedAgent
-  if (!agent || agent.type !== 'cli') {
+  if (!agent) {
     return false
   }
 
@@ -350,8 +350,7 @@ const canSyncCliConfigs = computed(() => {
   return agentStore.agents.some(
     item =>
       item.id !== agent.id
-      && item.type === 'cli'
-      && !!item.cliPath
+      && !!(item.acpCommand || item.cliPath)
       && item.provider
       && item.provider !== agent.provider
       && (item.provider === 'claude' || item.provider === 'codex' || item.provider === 'opencode')

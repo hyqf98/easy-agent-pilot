@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import { normalizeCliCommand, type AgentConfig } from '@/stores/agent'
+import { type AgentConfig } from '@/stores/agent'
 import type { McpServerConfig } from '@/services/conversation/strategies/types'
 import type {
   CliConfig,
@@ -89,10 +89,8 @@ function mapSdkMcpServer(config: RawAgentMcpConfig): McpServerConfig | null {
 }
 
 export async function loadAgentMcpServers(agent: AgentConfig): Promise<McpServerConfig[]> {
-  const cliPath = normalizeCliCommand(agent.cliPath) || agent.provider
-  const cacheKey = agent.type === 'cli'
-    ? `cli:${agent.provider || ''}:${cliPath || ''}`
-    : `sdk:${agent.id}`
+  const cliPath = agent.acpCommand || agent.cliPath || agent.provider
+  const cacheKey = `acp:${agent.provider || ''}:${cliPath || ''}:${agent.id}`
   const now = Date.now()
   const cachedEntry = mcpServerCache.get(cacheKey)
 
@@ -101,7 +99,7 @@ export async function loadAgentMcpServers(agent: AgentConfig): Promise<McpServer
   }
 
   const loader = (async () => {
-    if (agent.type === 'cli') {
+    if (cliPath) {
       if (!cliPath) {
         return []
       }

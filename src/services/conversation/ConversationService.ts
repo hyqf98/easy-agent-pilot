@@ -261,7 +261,7 @@ export class ConversationService {
   private readonly queueDrainLocks = new Set<string>()
   private readonly activeSendSessions = new Set<string>()
   private readonly dedupedInjectedSystemPrompts = new Map<string, Set<string>>()
-  private readonly cliRuntimeKeys = ['claude-cli', 'codex-cli', 'opencode-cli'] as const
+  private readonly cliRuntimeKeys = ['claude-acp', 'codex-acp', 'opencode-acp'] as const
   private readonly conversationRetryCount = new Map<string, number>()
   private readonly conversationRetryTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly sendEpochs = new Map<string, number>()
@@ -777,7 +777,7 @@ export class ConversationService {
     mcpServers: McpServerConfig[]
   }): string | null {
     const { agent, currentUserMessage, mcpServers } = input
-    if (agent.provider !== 'opencode' || agent.type !== 'cli') {
+    if (agent.provider !== 'opencode') {
       return null
     }
 
@@ -805,11 +805,11 @@ export class ConversationService {
    * 因此主会话对 Codex 统一退回到“全量上下文 + 新执行”的稳妥路径。
    */
   private shouldReuseCliSession(agent: AgentConfig): boolean {
-    if (agent.type !== 'cli') {
+    if (!agent.acpCommand && !agent.cliPath) {
       return false
     }
 
-    return resolveRuntimeBindingKey(agent) !== 'codex-cli'
+    return resolveRuntimeBindingKey(agent) !== 'codex-acp'
   }
 
   private async resolveReusableCliSessionId(
@@ -967,7 +967,7 @@ export class ConversationService {
     )
       ? cliSessionProvider
       : undefined
-    const shouldDeferCliUsageSync = context.agent.type === 'cli'
+    const shouldDeferCliUsageSync = Boolean(context.agent.acpCommand || context.agent.cliPath)
     const runtimeKey = resolveRuntimeBindingKey(context.agent)
     const streamMetrics: StreamTimingMetrics = {
       startedAt: globalThis.performance?.now() ?? Date.now()
@@ -1157,7 +1157,7 @@ export class ConversationService {
     }
 
     const recordUsageOnce = (occurredAt?: string) => {
-      if (usageRecorded || context.agent.type !== 'cli') {
+      if (usageRecorded || !(context.agent.acpCommand || context.agent.cliPath)) {
         return
       }
 
@@ -1205,7 +1205,7 @@ export class ConversationService {
     }
 
     const applyFinalUsageSnapshot = async () => {
-      if (context.agent.type !== 'cli') {
+      if (!(context.agent.acpCommand || context.agent.cliPath)) {
         syncRealtimeUsageNotice()
         tokenStore.updateRealtimeTokens(
           sessionId,
@@ -2116,22 +2116,6 @@ export class ConversationService {
       return {
         available: false,
         reason: `不支持的智能体类型: ${agent.type}`
-      }
-    }
-
-    // SDK 类型检查 API Key
-    if (agent.type === 'sdk') {
-      if (!agent.apiKey) {
-        return {
-          available: false,
-          reason: 'API Key 未配置'
-        }
-      }
-      if (!agent.modelId) {
-        return {
-          available: false,
-          reason: '模型未选择'
-        }
       }
     }
 

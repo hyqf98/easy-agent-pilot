@@ -1,51 +1,12 @@
-use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use tauri::{AppHandle, Emitter};
-
-use crate::commands::conversation::types::CliStreamEvent;
-use crate::commands::conversation::types::MessageInput;
-use crate::commands::plan_split::{record_plan_split_event, SplitStreamRecord};
+use crate::commands::conversation::types::AcpStreamEvent;
 use crate::commands::support::open_db_connection;
 
-pub fn emit_cli_event(
-    app: &AppHandle,
-    event_name: &str,
-    plan_id: Option<&String>,
-    event: &CliStreamEvent,
-) {
-    let _ = app.emit(event_name, event);
-
-    if let Some(plan_id) = plan_id {
-        let _ = record_plan_split_event(
-            app,
-            plan_id,
-            &event.session_id,
-            SplitStreamRecord {
-                event_type: event.event_type.clone(),
-                content: event.content.clone(),
-                tool_name: event.tool_name.clone(),
-                tool_call_id: event.tool_call_id.clone(),
-                tool_input: event.tool_input.clone(),
-                tool_result: event.tool_result.clone(),
-                error: event.error.clone(),
-                input_tokens: event.input_tokens,
-                output_tokens: event.output_tokens,
-                raw_input_tokens: event.raw_input_tokens,
-                raw_output_tokens: event.raw_output_tokens,
-                cache_read_input_tokens: event.cache_read_input_tokens,
-                cache_creation_input_tokens: event.cache_creation_input_tokens,
-                model: event.model.clone(),
-                external_session_id: event.external_session_id.clone(),
-            },
-        );
-    }
-}
-
-pub fn build_content_event(session_id: &str, content: String) -> CliStreamEvent {
-    CliStreamEvent {
+pub fn build_content_event(session_id: &str, content: String) -> AcpStreamEvent {
+    AcpStreamEvent {
         event_type: "content".to_string(),
         session_id: session_id.to_string(),
         content: Some(content),
@@ -65,8 +26,8 @@ pub fn build_content_event(session_id: &str, content: String) -> CliStreamEvent 
     }
 }
 
-pub fn build_error_event(session_id: &str, error: String) -> CliStreamEvent {
-    CliStreamEvent {
+pub fn build_error_event(session_id: &str, error: String) -> AcpStreamEvent {
+    AcpStreamEvent {
         event_type: "error".to_string(),
         session_id: session_id.to_string(),
         content: None,
@@ -86,8 +47,8 @@ pub fn build_error_event(session_id: &str, error: String) -> CliStreamEvent {
     }
 }
 
-pub fn build_system_event(session_id: &str, content: String) -> CliStreamEvent {
-    CliStreamEvent {
+pub fn build_system_event(session_id: &str, content: String) -> AcpStreamEvent {
+    AcpStreamEvent {
         event_type: "system".to_string(),
         session_id: session_id.to_string(),
         content: Some(content),
@@ -145,7 +106,6 @@ impl CliTimeoutConfig {
 
 impl Default for CliTimeoutConfig {
     fn default() -> Self {
-        // 主会话需要允许长时间编码/测试，但仍保留启动与空闲保护。
         Self::from_secs(600, 1_800, 14_400)
     }
 }
@@ -197,24 +157,12 @@ pub fn read_cli_timeout_minutes() -> Option<u64> {
     value.and_then(|v| v.parse::<u64>().ok())
 }
 
-#[allow(dead_code)]
-pub fn describe_timeout_config(config: CliTimeoutConfig) -> String {
-    if config.disabled {
-        return "disabled(user_override=0)".to_string();
-    }
-    format!(
-        "startup={}s idle={}s hard={}s",
-        config.startup.as_secs(),
-        config.idle.as_secs(),
-        config.hard.as_secs()
-    )
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct CliExecutionSnapshot {
     pub started_at: Instant,
     pub first_meaningful_event_at: Option<Instant>,
     pub last_activity_at: Option<Instant>,
+    #[allow(dead_code)]
     pub process_exited_at: Option<Instant>,
     pub stderr_warning_count: u32,
     pub exit_code: Option<i32>,
@@ -248,6 +196,7 @@ impl CliExecutionMonitor {
         }
     }
 
+    #[allow(dead_code)]
     pub fn note_stderr_warning(&self) {
         let now = Instant::now();
         let mut state = self.state.lock().expect("cli monitor poisoned");
@@ -255,6 +204,7 @@ impl CliExecutionMonitor {
         state.stderr_warning_count += 1;
     }
 
+    #[allow(dead_code)]
     pub fn note_process_exit(&self, exit_code: Option<i32>) {
         let mut state = self.state.lock().expect("cli monitor poisoned");
         state.process_exited_at = Some(Instant::now());
@@ -321,846 +271,160 @@ pub fn build_timeout_error_message(
     )
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CliCompletionDisposition {
-    TimedOut,
-    AppAbortRequested,
-    CleanExit,
-    NonZeroExitWithOutput,
-    NonZeroExitWithoutOutput,
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct ClaudeToolUseUsage {
+    pub raw_input_tokens: Option<u32>,
+    pub raw_output_tokens: Option<u32>,
+    pub cache_read_input_tokens: Option<u32>,
+    pub cache_creation_input_tokens: Option<u32>,
+    pub model: Option<String>,
 }
 
-impl CliCompletionDisposition {
-    #[allow(dead_code)]
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::TimedOut => "timed_out",
-            Self::AppAbortRequested => "app_abort_requested",
-            Self::CleanExit => "clean_exit",
-            Self::NonZeroExitWithOutput => "non_zero_exit_with_output",
-            Self::NonZeroExitWithoutOutput => "non_zero_exit_without_output",
-        }
-    }
+fn build_claude_project_slug(working_directory: &str) -> String {
+    working_directory.trim().replace(['/', '\\', ':'], "-")
 }
 
-pub fn classify_cli_completion_disposition(
-    timeout_occurred: bool,
-    abort_requested: bool,
-    status_code: Option<i32>,
-    should_complete_as_success: bool,
-) -> CliCompletionDisposition {
-    if timeout_occurred {
-        return CliCompletionDisposition::TimedOut;
-    }
-
-    if abort_requested {
-        return CliCompletionDisposition::AppAbortRequested;
-    }
-
-    if status_code == Some(0) {
-        return CliCompletionDisposition::CleanExit;
-    }
-
-    if should_complete_as_success {
-        return CliCompletionDisposition::NonZeroExitWithOutput;
-    }
-
-    CliCompletionDisposition::NonZeroExitWithoutOutput
-}
-
-pub fn build_execution_summary(snapshot: &CliExecutionSnapshot, finished_at: Instant) -> String {
-    let total_secs = finished_at
-        .duration_since(snapshot.started_at)
-        .as_secs_f64();
-    let first_event_secs = snapshot
-        .first_meaningful_event_at
-        .map(|ts| ts.duration_since(snapshot.started_at).as_secs_f64());
-    let last_activity_secs = snapshot
-        .last_activity_at
-        .map(|ts| ts.duration_since(snapshot.started_at).as_secs_f64());
-    let process_exit_secs = snapshot
-        .process_exited_at
-        .map(|ts| ts.duration_since(snapshot.started_at).as_secs_f64());
-
-    format!(
-        "elapsed={total_secs:.2}s, first_meaningful={}, last_activity={}, process_exit={}, stderr_warnings={}, exit_code={:?}",
-        first_event_secs
-            .map(|secs| format!("{secs:.2}s"))
-            .unwrap_or_else(|| "none".to_string()),
-        last_activity_secs
-            .map(|secs| format!("{secs:.2}s"))
-            .unwrap_or_else(|| "none".to_string()),
-        process_exit_secs
-            .map(|secs| format!("{secs:.2}s"))
-            .unwrap_or_else(|| "none".to_string()),
-        snapshot.stderr_warning_count,
-        snapshot.exit_code
-    )
-}
-
-pub fn build_cli_failure_report(
-    provider: &str,
-    exit_cause: &str,
-    session_id: &str,
-    command: &str,
+fn find_claude_session_transcript(
     working_directory: Option<&str>,
-    failure_reason: &str,
-    summary: &str,
-    stdout_preview: Option<&str>,
-    stderr_preview: Option<&str>,
-    stdout_parse_error_count: usize,
-    ignored_stderr_warning_count: u32,
-) -> String {
-    let mut segments = vec![
-        format!("{provider} CLI failure"),
-        format!("cause={}", exit_cause),
-        format!("session_id={session_id}"),
-        format!("reason={}", preview_text(failure_reason, 240)),
-        format!("summary={summary}"),
-    ];
-
-    let normalized_command = command.trim();
-    if !normalized_command.is_empty() {
-        segments.push(format!("command={}", preview_text(normalized_command, 320)));
+    external_session_id: &str,
+) -> Option<PathBuf> {
+    let home_dir = dirs::home_dir()?;
+    let projects_dir = home_dir.join(".claude").join("projects");
+    if !projects_dir.is_dir() {
+        return None;
     }
 
-    if let Some(cwd) = working_directory
+    if let Some(working_directory) = working_directory
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        segments.push(format!("cwd={cwd}"));
-    }
-
-    if stdout_parse_error_count > 0 {
-        segments.push(format!("stdout_parse_errors={stdout_parse_error_count}"));
-    }
-
-    if ignored_stderr_warning_count > 0 {
-        segments.push(format!(
-            "ignored_stderr_warnings={ignored_stderr_warning_count}"
-        ));
-    }
-
-    if let Some(stdout_preview) = stdout_preview
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        segments.push(format!(
-            "stdout_last={}",
-            preview_text(stdout_preview, 300)
-        ));
-    }
-
-    if let Some(stderr_preview) = stderr_preview
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        segments.push(format!(
-            "stderr_last={}",
-            preview_text(stderr_preview, 500)
-        ));
-    }
-
-    segments.join(" | ")
-}
-
-pub fn shell_escape(value: &str) -> String {
-    if value.is_empty() {
-        return "''".to_string();
-    }
-
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NonImageAttachmentPromptMode {
-    None,
-    All,
-    MissingOnly,
-}
-
-pub fn render_cli_message(
-    message: &MessageInput,
-    include_image_paths: bool,
-    non_image_mode: NonImageAttachmentPromptMode,
-) -> String {
-    let mut sections = Vec::new();
-
-    if !message.content.trim().is_empty() {
-        sections.push(message.content.clone());
-    }
-
-    if include_image_paths {
-        if let Some(attachments) = &message.attachments {
-            if !attachments.is_empty() {
-                let image_paths: Vec<String> = attachments
-                    .iter()
-                    .filter(|a| a.mime_type.starts_with("image/"))
-                    .filter(|a| !a.path.trim().is_empty())
-                    .map(|a| a.path.clone())
-                    .collect();
-                if !image_paths.is_empty() {
-                    sections.push(format!(
-                        "Attached image file paths:\n{}",
-                        image_paths
-                            .iter()
-                            .map(|p| format!("- {}", p))
-                            .collect::<Vec<_>>()
-                            .join("\n")
-                    ));
-                }
-            }
+        let preferred = projects_dir
+            .join(build_claude_project_slug(working_directory))
+            .join(format!("{external_session_id}.jsonl"));
+        if preferred.is_file() {
+            return Some(preferred);
         }
     }
 
-    let non_image_prompt = build_non_image_attachment_prompt(message, non_image_mode);
-    if !non_image_prompt.is_empty() {
-        sections.push(non_image_prompt);
-    }
-
-    let body = if sections.is_empty() {
-        "[Empty message]".to_string()
-    } else {
-        sections.join("\n\n")
-    };
-
-    format!("{}:\n{}", message.role, body)
-}
-
-fn build_non_image_attachment_prompt(
-    message: &MessageInput,
-    mode: NonImageAttachmentPromptMode,
-) -> String {
-    if mode == NonImageAttachmentPromptMode::None {
-        return String::new();
-    }
-
-    let Some(attachments) = &message.attachments else {
-        return String::new();
-    };
-
-    let mut lines = Vec::new();
-    for (index, attachment) in attachments
-        .iter()
-        .filter(|attachment| !attachment.mime_type.starts_with("image/"))
-        .enumerate()
-    {
-        let normalized_path = normalize_cli_attachment_path(&attachment.path);
-        if normalized_path.is_empty() {
-            continue;
-        }
-
-        let resolved_path = resolve_cli_attachment_path(normalized_path.as_str());
-        let should_include = match mode {
-            NonImageAttachmentPromptMode::None => false,
-            NonImageAttachmentPromptMode::All => true,
-            NonImageAttachmentPromptMode::MissingOnly => resolved_path.is_none(),
-        };
-
-        if !should_include {
-            continue;
-        }
-
-        let rendered_path = resolved_path.unwrap_or(normalized_path);
-        lines.push(
-            [
-                format!("{}. Name: {}", index + 1, attachment.name),
-                format!("   MIME: {}", attachment.mime_type),
-                format!("   Path: {}", rendered_path),
-            ]
-            .join("\n"),
-        );
-    }
-
-    if lines.is_empty() {
-        return String::new();
-    }
-
-    [
-        "[Attached local file references]",
-        &lines.join("\n"),
-        "Use these file paths with the CLI's built-in file tools when you need to inspect or process the attached files.",
-    ]
-    .join("\n")
-}
-
-pub fn extract_file_paths(messages: &[MessageInput]) -> Vec<String> {
-    let mut deduped_paths = HashSet::new();
-    let mut resolved_paths = Vec::new();
-
-    for attachment in messages
-        .iter()
-        .filter(|message| message.role == "user")
-        .filter_map(|message| message.attachments.as_ref())
-        .flatten()
-        .filter(|attachment| !attachment.mime_type.starts_with("image/"))
-    {
-        let normalized_path = normalize_cli_attachment_path(&attachment.path);
-        if normalized_path.is_empty() {
-            continue;
-        }
-
-        let Some(path) = resolve_cli_attachment_path(normalized_path.as_str()) else {
-            continue;
-        };
-
-        if deduped_paths.insert(path.clone()) {
-            resolved_paths.push(path);
-        }
-    }
-
-    resolved_paths
-}
-
-pub fn extract_image_paths(messages: &[MessageInput]) -> Result<Vec<String>, String> {
-    let mut deduped_paths = HashSet::new();
-    let mut resolved_paths = Vec::new();
-
-    for attachment in messages
-        .iter()
-        .filter(|message| message.role == "user")
-        .filter_map(|message| message.attachments.as_ref())
-        .flatten()
-        .filter(|attachment| attachment.mime_type.starts_with("image/"))
-    {
-        let normalized_path = normalize_cli_attachment_path(&attachment.path);
-        if normalized_path.is_empty() {
-            return Err(format!("图片附件缺少文件路径：{}", attachment.name));
-        }
-
-        let path = resolve_cli_attachment_path(normalized_path.as_str()).ok_or_else(|| {
-            format!(
-                "图片附件文件不存在，无法发送给 CLI：{}",
-                preview_text(&normalized_path, 240)
-            )
-        })?;
-
-        if deduped_paths.insert(path.clone()) {
-            resolved_paths.push(path);
-        }
-    }
-
-    Ok(resolved_paths)
-}
-
-fn normalize_cli_attachment_path(raw_path: &str) -> String {
-    raw_path
-        .trim()
-        .trim_matches(|char| char == '"' || char == '\'')
-        .to_string()
-}
-
-fn resolve_cli_attachment_path(raw_path: &str) -> Option<String> {
-    let normalized = normalize_cli_attachment_path(raw_path);
-    if normalized.is_empty() {
-        return None;
-    }
-
-    let path = PathBuf::from(&normalized);
-    if let Some(existing) = canonicalize_existing_path(&path) {
-        return Some(existing);
-    }
-
-    if let Some(existing) = resolve_separator_variant(&normalized) {
-        return Some(existing);
-    }
-
-    None
-}
-
-fn resolve_separator_variant(path: &str) -> Option<String> {
-    #[cfg(windows)]
-    let alternate = path.replace('/', "\\");
-    #[cfg(not(windows))]
-    let alternate = path.replace('\\', "/");
-
-    if alternate == path {
-        return None;
-    }
-
-    canonicalize_existing_path(Path::new(&alternate))
-}
-
-fn canonicalize_existing_path(path: &Path) -> Option<String> {
-    if !path.exists() {
-        return None;
-    }
-
-    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    Some(normalize_cli_path_for_display(canonical))
-}
-
-fn normalize_cli_path_for_display(path: PathBuf) -> String {
-    let rendered = path.to_string_lossy().to_string();
-
-    #[cfg(windows)]
-    {
-        if let Some(stripped) = rendered.strip_prefix("\\\\?\\UNC\\") {
-            return format!("//{}", stripped.replace('\\', "/"));
-        }
-
-        if let Some(stripped) = rendered.strip_prefix("\\\\?\\") {
-            return stripped.replace('\\', "/");
-        }
-
-        return rendered.replace('\\', "/");
-    }
-
-    rendered
-}
-
-pub fn extract_runtime_system_notice(json: &serde_json::Value) -> Option<String> {
-    let runtime_payload = find_runtime_notice_payload(json, 0)?;
-    render_runtime_notice_markdown(&runtime_payload)
-}
-
-pub fn preview_text(text: &str, max_chars: usize) -> String {
-    let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    if normalized.chars().count() <= max_chars {
-        return normalized;
-    }
-
-    normalized.chars().take(max_chars).collect::<String>() + "..."
-}
-
-const MAX_RUNTIME_NOTICE_DEPTH: usize = 6;
-
-fn find_runtime_notice_payload(
-    value: &serde_json::Value,
-    depth: usize,
-) -> Option<serde_json::Value> {
-    if depth > MAX_RUNTIME_NOTICE_DEPTH {
-        return None;
-    }
-
-    if has_runtime_notice_keys(value) {
-        return Some(value.clone());
-    }
-
-    match value {
-        serde_json::Value::String(text) => parse_embedded_json_value(text)
-            .and_then(|parsed| find_runtime_notice_payload(&parsed, depth + 1)),
-        serde_json::Value::Array(items) => {
-            for item in items {
-                if let Some(found) = find_runtime_notice_payload(item, depth + 1) {
-                    return Some(found);
-                }
-            }
-            None
-        }
-        serde_json::Value::Object(object) => {
-            for key in [
-                "output",
-                "stdout",
-                "payload",
-                "data",
-                "result",
-                "response",
-                "details",
-                "hookSpecificOutput",
-                "hook_output",
-            ] {
-                if let Some(candidate) = object.get(key) {
-                    if let Some(found) = find_runtime_notice_payload(candidate, depth + 1) {
-                        return Some(found);
-                    }
-                }
-            }
-
-            for candidate in object.values() {
-                if let Some(found) = find_runtime_notice_payload(candidate, depth + 1) {
-                    return Some(found);
-                }
-            }
-
-            None
-        }
-        _ => None,
-    }
-}
-
-fn parse_embedded_json_value(text: &str) -> Option<serde_json::Value> {
-    let trimmed = text.trim();
-    if trimmed.is_empty() || (!trimmed.contains('{') && !trimmed.contains('[')) {
-        return None;
-    }
-
-    parse_json_blob_with_fallback(trimmed).ok()
-}
-
-fn has_runtime_notice_keys(value: &serde_json::Value) -> bool {
-    let Some(object) = value.as_object() else {
-        return false;
-    };
-
-    [
-        "skills",
-        "plugins",
-        "mcp_servers",
-        "mcpServers",
-        "agents",
-        "slash_commands",
-        "slashCommands",
-        "commands",
-    ]
-    .iter()
-    .any(|key| object.contains_key(*key))
-}
-
-fn render_runtime_notice_markdown(value: &serde_json::Value) -> Option<String> {
-    let skill_names = extract_named_items(value.get("skills"));
-    let plugin_names = extract_named_items(value.get("plugins"));
-    let mcp_names = extract_mcp_items(value.get("mcp_servers").or_else(|| value.get("mcpServers")));
-    let agent_names = extract_named_items(value.get("agents"));
-    let command_names = extract_named_items(
-        value
-            .get("slash_commands")
-            .or_else(|| value.get("slashCommands"))
-            .or_else(|| value.get("commands")),
-    );
-
-    let lines = [
-        format_notice_list("Skills", &skill_names),
-        format_notice_list("Plugins", &plugin_names),
-        format_notice_list("MCP", &mcp_names),
-        format_notice_list("Agents", &agent_names),
-        format_notice_list("Commands", &command_names),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>();
-
-    if lines.is_empty() {
-        return None;
-    }
-
-    Some(format!("### 已加载运行扩展\n{}", lines.join("\n")))
-}
-
-fn extract_named_items(value: Option<&serde_json::Value>) -> Vec<String> {
-    let Some(value) = value else {
-        return Vec::new();
-    };
-
-    let mut items = Vec::new();
-    collect_named_items(value, &mut items);
-    dedupe_notice_items(items)
-}
-
-fn collect_named_items(value: &serde_json::Value, items: &mut Vec<String>) {
-    match value {
-        serde_json::Value::String(text) => {
-            if let Some(name) = normalize_notice_item(text) {
-                items.push(name);
-            }
-        }
-        serde_json::Value::Array(array) => {
-            for item in array {
-                collect_named_items(item, items);
-            }
-        }
-        serde_json::Value::Object(object) => {
-            if let Some(name) = object
-                .get("name")
-                .or_else(|| object.get("title"))
-                .or_else(|| object.get("id"))
-                .and_then(|value| value.as_str())
-                .and_then(normalize_notice_item)
-            {
-                items.push(name);
-                return;
-            }
-
-            for item in object.values() {
-                collect_named_items(item, items);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn extract_mcp_items(value: Option<&serde_json::Value>) -> Vec<String> {
-    let Some(value) = value else {
-        return Vec::new();
-    };
-
-    let mut items = Vec::new();
-
-    match value {
-        serde_json::Value::Array(array) => {
-            for item in array {
-                match item {
-                    serde_json::Value::String(text) => {
-                        if let Some(name) = normalize_notice_item(text) {
-                            items.push(name);
-                        }
-                    }
-                    serde_json::Value::Object(object) => {
-                        let Some(name) = object
-                            .get("name")
-                            .and_then(|value| value.as_str())
-                            .and_then(normalize_notice_item)
-                        else {
-                            continue;
-                        };
-
-                        let status = object.get("status").and_then(|value| value.as_str());
-                        if matches!(status, Some("connected") | Some("ready") | None) {
-                            items.push(name);
-                        } else {
-                            items.push(format!("{name}({})", status.unwrap_or_default()));
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-        serde_json::Value::Object(object) => {
-            for (name, config) in object {
-                let Some(name) = normalize_notice_item(name) else {
-                    continue;
-                };
-                let status = config.get("status").and_then(|value| value.as_str());
-                if matches!(status, Some("connected") | Some("ready") | None) {
-                    items.push(name);
-                } else {
-                    items.push(format!("{name}({})", status.unwrap_or_default()));
-                }
-            }
-        }
-        _ => {}
-    }
-
-    dedupe_notice_items(items)
-}
-
-fn normalize_notice_item(value: &str) -> Option<String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-
-    let single_line = trimmed.lines().next().unwrap_or(trimmed).trim();
-    if single_line.is_empty() {
-        return None;
-    }
-
-    Some(preview_text(single_line, 48))
-}
-
-fn dedupe_notice_items(items: Vec<String>) -> Vec<String> {
-    let mut deduped = Vec::new();
-
-    for item in items {
-        if !deduped.contains(&item) {
-            deduped.push(item);
-        }
-    }
-
-    deduped
-}
-
-fn format_notice_list(label: &str, items: &[String]) -> Option<String> {
-    if items.is_empty() {
-        return None;
-    }
-
-    let visible_count = items.len().min(5);
-    let visible_names = items[..visible_count].join("、");
-    let suffix = if items.len() > visible_count {
-        format!(" 等 {} 个", items.len())
-    } else {
-        format!(" ({})", items.len())
-    };
-
-    Some(format!("- {label}: {visible_names}{suffix}"))
-}
-
-pub fn parse_json_blob_with_fallback(
-    output: &str,
-) -> std::result::Result<serde_json::Value, serde_json::Error> {
-    if let Ok(value) = serde_json::from_str::<serde_json::Value>(output) {
-        return Ok(value);
-    }
-
-    for line in output.lines().rev() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
-            return Ok(value);
-        }
-    }
-
-    let mut parse_error: Option<serde_json::Error> = None;
-    let snippets = extract_balanced_json_snippets(output);
-    for snippet in snippets.iter().rev() {
-        match serde_json::from_str::<serde_json::Value>(snippet) {
-            Ok(value) => return Ok(value),
-            Err(error) => parse_error = Some(error),
-        }
-    }
-
-    if let Some(error) = parse_error {
-        return Err(error);
-    }
-
-    serde_json::from_str::<serde_json::Value>(output)
-}
-
-pub fn extract_balanced_json_snippets(text: &str) -> Vec<String> {
-    let mut snippets = Vec::new();
-    let mut stack: Vec<char> = Vec::new();
-    let mut start: Option<usize> = None;
-    let mut in_string = false;
-    let mut escaped = false;
-
-    for (index, ch) in text.char_indices() {
-        if in_string {
-            if escaped {
-                escaped = false;
-                continue;
-            }
-            if ch == '\\' {
-                escaped = true;
-                continue;
-            }
-            if ch == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-
-        if ch == '"' {
-            in_string = true;
-            continue;
-        }
-
-        if ch == '{' || ch == '[' {
-            if stack.is_empty() {
-                start = Some(index);
-            }
-            stack.push(ch);
-            continue;
-        }
-
-        if ch == '}' {
-            if let Some('{') = stack.last() {
-                stack.pop();
-                if stack.is_empty() {
-                    if let Some(s) = start {
-                        snippets.push(text[s..=index].to_string());
-                    }
-                    start = None;
-                }
-            }
-            continue;
-        }
-
-        if ch == ']' {
-            if let Some('[') = stack.last() {
-                stack.pop();
-                if stack.is_empty() {
-                    if let Some(s) = start {
-                        snippets.push(text[s..=index].to_string());
-                    }
-                    start = None;
-                }
-            }
-            continue;
-        }
-    }
-
-    snippets
-}
-
-pub fn extract_structured_output_from_json_blob(parsed: &serde_json::Value) -> Option<String> {
-    if parsed.get("structured_output").is_some() {
-        return serde_json::to_string(parsed).ok();
-    }
-
-    extract_tool_output_from_result(parsed)
-}
-
-pub fn extract_error_from_json_blob(parsed: &serde_json::Value) -> Option<String> {
-    if let Some(error) = parsed.get("error") {
-        if let Some(error_str) = error.as_str() {
-            return Some(error_str.to_string());
-        }
-        if let Some(error_obj) = error.as_object() {
-            if let Some(message) = error_obj.get("message").and_then(|m| m.as_str()) {
-                return Some(message.to_string());
-            }
-        }
-    }
-
-    if let Some(result) = parsed.get("result") {
-        if let Some(content) = result.get("content") {
-            if let Some(content_array) = content.as_array() {
-                for item in content_array {
-                    if item.get("type").and_then(|t| t.as_str()) == Some("error") {
-                        if let Some(error_text) = item.get("error").and_then(|e| e.as_str()) {
-                            return Some(error_text.to_string());
-                        }
-                    }
-                }
-            }
+    let entries = std::fs::read_dir(&projects_dir).ok()?;
+    for entry in entries.flatten() {
+        let candidate = entry.path().join(format!("{external_session_id}.jsonl"));
+        if candidate.is_file() {
+            return Some(candidate);
         }
     }
 
     None
 }
 
-pub fn extract_result_content_from_json_blob(parsed: &serde_json::Value) -> Option<String> {
-    parsed
-        .get("result")
-        .and_then(|result| result.as_str())
-        .map(ToString::to_string)
+fn extract_usage_counts_from_transcript(usage: Option<&serde_json::Value>) -> ClaudeToolUseUsage {
+    let raw_input_tokens = usage
+        .and_then(|u| u.get("input_tokens").or_else(|| u.get("inputTokens")))
+        .and_then(|t| t.as_u64())
+        .map(|t| t as u32);
+    let raw_output_tokens = usage
+        .and_then(|u| u.get("output_tokens").or_else(|| u.get("outputTokens")))
+        .and_then(|t| t.as_u64())
+        .map(|t| t as u32);
+    let cache_read = usage
+        .and_then(|u| {
+            u.get("cache_read_input_tokens")
+                .or_else(|| u.get("cacheReadInputTokens"))
+        })
+        .and_then(|t| t.as_u64())
+        .map(|t| t as u32);
+    let cache_creation = usage
+        .and_then(|u| {
+            u.get("cache_creation_input_tokens")
+                .or_else(|| u.get("cacheCreationInputTokens"))
+        })
+        .and_then(|t| t.as_u64())
+        .map(|t| t as u32);
+
+    ClaudeToolUseUsage {
+        raw_input_tokens,
+        raw_output_tokens,
+        cache_read_input_tokens: cache_read,
+        cache_creation_input_tokens: cache_creation,
+        model: None,
+    }
 }
 
-fn extract_tool_output_from_result(parsed: &serde_json::Value) -> Option<String> {
-    let result = parsed.get("result")?;
-    let content = result.get("content")?;
-    let content_array = content.as_array()?;
+pub(crate) fn lookup_claude_tool_use_usage(
+    working_directory: Option<&str>,
+    external_session_id: &str,
+    tool_call_id: Option<&str>,
+    tool_name: Option<&str>,
+) -> Option<ClaudeToolUseUsage> {
+    let transcript_path = find_claude_session_transcript(working_directory, external_session_id)?;
+    let file_contents = std::fs::read_to_string(&transcript_path).ok()?;
 
-    let mut output_parts = Vec::new();
-
-    for item in content_array {
-        let item_type = item.get("type").and_then(|t| t.as_str()).unwrap_or("");
-
-        match item_type {
-            "text" => {
-                if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
-                    output_parts.push(text.to_string());
-                }
-            }
-            "tool_use" => {
-                if let Some(tool_name) = item.get("name").and_then(|n| n.as_str()) {
-                    let tool_input = item
-                        .get("input")
-                        .and_then(|i| serde_json::to_string(i).ok())
-                        .unwrap_or_else(|| "{}".to_string());
-                    output_parts.push(format!("[Tool: {}]\n{}", tool_name, tool_input));
-                }
-            }
-            _ => {}
+    for line in file_contents.lines().rev() {
+        let json = serde_json::from_str::<serde_json::Value>(line).ok()?;
+        if json.get("type").and_then(|value| value.as_str()) != Some("assistant") {
+            continue;
         }
+
+        let transcript_session_id = json
+            .get("sessionId")
+            .or_else(|| json.get("session_id"))
+            .and_then(|value| value.as_str());
+        if transcript_session_id != Some(external_session_id) {
+            continue;
+        }
+
+        let message = json.get("message")?;
+        let content_items = message.get("content").and_then(|value| value.as_array())?;
+        let matches_tool_use = content_items.iter().any(|item| {
+            if item.get("type").and_then(|value| value.as_str()) != Some("tool_use") {
+                return false;
+            }
+            let item_tool_call_id = item.get("id").and_then(|value| value.as_str());
+            let item_tool_name = item.get("name").and_then(|value| value.as_str());
+            if let Some(expected_tool_call_id) = tool_call_id {
+                if item_tool_call_id != Some(expected_tool_call_id) {
+                    return false;
+                }
+            }
+            if let Some(expected_tool_name) = tool_name {
+                if item_tool_name != Some(expected_tool_name) {
+                    return false;
+                }
+            }
+            true
+        });
+
+        if !matches_tool_use {
+            continue;
+        }
+
+        let usage = extract_usage_counts_from_transcript(message.get("usage"));
+        if usage.raw_input_tokens.is_none()
+            && usage.raw_output_tokens.is_none()
+            && usage.cache_read_input_tokens.is_none()
+            && usage.cache_creation_input_tokens.is_none()
+        {
+            continue;
+        }
+
+        let model = message
+            .get("model")
+            .and_then(|value| value.as_str())
+            .map(|value| value.to_string());
+        return Some(ClaudeToolUseUsage {
+            model,
+            ..usage
+        });
     }
 
-    if output_parts.is_empty() {
-        return None;
-    }
-
-    Some(output_parts.join("\n\n"))
+    None
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        build_timeout_error_message, classify_cli_completion_disposition,
-        describe_timeout_config, detect_cli_timeout, extract_runtime_system_notice,
-        timeout_config_for_execution_mode, CliExecutionSnapshot, CliTimeoutConfig, CliTimeoutKind,
+        build_timeout_error_message, detect_cli_timeout, timeout_config_for_execution_mode,
+        CliExecutionSnapshot, CliTimeoutConfig, CliTimeoutKind,
     };
     use std::time::{Duration, Instant};
 
@@ -1243,77 +507,17 @@ mod tests {
     }
 
     #[test]
-    fn chat_mode_uses_longer_hard_timeout_budget() {
-        let config = timeout_config_for_execution_mode(Some("chat"), None);
-
-        assert_eq!(config.startup, Duration::from_secs(600));
-        assert_eq!(config.idle, Duration::from_secs(1_800));
-        assert_eq!(config.hard, Duration::from_secs(14_400));
-        assert!(!config.disabled);
-    }
-
-    #[test]
-    fn task_execution_mode_uses_largest_timeout_budget() {
-        let config = timeout_config_for_execution_mode(Some("task_execution"), None);
-
-        assert_eq!(config.startup, Duration::from_secs(600));
-        assert_eq!(config.idle, Duration::from_secs(3_600));
-        assert_eq!(config.hard, Duration::from_secs(28_800));
-        assert!(!config.disabled);
-    }
-
-    #[test]
-    fn user_timeout_zero_disables_timeout() {
-        let config = timeout_config_for_execution_mode(Some("chat"), Some(0));
+    fn user_override_zero_disables_timeout() {
+        let config =
+            timeout_config_for_execution_mode(Some("task_split"), Some(0));
         assert!(config.disabled);
     }
 
     #[test]
-    fn user_timeout_overrides_default() {
-        let config = timeout_config_for_execution_mode(Some("chat"), Some(30));
+    fn user_override_scales_proportionally() {
+        let config =
+            timeout_config_for_execution_mode(Some("task_split"), Some(60));
+        assert_eq!(config.hard, Duration::from_secs(3600));
         assert!(!config.disabled);
-        assert_eq!(config.hard, Duration::from_secs(30 * 60));
-    }
-
-    #[test]
-    fn timeout_description_reports_all_windows() {
-        let text = describe_timeout_config(CliTimeoutConfig::from_secs(5, 10, 15));
-
-        assert_eq!(text, "startup=5s idle=10s hard=15s");
-    }
-
-    #[test]
-    fn timeout_description_shows_disabled() {
-        let config = timeout_config_for_execution_mode(Some("chat"), Some(0));
-        let text = describe_timeout_config(config);
-        assert!(text.contains("disabled"));
-    }
-
-    #[test]
-    fn completion_disposition_prefers_app_abort_over_exit_code() {
-        let disposition = classify_cli_completion_disposition(false, true, Some(1), true);
-        assert_eq!(disposition.as_str(), "app_abort_requested");
-    }
-
-    #[test]
-    fn completion_disposition_marks_non_zero_exit_with_output() {
-        let disposition = classify_cli_completion_disposition(false, false, Some(1), true);
-        assert_eq!(disposition.as_str(), "non_zero_exit_with_output");
-    }
-
-    #[test]
-    fn extracts_runtime_notice_from_embedded_system_payload() {
-        let payload = serde_json::json!({
-            "type": "system",
-            "subtype": "hook_response",
-            "output": "{\"skills\":[{\"name\":\"frontend-design\"}],\"plugins\":[{\"name\":\"context7\"}],\"mcp_servers\":[{\"name\":\"ops-automation\",\"status\":\"connected\"}]}"
-        });
-
-        let notice = extract_runtime_system_notice(&payload).expect("runtime notice");
-
-        assert!(notice.contains("### 已加载运行扩展"));
-        assert!(notice.contains("Skills: frontend-design"));
-        assert!(notice.contains("Plugins: context7"));
-        assert!(notice.contains("MCP: ops-automation"));
     }
 }

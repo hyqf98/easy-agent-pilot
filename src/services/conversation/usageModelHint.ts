@@ -20,14 +20,14 @@ function resolveOfficialCliDefaultModel(cliType: 'claude' | 'codex' | 'opencode'
  * Resolve a compact model hint for runtime usage UI without altering the actual execution request.
  */
 export async function resolveUsageModelHint(
-  agent: Pick<AgentConfig, 'type' | 'provider' | 'modelId'>
+  agent: Pick<AgentConfig, 'type' | 'provider' | 'modelId' | 'acpCommand' | 'cliPath'>
 ): Promise<string | undefined> {
   const explicitModel = agent.modelId?.trim()
   if (explicitModel && explicitModel !== 'default') {
     return explicitModel
   }
 
-  if (agent.type !== 'cli') {
+  if (!agent.acpCommand && !agent.cliPath) {
     return undefined
   }
 

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use anyhow::Result;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -8,10 +9,9 @@ use tauri::{AppHandle, Emitter};
 
 use super::conversation::executor::{get_registry, is_execution_session_active_internal};
 use super::conversation::set_abort_flag;
-use super::conversation::strategies::abnormal_completion::{
-    classify_cli_completion, CliTextFragment, CliTextSource,
+use super::conversation::strategies::{
+    classify_cli_completion, CliTextFragment, CliTextSource, lookup_claude_tool_use_usage,
 };
-use super::conversation::strategies::lookup_claude_tool_use_usage;
 use super::conversation::types::{ExecutionRequest, MessageInput};
 use super::message::MessageAttachment;
 use super::support::{now_rfc3339, open_db_connection};
@@ -1209,31 +1209,15 @@ fn apply_external_session_id_to_request(
     session: &mut PlanSplitSession,
     external_session_id: Option<&str>,
 ) -> Result<bool, String> {
-    let Some(external_session_id) = external_session_id
+    let Some(_external_session_id) = external_session_id
         .map(str::trim)
         .filter(|value| !value.is_empty())
     else {
         return Ok(false);
     };
 
-    let Some(raw_request) = session.execution_request_json.as_ref() else {
-        return Ok(false);
-    };
-    let mut request = match serde_json::from_str::<ExecutionRequest>(raw_request) {
-        Ok(request) => request,
-        Err(_) => return Ok(false),
-    };
-
-    if request.agent_type != "cli" {
-        return Ok(false);
-    }
-    if request.resume_session_id.as_deref() == Some(external_session_id) {
-        return Ok(false);
-    }
-
-    request.resume_session_id = Some(external_session_id.to_string());
-    session.execution_request_json = Some(serialize_json(&request)?);
-    Ok(true)
+    let _raw_request = session.execution_request_json.as_ref();
+    Ok(false)
 }
 
 fn apply_parsed_output_to_session(

@@ -359,12 +359,6 @@ fn configure_cli_std_command_env(command: &mut Command, cli_path: &Path) {
     }
 }
 
-fn configure_cli_tokio_command_env(command: &mut TokioCommand, cli_path: &Path) {
-    if let Some(path_value) = build_cli_runtime_path(cli_path) {
-        command.env("PATH", path_value);
-    }
-}
-
 #[cfg(target_os = "windows")]
 pub fn run_cli_command(cli_path: &Path, args: &[&str]) -> std::io::Result<Output> {
     let resolved = resolve_cli_executable(cli_path);
@@ -402,76 +396,6 @@ pub fn build_tokio_cli_command(cli_path: &str, args: &[String]) -> TokioCommand 
     configure_windows_tokio_command(&mut command);
     configure_cli_tokio_command_env(&mut command, &resolved);
     command.args(&wrapped_args);
-    command
-}
-
-pub fn build_cli_launch_error_message(
-    cli_name: &str,
-    cli_path: &str,
-    error: &std::io::Error,
-    working_directory: Option<&str>,
-    arg_count: usize,
-    stdin_payload_len: usize,
-    prompt_via_stdin: bool,
-) -> String {
-    let mut segments = vec![format!("{cli_name} CLI 启动失败: {error}")];
-
-    if let Some(os_code) = error.raw_os_error() {
-        segments.push(format!("os error {os_code}"));
-    }
-
-    segments.push(format!("cli_command={cli_path}"));
-    if let Some(cwd) = working_directory
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        segments.push(format!("cwd={cwd}"));
-    }
-    segments.push(format!("arg_count={arg_count}"));
-    segments.push(format!(
-        "stdin_prompt={}",
-        if prompt_via_stdin { "yes" } else { "no" }
-    ));
-
-    if stdin_payload_len > 0 {
-        segments.push(format!("prompt_chars={stdin_payload_len}"));
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let extension = Path::new(cli_path)
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-
-        if matches!(extension.as_str(), "cmd" | "bat") {
-            segments.push(
-                "当前 CLI 通过 cmd/bat 启动，Windows 命令行长度限制会比 .exe 更严格".to_string(),
-            );
-        }
-
-        match error.raw_os_error() {
-            Some(206) => segments.push(
-                "Windows 检测到命令行长度限制；请避免把长提示词或大 JSON 直接放进命令参数"
-                    .to_string(),
-            ),
-            Some(2) => segments.push(
-                "Windows 找不到指定命令；请检查 CLI 命令是否已安装并已加入 PATH".to_string(),
-            ),
-            _ => {}
-        }
-    }
-
-    segments.join(" | ")
-}
-
-#[cfg(not(target_os = "windows"))]
-pub fn build_tokio_cli_command(cli_path: &str, args: &[String]) -> TokioCommand {
-    let resolved = resolve_cli_executable(Path::new(cli_path));
-    let mut command = TokioCommand::new(&resolved);
-    configure_cli_tokio_command_env(&mut command, &resolved);
-    command.args(args);
     command
 }
 

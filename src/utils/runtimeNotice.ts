@@ -277,7 +277,7 @@ function inferRuntimeNoticeId(title: string): string {
 }
 
 export async function buildCliEnvironmentNotice(agent: AgentConfig): Promise<RuntimeNotice | null> {
-  if (agent.type !== 'cli') {
+  if (!agent.acpCommand && !agent.cliPath) {
     return null
   }
 

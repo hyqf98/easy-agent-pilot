@@ -267,11 +267,11 @@ export class CompressionService {
   }
 
   private shouldReuseCliSession(agent: AgentConfig): boolean {
-    if (agent.type !== 'cli') {
+    if (!agent.acpCommand && !agent.cliPath) {
       return false
     }
 
-    return resolveRuntimeBindingKey(agent) !== 'codex-cli'
+    return resolveRuntimeBindingKey(agent) !== 'codex-acp'
   }
 
   private resolveCliSessionProvider(agent: AgentConfig): string | undefined {

@@ -22,11 +22,11 @@ const dropdownRef = ref<HTMLElement | null>(null)
 
 // 分组智能体
 const cliAgents = computed(() =>
-  agentStore.agents.filter(a => a.type === 'cli')
+  agentStore.agents.filter(a => a.acpCommand || a.cliPath)
 )
 
 const sdkAgents = computed(() =>
-  agentStore.agents.filter(a => a.type === 'sdk')
+  agentStore.agents.filter(a => !a.acpCommand && !a.cliPath)
 )
 
 const noAgents = computed(() => agentStore.agents.length === 0)
@@ -55,12 +55,12 @@ useSafeOutsideClick(
   }
 )
 
-function getAgentIcon(type: string) {
-  return type === 'cli' ? 'lucide:terminal' : 'lucide:bot'
+function getAgentIcon(_type: string) {
+  return 'lucide:terminal'
 }
 
-function getAgentTypeLabel(type: string) {
-  return type === 'cli' ? 'CLI' : 'SDK'
+function getAgentTypeLabel(_type: string) {
+  return 'ACP'
 }
 </script>
 

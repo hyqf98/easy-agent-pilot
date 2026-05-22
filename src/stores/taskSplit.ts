@@ -345,10 +345,7 @@ function buildExecutionRequest(
     workingDirectory: context.workingDirectory,
     systemPrompt: llmMessages.find(message => message.role === 'system')?.content,
     mcpServers,
-    cliOutputFormat: 'stream-json',
-    jsonSchema: agent.type === 'cli'
-      ? buildPlanSplitJsonSchema(context.granularity, provider, context.taskCountMode ?? 'min')
-      : undefined,
+    jsonSchema: buildPlanSplitJsonSchema(context.granularity, provider, context.taskCountMode ?? 'min'),
     executionMode: 'task_split',
     responseMode: 'stream_text',
     resumeSessionId
@@ -1137,9 +1134,6 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     const agent = agentStore.agents.find(item => item.id === nextContext.agentId)
     if (!agent) {
       throw new Error('未找到选中的智能体，请重新选择后重试。')
-    }
-    if (agent.type === 'sdk' && !agent.apiKey) {
-      throw new Error('SDK API Key 未配置')
     }
 
     if (!options?.preserveLogs) {

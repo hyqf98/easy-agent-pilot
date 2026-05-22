@@ -1,14 +1,9 @@
-pub(crate) mod abnormal_completion;
-mod claude_cli;
-mod claude_sdk;
+mod abnormal_completion;
+mod acp;
 mod cli_common;
-mod codex_cli;
-mod codex_sdk;
-mod opencode_cli;
 
-pub(crate) use claude_cli::lookup_claude_tool_use_usage;
-pub use claude_cli::ClaudeCliStrategy;
-pub use claude_sdk::ClaudeSdkStrategy;
-pub use codex_cli::CodexCliStrategy;
-pub use codex_sdk::CodexSdkStrategy;
-pub use opencode_cli::OpenCodeCliStrategy;
+pub use acp::AcpStrategy;
+pub(crate) use abnormal_completion::{
+    classify_cli_completion, CliTextFragment, CliTextSource,
+};
+pub(crate) use cli_common::lookup_claude_tool_use_usage;

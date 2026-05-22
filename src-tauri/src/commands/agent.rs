@@ -10,27 +10,19 @@ use super::support::{
 };
 
 /// 智能体配置数据结构
-/// 统一支持 CLI 和 SDK 两种类型的智能体
+/// 统一使用 ACP (Agent Client Protocol) 运行时
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Agent {
     pub id: String,
     pub name: String,
-    /// 智能体类型: cli 或 sdk
-    #[serde(rename = "type")]
     pub agent_type: String,
-    /// 提供商: claude 或 codex
-    pub provider: Option<String>,
-    /// CLI 命令名 (CLI 类型专用，兼容旧字段名)
+    pub acp_command: Option<String>,
     pub cli_path: Option<String>,
-    /// API 密钥 (SDK 类型专用，加密存储)
     pub api_key: Option<String>,
-    /// API 端点 (SDK 类型专用)
     pub base_url: Option<String>,
-    /// 模型 ID
     pub model_id: Option<String>,
-    /// 是否启用自定义模型
     pub custom_model_enabled: Option<bool>,
-    /// 兼容旧字段
+    pub provider: Option<String>,
     pub mode: Option<String>,
     pub model: Option<String>,
     pub status: Option<String>,
@@ -51,22 +43,15 @@ pub struct TestResult {
 #[derive(Debug, Deserialize)]
 pub struct CreateAgentInput {
     pub name: String,
-    /// 智能体类型: cli 或 sdk
     #[serde(rename = "type")]
-    pub agent_type: String,
-    /// 提供商: claude 或 codex
-    pub provider: Option<String>,
-    /// CLI 命令名 (CLI 类型专用，兼容旧字段名)
+    pub agent_type: Option<String>,
+    pub acp_command: Option<String>,
     pub cli_path: Option<String>,
-    /// API 密钥 (SDK 类型专用)
     pub api_key: Option<String>,
-    /// API 端点 (SDK 类型专用)
     pub base_url: Option<String>,
-    /// 模型 ID
     pub model_id: Option<String>,
-    /// 是否启用自定义模型
     pub custom_model_enabled: Option<bool>,
-    /// 兼容旧字段
+    pub provider: Option<String>,
     pub mode: Option<String>,
     pub model: Option<String>,
 }
@@ -75,22 +60,15 @@ pub struct CreateAgentInput {
 #[derive(Debug, Deserialize)]
 pub struct UpdateAgentInput {
     pub name: Option<String>,
-    /// 智能体类型: cli 或 sdk
     #[serde(rename = "type")]
     pub agent_type: Option<String>,
-    /// 提供商: claude 或 codex
-    pub provider: Option<String>,
-    /// CLI 命令名 (CLI 类型专用，兼容旧字段名)
+    pub acp_command: Option<String>,
     pub cli_path: Option<String>,
-    /// API 密钥 (SDK 类型专用)
     pub api_key: Option<String>,
-    /// API 端点 (SDK 类型专用)
     pub base_url: Option<String>,
-    /// 模型 ID
     pub model_id: Option<String>,
-    /// 是否启用自定义模型
     pub custom_model_enabled: Option<bool>,
-    /// 兼容旧字段
+    pub provider: Option<String>,
     pub mode: Option<String>,
     pub model: Option<String>,
     pub status: Option<String>,
@@ -120,6 +98,7 @@ fn map_agent_row(row: &Row<'_>) -> rusqlite::Result<Agent> {
         tested_at: row.get(13)?,
         created_at: row.get(14)?,
         updated_at: row.get(15)?,
+        acp_command: row.get(16)?,
     })
 }
 
@@ -128,8 +107,13 @@ fn resolve_agent_mode(
     provider: Option<&String>,
     mode: Option<&String>,
 ) -> (String, Option<String>, String) {
+    if agent_type == "acp" {
+        let resolved_mode = mode.cloned().unwrap_or_else(|| "acp".to_string());
+        return (agent_type.to_string(), provider.cloned(), resolved_mode);
+    }
+
     if ["claude", "codex", "custom"].contains(&agent_type) {
-        let resolved_mode = mode.cloned().unwrap_or_else(|| "cli".to_string());
+        let resolved_mode = mode.cloned().unwrap_or_else(|| "acp".to_string());
         let resolved_provider = if agent_type == "custom" {
             None
         } else {
@@ -137,6 +121,11 @@ fn resolve_agent_mode(
         };
 
         return (resolved_mode.clone(), resolved_provider, resolved_mode);
+    }
+
+    if agent_type == "cli" {
+        let resolved_mode = mode.cloned().unwrap_or_else(|| "acp".to_string());
+        return ("acp".to_string(), provider.cloned(), resolved_mode);
     }
 
     let resolved_mode = mode.cloned().unwrap_or_else(|| agent_type.to_string());
@@ -152,7 +141,7 @@ pub fn list_agents() -> Result<Vec<Agent>, String> {
         .prepare(
             r#"
             SELECT id, name, type, provider, cli_path, api_key, base_url, model_id, custom_model_enabled,
-                   mode, model, status, test_message, tested_at, created_at, updated_at
+                   mode, model, status, test_message, tested_at, created_at, updated_at, acp_command
             FROM agents
             ORDER BY updated_at DESC
             "#,
@@ -178,7 +167,7 @@ pub fn create_agent(input: CreateAgentInput) -> Result<Agent, String> {
     let status = "offline".to_string();
 
     let (final_type, final_provider, final_mode) = resolve_agent_mode(
-        &input.agent_type,
+        input.agent_type.as_deref().unwrap_or("acp"),
         input.provider.as_ref(),
         input.mode.as_ref(),
     );
@@ -191,8 +180,8 @@ pub fn create_agent(input: CreateAgentInput) -> Result<Agent, String> {
     let cli_path = normalize_agent_cli_command(input.cli_path.clone());
 
     conn.execute(
-        "INSERT INTO agents (id, name, type, provider, cli_path, api_key, base_url, model_id, custom_model_enabled, mode, model, status, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        "INSERT INTO agents (id, name, type, provider, cli_path, api_key, base_url, model_id, custom_model_enabled, mode, model, status, acp_command, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         rusqlite::params![
             &id,
             &input.name,
@@ -206,6 +195,7 @@ pub fn create_agent(input: CreateAgentInput) -> Result<Agent, String> {
             &final_mode,
             &input.model,
             &status,
+            &input.acp_command,
             &now,
             &now
         ],
@@ -229,6 +219,7 @@ pub fn create_agent(input: CreateAgentInput) -> Result<Agent, String> {
         status: Some(status),
         test_message: None,
         tested_at: None,
+        acp_command: input.acp_command,
         created_at: now.clone(),
         updated_at: now,
     })
@@ -254,6 +245,7 @@ pub fn update_agent(id: String, input: UpdateAgentInput) -> Result<Agent, String
     updates.push("mode", input.mode.is_some());
     updates.push("model", input.model.is_some());
     updates.push("status", input.status.is_some());
+    updates.push("acp_command", input.acp_command.is_some());
 
     let sql = updates.finish("agents", "id");
 
@@ -278,6 +270,7 @@ pub fn update_agent(id: String, input: UpdateAgentInput) -> Result<Agent, String
     bind_optional(&mut stmt, &mut param_count, &input.mode).map_err(|e| e.to_string())?;
     bind_optional(&mut stmt, &mut param_count, &input.model).map_err(|e| e.to_string())?;
     bind_optional(&mut stmt, &mut param_count, &input.status).map_err(|e| e.to_string())?;
+    bind_optional(&mut stmt, &mut param_count, &input.acp_command).map_err(|e| e.to_string())?;
     bind_value(&mut stmt, &mut param_count, &id).map_err(|e| e.to_string())?;
 
     stmt.raw_execute().map_err(|e| e.to_string())?;
@@ -296,7 +289,7 @@ fn get_agent_by_id(conn: &Connection, id: &str) -> Result<Agent, String> {
         .prepare(
             r#"
             SELECT id, name, type, provider, cli_path, api_key, base_url, model_id, custom_model_enabled,
-                   mode, model, status, test_message, tested_at, created_at, updated_at
+                   mode, model, status, test_message, tested_at, created_at, updated_at, acp_command
             FROM agents
             WHERE id = ?1
             "#,
@@ -339,8 +332,9 @@ pub async fn test_agent_connection(id: String) -> Result<TestResult, String> {
     )
     .map_err(|e| e.to_string())?;
 
-    // 根据类型进行测试 (type 字段决定是 cli 还是 sdk)
-    let (success, message) = if agent.agent_type == "cli" {
+    let (success, message) = if agent.agent_type == "acp" || agent.acp_command.is_some() {
+        test_acp_connection(&agent).await
+    } else if agent.agent_type == "cli" {
         test_cli_connection(&agent).await
     } else {
         test_api_connection(&agent).await
@@ -356,6 +350,26 @@ pub async fn test_agent_connection(id: String) -> Result<TestResult, String> {
     .map_err(|e| e.to_string())?;
 
     Ok(TestResult { success, message })
+}
+
+async fn test_acp_connection(agent: &Agent) -> (bool, String) {
+    use std::str::FromStr;
+
+    let acp_command = match agent
+        .acp_command
+        .as_deref()
+        .or_else(|| agent.cli_path.as_deref())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
+        Some(cmd) => cmd,
+        None => return (false, "ACP 命令未配置".to_string()),
+    };
+
+    match agent_client_protocol_tokio::AcpAgent::from_str(acp_command) {
+        Ok(_) => (true, format!("ACP 命令解析成功: {}", acp_command)),
+        Err(e) => (false, format!("ACP 命令解析失败: {}", e)),
+    }
 }
 
 /// 测试 CLI 连接

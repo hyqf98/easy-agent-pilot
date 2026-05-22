@@ -50,9 +50,9 @@ export default {
     timeout: 'Request timeout',
     // Error type messages
     types: {
-      cliPathInvalid: 'CLI Command Invalid',
-      cliPathNotFound: 'CLI Command Not Found',
-      cliExecutionFailed: 'CLI Execution Failed',
+      cliPathInvalid: 'ACP Command Invalid',
+      cliPathNotFound: 'ACP Command Not Found',
+      cliExecutionFailed: 'ACP Execution Failed',
       apiAuthInvalid: 'API Authentication Failed',
       apiKeyMissing: 'API Key Missing',
       networkTimeout: 'Network Timeout',
@@ -65,8 +65,8 @@ export default {
     },
     // User-friendly error messages
     friendly: {
-      cliPathNotFound: 'The specified CLI command was not found. Please check PATH',
-      cliExecutionFailed: 'The CLI command cannot be executed. Please check permissions or reinstall',
+      cliPathNotFound: 'The specified ACP command was not found. Please check PATH',
+      cliExecutionFailed: 'The ACP command cannot be executed. Please check permissions or reinstall',
       apiAuthInvalid: 'API key is invalid or expired. Please check your configuration',
       apiKeyMissing: 'Please configure your API key first',
       networkTimeout: 'Request timed out. Please check your network connection and try again',
@@ -869,17 +869,17 @@ export default {
       statusError: 'Error',
       statusTesting: 'Testing',
       typeCustom: 'Custom',
-      modeCli: 'Command Line (CLI)',
-      modeApi: 'SDK',
+      modeCli: 'ACP',
+      modeApi: 'ACP',
       // Provider options
-      providerClaudeCli: 'Claude CLI',
-      providerCodexCli: 'Codex CLI',
-      providerOpencodeCli: 'OpenCode CLI',
-      providerClaudeSdk: 'Claude SDK',
-      providerCodexSdk: 'Codex SDK',
+      providerClaudeCli: 'Claude',
+      providerCodexCli: 'Codex',
+      providerOpencodeCli: 'OpenCode',
+      providerClaudeSdk: 'Claude',
+      providerCodexSdk: 'Codex',
       provider: 'Provider',
       apiUrl: 'API URL',
-      cliPath: 'CLI Command',
+      cliPath: 'ACP Command',
       createdAt: 'Created',
       updatedAt: 'Updated',
       testConnection: 'Test Connection',
@@ -899,15 +899,15 @@ export default {
       customModel: 'Custom Model',
       customModelPlaceholder: 'Enter custom model ID',
       modelPlaceholder: 'claude-3-opus-20240229',
-      cliPathPlaceholder: 'claude',
-      cliPathRequired: 'Please enter CLI command',
+      cliPathPlaceholder: 'opencode acp',
+      cliPathRequired: 'Please enter ACP command',
       // Validation messages
       validation: {
         urlInvalid: 'Invalid URL format. Please enter a valid URL (e.g., https://api.example.com)',
         urlProtocolRequired: 'URL must include a protocol (e.g., https://)',
-        cliPathNotFound: 'CLI command is unavailable. Please verify it is installed and on PATH',
-        cliPathNotExecutable: 'CLI command cannot be executed. Please check PATH and permissions',
-        cliPathValidationFailed: 'CLI command validation failed'
+        cliPathNotFound: 'ACP command is unavailable. Please verify it is installed and on PATH',
+        cliPathNotExecutable: 'ACP command cannot be executed. Please check PATH and permissions',
+        cliPathValidationFailed: 'ACP command validation failed'
       },
       // Scan feature
       scan: {

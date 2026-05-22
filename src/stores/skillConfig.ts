@@ -84,12 +84,12 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
   const cliInventoryRequests = new Map<string, Promise<void>>()
 
   // Getters
-  const isCliAgent = computed(() => selectedAgent.value?.type === 'cli')
-  const isSdkAgent = computed(() => selectedAgent.value?.type === 'sdk')
+  const isCliAgent = computed(() => Boolean(selectedAgent.value?.cliPath || selectedAgent.value?.acpCommand))
+  const isSdkAgent = computed(() => true)
 
   function getCliInventoryCacheKey(agent: AgentConfig): string | null {
-    const cliPath = normalizeCliCommand(agent.cliPath) || agent.provider
-    if (agent.type !== 'cli' || !cliPath || !agent.provider) {
+    const cliPath = agent.acpCommand || agent.cliPath || agent.provider
+    if (!cliPath || !agent.provider) {
       return null
     }
 
@@ -115,10 +115,7 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
    * - CLI 类型：根据能力信息判断
    */
   const supportsPlugins = computed(() => {
-    if (!selectedAgent.value || selectedAgent.value.type !== 'cli') {
-      return true // SDK类型始终支持
-    }
-    return cliCapabilities.value?.supportsPlugins ?? false
+    return cliCapabilities.value?.supportsPlugins ?? true
   })
 
   // ============================================================================
@@ -142,10 +139,9 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
     const notificationStore = useNotificationStore()
 
     try {
-      if (agent.type === 'cli') {
-        await loadCliConfigs(agent)
-      } else {
-        await loadSdkConfigs(agent.id)
+      await loadSdkConfigs(agent.id)
+      if (agent.cliPath || agent.acpCommand) {
+        await loadCliCapabilities(agent.acpCommand || agent.cliPath || '', agent.provider)
       }
     } catch (error) {
       console.error('Failed to load agent configs:', error)
@@ -199,7 +195,7 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
     pluginsConfigs.value = []
 
     const notificationStore = useNotificationStore()
-    const cliPath = normalizeCliCommand(agent.cliPath) || agent.provider
+    const cliPath = agent.acpCommand || agent.cliPath || agent.provider
 
     try {
       if (cliPath) {
@@ -254,7 +250,7 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
   }
 
   async function refreshCliConfigs() {
-    if (!selectedAgent.value || selectedAgent.value.type !== 'cli') {
+    if (!selectedAgent.value) {
       return
     }
 
@@ -262,8 +258,10 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
     try {
       const targetAgent = selectedAgent.value
       invalidateCliInventory(targetAgent)
-      await loadCliConfigs(targetAgent)
-      await ensureCliInventoryLoaded(targetAgent, true)
+      if (targetAgent.cliPath || targetAgent.acpCommand) {
+        await loadCliConfigs(targetAgent)
+        await ensureCliInventoryLoaded(targetAgent, true)
+      }
     } finally {
       isLoading.value = false
     }
@@ -271,7 +269,7 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
 
   async function ensureCliInventoryLoaded(agent?: AgentConfig | null, force = false) {
     const targetAgent = agent || selectedAgent.value
-    if (!targetAgent || targetAgent.type !== 'cli') {
+    if (!targetAgent) {
       return
     }
 
@@ -311,7 +309,7 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
 
     const request = (async () => {
       try {
-        const cliPath = normalizeCliCommand(targetAgent.cliPath) || targetAgent.provider
+        const cliPath = targetAgent.acpCommand || targetAgent.cliPath || targetAgent.provider
         const scanResult = await invoke<ClaudeConfigScanResult>('scan_cli_config', {
           cliPath,
           cliType: targetAgent.provider,
@@ -387,7 +385,7 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
 
     const notificationStore = useNotificationStore()
 
-    const cliPath = normalizeCliCommand(targetAgent.cliPath) || targetAgent.provider
+    const cliPath = targetAgent.acpCommand || targetAgent.cliPath || targetAgent.provider
     const cliType = targetAgent.provider
 
     if (!cliPath || !cliType) {
@@ -421,7 +419,7 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
     }
 
     try {
-      const cliPath = normalizeCliCommand(selectedAgent.value.cliPath) || selectedAgent.value.provider
+      const cliPath = selectedAgent.value.acpCommand || selectedAgent.value.cliPath || selectedAgent.value.provider
       const cliType = selectedAgent.value.provider
 
       if (!cliPath || !cliType) {
@@ -436,7 +434,7 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
         },
       })
 
-      if (selectedAgent.value.type === 'cli') {
+      if (selectedAgent.value.cliPath || selectedAgent.value.acpCommand) {
         await refreshCliConfigs()
       } else {
         await createSkillsConfig({
@@ -543,7 +541,7 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
     if (isReadOnly.value) {
       try {
         await invoke('update_cli_mcp_config', {
-          cliPath: normalizeCliCommand(selectedAgent.value?.cliPath) || selectedAgent.value?.provider,
+          cliPath: selectedAgent.value?.acpCommand || selectedAgent.value?.cliPath || selectedAgent.value?.provider,
           cliType: selectedAgent.value?.provider,
           name: config.name,
           config: {

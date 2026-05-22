@@ -141,7 +141,7 @@ function normalizeSoloErrorMessage(error: unknown): string {
 }
 
 function isCliUnavailableError(agent: AgentConfig, error: unknown): boolean {
-  if (agent.type !== 'cli') {
+  if (!agent.acpCommand && !agent.cliPath) {
     return false
   }
 
@@ -612,7 +612,7 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
     const runtime = resolveExpertRuntime(runtimeExpert, agentStore.agents, run.coordinatorModelId)
     const agent = (run.coordinatorAgentId ? agentStore.agents.find((item) => item.id === run.coordinatorAgentId) : null)
       || runtime?.agent
-      || agentStore.agents.find((item) => item.type === 'cli')
+      || agentStore.agents[0]
       || agentStore.agents[0]
 
     if (!agent) {
@@ -670,7 +670,7 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
       || null
 
     const runtime = resolveExpertRuntime(selectedExpert, agentStore.agents)
-    const fallbackAgent = agentStore.agents.find((item) => item.type === 'cli') || agentStore.agents[0]
+    const fallbackAgent = agentStore.agents[0]
     const resolvedAgent = runtime?.agent || fallbackAgent
 
     if (!resolvedAgent) {

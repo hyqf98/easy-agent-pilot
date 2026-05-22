@@ -69,6 +69,7 @@ pub async fn clear_abort_flag(session_id: &str) {
 }
 
 /// 注册会话的进程 PID
+#[allow(dead_code)]
 pub async fn register_session_pid(session_id: &str, pid: u32) {
     let mut pids = SESSION_PIDS.write().await;
     pids.insert(session_id.to_string(), pid);

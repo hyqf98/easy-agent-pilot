@@ -27,7 +27,7 @@ export function resolveExpertRuntime(
 
   const runtimeAgent = (expert.runtimeAgentId
     ? agents.find(agent => agent.id === expert.runtimeAgentId)
-    : null) || agents.find(agent => agent.type === 'cli')
+    : null) || agents[0]
 
   if (!runtimeAgent) {
     return null
@@ -51,8 +51,8 @@ export function resolveExpertById(
   return experts.find(expert => expert.id === expertId) || null
 }
 
-export function resolveFallbackCliAgent(agents: AgentConfig[]): AgentConfig | null {
-  return agents.find(agent => agent.type === 'cli') || null
+export function resolveFallbackAgent(agents: AgentConfig[]): AgentConfig | null {
+  return agents[0] || null
 }
 
 export function buildExpertSystemPrompt(
@@ -87,7 +87,7 @@ export function buildExpertCatalogPrompt(experts: AgentExpert[], agents: AgentCo
   experts.forEach(expert => {
     const runtimeAgent = expert.runtimeAgentId
       ? agents.find(agent => agent.id === expert.runtimeAgentId)
-      : agents.find(agent => agent.type === 'cli')
+      : agents[0]
     const runtimeName = runtimeAgent?.provider
       ? `${runtimeAgent.provider.toUpperCase()} CLI`
       : runtimeAgent?.name || '未绑定运行时'

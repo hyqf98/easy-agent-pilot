@@ -144,15 +144,15 @@ export function isInvalidCliResumeError(
     return false
   }
 
-  if (runtimeKey === 'claude-cli') {
+  if (runtimeKey === 'claude-acp') {
     return /(claude|anthropic)/i.test(error) && (hasResumeKeyword || hasIdKeyword) && hasInvalidKeyword
   }
 
-  if (runtimeKey === 'codex-cli') {
+  if (runtimeKey === 'codex-acp') {
     return /codex/i.test(error) && (hasResumeKeyword || hasIdKeyword) && hasInvalidKeyword
   }
 
-  if (runtimeKey === 'opencode-cli') {
+  if (runtimeKey === 'opencode-acp') {
     return /opencode/i.test(error) && (hasResumeKeyword || hasIdKeyword) && hasInvalidKeyword
   }
 

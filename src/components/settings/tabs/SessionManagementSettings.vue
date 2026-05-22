@@ -52,7 +52,7 @@ let projectListRequestId = 0
 let sessionLoadRequestId = 0
 let suppressProjectPathWatch = false
 
-const cliAgents = computed(() => agentStore.agents.filter(agent => agent.type === 'cli'))
+const cliAgents = computed(() => agentStore.agents)
 const hasCliAgents = computed(() => cliAgents.value.length > 0)
 const currentProjectPath = computed(() => projectStore.currentProject?.path ?? '')
 const selectedSessionPathSet = computed(() => new Set(selectedSessionPaths.value))
