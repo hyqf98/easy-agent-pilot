@@ -2,7 +2,6 @@
 import { onMounted, onUnmounted, ref, type ComponentPublicInstance } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import TokenProgressBar from '@/components/common/TokenProgressBar.vue'
 import { MessageList } from '@/components/message'
 import ConversationComposer from '@/components/layout/conversationComposer/ConversationComposer.vue'
 import { useMessageStore, type Message, type MessageAttachment } from '@/stores/message'
@@ -40,10 +39,6 @@ function handleEscapeKey(event: KeyboardEvent) {
 
   event.preventDefault()
   void hideMiniPanel()
-}
-
-function handleOpenCompress() {
-  composerRef.value?.openCompressionDialog()
 }
 
 async function handleRetry(message: Message) {
@@ -97,17 +92,6 @@ onUnmounted(() => {
   <div class="mini-panel">
     <div class="mini-panel__body">
       <section class="mini-panel__conversation">
-        <div class="mini-panel__overlay">
-          <div class="mini-panel__token-bar-shell">
-            <div class="mini-panel__token-bar">
-              <TokenProgressBar
-                :session-id="miniPanelStore.sessionId"
-                @compress="handleOpenCompress"
-              />
-            </div>
-          </div>
-        </div>
-
         <MessageList
           :key="miniPanelStore.sessionId || 'mini-panel-empty'"
           class="mini-panel__messages"
@@ -166,28 +150,6 @@ onUnmounted(() => {
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
 }
 
-.mini-panel__overlay {
-  position: absolute;
-  top: 10px;
-  left: 0;
-  right: 0;
-  z-index: 4;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  pointer-events: none;
-}
-
-.mini-panel__token-bar-shell {
-  width: min(196px, calc(100% - 28px));
-  pointer-events: auto;
-  min-width: 0;
-}
-
-.mini-panel__token-bar {
-  width: 100%;
-}
-
 .mini-panel__messages {
   flex: 1;
   min-height: 0;
@@ -200,33 +162,6 @@ onUnmounted(() => {
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.9);
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
-}
-
-:deep(.mini-panel__token-bar .token-progress) {
-  width: 100%;
-  gap: 6px;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.58);
-  border-color: color-mix(in srgb, var(--color-border) 42%, transparent);
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
-  backdrop-filter: blur(10px);
-}
-
-:deep(.mini-panel__token-bar .token-progress:hover) {
-  background: rgba(255, 255, 255, 0.74);
-  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.1);
-}
-
-:deep(.mini-panel__token-bar .token-progress__bar) {
-  min-width: 88px;
-  height: 4px;
-}
-
-:deep(.mini-panel__token-bar .token-progress__text) {
-  min-width: 28px;
-  font-size: 10px;
-  line-height: 1;
 }
 
 :deep(.mini-panel__composer.conversation-composer) {
@@ -424,7 +359,7 @@ onUnmounted(() => {
 }
 
 :deep(.mini-panel__messages.message-list) {
-  padding: 40px 10px 12px;
+  padding: 12px 10px 12px;
 }
 
 :deep(.mini-panel__messages .message-bubble) {
@@ -690,12 +625,8 @@ onUnmounted(() => {
     padding: 8px 10px 10px;
   }
 
-  .mini-panel__overlay {
-    top: 8px;
-  }
-
   :deep(.mini-panel__messages.message-list) {
-    padding: 38px 8px 10px;
+    padding: 10px 8px 10px;
   }
 
   :deep(.mini-panel__messages .message-bubble) {

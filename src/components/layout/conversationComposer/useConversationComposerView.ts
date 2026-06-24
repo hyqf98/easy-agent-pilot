@@ -2,6 +2,8 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch, type ComponentP
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useI18n } from 'vue-i18n'
 import { useConversationComposer } from '@/composables/useConversationComposer'
+import type { ActiveFormRequest } from '@/composables/useActiveFormRequest'
+import { useSessionStore } from '@/stores/session'
 import { useSettingsStore } from '@/stores/settings'
 import { useThemeStore } from '@/stores/theme'
 import type { SlashCommandPanelType } from '@/services/slashCommands'
@@ -15,6 +17,8 @@ export interface ConversationComposerProps {
   compact?: boolean
   showWorkingDirectory?: boolean
   hideStatusBar?: boolean
+  /** 当前会话最新未回答的 AI 表单请求，用于在输入框上方弹出（主会话专用） */
+  activeForm?: ActiveFormRequest | null
 }
 
 /**
@@ -24,6 +28,7 @@ export interface ConversationComposerProps {
 export function useConversationComposerView(props: Readonly<ConversationComposerProps>) {
   const { t } = useI18n()
   const settingsStore = useSettingsStore()
+  const sessionStore = useSessionStore()
   const themeStore = useThemeStore()
   const rootRef = ref<HTMLElement | null>(null)
   const isDragOver = ref(false)
@@ -36,6 +41,7 @@ export function useConversationComposerView(props: Readonly<ConversationComposer
   const isMainPanel = computed(() => props.panelType === 'main')
   const isMiniPanel = computed(() => props.panelType === 'mini')
   const isDarkTheme = computed(() => themeStore.isDark)
+  const isPlanMode = computed(() => Boolean(props.sessionId && sessionStore.isPlanMode(props.sessionId)))
 
   const composer = useConversationComposer({
     panelType: props.panelType,
@@ -149,6 +155,7 @@ export function useConversationComposerView(props: Readonly<ConversationComposer
     isDragOver,
     isMainPanel,
     isMiniPanel,
+    isPlanMode,
     isQueueCollapsed,
     queuedDraftEditText,
     rootRef,

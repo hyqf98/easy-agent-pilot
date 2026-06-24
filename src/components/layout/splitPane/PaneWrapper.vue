@@ -2,21 +2,12 @@
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EaIcon } from '@/components/common'
-import TokenProgressBar from '@/components/common/TokenProgressBar.vue'
-import CompressionConfirmDialog from '@/components/common/CompressionConfirmDialog.vue'
 import { MessageList } from '@/components/message'
 import ConversationComposer from '../conversationComposer/ConversationComposer.vue'
 import PaneTabBar from './PaneTabBar.vue'
-import { useSessionStore } from '@/stores/session'
 import { useMessageStore } from '@/stores/message'
 import { useSessionExecutionStore } from '@/stores/sessionExecution'
-import { useTokenStore, type CompressionStrategy } from '@/stores/token'
 import { useSplitPaneStore } from '@/stores/splitPane'
-import { compressionService } from '@/services/compression'
-import { conversationService } from '@/services/conversation'
-import { useNotificationStore } from '@/stores/notification'
-import { useAgentStore } from '@/stores/agent'
-import { resolveSessionAgentId } from '@/utils/sessionAgent'
 import type { Message } from '@/stores/message'
 import type { ComponentPublicInstance } from 'vue'
 
@@ -31,11 +22,8 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const splitPaneStore = useSplitPaneStore()
-const sessionStore = useSessionStore()
 const messageStore = useMessageStore()
 const sessionExecutionStore = useSessionExecutionStore()
-const tokenStore = useTokenStore()
-const notificationStore = useNotificationStore()
 
 type ComposerExposed = ComponentPublicInstance & {
   focusInput: () => void
@@ -54,8 +42,6 @@ type ComposerExposed = ComponentPublicInstance & {
 
 const composerRef = ref<ComposerExposed | null>(null)
 const wrapperRef = ref<HTMLElement | null>(null)
-const showCompressionDialog = ref(false)
-const isCompressing = ref(false)
 const paneWidth = ref(800)
 const paneHeight = ref(800)
 
@@ -93,14 +79,6 @@ const isCompactMode = computed(() => paneWidth.value < 500)
 const isMiniMode = computed(() => paneWidth.value < 360)
 const isHeightCompact = computed(() => paneHeight.value < 650)
 const isHeightMini = computed(() => paneHeight.value < 450)
-
-const currentTokenUsage = computed(() =>
-  tokenStore.getTokenUsage(activeSessionId.value)
-)
-
-const currentMessageCount = computed(() =>
-  messageStore.messagesBySession(activeSessionId.value).length
-)
 
 const isSending = computed(() =>
   sessionExecutionStore.getIsSending(activeSessionId.value)
@@ -159,49 +137,6 @@ async function handleMessageFormSubmit(
 ) {
   await composerRef.value?.handleMessageFormSubmit(formId, values, assistantMessageId)
 }
-
-function handleOpenCompress() {
-  showCompressionDialog.value = true
-}
-
-async function handleConfirmCompress(strategy: CompressionStrategy) {
-  const targetSessionId = activeSessionId.value
-  const session = sessionStore.sessions.find(s => s.id === targetSessionId)
-  const agentStore = useAgentStore()
-  const agentId = resolveSessionAgentId(session, agentStore.agents)
-
-  if (!agentId) {
-    notificationStore.smartError('压缩失败', new Error('未找到可用智能体'))
-    showCompressionDialog.value = false
-    return
-  }
-
-  showCompressionDialog.value = false
-  isCompressing.value = true
-
-  try {
-    const result = await compressionService.compressSession(
-      targetSessionId,
-      agentId,
-      { strategy, triggerSource: 'manual' }
-    )
-    if (result.success) {
-      notificationStore.success(t('compression.success'))
-      await conversationService.drainQueue(targetSessionId)
-    } else {
-      notificationStore.error(t('compression.failed'), result.error)
-    }
-  } catch (error) {
-    notificationStore.smartError('压缩失败', error instanceof Error ? error : new Error(String(error)))
-  } finally {
-    isCompressing.value = false
-    showCompressionDialog.value = false
-  }
-}
-
-function handleCancelCompress() {
-  showCompressionDialog.value = false
-}
 </script>
 
 <template>
@@ -244,30 +179,10 @@ function handleCancelCompress() {
     </div>
 
     <div class="pane-wrapper__content">
-      <div
-        v-if="!isMiniMode && !isHeightMini"
-        class="pane-wrapper__token-bar"
-        :class="`pane-wrapper__token-bar--${currentTokenUsage.level}`"
-      >
-        <div class="pane-wrapper__token-peek">
-          <div
-            class="pane-wrapper__token-peek-fill"
-            :style="{ width: currentTokenUsage.percentage > 0 && currentTokenUsage.percentage < 1 ? '1%' : `${Math.min(100, currentTokenUsage.percentage)}%` }"
-          />
-        </div>
-        <div class="pane-wrapper__token-full">
-          <TokenProgressBar
-            :session-id="activeSessionId"
-            :show-compress-button="true"
-            @compress="handleOpenCompress"
-          />
-        </div>
-      </div>
-
       <MessageList
         class="pane-wrapper__list"
         :session-id="activeSessionId"
-        :top-safe-inset="30"
+        :top-safe-inset="0"
         @retry="handleRetry"
         @form-submit="handleMessageFormSubmit"
       />
@@ -278,18 +193,8 @@ function handleCancelCompress() {
         :panel-type="isMiniMode ? 'mini' : 'main'"
         :compact="isCompactMode"
         @focus="handleComposerFocus"
-        @open-compress="handleOpenCompress"
       />
     </div>
-
-    <CompressionConfirmDialog
-      v-model:visible="showCompressionDialog"
-      :token-usage="currentTokenUsage"
-      :message-count="currentMessageCount"
-      :loading="isCompressing"
-      @confirm="handleConfirmCompress"
-      @cancel="handleCancelCompress"
-    />
   </div>
 </template>
 
@@ -365,75 +270,6 @@ function handleCancelCompress() {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-}
-
-.pane-wrapper__token-bar {
-  flex-shrink: 0;
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.pane-wrapper__token-peek {
-  width: 100%;
-  height: 3px;
-  background: var(--color-bg-tertiary);
-  border-radius: 0 0 2px 2px;
-  overflow: hidden;
-  transition: opacity 0.2s ease, height 0.2s ease;
-}
-
-.pane-wrapper__token-peek-fill {
-  height: 100%;
-  border-radius: 2px;
-  transition: width 0.4s ease;
-}
-
-.pane-wrapper__token-bar--safe .pane-wrapper__token-peek-fill {
-  background: var(--color-primary);
-}
-
-.pane-wrapper__token-bar--warning .pane-wrapper__token-peek-fill {
-  background: var(--color-warning);
-}
-
-.pane-wrapper__token-bar--danger .pane-wrapper__token-peek-fill {
-  background: var(--color-orange-500, #f97316);
-}
-
-.pane-wrapper__token-bar--critical .pane-wrapper__token-peek-fill {
-  background: var(--color-error);
-  animation: peek-pulse 0.8s ease-in-out infinite;
-}
-
-@keyframes peek-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
-}
-
-.pane-wrapper__token-full {
-  width: 100%;
-  display: flex;
-  justify-content: center;
-  padding: 0 12px;
-  opacity: 0;
-  max-height: 0;
-  overflow: hidden;
-  transform: translateY(-4px);
-  transition: opacity 0.2s ease, max-height 0.25s ease, padding 0.25s ease, transform 0.2s ease;
-}
-
-.pane-wrapper__token-bar:hover .pane-wrapper__token-peek {
-  opacity: 0;
-  height: 0;
-}
-
-.pane-wrapper__token-bar:hover .pane-wrapper__token-full {
-  opacity: 1;
-  max-height: 48px;
-  padding: 4px 12px;
-  transform: translateY(0);
 }
 
 .pane-wrapper__list {

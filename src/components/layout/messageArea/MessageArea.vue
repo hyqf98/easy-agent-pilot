@@ -1,24 +1,21 @@
 <script setup lang="ts">
+import { computed, provide } from 'vue'
 import { EaIcon } from '@/components/common'
-import TokenProgressBar from '@/components/common/TokenProgressBar.vue'
-import CompressionConfirmDialog from '@/components/common/CompressionConfirmDialog.vue'
 import { MessageList } from '@/components/message'
 import AiEditTracePane from './AiEditTracePane.vue'
 import PanelResizer from '../PanelResizer.vue'
 import ConversationComposer from '../conversationComposer/ConversationComposer.vue'
+import { useActiveFormRequest } from '@/composables/useActiveFormRequest'
+import { ACTIVE_FORM_ID } from '@/constants/activeForm'
 import { useMessageArea } from './useMessageArea'
- 
+
 const {
   sessionStore,
-  showCompressionDialog,
-  isCompressing,
   workspaceRef,
   composerRef,
   TRACE_PANE_MIN_WIDTH,
   handleRetry,
   currentTraceState,
-  currentTokenUsage,
-  currentMessageCount,
   showDesktopTraceHandle,
   showDesktopTracePane,
   showMobileTraceDrawer,
@@ -28,9 +25,6 @@ const {
   handleOpenMobileTrace,
   handleOpenEditTrace,
   handleComposerFocus,
-  handleOpenCompress,
-  handleConfirmCompress,
-  handleCancelCompress,
   handleMessageFormSubmit,
   handleTraceOverlayPointerDown,
   handleTraceOverlayClick,
@@ -38,6 +32,19 @@ const {
   handleTracePaneResize,
   handleTracePaneResizeEnd
 } = useMessageArea()
+
+// 主会话：计算最新未回答的 AI 表单请求，在输入框上方弹出（Cursor 风格）
+const { activeForm } = useActiveFormRequest(() => sessionStore.currentSessionId)
+
+// 将当前激活表单 id 注入消息渲染层，抑制消息流里同表单的内联重复
+const activeFormId = computed(() => activeForm.value?.formId ?? null)
+provide(ACTIVE_FORM_ID, activeFormId)
+
+function handleComposerFormSubmit(values: Record<string, unknown>) {
+  if (activeForm.value) {
+    void handleMessageFormSubmit(activeForm.value.formId, values, activeForm.value.assistantMessageId)
+  }
+}
 </script>
 
 <template>
@@ -91,30 +98,10 @@ const {
           class="message-area__conversation"
           :class="{ 'message-area__conversation--trace-active': showDesktopTracePane }"
         >
-          <!-- Token 进度条，固定在会话面板顶部 -->
-          <div
-            class="message-area__token-bar"
-            :class="`message-area__token-bar--${currentTokenUsage.level}`"
-          >
-            <div class="message-area__token-peek">
-              <div
-                class="message-area__token-peek-fill"
-                :style="{ width: currentTokenUsage.percentage > 0 && currentTokenUsage.percentage < 1 ? '1%' : `${Math.min(100, currentTokenUsage.percentage)}%` }"
-              />
-            </div>
-            <div class="message-area__token-full">
-              <TokenProgressBar
-                :session-id="sessionStore.currentSessionId"
-                :show-compress-button="true"
-                @compress="handleOpenCompress"
-              />
-            </div>
-          </div>
-
           <MessageList
             class="message-area__list"
             :hide-context-strategy-notice="true"
-            :top-safe-inset="56"
+            :top-safe-inset="0"
             @retry="handleRetry"
             @form-submit="handleMessageFormSubmit"
             @open-edit-trace="handleOpenEditTrace"
@@ -124,8 +111,9 @@ const {
             ref="composerRef"
             :session-id="sessionStore.currentSessionId"
             panel-type="main"
+            :active-form="activeForm"
             @focus="handleComposerFocus"
-            @open-compress="handleOpenCompress"
+            @form-submit="handleComposerFormSubmit"
           />
         </div>
       </div>
@@ -190,15 +178,7 @@ const {
       </div>
     </div>
 
-    <!-- 压缩确认对话框 -->
-    <CompressionConfirmDialog
-      v-model:visible="showCompressionDialog"
-      :token-usage="currentTokenUsage"
-      :message-count="currentMessageCount"
-      :loading="isCompressing"
-      @confirm="handleConfirmCompress"
-      @cancel="handleCancelCompress"
-    />
+    <!-- 压缩确认对话框由 ConversationComposer 内部自洽处理 -->
   </div>
 </template>
 

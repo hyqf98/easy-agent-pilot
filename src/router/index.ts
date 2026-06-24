@@ -11,14 +11,6 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
-    path: '/settings',
-    name: 'settings',
-    component: () => import('@/views/SettingsView.vue'),
-    meta: {
-      titleKey: 'routes.settings'
-    }
-  },
-  {
     path: '/mcp-test',
     name: 'mcp-test',
     component: () => import('@/views/McpTestView.vue'),

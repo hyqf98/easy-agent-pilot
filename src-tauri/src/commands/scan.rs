@@ -2848,4 +2848,30 @@ mod tests {
             Some(&vec!["-y".to_string(), "@acme/laya-mcp".to_string()])
         );
     }
+
+    // ---- usage_u64_to_i64 ----
+
+    #[test]
+    fn usage_u64_to_i64_none_is_zero() {
+        assert_eq!(usage_u64_to_i64(None), 0);
+    }
+
+    #[test]
+    fn usage_u64_to_i64_normal_value() {
+        assert_eq!(usage_u64_to_i64(Some(0)), 0);
+        assert_eq!(usage_u64_to_i64(Some(42)), 42);
+        assert_eq!(usage_u64_to_i64(Some(1_000_000)), 1_000_000);
+    }
+
+    #[test]
+    fn usage_u64_to_i64_clamps_overflow() {
+        // value above i64::MAX must be clamped, not overflow/wrap
+        assert_eq!(usage_u64_to_i64(Some(u64::MAX)), i64::MAX);
+        assert_eq!(usage_u64_to_i64(Some((i64::MAX as u64) + 1)), i64::MAX);
+    }
+
+    #[test]
+    fn usage_u64_to_i64_at_boundary() {
+        assert_eq!(usage_u64_to_i64(Some(i64::MAX as u64)), i64::MAX);
+    }
 }

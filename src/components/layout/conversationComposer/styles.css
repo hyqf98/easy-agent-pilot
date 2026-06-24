@@ -20,14 +20,15 @@
 }
 
 .conversation-composer--main {
-  --conversation-composer-main-max-lines: 6;
+  --conversation-composer-main-max-lines: 4;
   --conversation-composer-main-line-height: 1.6;
   --conversation-composer-main-padding-y: 14px;
   --conversation-composer-main-padding-x: 16px;
   gap: 0;
-  padding: 10px 16px 8px;
+  padding: 12px 18px 14px;
   border-top: none;
-  background: var(--color-bg-primary);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-bg-primary) 0%, transparent), var(--color-bg-primary) 42%);
 }
 
 .conversation-composer--compact {
@@ -121,6 +122,14 @@
 
 .conversation-composer--main .conversation-composer__panel {
   width: 100%;
+  max-width: min(100%, 980px);
+  margin: 0 auto;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--workspace-border, var(--color-border)) 74%, transparent);
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--workspace-panel-bg, var(--color-surface)) 94%, transparent);
+  box-shadow: 0 18px 46px rgba(15, 23, 42, 0.1);
+  backdrop-filter: blur(14px);
 }
 
 .conversation-composer__main-header {
@@ -137,6 +146,47 @@
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+/* 底部工具栏：附件 + 模型 + 上下文进度 */
+.conversation-composer__main-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0 0;
+  flex-wrap: wrap;
+}
+
+.conversation-composer__main-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.conversation-composer__main-footer .composer-chip__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-composer__main-footer .token-progress {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  min-height: 24px;
+}
+
+.conversation-composer__main-footer .token-progress__bar {
+  min-width: 84px;
+  height: 4px;
+}
+
+.conversation-composer__main-footer .token-progress__text {
+  font-size: 11px;
+  min-width: 30px;
 }
 
 .composer-chip {
@@ -267,8 +317,8 @@
 }
 
 .conversation-composer--main .conversation-composer__queue {
-  gap: 8px;
-  padding: 2px 2px 0;
+  gap: 6px;
+  padding: 0;
 }
 
 .conversation-composer__queue-head {
@@ -304,12 +354,19 @@
 }
 
 .conversation-composer--main .conversation-composer__queue-item {
-  display: flex;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--workspace-border, var(--color-border)) 76%, transparent);
+  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 88%, transparent);
+}
+
+.conversation-composer--main .conversation-composer__queue-item--editing {
   align-items: flex-start;
-  gap: 10px;
-  border-radius: 16px;
-  border: 1px solid rgba(226, 232, 240, 0.94);
-  background: linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(255, 255, 255, 0.98));
+  padding: 10px;
 }
 
 .conversation-composer__queue-item--editing {
@@ -347,13 +404,35 @@
 }
 
 .conversation-composer--main .conversation-composer__queue-index {
-  min-width: 24px;
-  width: 24px;
-  height: 24px;
-  background: rgba(226, 232, 240, 0.86);
+  position: relative;
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  border-radius: 6px;
+  background: transparent;
   color: var(--color-text-secondary);
-  font-size: 11px;
+  font-size: 0;
   font-weight: 700;
+}
+
+.conversation-composer--main .conversation-composer__queue-index::before,
+.conversation-composer--main .conversation-composer__queue-index::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  width: 10px;
+  height: 1px;
+  border-radius: 999px;
+  background: currentColor;
+  transform: translateX(-50%);
+}
+
+.conversation-composer--main .conversation-composer__queue-index::before {
+  top: 7px;
+}
+
+.conversation-composer--main .conversation-composer__queue-index::after {
+  bottom: 7px;
 }
 
 .conversation-composer__queue-top,
@@ -368,6 +447,10 @@
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
   white-space: nowrap;
+}
+
+.conversation-composer--main .conversation-composer__queue-top {
+  display: none;
 }
 
 .conversation-composer__queue-preview {
@@ -445,10 +528,18 @@
 }
 
 .conversation-composer--main .conversation-composer__queue-action {
-  width: 24px;
-  height: 24px;
-  border: none;
-  background: rgba(241, 245, 249, 0.96);
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+.conversation-composer--main .conversation-composer__queue-action:hover {
+  border-color: color-mix(in srgb, var(--workspace-border, var(--color-border)) 76%, transparent);
+  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 92%, transparent);
+  color: var(--workspace-text-primary, var(--color-text-primary));
 }
 
 .conversation-composer__editor-stack {
@@ -457,13 +548,21 @@
 }
 
 .conversation-composer__editor-shell {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   position: relative;
   min-height: 122px;
   border: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
   border-radius: 22px;
   background: rgba(255, 255, 255, 0.96);
   overflow: hidden;
+}
+
+.conversation-composer__editor-field {
+  display: grid;
+  position: relative;
+  flex: 1;
+  min-height: 0;
 }
 
 .conversation-composer--main .conversation-composer__editor-shell {
@@ -479,6 +578,108 @@
 .conversation-composer--main .conversation-composer__editor-shell:focus-within {
   border-color: var(--color-border);
   box-shadow: none;
+}
+
+/* 计划模式：输入框边框变为蓝色强调，提示进入只读规划态 */
+.conversation-composer--plan-mode .conversation-composer__editor-shell,
+.conversation-composer--plan-mode .conversation-composer__editor-shell:focus-within {
+  border-color: color-mix(in srgb, #3b82f6 70%, var(--color-border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, #3b82f6 32%, transparent);
+}
+
+.conversation-composer--plan-mode.conversation-composer--dark .conversation-composer__editor-shell,
+.conversation-composer--plan-mode.conversation-composer--dark .conversation-composer__editor-shell:focus-within {
+  border-color: color-mix(in srgb, #60a5fa 60%, var(--color-border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, #60a5fa 30%, transparent);
+}
+
+/* 计划模式底部紧凑操作栏：徽章 + 执行/退出按钮 */
+.conversation-composer__plan-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 5px 10px;
+  border-top: 1px solid color-mix(in srgb, #3b82f6 20%, var(--color-border));
+  background: color-mix(in srgb, #3b82f6 7%, var(--color-bg-primary));
+}
+
+.conversation-composer__plan-footer-info {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.conversation-composer__plan-footer-icon {
+  color: #3b82f6;
+  flex-shrink: 0;
+}
+
+.conversation-composer--dark .conversation-composer__plan-footer-icon {
+  color: #60a5fa;
+}
+
+.conversation-composer__plan-footer-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #3b82f6;
+  white-space: nowrap;
+}
+
+.conversation-composer--dark .conversation-composer__plan-footer-label {
+  color: #93c5fd;
+}
+
+.conversation-composer__plan-footer-hint {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-composer__plan-footer-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.conversation-composer__plan-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.conversation-composer__plan-btn--cancel {
+  border: 1px solid color-mix(in srgb, #ef4444 40%, var(--color-border));
+  background: color-mix(in srgb, #ef4444 10%, var(--color-bg-primary));
+  color: #dc2626;
+}
+
+.conversation-composer__plan-btn--cancel:hover {
+  background: color-mix(in srgb, #ef4444 20%, var(--color-bg-primary));
+  border-color: color-mix(in srgb, #ef4444 56%, var(--color-border));
+}
+
+.conversation-composer__plan-btn--execute {
+  border: 1px solid color-mix(in srgb, #22c55e 40%, var(--color-border));
+  background: color-mix(in srgb, #22c55e 14%, var(--color-bg-primary));
+  color: #16a34a;
+}
+
+.conversation-composer__plan-btn--execute:hover {
+  background: color-mix(in srgb, #22c55e 22%, var(--color-bg-primary));
+  border-color: color-mix(in srgb, #22c55e 56%, var(--color-border));
 }
 
 .conversation-composer__render,
@@ -1105,7 +1306,7 @@
 
 @media (max-width: 900px) {
   .conversation-composer--main {
-    padding: 8px 12px 6px;
+    padding: 10px 12px 14px;
   }
 
   .conversation-composer__main-header {
@@ -1133,8 +1334,8 @@
   }
 
   .conversation-composer--main .conversation-composer__editor-shell {
-    height: calc(var(--font-size-sm) * var(--conversation-composer-main-line-height) * var(--conversation-composer-main-max-lines) + (var(--conversation-composer-main-padding-y) * 2));
-    min-height: calc(var(--font-size-sm) * var(--conversation-composer-main-line-height) * var(--conversation-composer-main-max-lines) + (var(--conversation-composer-main-padding-y) * 2));
+    height: auto;
+    min-height: 0;
   }
 
   .conversation-composer__memory-card {
@@ -1161,8 +1362,8 @@
 
   .conversation-composer--main .conversation-composer__render,
   .conversation-composer--main .conversation-composer__textarea {
-    min-height: 100%;
-    height: 100%;
+    min-height: calc(var(--font-size-sm) * var(--conversation-composer-main-line-height) * var(--conversation-composer-main-max-lines) + (var(--conversation-composer-main-padding-y) * 2));
+    height: auto;
     padding: var(--conversation-composer-main-padding-y) var(--conversation-composer-main-padding-x);
   }
 }
@@ -1198,8 +1399,14 @@
   }
 
   .conversation-composer--main .conversation-composer__queue-item {
+    grid-template-columns: 20px minmax(0, 1fr);
     padding: 9px 10px;
     gap: 8px;
+  }
+
+  .conversation-composer--main .conversation-composer__queue-actions {
+    grid-column: 2;
+    justify-content: flex-start;
   }
 }
 
@@ -1604,4 +1811,336 @@
 
 .conversation-composer__textarea::placeholder {
   color: var(--workspace-text-tertiary) !important;
+}
+
+.conversation-composer--main {
+  padding: 0 clamp(20px, 5%, 120px) 18px;
+  background: var(--workspace-stage-bg);
+}
+
+.conversation-composer--main .conversation-composer__panel {
+  gap: 12px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.conversation-composer--main .conversation-composer__queue {
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.conversation-composer--main .conversation-composer__queue-head,
+.conversation-composer--main .conversation-composer__queue-item {
+  border-color: var(--workspace-border, rgba(38, 38, 38, 0.1));
+  background: color-mix(in srgb, var(--workspace-panel-bg, #ffffff) 94%, transparent);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.06);
+}
+
+.conversation-composer--main .conversation-composer__queue-head {
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+.conversation-composer--main .conversation-composer__queue-item--editing {
+  border-color: color-mix(in srgb, var(--color-primary, #2563eb) 26%, var(--workspace-border, rgba(38, 38, 38, 0.1)));
+  background: color-mix(in srgb, var(--workspace-panel-bg, #ffffff) 90%, var(--color-primary-light, #dbeafe));
+  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.08);
+}
+
+.conversation-composer--main .conversation-composer__queue-index {
+  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 92%, transparent);
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+.conversation-composer--main .conversation-composer__queue-top,
+.conversation-composer--main .conversation-composer__queue-error {
+  color: var(--color-text-secondary, var(--color-text-tertiary));
+}
+
+.conversation-composer--main .conversation-composer__queue-preview {
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+.conversation-composer--main .conversation-composer__queue-action {
+  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 92%, transparent);
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+.conversation-composer--main .conversation-composer__editor-shell {
+  position: relative;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  border-radius: 18px;
+  border: 1px solid var(--workspace-border, rgba(38, 38, 38, 0.1));
+  background: var(--workspace-panel-bg, #ffffff);
+  box-shadow: none;
+  overflow: visible;
+}
+
+.conversation-composer--main .conversation-composer__editor-shell:focus-within {
+  border-color: color-mix(in srgb, var(--color-primary, #2563eb) 22%, var(--workspace-border, rgba(38, 38, 38, 0.1)));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-primary, #2563eb) 12%, transparent);
+}
+
+.conversation-composer--plan-mode.conversation-composer--main .conversation-composer__editor-shell,
+.conversation-composer--plan-mode.conversation-composer--main .conversation-composer__editor-shell:focus-within {
+  border-color: color-mix(in srgb, var(--color-primary, #2563eb) 28%, var(--workspace-border, rgba(38, 38, 38, 0.1)));
+  box-shadow:
+    0 12px 28px rgba(24, 24, 22, 0.06),
+    0 0 0 1px color-mix(in srgb, var(--color-primary, #2563eb) 16%, transparent);
+}
+
+.conversation-composer__context-slot {
+  flex: 0 1 210px;
+  width: min(100%, 210px);
+  min-width: 160px;
+}
+
+.conversation-composer--main .token-progress {
+  --token-progress-width: 100%;
+  --token-progress-gap: 6px;
+  --token-progress-padding: 8px 10px;
+  --token-progress-radius: 12px;
+  --token-progress-bg: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 96%, transparent);
+  --token-progress-shadow: none;
+  --token-progress-hover-shadow: 0 8px 18px rgba(24, 24, 22, 0.08);
+  --token-progress-label-size: 10px;
+  --token-progress-summary-size: 10px;
+  --token-progress-percent-size: 11px;
+  --token-progress-bar-height: 4px;
+  --token-progress-popover-shadow: 0 18px 36px rgba(24, 24, 22, 0.12);
+  --token-progress-action-height: 36px;
+}
+
+.conversation-composer--main .conversation-composer__editor-field {
+  min-height: calc(var(--font-size-sm) * var(--conversation-composer-main-line-height) * var(--conversation-composer-main-max-lines) + (var(--conversation-composer-main-padding-y) * 2));
+}
+
+.conversation-composer--main .conversation-composer__render,
+.conversation-composer--main .conversation-composer__textarea {
+  height: auto;
+  min-height: calc(var(--font-size-sm) * var(--conversation-composer-main-line-height) * var(--conversation-composer-main-max-lines) + (var(--conversation-composer-main-padding-y) * 2));
+  max-height: 220px;
+  padding: 16px 16px 14px;
+  color: var(--workspace-text-primary, var(--color-text-primary)) !important;
+  -webkit-text-fill-color: currentColor;
+  caret-color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+.conversation-composer--main .conversation-composer__render {
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+.conversation-composer--main .conversation-composer__textarea--overlay {
+  color: transparent !important;
+  -webkit-text-fill-color: transparent;
+}
+
+.conversation-composer--main .conversation-composer__textarea::placeholder {
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary)) !important;
+}
+
+.conversation-composer--main .conversation-composer__textarea::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.56);
+}
+
+.conversation-composer--main :deep(.conversation-composer__ghost-hint-pill) {
+  border-color: var(--workspace-border, rgba(38, 38, 38, 0.1));
+  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 92%, transparent);
+  color: var(--color-text-secondary, var(--color-text-tertiary));
+}
+
+.conversation-composer__control-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--workspace-border, rgba(38, 38, 38, 0.1));
+  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 34%, transparent);
+  border-radius: 0 0 18px 18px;
+}
+
+.conversation-composer__control-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.conversation-composer__control-group--start {
+  flex: 1 1 auto;
+}
+
+.conversation-composer__control-group--end {
+  flex: 0 1 auto;
+  justify-content: flex-end;
+  margin-left: auto;
+}
+
+.conversation-composer--main .composer-chip,
+.conversation-composer--main .conversation-composer__send {
+  min-height: 30px;
+  border-radius: 9px;
+  border: 1px solid var(--workspace-border, rgba(38, 38, 38, 0.1));
+  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 94%, transparent);
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  backdrop-filter: blur(10px);
+  box-shadow: none;
+}
+
+.conversation-composer--main .composer-chip__button {
+  min-height: 30px;
+  gap: 6px;
+  padding: 0 11px;
+  color: inherit;
+}
+
+.conversation-composer--main .composer-chip__text {
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-composer--main .composer-chip:hover,
+.conversation-composer--main .composer-chip--open,
+.conversation-composer--main .conversation-composer__send--main:hover {
+  border-color: color-mix(in srgb, var(--color-primary, #2563eb) 18%, var(--workspace-border, rgba(38, 38, 38, 0.1)));
+  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 88%, var(--color-primary-light, #dbeafe));
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+.conversation-composer--main .composer-chip__menu {
+  bottom: calc(100% + 10px);
+  border-radius: 14px;
+  border-color: var(--workspace-border, rgba(38, 38, 38, 0.1));
+  background: color-mix(in srgb, var(--workspace-panel-bg, #ffffff) 98%, transparent);
+  box-shadow: 0 22px 44px rgba(15, 23, 42, 0.12);
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+.conversation-composer--main .composer-chip__option {
+  gap: 8px;
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+.conversation-composer--main .composer-chip__option:hover,
+.conversation-composer--main .composer-chip__option--selected {
+  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 86%, var(--color-primary-light, #dbeafe));
+}
+
+.conversation-composer--main .composer-chip__tag {
+  color: var(--color-text-secondary, var(--color-text-tertiary));
+}
+
+.conversation-composer--main .composer-chip--image-main {
+  min-width: 0;
+}
+
+.conversation-composer__send--main {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  min-width: 36px;
+  min-height: 30px;
+  padding: 0;
+  border: 1px solid transparent !important;
+  border-radius: 10px !important;
+  background: var(--color-primary, #2563eb) !important;
+  color: #ffffff !important;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.18) !important;
+}
+
+.conversation-composer__send--main:hover {
+  background: var(--color-primary-hover, #1d4ed8) !important;
+}
+
+.conversation-composer__send--main:disabled {
+  border-color: var(--workspace-border, rgba(38, 38, 38, 0.1)) !important;
+  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 96%, transparent) !important;
+  color: var(--color-text-tertiary, rgba(100, 116, 139, 0.86)) !important;
+  box-shadow: none !important;
+  cursor: not-allowed;
+}
+
+.conversation-composer__send-state {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #1d4ed8;
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 6px 14px rgba(37, 99, 235, 0.34);
+}
+
+.conversation-composer--main .conversation-composer__plan-footer {
+  padding: 10px 16px;
+  border-top-color: color-mix(in srgb, var(--color-primary, #2563eb) 16%, var(--workspace-border, rgba(38, 38, 38, 0.1)));
+  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 86%, transparent);
+}
+
+.conversation-composer--main .conversation-composer__plan-footer-hint {
+  color: var(--color-text-secondary, var(--color-text-tertiary));
+}
+
+@media (max-width: 900px) {
+  .conversation-composer--main {
+    padding: 10px 12px 14px;
+  }
+
+  .conversation-composer--main .token-progress {
+    --token-progress-width: 100%;
+  }
+
+  .conversation-composer__context-slot {
+    width: 100%;
+    max-width: none;
+    flex-basis: 100%;
+  }
+
+  .conversation-composer--main .conversation-composer__render,
+  .conversation-composer--main .conversation-composer__textarea {
+    padding: 8px 14px 14px;
+  }
+
+  .conversation-composer__control-row {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 14px;
+  }
+
+  .conversation-composer__control-group--end {
+    justify-content: space-between;
+  }
+}
+
+@media (max-width: 720px) {
+  .conversation-composer--main .conversation-composer__editor-shell {
+    border-radius: 18px;
+  }
+
+  .conversation-composer__control-group--end {
+    width: 100%;
+  }
+
+  .conversation-composer--main .composer-chip__text {
+    max-width: 132px;
+  }
 }

@@ -254,9 +254,9 @@ const toolSummary = computed(() => {
   min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
-  border-radius: 8px;
-  background: var(--tool-call-bg);
-  border: 1px solid var(--tool-call-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--tool-call-bg) 64%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tool-call-border) 78%, transparent);
   overflow: hidden;
   transition: border-color 0.16s ease, background 0.16s ease;
 }
@@ -270,18 +270,18 @@ const toolSummary = computed(() => {
 }
 
 .tool-call--running {
-  border-color: var(--tool-call-running-border);
-  background: var(--tool-call-running-bg);
+  border-color: color-mix(in srgb, var(--tool-call-running-border) 78%, transparent);
+  background: color-mix(in srgb, var(--tool-call-running-bg) 62%, transparent);
 }
 
 .tool-call--success {
-  border-color: var(--tool-call-success-border);
-  background: var(--tool-call-success-bg);
+  border-color: color-mix(in srgb, var(--tool-call-success-border) 78%, transparent);
+  background: color-mix(in srgb, var(--tool-call-success-bg) 62%, transparent);
 }
 
 .tool-call--error {
-  border-color: var(--tool-call-error-border);
-  background: var(--tool-call-error-bg);
+  border-color: color-mix(in srgb, var(--tool-call-error-border) 82%, transparent);
+  background: color-mix(in srgb, var(--tool-call-error-bg) 68%, transparent);
 }
 
 .tool-call__header {
@@ -291,7 +291,7 @@ const toolSummary = computed(() => {
   gap: var(--spacing-2);
   width: 100%;
   min-height: 32px;
-  padding: 5px 8px;
+  padding: 5px 9px;
   border: 0;
   background: transparent;
   cursor: pointer;
@@ -328,6 +328,10 @@ const toolSummary = computed(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  background: color-mix(in srgb, currentColor 9%, transparent);
   color: var(--tool-call-meta);
 }
 
@@ -345,8 +349,10 @@ const toolSummary = computed(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 11%, transparent);
 }
 
 .tool-call__status--running {
@@ -406,7 +412,7 @@ const toolSummary = computed(() => {
   width: 100%;
   box-sizing: border-box;
   border-top: 1px solid var(--tool-call-content-border);
-  padding: 7px 8px 8px;
+  padding: 8px 9px 9px;
   overflow: hidden;
 }
 
@@ -473,12 +479,12 @@ const toolSummary = computed(() => {
 
 .tool-call__code {
   margin: var(--spacing-1) 0 0 0;
-  padding: 7px;
+  padding: 9px;
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
   background: var(--tool-call-code-bg);
-  border-radius: 6px;
+  border-radius: 8px;
   font-family: var(--font-family-mono);
   font-size: var(--font-size-xs);
   line-height: 1.5;
@@ -500,7 +506,7 @@ const toolSummary = computed(() => {
 }
 
 .tool-call__result-content {
-  max-height: min(18rem, 42vh);
+  max-height: min(360px, 42vh);
   overflow: auto;
   scrollbar-gutter: stable;
 }

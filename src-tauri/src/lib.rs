@@ -135,6 +135,7 @@ pub fn run() {
             commands::project::delete_file,
             commands::project::batch_delete_files,
             commands::project::move_file,
+            commands::git::get_project_git_branch,
             commands::file_editor::read_project_file,
             commands::file_editor::write_project_file,
             commands::file_editor::write_binary_file,

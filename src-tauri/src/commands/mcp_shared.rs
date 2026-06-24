@@ -206,7 +206,8 @@ pub fn format_call_tool_result(call_result: &rmcp::model::CallToolResult) -> Val
 
 #[cfg(test)]
 mod tests {
-    use super::parse_args_string;
+    use super::{format_call_tool_result, parse_args_string};
+    use rmcp::model::{Annotated, CallToolResult, Content, RawContent, RawResource};
 
     #[test]
     fn parse_args_string_supports_quoted_values() {
@@ -226,5 +227,83 @@ mod tests {
     fn parse_args_string_supports_json_array() {
         let args = parse_args_string(Some("[\"--flag\",\"two words\"]"));
         assert_eq!(args, vec!["--flag".to_string(), "two words".to_string()]);
+    }
+
+    // ---- format_call_tool_result ----
+
+    #[test]
+    fn format_call_tool_result_text_plain() {
+        let result = CallToolResult::success(vec![Content::text("hello world")]);
+        let formatted = format_call_tool_result(&result);
+        assert_eq!(formatted["content"][0]["type"], "text");
+        assert_eq!(formatted["content"][0]["text"], "hello world");
+    }
+
+    #[test]
+    fn format_call_tool_result_text_json_string_parsed() {
+        // when text is valid JSON, it's parsed as a JSON value (not wrapped in type/text)
+        let result = CallToolResult::success(vec![Content::text(r#"{"answer": 42}"#)]);
+        let formatted = format_call_tool_result(&result);
+        assert_eq!(formatted["content"][0]["answer"], 42);
+    }
+
+    #[test]
+    fn format_call_tool_result_error_flag() {
+        let result = CallToolResult::error(vec![Content::text("boom")]);
+        let formatted = format_call_tool_result(&result);
+        assert_eq!(formatted["is_error"], true);
+    }
+
+    #[test]
+    fn format_call_tool_result_success_is_not_error() {
+        let result = CallToolResult::success(vec![Content::text("ok")]);
+        let formatted = format_call_tool_result(&result);
+        assert_eq!(formatted["is_error"], false);
+    }
+
+    #[test]
+    fn format_call_tool_result_image() {
+        let result = CallToolResult::success(vec![Content::image("base64data", "image/png")]);
+        let formatted = format_call_tool_result(&result);
+        assert_eq!(formatted["content"][0]["type"], "image");
+        assert_eq!(formatted["content"][0]["mime_type"], "image/png");
+        assert_eq!(formatted["content"][0]["data"], "base64data");
+    }
+
+    #[test]
+    fn format_call_tool_result_resource_link() {
+        let link = RawResource {
+            uri: "file:///x.txt".to_string(),
+            name: "x.txt".to_string(),
+            title: None,
+            description: None,
+            mime_type: Some("text".to_string()),
+            size: None,
+            icons: None,
+            meta: None,
+        };
+        let result = CallToolResult::success(vec![Annotated::new(
+            RawContent::resource_link(link),
+            None,
+        )]);
+        let formatted = format_call_tool_result(&result);
+        assert_eq!(formatted["content"][0]["type"], "resource_link");
+        assert_eq!(formatted["content"][0]["uri"], "file:///x.txt");
+    }
+
+    #[test]
+    fn format_call_tool_result_empty_content() {
+        let result = CallToolResult::success(vec![]);
+        let formatted = format_call_tool_result(&result);
+        assert!(formatted["content"].is_array());
+        assert_eq!(formatted["content"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn format_call_tool_result_structured_content_passed_through() {
+        let mut result = CallToolResult::success(vec![Content::text("ok")]);
+        result.structured_content = Some(serde_json::json!({ "rows": 3 }));
+        let formatted = format_call_tool_result(&result);
+        assert_eq!(formatted["structured_content"]["rows"], 3);
     }
 }

@@ -22,6 +22,15 @@ export interface TokenUsage {
   level: TokenLevel
 }
 
+export interface TokenUsageDetails extends TokenUsage {
+  model?: string
+  inputTokens?: number
+  outputTokens?: number
+  contextWindowOccupancy?: number
+  cacheReadInputTokens?: number
+  cacheCreationInputTokens?: number
+}
+
 export interface RealtimeTokenData {
   inputTokens: number
   outputTokens: number
@@ -54,6 +63,8 @@ function extractPersistedUsageCounts(notice: RuntimeNotice): {
   inputTokens?: number
   outputTokens?: number
   contextWindowOccupancy?: number
+  cacheReadInputTokens?: number
+  cacheCreationInputTokens?: number
 } {
   const lines = notice.content
     .split('\n')
@@ -64,6 +75,8 @@ function extractPersistedUsageCounts(notice: RuntimeNotice): {
   let inputTokens: number | undefined
   let outputTokens: number | undefined
   let contextWindowOccupancy: number | undefined
+  let cacheReadInputTokens: number | undefined
+  let cacheCreationInputTokens: number | undefined
 
   for (const line of lines) {
     const separatorIndex = line.indexOf(':')
@@ -88,6 +101,16 @@ function extractPersistedUsageCounts(notice: RuntimeNotice): {
       continue
     }
 
+    if (label.includes('缓存读取') || label.includes('cache read') || label.includes('cache hit')) {
+      cacheReadInputTokens = parsed
+      continue
+    }
+
+    if (label.includes('缓存写入') || label.includes('cache creation') || label.includes('cache write')) {
+      cacheCreationInputTokens = parsed
+      continue
+    }
+
     if (label.includes('输出') || label.includes('output')) {
       outputTokens = parsed
     }
@@ -96,7 +119,9 @@ function extractPersistedUsageCounts(notice: RuntimeNotice): {
   return {
     inputTokens,
     outputTokens,
-    contextWindowOccupancy
+    contextWindowOccupancy,
+    cacheReadInputTokens,
+    cacheCreationInputTokens
   }
 }
 
@@ -132,6 +157,15 @@ export function formatTokenCount(count: number): string {
 
 export const useTokenStore = defineStore('token', () => {
   const realtimeTokens = ref<Map<string, RealtimeTokenData>>(new Map())
+
+  function buildEmptyTokenUsage(limit: number = DEFAULT_CONTEXT_WINDOW): TokenUsageDetails {
+    return {
+      used: 0,
+      limit,
+      percentage: 0,
+      level: 'safe'
+    }
+  }
 
   async function restorePersistedSessionTokens(sessionId: string): Promise<RealtimeTokenData | null> {
     const messageStore = useMessageStore()
@@ -198,14 +232,14 @@ export const useTokenStore = defineStore('token', () => {
     }
   }
 
-  function getTokenUsage(sessionId: string): TokenUsage {
+  function resolveTokenUsageDetails(sessionId: string): TokenUsageDetails {
     const agentConfigStore = useAgentConfigStore()
     const agentStore = useAgentStore()
     const messageStore = useMessageStore()
     const sessionStore = useSessionStore()
     const session = sessionStore.sessions.find(s => s.id === sessionId)
     if (!session) {
-      return { used: 0, limit: DEFAULT_CONTEXT_WINDOW, percentage: 0, level: 'safe' as TokenLevel }
+      return buildEmptyTokenUsage()
     }
 
     const agent = resolveSessionAgent(session, agentStore.agents)
@@ -266,12 +300,7 @@ export const useTokenStore = defineStore('token', () => {
         realtimeTokens.value = deleteMapEntry(realtimeTokens.value, sessionId)
       }
 
-      return {
-        used: 0,
-        limit: contextWindow,
-        percentage: 0,
-        level: 'safe'
-      }
+      return buildEmptyTokenUsage(contextWindow)
     }
 
     const usedTokens = realtimeData?.contextWindowOccupancy
@@ -286,8 +315,28 @@ export const useTokenStore = defineStore('token', () => {
       used: usedTokens,
       limit: contextWindow,
       percentage,
-      level: getLevel(percentage)
+      level: getLevel(percentage),
+      model: realtimeModel,
+      inputTokens: realtimeData?.inputTokens ?? persistedUsageCounts.inputTokens,
+      outputTokens: realtimeData?.outputTokens ?? persistedUsageCounts.outputTokens,
+      contextWindowOccupancy: usedTokens > 0 ? usedTokens : persistedOccupancy,
+      cacheReadInputTokens: persistedUsageCounts.cacheReadInputTokens,
+      cacheCreationInputTokens: persistedUsageCounts.cacheCreationInputTokens
     }
+  }
+
+  function getTokenUsage(sessionId: string): TokenUsage {
+    const { used, limit, percentage, level } = resolveTokenUsageDetails(sessionId)
+    return {
+      used,
+      limit,
+      percentage,
+      level
+    }
+  }
+
+  function getTokenUsageDetails(sessionId: string): TokenUsageDetails {
+    return resolveTokenUsageDetails(sessionId)
   }
 
   function updateRealtimeTokens(
@@ -331,6 +380,7 @@ export const useTokenStore = defineStore('token', () => {
   return {
     realtimeTokens,
     getTokenUsage,
+    getTokenUsageDetails,
     updateRealtimeTokens,
     clearRealtimeTokens,
     hardClearSessionTokens,

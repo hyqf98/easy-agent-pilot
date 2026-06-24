@@ -35,3 +35,10 @@ data/
 # Claude / GitNexus auto-generated skills
 .claude/skills/generated/
 .claude/skills/gitnexus/
+
+# Local agent skills config
+.agents/
+
+# Local reference images / screenshots
+参考示列图/
+参考图*.png

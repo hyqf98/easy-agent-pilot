@@ -7,11 +7,11 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use agent_client_protocol::util::MatchDispatch;
-use agent_client_protocol::{on_receive_request, Client, SessionMessage};
+use agent_client_protocol::{on_receive_request, Agent, Client, SessionMessage};
 use agent_client_protocol::schema::{
-    ContentBlock, McpServer, McpServerStdio, PermissionOptionKind, RequestPermissionOutcome,
-    RequestPermissionResponse, RequestPermissionRequest, SelectedPermissionOutcome,
-    SessionNotification, SessionUpdate, StopReason,
+    ContentBlock, McpServer, McpServerStdio, PermissionOptionKind, PromptRequest,
+    RequestPermissionOutcome, RequestPermissionResponse, RequestPermissionRequest,
+    SelectedPermissionOutcome, SessionNotification, SessionUpdate, StopReason, Usage,
 };
 use agent_client_protocol_tokio::AcpAgent;
 
@@ -216,6 +216,15 @@ pub struct SessionConfig {
     pub working_directory: Option<String>,
 }
 
+/// 从 PromptResponse.usage 提取的 token 快照（与 acp.rs::extract_prompt_usage 对齐）
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UsageSnapshot {
+    pub input_tokens: Option<u32>,
+    pub output_tokens: Option<u32>,
+    pub cache_read_input_tokens: Option<u32>,
+    pub cache_creation_input_tokens: Option<u32>,
+}
+
 /// 连接到 opencode acp，发送 prompt，收集所有事件
 pub async fn run_prompt_and_collect(
     prompt: &str,
@@ -394,4 +403,198 @@ pub fn make_stdio_mcp_server(name: &str, command: &str, args: &[&str]) -> McpSer
         server = server.args(args.iter().map(|a| a.to_string()).collect::<Vec<_>>());
     }
     McpServer::Stdio(server)
+}
+
+/// 带配置连接到 opencode acp，发送 prompt，收集事件并捕获 PromptResponse.usage。
+///
+/// 与 `run_with_config` 的区别：不走 `session.send_prompt()`（会丢弃 usage），
+/// 而是用 oneshot 直接捕获 `PromptResponse.usage`，与 acp.rs 生产链路一致。
+pub async fn run_with_config_and_usage(
+    prompt: &str,
+    config: &SessionConfig,
+    timeout_secs: u64,
+) -> anyhow::Result<(AcpEventCollector, UsageSnapshot)> {
+    let collector = std::sync::Arc::new(tokio::sync::Mutex::new(AcpEventCollector::new()));
+    let cwd = config
+        .working_directory
+        .clone()
+        .unwrap_or_else(default_working_directory);
+    let agent = AcpAgent::from_str(&acp_command())?;
+
+    let collector_for_handler = collector.clone();
+    let mcp_servers = config.mcp_servers.clone().unwrap_or_default();
+    let system_prompt = config.system_prompt.clone();
+    let reasoning_effort = config.reasoning_effort.clone();
+
+    let result = Client
+        .builder()
+        .on_receive_request(
+            async move |request: RequestPermissionRequest, responder, _cx| {
+                let outcome = request
+                    .options
+                    .iter()
+                    .find(|o| o.kind == PermissionOptionKind::AllowOnce)
+                    .map(|o| {
+                        RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
+                            o.option_id.clone(),
+                        ))
+                    })
+                    .unwrap_or(RequestPermissionOutcome::Cancelled);
+
+                let _ = responder.respond(RequestPermissionResponse::new(outcome));
+                Ok(())
+            },
+            on_receive_request!(),
+        )
+        .connect_with(agent, async |connection| {
+            use agent_client_protocol::schema::NewSessionRequest;
+
+            let mut session_request = NewSessionRequest::new(&cwd);
+            if !mcp_servers.is_empty() {
+                session_request = session_request.mcp_servers(mcp_servers.clone());
+            }
+
+            let mut session_meta = serde_json::Map::new();
+            if let Some(ref effort) = reasoning_effort {
+                if !effort.trim().is_empty() {
+                    session_meta.insert(
+                        "reasoningEffort".to_string(),
+                        serde_json::Value::String(effort.clone()),
+                    );
+                }
+            }
+            if let Some(ref prompt) = system_prompt {
+                if !prompt.trim().is_empty() {
+                    session_meta.insert(
+                        "systemPrompt".to_string(),
+                        serde_json::Value::String(prompt.clone()),
+                    );
+                }
+            }
+            if !session_meta.is_empty() {
+                session_request = session_request.meta(session_meta);
+            }
+
+            let mut session = connection
+                .build_session_from(session_request)
+                .block_task()
+                .start_session()
+                .await?;
+
+            {
+                let mut c = collector_for_handler.lock().await;
+                c.session_id = Some(session.session_id().to_string());
+            }
+
+            // 直接向 Agent 发送 PromptRequest 并捕获 PromptResponse.usage，
+            // 绕过 session.send_prompt()（它会丢弃 usage）。与 acp.rs 生产逻辑一致。
+            let prompt_session_id = session.session_id().clone();
+            let prompt_content: Vec<ContentBlock> = vec![prompt.to_string().into()];
+            let (usage_tx, usage_rx) = tokio::sync::oneshot::channel::<Usage>();
+            // pin 后在 select 中使用 Option 取走来避免 receiver 完成后被重复轮询导致 panic。
+            tokio::pin!(usage_rx);
+            let mut usage_received = false;
+
+            session
+                .connection()
+                .send_request_to(Agent, PromptRequest::new(prompt_session_id, prompt_content))
+                .on_receiving_result(async move |result| {
+                    if let Ok(response) = result {
+                        if let Some(usage) = response.usage.clone() {
+                            let _ = usage_tx.send(usage);
+                        }
+                    }
+                    Ok(())
+                })?;
+
+            loop {
+                tokio::select! {
+                    update_result = session.read_update() => {
+                        match update_result {
+                            Ok(session_message) => match session_message {
+                                SessionMessage::SessionMessage(dispatch) => {
+                                    let dispatch_result = MatchDispatch::new(dispatch)
+                                        .if_notification(async |notif: SessionNotification| {
+                                            let mut c = collector_for_handler.lock().await;
+                                            c.record(&notif.update);
+                                            Ok(())
+                                        })
+                                        .await
+                                        .otherwise_ignore();
+
+                                    if let Err(e) = dispatch_result {
+                                        eprintln!("MatchDispatch error: {e}");
+                                    }
+                                }
+                                SessionMessage::StopReason(reason) => {
+                                    let mut c = collector_for_handler.lock().await;
+                                    c.record_stop_reason(reason);
+                                    break;
+                                }
+                                _ => {
+                                    eprintln!("ACP unknown session message variant");
+                                }
+                            },
+                            Err(e) => {
+                                let error_str = e.to_string();
+                                if error_str.contains("EOF")
+                                    || error_str.contains("closed")
+                                    || error_str.contains("channel")
+                                {
+                                    eprintln!("ACP session ended normally");
+                                } else {
+                                    eprintln!("ACP read error: {error_str}");
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    usage = &mut usage_rx, if !usage_received => {
+                        usage_received = true;
+                        if let Ok(usage) = usage {
+                            let mut c = collector_for_handler.lock().await;
+                            // 记录一条 usage 事件，便于断言
+                            let event = CollectedEvent {
+                                event_type: "usage".to_string(),
+                                text: None,
+                                tool_call_id: None,
+                                tool_name: None,
+                                input_tokens: Some(usage.input_tokens),
+                                output_tokens: Some(usage.output_tokens),
+                            };
+                            c.events.push(event);
+                        }
+                        // PromptResponse 已返回（含 usage），表示本轮完成，与 acp.rs 一致直接 break。
+                        break;
+                    }
+                    _ = tokio::time::sleep(Duration::from_secs(timeout_secs)) => {
+                        eprintln!("ACP test timed out after {timeout_secs}s");
+                        break;
+                    }
+                }
+            }
+
+            Ok(())
+        })
+        .await;
+
+    result?;
+
+    let final_collector = collector.lock().await.clone();
+
+    // 从 usage 事件中提取快照
+    let snapshot = final_collector
+        .events
+        .iter()
+        .rev()
+        .find(|e| e.event_type == "usage")
+        .map(|e| UsageSnapshot {
+            input_tokens: e.input_tokens.map(|v| v as u32),
+            output_tokens: e.output_tokens.map(|v| v as u32),
+            cache_read_input_tokens: None,
+            cache_creation_input_tokens: None,
+        })
+        .unwrap_or_default();
+
+    Ok((final_collector, snapshot))
 }

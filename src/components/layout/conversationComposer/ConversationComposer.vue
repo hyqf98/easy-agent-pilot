@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { EaIcon } from '@/components/common'
+import TokenProgressBar from '@/components/common/TokenProgressBar.vue'
 import CompressionConfirmDialog from '@/components/common/CompressionConfirmDialog.vue'
 import { ConversationTodoPanel } from '@/components/message'
 import type { ConversationComposerProps } from './useConversationComposerView'
@@ -8,8 +10,8 @@ import CdPathDropdown from './CdPathDropdown.vue'
 import ConversationComposerAttachments from './ConversationComposerAttachments.vue'
 import ConversationComposerMemoryAssist from './ConversationComposerMemoryAssist.vue'
 import ConversationComposerRichTextOverlay from './ConversationComposerRichTextOverlay.vue'
+import ActiveFormPopup from './ActiveFormPopup.vue'
 import FileMentionDropdown from './FileMentionDropdown.vue'
-import PlanModeBanner from './PlanModeBanner.vue'
 import SlashCommandDropdown from './SlashCommandDropdown.vue'
 
 const props = withDefaults(defineProps<ConversationComposerProps>(), {
@@ -19,12 +21,23 @@ const props = withDefaults(defineProps<ConversationComposerProps>(), {
   defaultFileMentionScope: 'project',
   compact: false,
   showWorkingDirectory: false,
-  hideStatusBar: false
+  hideStatusBar: false,
+  activeForm: null
 })
 
 const emit = defineEmits<{
-  focus: []
+  (e: 'focus'): void
+  (e: 'form-submit', values: Record<string, unknown>): void
+  (e: 'form-cancel'): void
 }>()
+
+function handleActiveFormSubmit(values: Record<string, unknown>) {
+  emit('form-submit', values)
+}
+
+function handleActiveFormCancel() {
+  emit('form-cancel')
+}
 
 const {
   agentDropdownRef,
@@ -64,6 +77,7 @@ const {
   handleInput,
   handleKeyDown,
   handleMessageFormSubmit,
+  handleSend,
   handleMemorySuggestionPointerEnter,
   handleMemorySuggestionPointerLeave,
   handleMemoryPreviewPointerEnter,
@@ -84,9 +98,10 @@ const {
   isMemorySuggestionLoading,
   isMiniPanel,
   isModelDropdownOpen,
+  isPlanMode,
   isReasoningDropdownOpen,
-  isQueueCollapsed,
   isSending,
+  isQueueCollapsed,
   isUploadingImages,
   mentionSearchText,
   mentionStart,
@@ -118,7 +133,6 @@ const {
   selectModel,
   selectReasoningEffort,
   setQueuedDraftEditorRef,
-  shouldShowCompressButton,
   shouldShowMemorySuggestionEmptyState,
   shouldShowMemorySuggestionIdleHint,
   shouldShowMemorySuggestions,
@@ -148,6 +162,30 @@ defineExpose({
   retryMessage,
   openCompressionDialog: handleOpenCompress
 })
+
+const hasDraftContent = computed(() => (
+  inputText.value.trim().length > 0
+  || pendingImages.value.length > 0
+  || currentMemoryReferences.value.length > 0
+))
+
+const sendButtonDisabled = computed(() => (
+  !props.sessionId
+  || isUploadingImages.value
+  || !hasDraftContent.value
+))
+
+const sendButtonTitle = computed(() => {
+  if (!props.sessionId) {
+    return t('message.noSessionSelected')
+  }
+
+  if (isUploadingImages.value) {
+    return t('message.uploadingAttachments')
+  }
+
+  return '发送'
+})
 </script>
 
 <template>
@@ -160,7 +198,8 @@ defineExpose({
       'conversation-composer--mini': isMiniPanel,
       'conversation-composer--compact': compact,
       'conversation-composer--drag-over': isDragOver,
-      'conversation-composer--dark': isDarkTheme
+      'conversation-composer--dark': isDarkTheme,
+      'conversation-composer--plan-mode': isPlanMode
     }"
   >
     <div
@@ -209,18 +248,7 @@ defineExpose({
       </div>
 
       <div class="conversation-composer__status-right">
-        <button
-          v-if="shouldShowCompressButton"
-          class="composer-chip composer-chip--compress"
-          :disabled="isCompressing || isSending"
-          @click="handleOpenCompress"
-        >
-          <EaIcon
-            name="archive"
-            :size="12"
-          />
-          <span>{{ isCompressing ? t('compression.processing') : t('token.compress') }}</span>
-        </button>
+        <!-- 模型 / 附件 / 压缩 已统一下沉到底部工具栏 -->
 
         <div
           ref="agentDropdownRef"
@@ -263,67 +291,10 @@ defineExpose({
             </div>
           </Transition>
         </div>
-
-        <div
-          v-if="currentAgent"
-          ref="modelDropdownRef"
-          class="composer-chip composer-chip--dropdown"
-          :class="{ 'composer-chip--open': isModelDropdownOpen }"
-        >
-          <button
-            class="composer-chip__button"
-            @click="toggleModelDropdown"
-          >
-            <EaIcon
-              name="cpu"
-              :size="12"
-            />
-            <span>{{ getModelLabel(selectedModelId) }}</span>
-            <EaIcon
-              :name="isModelDropdownOpen ? 'chevron-up' : 'chevron-down'"
-              :size="10"
-            />
-          </button>
-          <Transition name="dropdown">
-            <div
-              v-if="isModelDropdownOpen"
-              class="composer-chip__menu"
-            >
-              <div
-                v-for="model in presetModelOptions"
-                :key="model.value"
-                class="composer-chip__option"
-                :class="{ 'composer-chip__option--selected': model.value === selectedModelId }"
-                @click="selectModel(model.value)"
-              >
-                {{ model.label }}
-              </div>
-            </div>
-          </Transition>
-        </div>
-
-        <button
-          class="composer-chip composer-chip--image"
-          :disabled="isUploadingImages"
-          @click="openAttachmentPicker"
-        >
-          <EaIcon
-            name="paperclip"
-            :size="12"
-          />
-          <span>{{ isUploadingImages ? t('message.uploadingAttachments') : t('message.selectAttachments') }}</span>
-        </button>
       </div>
     </div>
 
     <div class="conversation-composer__panel">
-      <PlanModeBanner
-        v-if="sessionId"
-        :session-id="sessionId"
-        @execute-plan="executePlan"
-        @cancel-plan="cancelPlan"
-      />
-
       <ConversationTodoPanel
         v-if="sessionId"
         :session-id="sessionId"
@@ -490,63 +461,318 @@ defineExpose({
         :remove-memory-reference-from-draft="removeMemoryReferenceFromDraft"
       />
 
-      <div
-        v-if="isMainPanel"
-        class="conversation-composer__main-header"
+      <input
+        ref="fileInputRef"
+        type="file"
+        class="conversation-composer__file-input"
+        multiple
+        @change="handleAttachmentFileChange"
       >
-        <div class="conversation-composer__main-header-left">
-          <div
-            ref="agentDropdownRef"
-            class="composer-chip composer-chip--dropdown"
-            :class="{
-              'composer-chip--main': isMainPanel,
-              'composer-chip--open': isAgentDropdownOpen
-            }"
-          >
-            <button
-              class="composer-chip__button"
-              @click="toggleAgentDropdown"
+
+      <ConversationComposerAttachments
+        v-if="!isMainPanel"
+        :attachments="pendingImages"
+        :main="false"
+        :remove-attachment="removeImage"
+      />
+
+      <ActiveFormPopup
+        v-if="isMainPanel && activeForm"
+        :question="activeForm.question"
+        :form-schema="activeForm.formSchema"
+        @submit="handleActiveFormSubmit"
+        @cancel="handleActiveFormCancel"
+      />
+
+      <div class="conversation-composer__editor-stack">
+        <div
+          class="conversation-composer__editor-shell"
+          :class="{ 'conversation-composer__editor-shell--plan-mode': isPlanMode }"
+          @contextmenu.prevent
+        >
+          <div class="conversation-composer__editor-field">
+            <div
+              ref="renderLayerRef"
+              class="conversation-composer__render"
+              :class="{
+                'conversation-composer__render--hidden': !shouldUseRichTextOverlay
+              }"
             >
-              <EaIcon
-                :name="currentAgent?.provider === 'codex' ? 'terminal' : 'code'"
-                :size="11"
+              <ConversationComposerRichTextOverlay
+                :t="t"
+                :parsed-input-text="parsedInputText"
+                :should-use-rich-text-overlay="shouldUseRichTextOverlay"
+                :is-main-panel="isMainPanel"
+                :input-text="inputText"
+                :composer-send-shortcut-hint="composerSendShortcutHint"
               />
-              <span>{{ currentAgentName }}</span>
-              <EaIcon
-                :name="isAgentDropdownOpen ? 'chevron-up' : 'chevron-down'"
-                :size="9"
-              />
-            </button>
-            <Transition name="dropdown">
-              <div
-                v-if="isAgentDropdownOpen"
-                class="composer-chip__menu"
-              >
-                <div
-                  v-for="option in agentOptions"
-                  :key="option.value"
-                  class="composer-chip__option"
-                  :class="{ 'composer-chip__option--selected': option.value === currentAgentId }"
-                  @click="selectAgent(option.value)"
-                >
-                  <EaIcon
-                    :name="option.provider === 'codex' ? 'terminal' : 'code'"
-                    :size="12"
-                  />
-                  <span>{{ option.label }}</span>
-                  <span class="composer-chip__tag">{{ option.provider ? option.provider.toUpperCase() : 'ACP' }}</span>
-                </div>
-              </div>
-            </Transition>
+            </div>
+
+            <textarea
+              ref="textareaRef"
+              v-model="inputText"
+              class="conversation-composer__textarea"
+              :class="{
+                'conversation-composer__textarea--overlay': shouldUseRichTextOverlay
+              }"
+              rows="4"
+              :disabled="!sessionId"
+              :placeholder="shouldUseRichTextOverlay ? '' : (inputPlaceholder || t('message.inputPlaceholder', { shortcut: t('message.shortcutEnter') }))"
+              @compositionstart="handleCompositionStart"
+              @compositionend="handleCompositionEnd"
+              @input="handleInput"
+              @keydown="handleKeyDown"
+              @paste="handlePaste"
+              @scroll="syncScroll"
+              @focus="emit('focus')"
+            />
           </div>
 
-          <!-- 模型选择器，移到智能体旁边 -->
+          <div
+            v-if="isPlanMode"
+            class="conversation-composer__plan-footer"
+          >
+            <div class="conversation-composer__plan-footer-info">
+              <EaIcon
+                name="eye"
+                :size="13"
+                class="conversation-composer__plan-footer-icon"
+              />
+              <span class="conversation-composer__plan-footer-label">{{ t('message.planModeBanner.title') }}</span>
+              <span class="conversation-composer__plan-footer-hint">{{ t('message.planModeBanner.hint') }}</span>
+            </div>
+            <div class="conversation-composer__plan-footer-actions">
+              <button
+                type="button"
+                class="conversation-composer__plan-btn conversation-composer__plan-btn--cancel"
+                @click="cancelPlan"
+              >
+                <EaIcon
+                  name="x"
+                  :size="12"
+                />
+                <span>{{ t('message.planModeBanner.cancel') }}</span>
+              </button>
+              <button
+                type="button"
+                class="conversation-composer__plan-btn conversation-composer__plan-btn--execute"
+                @click="executePlan"
+              >
+                <EaIcon
+                  name="play"
+                  :size="12"
+                />
+                <span>{{ t('message.planModeBanner.execute') }}</span>
+              </button>
+            </div>
+          </div>
+
+          <div
+            v-if="isMainPanel"
+            class="conversation-composer__control-row"
+          >
+            <div class="conversation-composer__control-group conversation-composer__control-group--start">
+              <button
+                class="composer-chip composer-chip--image composer-chip--image-main"
+                :disabled="isUploadingImages"
+                @click="openAttachmentPicker"
+              >
+                <EaIcon
+                  name="paperclip"
+                  :size="12"
+                />
+                <span class="composer-chip__text">{{ isUploadingImages ? t('message.uploadingAttachments') : t('message.selectAttachments') }}</span>
+              </button>
+
+              <div
+                ref="agentDropdownRef"
+                class="composer-chip composer-chip--dropdown"
+                :class="{
+                  'composer-chip--main': isMainPanel,
+                  'composer-chip--open': isAgentDropdownOpen
+                }"
+              >
+                <button
+                  class="composer-chip__button"
+                  @click="toggleAgentDropdown"
+                >
+                  <EaIcon
+                    :name="currentAgent?.provider === 'codex' ? 'terminal' : 'code'"
+                    :size="11"
+                  />
+                  <span>{{ currentAgentName }}</span>
+                  <EaIcon
+                    :name="isAgentDropdownOpen ? 'chevron-up' : 'chevron-down'"
+                    :size="9"
+                  />
+                </button>
+                <Transition name="dropdown">
+                  <div
+                    v-if="isAgentDropdownOpen"
+                    class="composer-chip__menu"
+                  >
+                    <div
+                      v-for="option in agentOptions"
+                      :key="option.value"
+                      class="composer-chip__option"
+                      :class="{ 'composer-chip__option--selected': option.value === currentAgentId }"
+                      @click="selectAgent(option.value)"
+                    >
+                      <EaIcon
+                        :name="option.provider === 'codex' ? 'terminal' : 'code'"
+                        :size="12"
+                      />
+                      <span>{{ option.label }}</span>
+                      <span class="composer-chip__tag">{{ option.provider ? option.provider.toUpperCase() : 'ACP' }}</span>
+                    </div>
+                  </div>
+                </Transition>
+              </div>
+
+              <div
+                v-if="currentAgent && reasoningEffortOptions.length > 0"
+                ref="reasoningDropdownRef"
+                class="composer-chip composer-chip--dropdown"
+                :class="{
+                  'composer-chip--main': isMainPanel,
+                  'composer-chip--open': isReasoningDropdownOpen
+                }"
+              >
+                <button
+                  class="composer-chip__button"
+                  @click="toggleReasoningDropdown"
+                >
+                  <EaIcon
+                    name="brain"
+                    :size="11"
+                  />
+                  <span>{{ getReasoningEffortLabel(selectedReasoningEffort) }}</span>
+                  <EaIcon
+                    :name="isReasoningDropdownOpen ? 'chevron-up' : 'chevron-down'"
+                    :size="9"
+                  />
+                </button>
+                <Transition name="dropdown">
+                  <div
+                    v-if="isReasoningDropdownOpen"
+                    class="composer-chip__menu"
+                  >
+                    <div
+                      class="composer-chip__option composer-chip__option--reset"
+                      :class="{ 'composer-chip__option--selected': !selectedReasoningEffort }"
+                      @click="selectReasoningEffort('')"
+                    >
+                      {{ t('reasoning.default') }}
+                    </div>
+                    <div
+                      v-for="option in reasoningEffortOptions"
+                      :key="option.value"
+                      class="composer-chip__option"
+                      :class="{ 'composer-chip__option--selected': option.value === selectedReasoningEffort }"
+                      @click="selectReasoningEffort(option.value)"
+                    >
+                      {{ option.label }}
+                    </div>
+                  </div>
+                </Transition>
+              </div>
+            </div>
+
+            <div class="conversation-composer__control-group conversation-composer__control-group--end">
+              <div class="conversation-composer__context-slot">
+                <TokenProgressBar
+                  :session-id="sessionId"
+                  @compress="handleOpenCompress"
+                />
+              </div>
+
+              <div
+                v-if="currentAgent"
+                ref="modelDropdownRef"
+                class="composer-chip composer-chip--dropdown"
+                :class="{
+                  'composer-chip--main': isMainPanel,
+                  'composer-chip--open': isModelDropdownOpen
+                }"
+              >
+                <button
+                  class="composer-chip__button"
+                  @click="toggleModelDropdown"
+                >
+                  <EaIcon
+                    name="cpu"
+                    :size="11"
+                  />
+                  <span class="composer-chip__text">{{ getModelLabel(selectedModelId) }}</span>
+                  <EaIcon
+                    :name="isModelDropdownOpen ? 'chevron-up' : 'chevron-down'"
+                    :size="9"
+                  />
+                </button>
+                <Transition name="dropdown">
+                  <div
+                    v-if="isModelDropdownOpen"
+                    class="composer-chip__menu composer-chip__menu--right"
+                  >
+                    <div
+                      v-for="model in presetModelOptions"
+                      :key="model.value"
+                      class="composer-chip__option"
+                      :class="{ 'composer-chip__option--selected': model.value === selectedModelId }"
+                      @click="selectModel(model.value)"
+                    >
+                      {{ model.label }}
+                    </div>
+                  </div>
+                </Transition>
+              </div>
+
+              <button
+                type="button"
+                class="conversation-composer__send conversation-composer__send--main"
+                :disabled="sendButtonDisabled"
+                :title="sendButtonTitle"
+                :aria-label="sendButtonTitle"
+                @click="handleSend"
+              >
+                <span
+                  v-if="queuedMessages.length > 0"
+                  class="conversation-composer__send-state"
+                >
+                  {{ queuedMessages.length }}
+                </span>
+                <EaIcon
+                  :name="isSending ? 'clock-3' : 'send'"
+                  :size="14"
+                />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div
+        v-if="!isMainPanel"
+        class="conversation-composer__main-footer"
+      >
+        <div class="conversation-composer__main-footer-left">
+          <button
+            class="composer-chip composer-chip--image"
+            :disabled="isUploadingImages"
+            @click="openAttachmentPicker"
+          >
+            <EaIcon
+              name="paperclip"
+              :size="12"
+            />
+            <span class="composer-chip__text">{{ isUploadingImages ? t('message.uploadingAttachments') : t('message.selectAttachments') }}</span>
+          </button>
+
           <div
             v-if="currentAgent"
             ref="modelDropdownRef"
             class="composer-chip composer-chip--dropdown"
             :class="{
-              'composer-chip--main': isMainPanel,
               'composer-chip--open': isModelDropdownOpen
             }"
           >
@@ -558,7 +784,7 @@ defineExpose({
                 name="cpu"
                 :size="11"
               />
-              <span>{{ getModelLabel(selectedModelId) }}</span>
+              <span class="composer-chip__text">{{ getModelLabel(selectedModelId) }}</span>
               <EaIcon
                 :name="isModelDropdownOpen ? 'chevron-up' : 'chevron-down'"
                 :size="9"
@@ -581,128 +807,12 @@ defineExpose({
               </div>
             </Transition>
           </div>
-
-          <!-- 推理等级选择器 -->
-          <div
-            v-if="currentAgent && reasoningEffortOptions.length > 0"
-            ref="reasoningDropdownRef"
-            class="composer-chip composer-chip--dropdown"
-            :class="{
-              'composer-chip--main': isMainPanel,
-              'composer-chip--open': isReasoningDropdownOpen
-            }"
-          >
-            <button
-              class="composer-chip__button"
-              @click="toggleReasoningDropdown"
-            >
-              <EaIcon
-                name="brain"
-                :size="11"
-              />
-              <span>{{ getReasoningEffortLabel(selectedReasoningEffort) }}</span>
-              <EaIcon
-                :name="isReasoningDropdownOpen ? 'chevron-up' : 'chevron-down'"
-                :size="9"
-              />
-            </button>
-            <Transition name="dropdown">
-              <div
-                v-if="isReasoningDropdownOpen"
-                class="composer-chip__menu"
-              >
-                <div
-                  class="composer-chip__option composer-chip__option--reset"
-                  :class="{ 'composer-chip__option--selected': !selectedReasoningEffort }"
-                  @click="selectReasoningEffort('')"
-                >
-                  {{ t('reasoning.default') }}
-                </div>
-                <div
-                  v-for="option in reasoningEffortOptions"
-                  :key="option.value"
-                  class="composer-chip__option"
-                  :class="{ 'composer-chip__option--selected': option.value === selectedReasoningEffort }"
-                  @click="selectReasoningEffort(option.value)"
-                >
-                  {{ option.label }}
-                </div>
-              </div>
-            </Transition>
-          </div>
-
-          <!-- 图片按钮移到顶部 -->
-          <button
-            class="composer-chip composer-chip--image"
-            :class="{ 'composer-chip--main': isMainPanel }"
-            :disabled="isUploadingImages"
-            @click="openAttachmentPicker"
-          >
-            <EaIcon
-              name="paperclip"
-              :size="12"
-            />
-            <span>{{ isUploadingImages ? t('message.uploadingAttachments') : t('message.selectAttachments') }}</span>
-          </button>
         </div>
-      </div>
 
-      <input
-        ref="fileInputRef"
-        type="file"
-        class="conversation-composer__file-input"
-        multiple
-        @change="handleAttachmentFileChange"
-      >
-
-      <ConversationComposerAttachments
-        v-if="!isMainPanel"
-        :attachments="pendingImages"
-        :main="false"
-        :remove-attachment="removeImage"
-      />
-
-      <div class="conversation-composer__editor-stack">
-        <div
-          class="conversation-composer__editor-shell"
-          @contextmenu.prevent
-        >
-          <div
-            ref="renderLayerRef"
-            class="conversation-composer__render"
-            :class="{
-              'conversation-composer__render--hidden': !shouldUseRichTextOverlay
-            }"
-          >
-            <ConversationComposerRichTextOverlay
-              :t="t"
-              :parsed-input-text="parsedInputText"
-              :should-use-rich-text-overlay="shouldUseRichTextOverlay"
-              :is-main-panel="isMainPanel"
-              :input-text="inputText"
-              :composer-send-shortcut-hint="composerSendShortcutHint"
-            />
-          </div>
-
-          <textarea
-            ref="textareaRef"
-            v-model="inputText"
-            class="conversation-composer__textarea"
-            :class="{
-              'conversation-composer__textarea--overlay': shouldUseRichTextOverlay
-            }"
-            rows="4"
-            :disabled="!sessionId"
-            :placeholder="shouldUseRichTextOverlay ? '' : (inputPlaceholder || t('message.inputPlaceholder', { shortcut: t('message.shortcutEnter') }))"
-            @compositionstart="handleCompositionStart"
-            @compositionend="handleCompositionEnd"
-            @input="handleInput"
-            @keydown="handleKeyDown"
-            @paste="handlePaste"
-            @scroll="syncScroll"
-            @focus="emit('focus')"
-          />
-        </div>
+        <TokenProgressBar
+          :session-id="sessionId"
+          @compress="handleOpenCompress"
+        />
       </div>
     </div>
 

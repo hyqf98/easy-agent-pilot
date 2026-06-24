@@ -502,6 +502,26 @@ export default {
       logs: 'Log Management',
       providerSwitch: 'Config Switch'
     },
+    group: {
+      workspace: 'Workspace',
+      agents: 'Agents',
+      system: 'System'
+    },
+    desc: {
+      general: 'Language, sizing, compression strategy and notifications',
+      providerSwitch: 'Manage provider connections and switching per runtime',
+      theme: 'Light / dark theme and accent color',
+      sessions: 'Review and clear historical sessions',
+      agents: 'Detect and configure local CLI / SDK agents',
+      agentTeams: 'Compose experts and runtime bindings for scenarios',
+      agentConfig: 'Skills, plugins and MCP servers',
+      unattended: 'Configure background automation and scheduled tasks',
+      lsp: 'Language Server (LSP) management and status',
+      data: 'Import, export and clear local app data',
+      logs: 'Inspect runtime logs and troubleshoot',
+      usageStats: 'Review token usage and cost statistics',
+      appUpdate: 'Check for and install app updates'
+    },
     agentTeams: {
       subtitle: 'Manage expert prompts and runtime bindings for different business scenarios',
       createExpert: 'New Expert',

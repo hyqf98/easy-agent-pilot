@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, toRef } from 'vue'
+import { computed, inject, toRef } from 'vue'
 import DynamicForm from '@/components/plan/dynamicForm/DynamicForm.vue'
+import { ACTIVE_FORM_ID } from '@/constants/activeForm'
 import { parseStructuredContent } from '@/utils/structuredContent'
 import { useTypewriterText } from '@/composables/useTypewriterText'
 import MarkdownRenderer from './MarkdownRenderer.vue'
@@ -26,6 +27,9 @@ const emit = defineEmits<{
   (e: 'form-cancel', formId: string): void
 }>()
 
+// 主会话激活表单的 formId：该表单已在输入框上方以弹出卡片展示，消息流里不再重复渲染
+const activeFormId = inject(ACTIVE_FORM_ID, null)
+
 const { displayedText } = useTypewriterText(
   toRef(props, 'content'),
   toRef(props, 'animate'),
@@ -47,6 +51,11 @@ function isFormResolved(formId: string): boolean {
 
 function isFormDisabled(formId: string): boolean {
   return !props.interactiveForms || props.formDisabled || isFormResolved(formId)
+}
+
+/** 当前表单是否已在输入框上方弹出卡片展示（主会话激活态），避免消息流重复渲染 */
+function isActiveForm(formId: string): boolean {
+  return Boolean(activeFormId && activeFormId.value === formId)
 }
 
 function handleFormSubmit(formId: string, values: Record<string, unknown>) {
@@ -81,7 +90,7 @@ function handleFormCancel(formId: string) {
       </div>
 
       <div
-        v-else-if="block.type === 'form'"
+        v-else-if="block.type === 'form' && !isActiveForm(block.formSchema.formId)"
         class="structured-content__form"
         :class="{
           'structured-content__form--disabled': isFormDisabled(block.formSchema.formId),

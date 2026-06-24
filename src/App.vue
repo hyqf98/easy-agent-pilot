@@ -20,7 +20,6 @@ import { useConfirmDialog, useWindowEvents } from './composables'
 import { useMiniPanelShortcut } from './composables/useMiniPanelShortcut'
 import { createMockUpdaterAdapter } from './services/appUpdate'
 import { readCrashLog, writeCrashLog, clearCrashLog } from './services/runtimeLog/crashLog'
-import { SettingsModal } from './components/settings'
 import { EaToast, EaLoadingOverlay, EaConfirmDialog } from './components/common'
 
 const themeStore = useThemeStore()
@@ -117,6 +116,16 @@ const handleKeydown = (event: KeyboardEvent) => {
     if (index < openSessions.length) {
       sessionStore.setCurrentSession(openSessions[index].id)
     }
+  }
+
+  // Cmd/Ctrl + , 切换设置视图
+  if ((event.metaKey || event.ctrlKey) && event.key === ',') {
+    const activeElement = document.activeElement
+    if (activeElement?.tagName === 'INPUT' || activeElement?.tagName === 'TEXTAREA') {
+      return
+    }
+    event.preventDefault()
+    uiStore.toggleSettings()
   }
 }
 
@@ -349,7 +358,6 @@ onUnmounted(() => {
   <n-message-provider>
     <div class="app-container">
       <RouterView />
-      <SettingsModal />
       <EaToast />
       <EaLoadingOverlay />
       <EaConfirmDialog

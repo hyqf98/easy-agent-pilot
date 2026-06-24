@@ -862,6 +862,12 @@ export const useMessageStore = defineStore('message', () => {
     const persistedExplicitOccupancyTokens = usageNotice
       ? parseRuntimeNoticeNumber(usageNotice, ['上下文占用 Tokens', 'context occupancy tokens'])
       : null
+    const persistedCacheReadTokens = usageNotice
+      ? parseRuntimeNoticeNumber(usageNotice, ['缓存读取 Tokens', 'cache read tokens', 'cache hit tokens'])
+      : null
+    const persistedCacheCreationTokens = usageNotice
+      ? parseRuntimeNoticeNumber(usageNotice, ['缓存写入 Tokens', 'cache creation tokens', 'cache write tokens'])
+      : null
     const mergedUsageCounts = mergeFinalUsageSnapshotCounts({
       inputTokens: persistedInputTokens ?? undefined,
       outputTokens: persistedOutputTokens ?? undefined
@@ -893,7 +899,9 @@ export const useMessageStore = defineStore('message', () => {
       model: latestUsage.model,
       inputTokens: resolvedInputTokens ?? undefined,
       outputTokens: resolvedOutputTokens ?? undefined,
-      contextWindowOccupancy: resolvedOccupancy
+      contextWindowOccupancy: resolvedOccupancy,
+      cacheReadInputTokens: persistedCacheReadTokens ?? undefined,
+      cacheCreationInputTokens: persistedCacheCreationTokens ?? undefined
     })
     if (!nextUsageNotice) {
       return messages

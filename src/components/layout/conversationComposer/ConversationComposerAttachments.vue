@@ -19,10 +19,10 @@ const attachmentWrapperStyle = computed(() => {
       width: '56px',
       height: '56px',
       overflow: 'hidden',
-      borderRadius: '12px',
-      border: '1px solid rgba(226, 232, 240, 0.92)',
-      background: 'rgba(248, 250, 252, 0.94)',
-      boxShadow: '0 6px 14px rgba(15, 23, 42, 0.05)'
+      borderRadius: '16px',
+      border: '1px solid var(--workspace-border, rgba(38, 38, 38, 0.1))',
+      background: 'color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 92%, transparent)',
+      boxShadow: '0 8px 20px rgba(15, 23, 42, 0.08)'
     }
   }
 
@@ -81,9 +81,9 @@ const attachmentImageStyle = {
 }
 
 .conversation-composer__attachments--main {
-  gap: 6px;
+  gap: 8px;
   align-items: flex-start;
-  padding: 0 0 8px;
+  padding: 0 2px 10px;
 }
 
 .conversation-composer__attachment {
@@ -98,10 +98,10 @@ const attachmentImageStyle = {
 .conversation-composer__attachments--main .conversation-composer__attachment {
   width: 56px;
   height: 56px;
-  border-radius: 12px;
-  border-color: rgba(226, 232, 240, 0.92);
-  background: rgba(248, 250, 252, 0.94);
-  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.05);
+  border-radius: 14px;
+  border-color: var(--workspace-border, rgba(38, 38, 38, 0.1));
+  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 92%, transparent);
+  box-shadow: 0 8px 16px rgba(24, 24, 22, 0.06);
 }
 
 .conversation-composer__attachment-image {
@@ -120,12 +120,13 @@ const attachmentImageStyle = {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: rgba(15, 23, 42, 0.72);
-  color: white;
-  border: 0;
+  background: color-mix(in srgb, var(--workspace-panel-bg, #ffffff) 92%, transparent);
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  border: 1px solid var(--workspace-border, rgba(38, 38, 38, 0.1));
+  box-shadow: 0 4px 12px rgba(24, 24, 22, 0.08);
   opacity: 0;
   transform: translateY(-2px);
-  transition: opacity 0.16s ease, transform 0.16s ease, background-color 0.16s ease;
+  transition: opacity 0.16s ease, transform 0.16s ease, background-color 0.16s ease, border-color 0.16s ease;
 }
 
 .conversation-composer__attachment:hover .conversation-composer__attachment-remove,
@@ -135,7 +136,8 @@ const attachmentImageStyle = {
 }
 
 .conversation-composer__attachment-remove:hover {
-  background: rgba(15, 23, 42, 0.9);
+  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 88%, white);
+  border-color: color-mix(in srgb, var(--color-primary, #2563eb) 18%, var(--workspace-border, rgba(38, 38, 38, 0.1)));
 }
 
 .conversation-composer__attachments--main .conversation-composer__attachment-remove {
@@ -152,11 +154,13 @@ const attachmentImageStyle = {
 
 :global([data-theme='dark']) .conversation-composer__attachment-remove,
 :global(.dark) .conversation-composer__attachment-remove {
-  background: rgba(2, 6, 23, 0.8);
+  background: rgba(15, 23, 42, 0.86);
+  color: rgba(255, 255, 255, 0.92);
+  border-color: rgba(148, 163, 184, 0.24);
 }
 
 :global([data-theme='dark']) .conversation-composer__attachment-remove:hover,
 :global(.dark) .conversation-composer__attachment-remove:hover {
-  background: rgba(2, 6, 23, 0.94);
+  background: rgba(30, 41, 59, 0.92);
 }
 </style>

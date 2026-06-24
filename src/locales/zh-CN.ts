@@ -416,6 +416,26 @@ const zhCN = {
       logs: '日志管理',
       providerSwitch: '配置切换'
     },
+    group: {
+      workspace: '工作区',
+      agents: 'Agent',
+      system: '系统'
+    },
+    desc: {
+      general: '语言、外观尺寸、压缩策略与通知偏好',
+      providerSwitch: '管理各运行时的 Provider 连接与切换',
+      theme: '浅色 / 深色主题与强调色配置',
+      sessions: '查看与清理历史会话记录',
+      agents: '检测与配置本地 CLI / SDK Agent',
+      agentTeams: '面向业务场景编排专家与运行时绑定',
+      agentConfig: '技能、插件与 MCP 服务器配置',
+      unattended: '配置后台自动执行与调度任务',
+      lsp: '语言服务器（LSP）管理与状态',
+      data: '导入、导出与清理本地应用数据',
+      logs: '查看运行日志与排查问题',
+      usageStats: '查看 Token 用量与费用统计',
+      appUpdate: '检查并安装应用更新'
+    },
     agentTeams: {
       subtitle: '面向业务场景管理专家提示词与运行时绑定',
       createExpert: '新建专家',

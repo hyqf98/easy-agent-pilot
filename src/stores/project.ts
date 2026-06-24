@@ -112,6 +112,9 @@ export const useProjectStore = defineStore('project', () => {
   const isLoading = ref(false)
   const loadError = ref<string | null>(null)
 
+  // 当前项目的 git 分支名（非 git 仓库时为 null）
+  const currentBranch = ref<string | null>(null)
+
   // Getters
   const currentProject = computed(() =>
     projects.value.find(p => p.id === currentProjectId.value)
@@ -134,6 +137,9 @@ export const useProjectStore = defineStore('project', () => {
         currentProjectId.value = lastProjectId
       }
       // 注意：不再自动选中第一个项目，让用户在欢迎页面手动选择
+
+      // 首次加载后同步刷新 git 分支（覆盖 watch 未触发的情况，例如 HMR 状态已存在）
+      void loadCurrentBranch()
     } catch (error) {
       console.error('Failed to load projects:', error)
       projects.value = []
@@ -531,6 +537,28 @@ export const useProjectStore = defineStore('project', () => {
     }
   })
 
+  // 读取当前项目的 git 分支名，供顶栏展示。
+  // 非 git 仓库 / git 缺失时后端返回 null，对应隐藏展示。
+  async function loadCurrentBranch() {
+    const projectPath = currentProject.value?.path
+    if (!projectPath) {
+      currentBranch.value = null
+      return
+    }
+    try {
+      const branch = await invoke<string | null>('get_project_git_branch', { projectPath })
+      currentBranch.value = branch ?? null
+    } catch (error) {
+      console.error('Failed to load git branch:', error)
+      currentBranch.value = null
+    }
+  }
+
+  // 项目切换时同步刷新分支，并兼容 loadProjects 自动选中后触发
+  watch(currentProjectId, () => {
+    void loadCurrentBranch()
+  })
+
   return {
     // State
     projects,
@@ -570,6 +598,9 @@ export const useProjectStore = defineStore('project', () => {
     refreshFileTree,
     // 最近项目
     recentProjectIds,
-    getRecentProjectIds
+    getRecentProjectIds,
+    // Git 分支
+    currentBranch,
+    loadCurrentBranch
   }
 })

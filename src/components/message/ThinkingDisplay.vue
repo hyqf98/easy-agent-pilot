@@ -22,7 +22,7 @@ const { displayedText } = useTypewriterText(
 
 const isExpanded = ref(props.defaultExpanded)
 const placeholderText = computed(() => props.live ? '正在思考...' : '')
-const titleText = computed(() => props.live ? '思考中' : 'Thought')
+const titleText = computed(() => props.live ? '正在思考' : '思考过程')
 
 // 切换展开状态
 const toggleExpand = () => {
@@ -83,9 +83,9 @@ const toggleExpand = () => {
   min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
-  border-radius: 8px;
-  background: var(--tool-call-bg, color-mix(in srgb, var(--color-surface) 92%, white 8%));
-  border: 1px solid var(--tool-call-border, var(--workspace-border, var(--color-border)));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--tool-call-bg, var(--color-surface)) 62%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tool-call-border, var(--workspace-border, var(--color-border))) 78%, transparent);
   overflow: hidden;
   transition: border-color 0.16s ease, background 0.16s ease;
 }
@@ -100,7 +100,7 @@ const toggleExpand = () => {
   justify-content: space-between;
   width: 100%;
   min-height: 32px;
-  padding: 5px 8px;
+  padding: 5px 9px;
   border: 0;
   background: transparent;
   cursor: pointer;
@@ -161,13 +161,13 @@ const toggleExpand = () => {
   width: 100%;
   box-sizing: border-box;
   border-top: 1px solid var(--tool-call-content-border, var(--workspace-border, var(--color-border)));
-  max-height: calc(var(--message-compact-max-height, 20rem) - 44px);
+  max-height: min(320px, calc(var(--message-compact-max-height, 20rem) - 44px));
   overflow: hidden;
 }
 
 .thinking-display__scroll {
   width: 100%;
-  max-height: calc(var(--message-compact-max-height, 20rem) - 44px);
+  max-height: min(320px, calc(var(--message-compact-max-height, 20rem) - 44px));
   overflow: auto;
   scrollbar-gutter: stable;
   padding: 7px 8px 8px;
@@ -211,8 +211,8 @@ const toggleExpand = () => {
 /* 暗色模式适配 */
 :global([data-theme='dark']) .thinking-display,
 :global(.dark) .thinking-display {
-  background: var(--tool-call-bg, rgba(255, 255, 255, 0.06));
-  border-color: var(--tool-call-border, rgba(255, 255, 255, 0.1));
+  background: color-mix(in srgb, var(--tool-call-bg, rgba(255, 255, 255, 0.06)) 70%, transparent);
+  border-color: color-mix(in srgb, var(--tool-call-border, rgba(255, 255, 255, 0.1)) 84%, transparent);
 }
 
 :global([data-theme='dark']) .thinking-display__header:hover,

@@ -11,18 +11,23 @@ use common::{
     make_stdio_mcp_server, SessionConfig,
 };
 
-/// 没有安装 opencode 时自动跳过所有测试
-fn ensure_opencode_or_skip() {
+/// 没有安装 opencode 时自动跳过所有测试。
+/// 返回 `false` 表示未安装，调用方必须提前 `return`。
+fn ensure_opencode_or_skip() -> bool {
     if !is_opencode_available() {
         eprintln!("skipping: opencode not found in PATH");
-        return;
+        false
+    } else {
+        true
     }
 }
 
 /// 仅连接并启动会话，验证 ACP 握手链路
 #[tokio::test]
 async fn connects_to_opencode_acp() {
-    ensure_opencode_or_skip();
+    if !ensure_opencode_or_skip() {
+        return;
+    }
 
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(60),
@@ -43,7 +48,9 @@ async fn connects_to_opencode_acp() {
 /// 验证能读取到 AgentMessageChunk（agent 回复文本）
 #[tokio::test]
 async fn reads_agent_message_chunk() {
-    ensure_opencode_or_skip();
+    if !ensure_opencode_or_skip() {
+        return;
+    }
 
     let collector = match tokio::time::timeout(
         std::time::Duration::from_secs(120),
@@ -81,7 +88,9 @@ async fn reads_agent_message_chunk() {
 /// 验证能收到 StopReason::EndTurn
 #[tokio::test]
 async fn receives_stop_reason() {
-    ensure_opencode_or_skip();
+    if !ensure_opencode_or_skip() {
+        return;
+    }
 
     let collector = match tokio::time::timeout(
         std::time::Duration::from_secs(120),
@@ -108,7 +117,9 @@ async fn receives_stop_reason() {
 /// 诊断性测试：打印所有事件类型和数量，不强制断言
 #[tokio::test]
 async fn collects_all_event_types() {
-    ensure_opencode_or_skip();
+    if !ensure_opencode_or_skip() {
+        return;
+    }
 
     let collector = match tokio::time::timeout(
         std::time::Duration::from_secs(180),
@@ -188,7 +199,9 @@ async fn collects_all_event_types() {
 /// 验证 system_prompt meta 能被传递，会话不会因 systemPrompt meta 报错
 #[tokio::test]
 async fn system_prompt_meta_accepted() {
-    ensure_opencode_or_skip();
+    if !ensure_opencode_or_skip() {
+        return;
+    }
 
     // 通过 meta.systemPrompt 传递系统提示词，验证会话链路正常
     let config = SessionConfig {
@@ -236,7 +249,9 @@ async fn system_prompt_meta_accepted() {
 /// 验证 mcp_servers 能被正确传递，会话能正常建立且 agent 能调用 MCP 工具
 #[tokio::test]
 async fn mcp_servers_dont_break_session() {
-    ensure_opencode_or_skip();
+    if !ensure_opencode_or_skip() {
+        return;
+    }
 
     // 构造一个简单的 stdio MCP server（用 npx 跑一个已知 MCP 工具）
     // 使用 @upstash/context7-mcp 作为测试用 server（opencode.json 中已配置）
@@ -285,7 +300,9 @@ async fn mcp_servers_dont_break_session() {
 /// 验证 reasoning_effort meta 能被传递，会话不会因此报错
 #[tokio::test]
 async fn reasoning_effort_meta_accepted() {
-    ensure_opencode_or_skip();
+    if !ensure_opencode_or_skip() {
+        return;
+    }
 
     let config = SessionConfig {
         reasoning_effort: Some("high".to_string()),

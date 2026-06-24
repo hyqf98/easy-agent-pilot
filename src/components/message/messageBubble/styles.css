@@ -1,7 +1,7 @@
 .message-bubble {
-  --message-fixed-width: 36rem;
+  --message-fixed-width: clamp(24rem, 54vw, 46rem);
   --message-min-width: var(--message-fixed-width);
-  --message-max-width: 50rem;
+  --message-max-width: 54rem;
   --message-compact-max-width: var(--message-fixed-width);
   --message-compact-max-height: 20rem;
   --message-trace-max-width: 46rem;
@@ -33,9 +33,9 @@
 
 .message-bubble__avatar {
   flex-shrink: 0;
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
   background: var(--workspace-control-bg, var(--color-bg-tertiary));
   border: 1px solid var(--workspace-control-border, var(--color-border));
   color: var(--workspace-text-secondary, var(--color-text-secondary));
@@ -52,7 +52,7 @@
 .message-bubble__body {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-2);
+  gap: 8px;
   min-width: 0;
   width: fit-content;
   max-width: min(100%, var(--message-max-width));
@@ -83,7 +83,7 @@
   min-height: fit-content;
   animation: fadeSlideDown 0.3s ease-out;
   overflow: hidden;
-  border-radius: var(--radius-lg);
+  border-radius: 10px;
 }
 
 .message-bubble__content {
@@ -101,9 +101,10 @@
 
 .message-bubble--assistant .message-bubble__content {
   min-width: min(100%, var(--message-fixed-width));
-  background-color: var(--workspace-panel-bg, var(--color-bg-tertiary));
-  border: 1px solid var(--workspace-border, var(--color-border));
-  border-radius: 8px;
+  padding: 2px 0;
+  background-color: transparent;
+  border: 0;
+  border-radius: 0;
   color: var(--color-text-primary);
 }
 
@@ -122,10 +123,12 @@
 
 .message-bubble--user .message-bubble__content {
   min-width: unset;
-  background-color: var(--workspace-list-active-bg, var(--color-primary-light));
+  max-width: min(100%, 38rem);
+  padding: 8px 11px;
+  background-color: color-mix(in srgb, var(--workspace-list-active-bg, var(--color-primary-light)) 86%, var(--workspace-panel-bg, #ffffff));
   color: var(--workspace-text-primary, var(--color-primary-dark));
-  border: 1px solid var(--workspace-border, transparent);
-  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--workspace-border, var(--color-border)) 72%, transparent);
+  border-radius: 12px;
 }
 
 :global([data-theme='dark']) .message-bubble--user .message-bubble__content,
@@ -297,10 +300,11 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 6px;
-  border-radius: 8px;
-  border: 1px solid var(--tool-call-shell-border);
-  background: var(--tool-call-shell-bg);
+  padding: 5px 0 5px 10px;
+  border-radius: 10px;
+  border: 0;
+  border-left: 1px solid var(--tool-call-shell-border);
+  background: transparent;
   overflow: hidden;
 }
 
@@ -318,9 +322,9 @@
   min-width: min(100%, var(--message-fixed-width));
   max-width: 100%;
   margin-bottom: calc(var(--spacing-2) * -0.25);
-  padding: 0.42rem 0.62rem;
-  border-radius: 7px;
-  background: var(--workspace-control-bg, rgba(15, 23, 42, 0.04));
+  padding: 0.34rem 0.56rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--workspace-control-bg, rgba(15, 23, 42, 0.04)) 80%, transparent);
   border: 1px solid var(--workspace-control-border, rgba(15, 23, 42, 0.08));
   box-sizing: border-box;
 }
@@ -371,7 +375,7 @@
   justify-content: space-between;
   gap: 0.75rem;
   width: 100%;
-  padding: 2px 4px;
+  padding: 2px 0;
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -413,7 +417,7 @@
 .message-bubble__tool-calls {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-2);
+  gap: 6px;
   min-height: 0;
   overflow: visible;
 }

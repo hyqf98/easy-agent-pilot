@@ -50,6 +50,8 @@ interface UsageSnapshot {
   inputTokens?: number
   outputTokens?: number
   contextWindowOccupancy?: number
+  cacheReadInputTokens?: number
+  cacheCreationInputTokens?: number
 }
 
 interface RuntimeNoticeDescriptor {
@@ -122,6 +124,11 @@ function isRuntimeNoticeLineLabel(label: string): boolean {
     'output token',
     '输入',
     '输出',
+    '缓存读取 Tokens',
+    '缓存写入 Tokens',
+    'cache read tokens',
+    'cache creation tokens',
+    'cache write tokens',
     '用时',
     '耗时',
     'elapsed',
@@ -494,12 +501,25 @@ export function resolveRuntimeNoticeModel(notices?: RuntimeNotice[] | null): str
 export function buildUsageNotice(usage: UsageSnapshot): RuntimeNotice | null {
   const inputTokens = typeof usage.inputTokens === 'number' ? usage.inputTokens : undefined
   const outputTokens = typeof usage.outputTokens === 'number' ? usage.outputTokens : undefined
+  const cacheReadInputTokens = typeof usage.cacheReadInputTokens === 'number'
+    ? usage.cacheReadInputTokens
+    : undefined
+  const cacheCreationInputTokens = typeof usage.cacheCreationInputTokens === 'number'
+    ? usage.cacheCreationInputTokens
+    : undefined
   const model = usage.model?.trim()
   const occupancy = typeof usage.contextWindowOccupancy === 'number' && usage.contextWindowOccupancy > 0
     ? usage.contextWindowOccupancy
     : undefined
 
-  if (!model && inputTokens === undefined && outputTokens === undefined && occupancy === undefined) {
+  if (
+    !model
+    && inputTokens === undefined
+    && outputTokens === undefined
+    && occupancy === undefined
+    && cacheReadInputTokens === undefined
+    && cacheCreationInputTokens === undefined
+  ) {
     return null
   }
 
@@ -507,7 +527,9 @@ export function buildUsageNotice(usage: UsageSnapshot): RuntimeNotice | null {
     model ? `- 模型: ${model}` : null,
     inputTokens !== undefined ? `- 输入 Tokens: ${inputTokens}` : null,
     outputTokens !== undefined ? `- 输出 Tokens: ${outputTokens}` : null,
-    occupancy !== undefined && occupancy !== inputTokens ? `- 上下文占用 Tokens: ${occupancy}` : null
+    occupancy !== undefined && occupancy !== inputTokens ? `- 上下文占用 Tokens: ${occupancy}` : null,
+    cacheReadInputTokens !== undefined ? `- 缓存读取 Tokens: ${cacheReadInputTokens}` : null,
+    cacheCreationInputTokens !== undefined ? `- 缓存写入 Tokens: ${cacheCreationInputTokens}` : null
   ].filter(Boolean) as string[]
 
   return {

@@ -12,6 +12,7 @@ pub mod conversation;
 pub mod data;
 pub mod file_editor;
 pub(crate) mod fs_shared;
+pub mod git;
 pub mod install;
 pub mod lsp;
 pub mod mcp;

@@ -2093,3 +2093,526 @@ pub async fn clear_plan_split_session(plan_id: String) -> Result<(), String> {
     .map_err(|error| error.to_string())?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---- read_json_string_field / read_json_u32_field ----
+
+    #[test]
+    fn read_json_string_field_prefers_camel_case() {
+        let v = serde_json::json!({ "workingDirectory": "/a", "working_directory": "/b" });
+        assert_eq!(
+            read_json_string_field(&v, "workingDirectory", "working_directory"),
+            Some("/a".to_string())
+        );
+    }
+
+    #[test]
+    fn read_json_string_field_falls_back_to_snake_case() {
+        let v = serde_json::json!({ "working_directory": "/b" });
+        assert_eq!(
+            read_json_string_field(&v, "workingDirectory", "working_directory"),
+            Some("/b".to_string())
+        );
+    }
+
+    #[test]
+    fn read_json_string_field_skips_empty() {
+        let v = serde_json::json!({ "workingDirectory": "   " });
+        assert_eq!(
+            read_json_string_field(&v, "workingDirectory", "working_directory"),
+            None
+        );
+    }
+
+    #[test]
+    fn read_json_u32_field_parses_number() {
+        let v = serde_json::json!({ "rawOutputTokens": 42 });
+        assert_eq!(read_json_u32_field(&v, "rawOutputTokens", "raw_output_tokens"), Some(42));
+    }
+
+    #[test]
+    fn read_json_u32_field_non_number_is_none() {
+        let v = serde_json::json!({ "rawOutputTokens": "abc" });
+        assert_eq!(read_json_u32_field(&v, "rawOutputTokens", "raw_output_tokens"), None);
+    }
+
+    // ---- is_terminal_session_status ----
+
+    #[test]
+    fn terminal_session_status_recognized() {
+        assert!(is_terminal_session_status("waiting_input"));
+        assert!(is_terminal_session_status("completed"));
+        assert!(is_terminal_session_status("stopped"));
+        assert!(is_terminal_session_status("failed"));
+        assert!(!is_terminal_session_status("running"));
+        assert!(!is_terminal_session_status(""));
+    }
+
+    // ---- task_count_mode_is_exact ----
+
+    #[test]
+    fn task_count_mode_exact_detection() {
+        assert!(task_count_mode_is_exact("exact"));
+        assert!(task_count_mode_is_exact("EXACT"));
+        assert!(!task_count_mode_is_exact("min"));
+        assert!(!task_count_mode_is_exact(""));
+    }
+
+    // ---- extract_json_candidates ----
+
+    #[test]
+    fn extract_json_candidates_plain_json() {
+        let candidates = extract_json_candidates(r#"{"a":1}"#);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0], r#"{"a":1}"#);
+    }
+
+    #[test]
+    fn extract_json_candidates_multiple_objects() {
+        let raw = r#"prefix {"a":1} middle {"b":2} suffix"#;
+        let candidates = extract_json_candidates(raw);
+        assert!(candidates.len() >= 2, "got {:?}", candidates);
+        assert!(candidates.iter().any(|c| c.contains("\"a\":1")));
+        assert!(candidates.iter().any(|c| c.contains("\"b\":2")));
+    }
+
+    #[test]
+    fn extract_json_candidates_ignores_braces_inside_strings() {
+        let raw = r#"{"text": "a { b } c"}"#;
+        let candidates = extract_json_candidates(raw);
+        // should produce the single complete object, not break on inner braces
+        assert!(candidates.iter().any(|c| c.contains("\"text\"")), "got {:?}", candidates);
+    }
+
+    #[test]
+    fn extract_json_candidates_empty_input() {
+        assert!(extract_json_candidates("").is_empty());
+        assert!(extract_json_candidates("   ").is_empty());
+    }
+
+    // ---- extract_fenced_json ----
+
+    #[test]
+    fn extract_fenced_json_from_code_block() {
+        let raw = "```json\n{\"a\":1}\n```";
+        assert_eq!(extract_fenced_json(raw), Some(r#"{"a":1}"#.to_string()));
+    }
+
+    #[test]
+    fn extract_fenced_json_without_language() {
+        let raw = "```\n{\"a\":1}\n```";
+        assert_eq!(extract_fenced_json(raw), Some(r#"{"a":1}"#.to_string()));
+    }
+
+    #[test]
+    fn extract_fenced_json_missing_fence_is_none() {
+        assert!(extract_fenced_json("no fence here").is_none());
+    }
+
+    #[test]
+    fn extract_fenced_json_empty_content_is_none() {
+        assert!(extract_fenced_json("```json\n\n```").is_none());
+    }
+
+    // ---- repair_json_candidate ----
+
+    #[test]
+    fn repair_json_candidate_normalizes_fullwidth_punctuation() {
+        let raw = "｛“key”：1， “value”：［“a”，“b”］｝";
+        let repaired = repair_json_candidate(raw);
+        let parsed: Value = serde_json::from_str(&repaired).expect("should parse after repair");
+        assert_eq!(parsed["key"], 1);
+        assert_eq!(parsed["value"][1], "b");
+    }
+
+    #[test]
+    fn repair_json_candidate_balances_unmatched_braces() {
+        let repaired = repair_json_candidate(r#"{"a":1"#);
+        assert_eq!(repaired, r#"{"a":1}"#);
+        let parsed: Value = serde_json::from_str(&repaired).expect("valid after balancing");
+        assert_eq!(parsed["a"], 1);
+    }
+
+    #[test]
+    fn repair_json_candidate_balances_unmatched_brackets() {
+        let repaired = repair_json_candidate(r#"{"a":[1,2"#);
+        assert_eq!(repaired, r#"{"a":[1,2]}"#);
+    }
+
+    #[test]
+    fn repair_json_candidate_does_not_touch_braces_inside_strings() {
+        // The stray closing brace is outside; the brace inside the string is preserved.
+        let repaired = repair_json_candidate(r#"{"text":"a}b""#);
+        let parsed: Value = serde_json::from_str(&repaired).expect("valid");
+        assert_eq!(parsed["text"], "a}b");
+    }
+
+    // ---- normalize_priority ----
+
+    #[test]
+    fn normalize_priority_strings() {
+        assert_eq!(normalize_priority(Some(&serde_json::json!("high"))), Some("high".into()));
+        assert_eq!(normalize_priority(Some(&serde_json::json!("高"))), Some("high".into()));
+        assert_eq!(normalize_priority(Some(&serde_json::json!("medium"))), Some("medium".into()));
+        assert_eq!(normalize_priority(Some(&serde_json::json!("中"))), Some("medium".into()));
+        assert_eq!(normalize_priority(Some(&serde_json::json!("low"))), Some("low".into()));
+        assert_eq!(normalize_priority(Some(&serde_json::json!("低"))), Some("low".into()));
+    }
+
+    #[test]
+    fn normalize_priority_numeric_strings_and_numbers() {
+        assert_eq!(normalize_priority(Some(&serde_json::json!("1"))), Some("high".into()));
+        assert_eq!(normalize_priority(Some(&serde_json::json!("2"))), Some("medium".into()));
+        assert_eq!(normalize_priority(Some(&serde_json::json!("3"))), Some("low".into()));
+        assert_eq!(normalize_priority(Some(&serde_json::json!(1))), Some("high".into()));
+        assert_eq!(normalize_priority(Some(&serde_json::json!(3))), Some("low".into()));
+    }
+
+    #[test]
+    fn normalize_priority_invalid_is_none() {
+        assert_eq!(normalize_priority(Some(&serde_json::json!("urgent"))), None);
+        assert_eq!(normalize_priority(Some(&serde_json::json!(99))), None);
+        assert_eq!(normalize_priority(None), None);
+    }
+
+    // ---- as_step_text_array ----
+
+    #[test]
+    fn as_step_text_array_from_string_array() {
+        let v = serde_json::json!(["step one", "step two"]);
+        assert_eq!(
+            as_step_text_array(Some(&v)),
+            vec!["step one".to_string(), "step two".to_string()]
+        );
+    }
+
+    #[test]
+    fn as_step_text_array_splits_multiline_strings() {
+        let v = serde_json::json!(["line a\nline b", "line c"]);
+        assert_eq!(
+            as_step_text_array(Some(&v)),
+            vec!["line a".to_string(), "line b".to_string(), "line c".to_string()]
+        );
+    }
+
+    #[test]
+    fn as_step_text_array_from_objects() {
+        let v = serde_json::json!([
+            {
+                "precondition": "env set",
+                "steps": ["do x"],
+                "expectedResults": ["x done"]
+            }
+        ]);
+        let result = as_step_text_array(Some(&v));
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], "前置条件：env set");
+        assert_eq!(result[1], "do x");
+        assert_eq!(result[2], "预期：x done");
+    }
+
+    #[test]
+    fn as_step_text_array_none_is_empty() {
+        assert!(as_step_text_array(None).is_empty());
+        assert!(as_step_text_array(Some(&serde_json::json!("not array"))).is_empty());
+    }
+
+    // ---- normalize_form_schema ----
+
+    #[test]
+    fn normalize_form_schema_valid() {
+        let schema = serde_json::json!({
+            "formId": "f1",
+            "title": "收集信息",
+            "description": "请填写",
+            "submitText": "提交",
+            "fields": [{ "name": "lang", "type": "text" }]
+        });
+        let result = normalize_form_schema(&schema).expect("should normalize");
+        assert_eq!(result["formId"], "f1");
+        assert_eq!(result["title"], "收集信息");
+        assert_eq!(result["description"], "请填写");
+        assert_eq!(result["submitText"], "提交");
+        assert!(result["fields"].is_array());
+    }
+
+    #[test]
+    fn normalize_form_schema_missing_form_id_is_none() {
+        let schema = serde_json::json!({ "title": "t", "fields": [{"x": 1}] });
+        assert!(normalize_form_schema(&schema).is_none());
+    }
+
+    #[test]
+    fn normalize_form_schema_missing_title_is_none() {
+        let schema = serde_json::json!({ "formId": "f1", "fields": [{"x": 1}] });
+        assert!(normalize_form_schema(&schema).is_none());
+    }
+
+    #[test]
+    fn normalize_form_schema_empty_fields_is_none() {
+        let schema = serde_json::json!({ "formId": "f1", "title": "t", "fields": [] });
+        assert!(normalize_form_schema(&schema).is_none());
+    }
+
+    // ---- normalize_task ----
+
+    fn valid_task() -> Value {
+        serde_json::json!({
+            "title": "任务一",
+            "description": "描述",
+            "priority": "high",
+            "expertId": "backend",
+            "implementationSteps": ["写代码"],
+            "testSteps": ["跑测试"],
+            "acceptanceCriteria": ["通过"]
+        })
+    }
+
+    #[test]
+    fn normalize_task_valid_produces_normalized_fields() {
+        let task = normalize_task(&valid_task()).expect("valid task");
+        assert_eq!(task["title"], "任务一");
+        assert_eq!(task["priority"], "high");
+        assert_eq!(task["expertId"], "backend");
+        assert!(task["implementationSteps"].is_array());
+        assert!(task["testSteps"].is_array());
+        assert!(task["acceptanceCriteria"].is_array());
+    }
+
+    #[test]
+    fn normalize_task_missing_title_is_err() {
+        let mut task = valid_task();
+        task["title"] = serde_json::json!("");
+        assert!(normalize_task(&task).is_err());
+    }
+
+    #[test]
+    fn normalize_task_missing_expert_id_is_err() {
+        let mut task = valid_task();
+        task["expertId"] = serde_json::json!("");
+        assert!(normalize_task(&task).is_err());
+    }
+
+    #[test]
+    fn normalize_task_empty_steps_is_err() {
+        let mut task = valid_task();
+        task["testSteps"] = serde_json::json!([]);
+        assert!(normalize_task(&task).is_err());
+    }
+
+    #[test]
+    fn normalize_task_default_priority_medium() {
+        let mut task = valid_task();
+        task["priority"] = serde_json::json!("nonsense");
+        let result = normalize_task(&task).expect("falls back to medium");
+        assert_eq!(result["priority"], "medium");
+    }
+
+    #[test]
+    fn normalize_task_optional_agent_and_model_and_deps() {
+        let mut task = valid_task();
+        task["agentId"] = serde_json::json!("claude-sonnet");
+        task["modelId"] = serde_json::json!("sonnet-4");
+        task["dependsOn"] = serde_json::json!(["task-0"]);
+        let result = normalize_task(&task).expect("valid");
+        assert_eq!(result["agentId"], "claude-sonnet");
+        assert_eq!(result["modelId"], "sonnet-4");
+        assert_eq!(result["dependsOn"][0], "task-0");
+    }
+
+    // ---- build_form_response_prompt ----
+
+    #[test]
+    fn build_form_response_prompt_object_form() {
+        let values = serde_json::json!({ "lang": "rust", "version": 2 });
+        let prompt = build_form_response_prompt("form-1", &values);
+        assert!(prompt.contains("表单 form-1 用户回答"), "{}", prompt);
+        assert!(prompt.contains("lang: rust"), "{}", prompt);
+        assert!(prompt.contains("version: 2"), "{}", prompt);
+        assert!(prompt.contains("继续"), "{}", prompt);
+    }
+
+    #[test]
+    fn build_form_response_prompt_nested_values_serialized() {
+        let values = serde_json::json!({ "config": { "a": 1 }, "list": [1, 2] });
+        let prompt = build_form_response_prompt("f", &values);
+        assert!(prompt.contains("config: {\"a\":1}"), "{}", prompt);
+        assert!(prompt.contains("list: [1,2]"), "{}", prompt);
+    }
+
+    #[test]
+    fn build_form_response_prompt_non_object_form() {
+        let values = serde_json::json!([1, 2, 3]);
+        let prompt = build_form_response_prompt("f", &values);
+        assert!(prompt.contains("[1,2,3]"), "{}", prompt);
+    }
+
+    // ---- parse_split_output ----
+
+    #[test]
+    fn parse_split_output_form_request() {
+        let raw = r#"{
+            "type": "form_request",
+            "question": "需要确认语言吗？",
+            "forms": [{
+                "formId": "lang",
+                "title": "语言",
+                "fields": [{"name": "value", "type": "select"}]
+            }]
+        }"#;
+        let output = parse_split_output(raw, 1, "min").expect("form request");
+        match output {
+            ParsedSplitOutput::FormRequest { question, forms } => {
+                assert_eq!(question, "需要确认语言吗？");
+                assert_eq!(forms.len(), 1);
+            }
+            other => panic!("expected FormRequest, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_split_output_implicit_form_request_without_type() {
+        // no `type` field, but has forms + question → should still be detected
+        let raw = r#"{
+            "question": "补充信息",
+            "forms": [{
+                "formId": "f1",
+                "title": "t",
+                "fields": [{"x": 1}]
+            }]
+        }"#;
+        let output = parse_split_output(raw, 1, "min").expect("implicit form request");
+        assert!(matches!(output, ParsedSplitOutput::FormRequest { .. }));
+    }
+
+    #[test]
+    fn parse_split_output_task_split_done() {
+        let mut task = valid_task();
+        task["title"] = serde_json::json!("t1");
+        let raw = serde_json::json!({
+            "type": "task_split",
+            "status": "DONE",
+            "summary": "完成拆分",
+            "tasks": [valid_task(), task]
+        });
+        let output =
+            parse_split_output(&raw.to_string(), 2, "min").expect("task split");
+        match output {
+            ParsedSplitOutput::TaskSplit { summary, tasks } => {
+                assert_eq!(summary, "完成拆分");
+                assert_eq!(tasks.len(), 2);
+            }
+            other => panic!("expected TaskSplit, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_split_output_task_split_missing_done_is_err() {
+        let raw = serde_json::json!({
+            "type": "task_split",
+            "status": "INCOMPLETE",
+            "summary": "s",
+            "tasks": [valid_task()]
+        });
+        let result = parse_split_output(&raw.to_string(), 1, "min");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("DONE"), "unexpected error: {}", err);
+    }
+
+    #[test]
+    fn parse_split_output_exact_count_strict() {
+        let raw = serde_json::json!({
+            "type": "task_split",
+            "status": "DONE",
+            "summary": "s",
+            "tasks": [valid_task(), valid_task(), valid_task()]
+        });
+        // exact mode wants 2, but got 3 → error
+        let result = parse_split_output(&raw.to_string(), 2, "exact");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("不匹配"), "unexpected error: {}", err);
+    }
+
+    #[test]
+    fn parse_split_output_min_count_at_least() {
+        let raw = serde_json::json!({
+            "type": "task_split",
+            "status": "DONE",
+            "summary": "s",
+            "tasks": [valid_task()]
+        });
+        // min mode wants 3, but got 1 → error
+        let result = parse_split_output(&raw.to_string(), 3, "min");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("不足"), "unexpected error: {}", err);
+    }
+
+    #[test]
+    fn parse_split_output_unwraps_result_string_field() {
+        // The JSON has a nested `result` string that itself is a JSON payload
+        let inner = serde_json::json!({
+            "type": "task_split",
+            "status": "DONE",
+            "summary": "inner",
+            "tasks": [valid_task()]
+        });
+        let wrapper = serde_json::json!({ "result": inner.to_string() });
+        let output =
+            parse_split_output(&wrapper.to_string(), 1, "min").expect("unwrapped result");
+        match output {
+            ParsedSplitOutput::TaskSplit { summary, .. } => assert_eq!(summary, "inner"),
+            other => panic!("expected TaskSplit, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_split_output_garbage_is_err() {
+        let result = parse_split_output("this is not json at all", 1, "min");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_split_output_repair_from_code_block() {
+        let raw = "```json\n{\"type\":\"form_request\",\"question\":\"q\",\"forms\":[{\"formId\":\"f1\",\"title\":\"t\",\"fields\":[{\"x\":1}]}]}\n```";
+        let output = parse_split_output(raw, 1, "min").expect("repaired from fence");
+        assert!(matches!(output, ParsedSplitOutput::FormRequest { .. }));
+    }
+
+    // ---- extract_assistant_summary ----
+
+    #[test]
+    fn extract_assistant_summary_form_request() {
+        let output = ParsedSplitOutput::FormRequest {
+            question: "Q".to_string(),
+            forms: vec![serde_json::json!({"a": 1})],
+        };
+        let summary = extract_assistant_summary(&output);
+        assert!(summary.contains("Q"));
+        assert!(summary.contains("1"));
+    }
+
+    #[test]
+    fn extract_assistant_summary_task_split_with_summary() {
+        let output = ParsedSplitOutput::TaskSplit {
+            summary: "拆分完成".to_string(),
+            tasks: vec![],
+        };
+        assert_eq!(extract_assistant_summary(&output), "拆分完成");
+    }
+
+    #[test]
+    fn extract_assistant_summary_task_split_empty_summary_falls_back() {
+        let output = ParsedSplitOutput::TaskSplit {
+            summary: "  ".to_string(),
+            tasks: vec![serde_json::json!({"a": 1})],
+        };
+        let summary = extract_assistant_summary(&output);
+        assert!(summary.contains("1"), "expected task count, got {}", summary);
+    }
+}

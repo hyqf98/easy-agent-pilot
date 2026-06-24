@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { useUIStore, type AppMode } from '@/stores/ui'
+import { useProjectStore } from '@/stores/project'
 import { EaIcon } from '@/components/common'
 
 const uiStore = useUIStore()
+const projectStore = useProjectStore()
 
 const modeItems: Array<{ mode: AppMode; label: string; icon: string }> = [
   { mode: 'chat', label: 'Agent', icon: 'bot' },
@@ -27,6 +29,20 @@ function setMode(mode: AppMode) {
 
 <template>
   <header class="workspace-topbar">
+    <div class="workspace-topbar__left">
+      <span
+        v-if="projectStore.currentBranch"
+        class="workspace-topbar__git"
+        :title="projectStore.currentBranch"
+      >
+        <EaIcon
+          name="git-branch"
+          :size="13"
+        />
+        <span class="workspace-topbar__git-name">{{ projectStore.currentBranch }}</span>
+      </span>
+    </div>
+
     <nav
       class="workspace-topbar__modes"
       aria-label="Workspace modes"
@@ -48,6 +64,8 @@ function setMode(mode: AppMode) {
         <span class="workspace-topbar__mode-label">{{ item.label }}</span>
       </button>
     </nav>
+
+    <div class="workspace-topbar__right" />
   </header>
 </template>
 
@@ -62,6 +80,46 @@ function setMode(mode: AppMode) {
   background: var(--workspace-topbar-bg);
   border-bottom: 1px solid var(--workspace-border);
   flex-shrink: 0;
+}
+
+/* 左右占位列，用于悬挂 git 分支等顶部信息 */
+.workspace-topbar__left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  justify-self: start;
+}
+
+.workspace-topbar__right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: end;
+}
+
+/* Git 分支 chip */
+.workspace-topbar__git {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 280px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--workspace-control-bg);
+  border: 1px solid var(--workspace-control-border);
+  color: var(--workspace-text-secondary);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.workspace-topbar__git-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-family-mono, inherit);
 }
 
 .workspace-topbar__modes,

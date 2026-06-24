@@ -17,33 +17,44 @@ export type SettingsTab =
   | 'sessions'
   | 'unattended'
 
-export type AppMode = 'chat' | 'plan' | 'solo' | 'memory'
+// 工作区模式：chat/plan/solo/memory 为实际工作区域，settings 为接管整个主区域的「超级模式」
+export type AppMode = 'chat' | 'plan' | 'solo' | 'memory' | 'settings'
+// 排除 settings 后的纯工作模式，用于记录进入设置前的模式以便退出恢复
+export type WorkspaceMode = Exclude<AppMode, 'settings'>
 export type MainContentMode = 'chat' | 'fileEditor' | 'officeViewer'
 
 export const useUIStore = defineStore('ui', () => {
   // State
-  const settingsModalVisible = ref(false)
   const activeSettingsTab = ref<SettingsTab>('general')
-  const settingsNavCollapsed = ref(true)
   const projectCreateModalVisible = ref(false)
   const sessionCreateModalVisible = ref(false)
   const appMode = ref<AppMode>('chat')
   const mainContentMode = ref<MainContentMode>('chat')
+  // 进入设置前的最后工作模式，退出设置时恢复，默认 chat
+  const previousAppMode = ref<WorkspaceMode>('chat')
 
   // Actions
   function openSettings(tab?: SettingsTab) {
+    // 切入设置前记录当前工作模式（避免重复进入时覆盖）
+    if (appMode.value !== 'settings') {
+      previousAppMode.value = appMode.value
+    }
+    appMode.value = 'settings'
     if (tab) {
       activeSettingsTab.value = tab
     }
-    settingsModalVisible.value = true
   }
 
-  function closeSettings() {
-    settingsModalVisible.value = false
+  function exitSettings() {
+    appMode.value = previousAppMode.value
   }
 
   function toggleSettings() {
-    settingsModalVisible.value = !settingsModalVisible.value
+    if (appMode.value === 'settings') {
+      exitSettings()
+    } else {
+      openSettings()
+    }
   }
 
   function setActiveSettingsTab(tab: SettingsTab) {
@@ -66,7 +77,8 @@ export const useUIStore = defineStore('ui', () => {
     sessionCreateModalVisible.value = false
   }
 
-  function setAppMode(mode: AppMode) {
+  // 切换工作模式：settings 仅通过 openSettings 进入，此处不接收 settings
+  function setAppMode(mode: WorkspaceMode) {
     appMode.value = mode
   }
 
@@ -75,36 +87,29 @@ export const useUIStore = defineStore('ui', () => {
   }
 
   function toggleAppMode() {
-    // 循环切换: chat -> plan -> solo -> memory -> chat
-    const modes: AppMode[] = ['chat', 'plan', 'solo', 'memory']
-    const currentIndex = modes.indexOf(appMode.value)
+    // 循环切换工作模式（排除 settings）
+    const modes: WorkspaceMode[] = ['chat', 'plan', 'solo', 'memory']
+    const currentIndex = modes.indexOf(appMode.value as WorkspaceMode)
+    if (currentIndex === -1) {
+      appMode.value = 'chat'
+      return
+    }
     appMode.value = modes[(currentIndex + 1) % modes.length]
-  }
-
-  function toggleSettingsNav() {
-    settingsNavCollapsed.value = !settingsNavCollapsed.value
-  }
-
-  function setSettingsNavCollapsed(collapsed: boolean) {
-    settingsNavCollapsed.value = collapsed
   }
 
   return {
     // State
-    settingsModalVisible,
     activeSettingsTab,
-    settingsNavCollapsed,
     projectCreateModalVisible,
     sessionCreateModalVisible,
     appMode,
     mainContentMode,
+    previousAppMode,
     // Actions
     openSettings,
-    closeSettings,
+    exitSettings,
     toggleSettings,
     setActiveSettingsTab,
-    toggleSettingsNav,
-    setSettingsNavCollapsed,
     openProjectCreateModal,
     closeProjectCreateModal,
     openSessionCreateModal,

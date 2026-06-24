@@ -292,13 +292,15 @@ export function useAgentSettingsPage() {
   let initialized = false
 
   watch(
-    () => [uiStore.settingsModalVisible, uiStore.activeSettingsTab] as const,
-    ([visible, activeTab], [previousVisible, previousTab]) => {
+    () => [uiStore.appMode, uiStore.activeSettingsTab] as const,
+    ([mode, activeTab], [previousMode, previousTab]) => {
+      const visible = mode === 'settings'
       if (!visible || activeTab !== 'agents') {
         return
       }
 
-      if (visible === previousVisible && activeTab === previousTab) {
+      const wasVisible = previousMode === 'settings'
+      if (visible === wasVisible && activeTab === previousTab) {
         return
       }
 

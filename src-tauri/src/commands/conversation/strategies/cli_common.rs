@@ -424,8 +424,9 @@ pub(crate) fn lookup_claude_tool_use_usage(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_timeout_error_message, detect_cli_timeout, timeout_config_for_execution_mode,
-        CliExecutionSnapshot, CliTimeoutConfig, CliTimeoutKind,
+        build_claude_project_slug, build_timeout_error_message, detect_cli_timeout,
+        extract_usage_counts_from_transcript, timeout_config_for_execution_mode,
+        ClaudeToolUseUsage, CliExecutionSnapshot, CliTimeoutConfig, CliTimeoutKind,
     };
     use std::time::{Duration, Instant};
 
@@ -520,5 +521,90 @@ mod tests {
             timeout_config_for_execution_mode(Some("task_split"), Some(60));
         assert_eq!(config.hard, Duration::from_secs(3600));
         assert!(!config.disabled);
+    }
+
+    // ---- extract_usage_counts_from_transcript ----
+
+    #[test]
+    fn extract_usage_counts_snake_case_fields() {
+        let usage = serde_json::json!({
+            "input_tokens": 100,
+            "output_tokens": 50,
+            "cache_read_input_tokens": 30,
+            "cache_creation_input_tokens": 20
+        });
+        let result = extract_usage_counts_from_transcript(Some(&usage));
+        assert_eq!(
+            result,
+            ClaudeToolUseUsage {
+                raw_input_tokens: Some(100),
+                raw_output_tokens: Some(50),
+                cache_read_input_tokens: Some(30),
+                cache_creation_input_tokens: Some(20),
+                model: None,
+            }
+        );
+    }
+
+    #[test]
+    fn extract_usage_counts_camel_case_fields() {
+        let usage = serde_json::json!({
+            "inputTokens": 7,
+            "outputTokens": 3,
+            "cacheReadInputTokens": 4,
+            "cacheCreationInputTokens": 2
+        });
+        let result = extract_usage_counts_from_transcript(Some(&usage));
+        assert_eq!(result.raw_input_tokens, Some(7));
+        assert_eq!(result.raw_output_tokens, Some(3));
+        assert_eq!(result.cache_read_input_tokens, Some(4));
+        assert_eq!(result.cache_creation_input_tokens, Some(2));
+    }
+
+    #[test]
+    fn extract_usage_counts_none_usage_is_default() {
+        let result = extract_usage_counts_from_transcript(None);
+        assert_eq!(result, ClaudeToolUseUsage::default());
+        assert_eq!(result.raw_input_tokens, None);
+        assert_eq!(result.cache_read_input_tokens, None);
+    }
+
+    #[test]
+    fn extract_usage_counts_partial_fields() {
+        // only input/output, no cache fields
+        let usage = serde_json::json!({
+            "input_tokens": 11,
+            "output_tokens": 22
+        });
+        let result = extract_usage_counts_from_transcript(Some(&usage));
+        assert_eq!(result.raw_input_tokens, Some(11));
+        assert_eq!(result.raw_output_tokens, Some(22));
+        assert_eq!(result.cache_read_input_tokens, None);
+        assert_eq!(result.cache_creation_input_tokens, None);
+    }
+
+    #[test]
+    fn extract_usage_counts_prefers_camel_over_snake_when_both_absent() {
+        // empty object → all None
+        let usage = serde_json::json!({});
+        let result = extract_usage_counts_from_transcript(Some(&usage));
+        assert_eq!(result, ClaudeToolUseUsage::default());
+    }
+
+    // ---- build_claude_project_slug ----
+
+    #[test]
+    fn build_claude_project_slug_replaces_separators() {
+        assert_eq!(build_claude_project_slug("/home/user/project"), "-home-user-project");
+        assert_eq!(
+            build_claude_project_slug("C:\\Users\\test\\app"),
+            "C--Users-test-app"
+        );
+        assert_eq!(build_claude_project_slug("plain"), "plain");
+    }
+
+    #[test]
+    fn build_claude_project_slug_trims_whitespace() {
+        assert_eq!(build_claude_project_slug("  /a/b  "), "-a-b");
     }
 }
