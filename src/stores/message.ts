@@ -7,12 +7,19 @@ import { useSessionExecutionStore } from './sessionExecution'
 import { useTokenStore, type CompressionStrategy } from './token'
 import { readSessionCliUsageSnapshot } from '@/services/usage/cliSessionUsageSnapshot'
 import { getErrorMessage } from '@/utils/api'
-import type { FileEditTrace } from '@/types/fileTrace'
-import { buildUsageNotice, type RuntimeNotice } from '@/utils/runtimeNotice'
-import { mergeFinalUsageSnapshotCounts } from '@/utils/runtimeUsage'
 
-export type MessageRole = 'user' | 'assistant' | 'system' | 'compression'
+export type MessageRole = 'user' | 'assistant' | 'system'
 export type MessageStatus = 'pending' | 'streaming' | 'completed' | 'error' | 'interrupted'
+export type MessageType =
+  | 'text'
+  | 'thinking'
+  | 'tool_use'
+  | 'tool_result'
+  | 'usage'
+  | 'context_window'
+  | 'compression'
+  | 'system'
+  | 'error'
 export type ToolCallStatus = 'pending' | 'running' | 'success' | 'error'
 export const MANUAL_STOP_ERROR_MARKER = '__manual_stop__'
 
@@ -59,59 +66,68 @@ export interface MessageRetryState {
   max: number
 }
 
+/**
+ * 消息（一行一事件）。
+ *
+ * 每条 ACP 事件（思考/工具/文本/用量/压缩/系统/错误）各自独立成一行，
+ * 共享同一个 requestId（一个用户回合）。渲染时按 (createdAt, seq) 排序。
+ */
 export interface Message {
   id: string
   sessionId: string
+  /** 回合归组键：user 消息与其触发的所有 assistant 事件共享 */
+  requestId: string
   role: MessageRole
-  content: string
-  attachments?: MessageAttachment[]
+  /** 事件类型（text/thinking/tool_use/tool_result/usage/context_window/compression/system/error） */
+  messageType: MessageType
+  content?: string
   status: MessageStatus
-  tokens?: number
+  // 工具相关（仅 tool_use / tool_result 有值）
+  toolCallId?: string
+  toolName?: string
+  toolInput?: string
+  toolResult?: string
+  // token / 用量（仅 usage / context_window 有值）
+  inputTokens?: number
+  outputTokens?: number
+  cacheReadTokens?: number
+  cacheCreationTokens?: number
+  model?: string
+  costUsd?: number
+  // 用户消息附件
+  attachments?: MessageAttachment[]
+  // 错误
   errorMessage?: string
-  toolCalls?: ToolCall[]
-  // 思考内容（扩展思维模型的思考过程）
-  thinking?: string
-  thinkingActive?: boolean
-  editTraces?: FileEditTrace[]
-  runtimeNotices?: RuntimeNotice[]
   retryState?: MessageRetryState
+  // 顺序与时间
+  seq: number
   createdAt: string
-  // 压缩消息的元数据
-  compressionMetadata?: CompressionMetadata
-}
-
-interface RustToolCall {
-  id: string
-  name: string
-  arguments: string // JSON string
-  status: string
-  result?: string | null
-  errorMessage?: string | null
-  error_message?: string | null
+  updatedAt: string
 }
 
 interface RustMessage {
   id: string
-  sessionId?: string
-  session_id?: string
+  sessionId: string
+  requestId: string
   role: string
-  content: string
-  attachments?: MessageAttachment[] | null
+  messageType: string
+  content?: string | null
   status: string
-  tokens: number | null
+  toolCallId?: string | null
+  toolName?: string | null
+  toolInput?: string | null
+  toolResult?: string | null
+  inputTokens?: number | null
+  outputTokens?: number | null
+  cacheReadTokens?: number | null
+  cacheCreationTokens?: number | null
+  model?: string | null
+  costUsd?: number | null
+  attachments?: MessageAttachment[] | null
   errorMessage?: string | null
-  error_message?: string | null
-  toolCalls?: RustToolCall[] | null
-  tool_calls?: RustToolCall[] | null
-  thinking?: string | null
-  editTraces?: string | null
-  edit_traces?: string | null
-  runtimeNotices?: string | null
-  runtime_notices?: string | null
-  compressionMetadata?: string | null
-  compression_metadata?: string | null
-  createdAt?: string
-  created_at?: string
+  createdAt: string
+  updatedAt: string
+  seq: number
 }
 
 interface PaginatedRustMessages {
@@ -120,16 +136,20 @@ interface PaginatedRustMessages {
   has_more: boolean
 }
 
-type SessionEditTrace = FileEditTrace & { messageId: string }
+// 文件编辑追踪功能在新消息结构下已搁置，保留占位类型避免大面积改动
+type SessionEditTrace = { id: string, messageId: string, filePath: string, timestamp: string }
 
 function resolveRawMessageCreatedAt(message?: RustMessage): string | null {
-  if (!message) return null
-  return message.created_at ?? message.createdAt ?? null
+  return message?.createdAt ?? null
 }
 
-function compareMessageCreatedAt(left: Pick<Message, 'createdAt'>, right: Pick<Message, 'createdAt'>): number {
-  return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
+function compareMessageOrder(left: Pick<Message, 'createdAt' | 'seq'>, right: Pick<Message, 'createdAt' | 'seq'>): number {
+  const t = new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
+  return t !== 0 ? t : left.seq - right.seq
 }
+
+/** @deprecated 旧名保留兼容，内部改用 compareMessageOrder */
+const compareMessageCreatedAt = compareMessageOrder
 
 function dedupeMessagesById(items: Message[]): Message[] {
   const map = new Map<string, Message>()
@@ -141,34 +161,6 @@ function dedupeMessagesById(items: Message[]): Message[] {
   return Array.from(map.values())
 }
 
-function parseRuntimeNoticeNumber(notice: RuntimeNotice, labels: string[]): number | null {
-  const lowerLabels = labels.map(label => label.toLowerCase())
-  const lines = notice.content
-    .split('\n')
-    .map(line => line.trim())
-    .filter(Boolean)
-
-  for (const line of lines) {
-    const normalizedLine = line.replace(/^-\s*/, '')
-    const separatorIndex = normalizedLine.indexOf(':')
-    if (separatorIndex < 0) {
-      continue
-    }
-
-    const label = normalizedLine.slice(0, separatorIndex).trim().toLowerCase()
-    if (!lowerLabels.includes(label)) {
-      continue
-    }
-
-    const numeric = Number(normalizedLine.slice(separatorIndex + 1).replace(/[^\d]/g, ''))
-    if (Number.isFinite(numeric) && numeric > 0) {
-      return numeric
-    }
-  }
-
-  return null
-}
-
 const EMPTY_MESSAGES: Message[] = []
 const EMPTY_ASSISTANT_EDIT_TRACES: SessionEditTrace[] = []
 const EMPTY_TRACE_MAP = new Map<string, { traceId: string, messageId: string, timestamp: string }>()
@@ -176,30 +168,31 @@ const EMPTY_VISIBLE_MESSAGE_TRACES: SessionEditTrace[] = []
 
 interface CreateMessageInput {
   session_id: string
+  request_id: string
   role: string
-  content: string
+  message_type: string
+  content?: string
   attachments?: string
   status?: string
-  tokens?: number
+  tool_call_id?: string
+  tool_name?: string
+  tool_input?: string
+  tool_result?: string
+  input_tokens?: number
+  output_tokens?: number
+  cache_read_tokens?: number
+  cache_creation_tokens?: number
+  model?: string
+  cost_usd?: number
   error_message?: string
-  tool_calls?: string // JSON string
-  thinking?: string
-  edit_traces?: string
-  runtime_notices?: string
-  compression_metadata?: string
+  seq?: number
 }
 
 interface UpdateMessageInput {
   content?: string
   attachments?: string
   status?: string
-  tokens?: number
   error_message?: string
-  tool_calls?: string // JSON string
-  thinking?: string
-  edit_traces?: string
-  runtime_notices?: string
-  compression_metadata?: string
 }
 
 // 分页状态
@@ -220,82 +213,15 @@ interface FlushBufferedMessageOptions {
 
 const MESSAGE_FLUSH_INTERVAL_MS = 300
 
-function serializeToolCalls(toolCalls: ToolCall[]): string {
-  return JSON.stringify(toolCalls.map(toolCall => ({
-    ...toolCall,
-    arguments: JSON.stringify(toolCall.arguments ?? {})
-  })))
-}
-
-function finalizeToolCallsForStatus(
-  toolCalls: ToolCall[] | undefined,
-  status: MessageStatus | undefined
-): ToolCall[] | undefined {
-  if (!toolCalls?.length) {
-    return toolCalls
-  }
-
-  if (!status || (status !== 'completed' && status !== 'interrupted' && status !== 'error')) {
-    return toolCalls
-  }
-
-  return toolCalls.map(toolCall => {
-    if (toolCall.status !== 'running') {
-      return toolCall
-    }
-
-    return {
-      ...toolCall,
-      status: status === 'error' ? 'error' : 'success',
-      errorMessage: status === 'error'
-        ? toolCall.errorMessage || '消息执行失败'
-        : toolCall.errorMessage
-    }
-  })
-}
-
 function buildLatestAssistantTraceMap(
-  messages: Message[]
+  _messages: Message[]
 ): Map<string, { traceId: string, messageId: string, timestamp: string }> {
-  const traceMap = new Map<string, { traceId: string, messageId: string, timestamp: string }>()
-
-  for (const message of messages) {
-    if (message.role !== 'assistant' || !message.editTraces?.length) {
-      continue
-    }
-
-    for (const trace of message.editTraces) {
-      const existing = traceMap.get(trace.filePath)
-      if (!existing || existing.timestamp <= trace.timestamp) {
-        traceMap.set(trace.filePath, {
-          traceId: trace.id,
-          messageId: message.id,
-          timestamp: trace.timestamp
-        })
-      }
-    }
-  }
-
-  return traceMap
+  // 新消息结构（一行一事件）不再把 editTraces 折叠进 message，文件编辑追踪功能后续按需重建
+  return new Map()
 }
 
-function buildAssistantEditTraces(messages: Message[]): SessionEditTrace[] {
-  const traces: SessionEditTrace[] = []
-
-  for (const message of messages) {
-    if (message.role !== 'assistant' || !message.editTraces?.length) {
-      continue
-    }
-
-    for (const trace of message.editTraces) {
-      traces.push({
-        ...trace,
-        messageId: message.id
-      })
-    }
-  }
-
-  return traces
+function buildAssistantEditTraces(_messages: Message[]): SessionEditTrace[] {
+  return []
 }
 
 function buildAssistantTraceDigest(traces: SessionEditTrace[]): string {
@@ -304,33 +230,10 @@ function buildAssistantTraceDigest(traces: SessionEditTrace[]): string {
 }
 
 function buildVisibleAssistantEditTracesByMessage(
-  messages: Message[],
-  latestTraceByFile: Map<string, { traceId: string, messageId: string, timestamp: string }>
+  _messages: Message[],
+  _latestTraceByFile: Map<string, { traceId: string, messageId: string, timestamp: string }>
 ): Map<string, SessionEditTrace[]> {
-  const tracesByMessage = new Map<string, SessionEditTrace[]>()
-
-  for (const message of messages) {
-    if (message.role !== 'assistant' || !message.editTraces?.length) {
-      continue
-    }
-
-    const visibleTraces = message.editTraces
-      .filter((trace) => {
-        const latest = latestTraceByFile.get(trace.filePath)
-        return latest?.traceId === trace.id && latest.messageId === message.id
-      })
-      .map(trace => ({
-        ...trace,
-        messageId: message.id
-      }))
-      .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
-
-    if (visibleTraces.length > 0) {
-      tracesByMessage.set(message.id, visibleTraces)
-    }
-  }
-
-  return tracesByMessage
+  return new Map()
 }
 
 function shouldReconcileStreamingMessage(
@@ -359,69 +262,29 @@ function shouldReconcileStreamingMessage(
 }
 
 function transformMessage(rustMsg: RustMessage): Message {
-  const rawToolCalls = rustMsg.toolCalls ?? rustMsg.tool_calls
-  // 转换 tool calls
-  const toolCalls: ToolCall[] | undefined = rawToolCalls?.map(tc => ({
-    id: tc.id,
-    name: tc.name,
-    arguments: (() => {
-      try {
-        return JSON.parse(tc.arguments || '{}') as Record<string, unknown>
-      } catch {
-        return {}
-      }
-    })(),
-    status: tc.status as ToolCallStatus,
-    result: tc.result ?? undefined,
-    errorMessage: tc.errorMessage ?? tc.error_message ?? undefined
-  })) ?? undefined
-
-  const sessionId = rustMsg.sessionId ?? rustMsg.session_id
-  const createdAt = rustMsg.createdAt ?? rustMsg.created_at
-  const errorMessage = rustMsg.errorMessage ?? rustMsg.error_message
-  const rawCompressionMetadata = rustMsg.compressionMetadata ?? rustMsg.compression_metadata
-  const rawEditTraces = rustMsg.editTraces ?? rustMsg.edit_traces
-  const rawRuntimeNotices = rustMsg.runtimeNotices ?? rustMsg.runtime_notices
-  const editTraces = (() => {
-    if (!rawEditTraces) return undefined
-    try {
-      return JSON.parse(rawEditTraces) as FileEditTrace[]
-    } catch {
-      return undefined
-    }
-  })()
-  const runtimeNotices = (() => {
-    if (!rawRuntimeNotices) return undefined
-    try {
-      return JSON.parse(rawRuntimeNotices) as RuntimeNotice[]
-    } catch {
-      return undefined
-    }
-  })()
-  const compressionMetadata = (() => {
-    if (!rawCompressionMetadata) return undefined
-    try {
-      return JSON.parse(rawCompressionMetadata) as CompressionMetadata
-    } catch {
-      return undefined
-    }
-  })()
-
   return {
     id: rustMsg.id,
-    sessionId: sessionId || '',
+    sessionId: rustMsg.sessionId,
+    requestId: rustMsg.requestId,
     role: rustMsg.role as MessageRole,
-    content: rustMsg.content,
+    messageType: (rustMsg.messageType as MessageType) ?? 'text',
+    content: rustMsg.content ?? undefined,
     attachments: rustMsg.attachments?.length ? rustMsg.attachments : undefined,
     status: rustMsg.status as MessageStatus,
-    tokens: rustMsg.tokens ?? undefined,
-    errorMessage: errorMessage ?? undefined,
-    toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
-    thinking: rustMsg.thinking ?? undefined,
-    editTraces: editTraces && editTraces.length > 0 ? editTraces : undefined,
-    runtimeNotices: runtimeNotices && runtimeNotices.length > 0 ? runtimeNotices : undefined,
-    compressionMetadata,
-    createdAt: createdAt || new Date().toISOString()
+    toolCallId: rustMsg.toolCallId ?? undefined,
+    toolName: rustMsg.toolName ?? undefined,
+    toolInput: rustMsg.toolInput ?? undefined,
+    toolResult: rustMsg.toolResult ?? undefined,
+    inputTokens: rustMsg.inputTokens ?? undefined,
+    outputTokens: rustMsg.outputTokens ?? undefined,
+    cacheReadTokens: rustMsg.cacheReadTokens ?? undefined,
+    cacheCreationTokens: rustMsg.cacheCreationTokens ?? undefined,
+    model: rustMsg.model ?? undefined,
+    costUsd: rustMsg.costUsd ?? undefined,
+    errorMessage: rustMsg.errorMessage ?? undefined,
+    seq: rustMsg.seq ?? 0,
+    createdAt: rustMsg.createdAt,
+    updatedAt: rustMsg.updatedAt ?? rustMsg.createdAt
   }
 }
 
@@ -485,21 +348,7 @@ export const useMessageStore = defineStore('message', () => {
     if (updates.content !== undefined) input.content = updates.content
     if (updates.attachments !== undefined) input.attachments = JSON.stringify(updates.attachments)
     if (updates.status !== undefined) input.status = updates.status
-    if (updates.tokens !== undefined) input.tokens = updates.tokens
     if (updates.errorMessage !== undefined) input.error_message = updates.errorMessage
-    if (updates.toolCalls !== undefined) {
-      input.tool_calls = serializeToolCalls(updates.toolCalls)
-    }
-    if (updates.thinking !== undefined) input.thinking = updates.thinking
-    if (updates.editTraces !== undefined) {
-      input.edit_traces = JSON.stringify(updates.editTraces)
-    }
-    if (updates.runtimeNotices !== undefined) {
-      input.runtime_notices = JSON.stringify(updates.runtimeNotices)
-    }
-    if (updates.compressionMetadata !== undefined) {
-      input.compression_metadata = JSON.stringify(updates.compressionMetadata)
-    }
     return input
   }
 
@@ -563,16 +412,9 @@ export const useMessageStore = defineStore('message', () => {
     }
 
     const currentMessage = messages.value[index]
-    const nextStatus = updates.status ?? currentMessage.status
-    const nextToolCalls = finalizeToolCallsForStatus(
-      updates.toolCalls ?? currentMessage.toolCalls,
-      nextStatus
-    )
-
     const nextMessage = {
       ...currentMessage,
-      ...updates,
-      toolCalls: nextToolCalls
+      ...updates
     }
     messages.value[index] = nextMessage
 
@@ -751,24 +593,20 @@ export const useMessageStore = defineStore('message', () => {
         ? await reconcilePersistedUsageDisplay(sessionId, normalizedSessionMessages)
         : normalizedSessionMessages
 
-      const latestAssistantMessage = [...correctedSessionMessages]
+      const latestUsageMessage = [...correctedSessionMessages]
         .reverse()
-        .find(message => message.role === 'assistant')
-      const latestUsageNotice = latestAssistantMessage?.runtimeNotices?.find(notice => notice.id === 'usage')
-      if (latestUsageNotice) {
-        const restoredInputTokens = parseRuntimeNoticeNumber(latestUsageNotice, ['输入 Tokens', 'input tokens'])
-        const restoredOutputTokens = parseRuntimeNoticeNumber(latestUsageNotice, ['输出 Tokens', 'output tokens'])
-        const restoredOccupancy = parseRuntimeNoticeNumber(latestUsageNotice, ['上下文占用 Tokens', 'context occupancy tokens'])
-          ?? (
-            (restoredInputTokens ?? 0) + (restoredOutputTokens ?? 0) > 0
-              ? (restoredInputTokens ?? 0) + (restoredOutputTokens ?? 0)
-              : restoredInputTokens
-          )
+        .find(message => message.messageType === 'usage')
+      if (latestUsageMessage) {
+        const restoredInputTokens = latestUsageMessage.inputTokens
+        const restoredOutputTokens = latestUsageMessage.outputTokens
+        const restoredOccupancy = (restoredInputTokens ?? 0) + (restoredOutputTokens ?? 0) > 0
+          ? (restoredInputTokens ?? 0) + (restoredOutputTokens ?? 0)
+          : restoredInputTokens
         tokenStore.updateRealtimeTokens(
           sessionId,
           restoredInputTokens ?? undefined,
           restoredOutputTokens ?? undefined,
-          undefined,
+          latestUsageMessage.model,
           restoredOccupancy ?? undefined
         )
       } else if (sessionProvider && session) {
@@ -826,103 +664,11 @@ export const useMessageStore = defineStore('message', () => {
   }
 
   async function reconcilePersistedUsageDisplay(
-    sessionId: string,
+    _sessionId: string,
     messages: Message[]
   ): Promise<Message[]> {
-    const latestAssistantEntry = [...messages]
-      .map((message, index) => ({ message, index }))
-      .reverse()
-      .find(entry => entry.message.role === 'assistant')
-
-    if (!latestAssistantEntry) {
-      return messages
-    }
-
-    const latestAssistantIndex = latestAssistantEntry.index
-    const latestAssistant = latestAssistantEntry.message
-    const sessionStore = useSessionStore()
-    const session = sessionStore.sessions.find(item => item.id === sessionId)
-    if (!session) {
-      return messages
-    }
-    const sessionProvider = session.cliSessionProvider?.trim().toLowerCase()
-
-    const latestUsage = await readSessionCliUsageSnapshot(session)
-    if (!latestUsage) {
-      return messages
-    }
-
-    const usageNotice = latestAssistant.runtimeNotices?.find(notice => notice.id === 'usage')
-    const persistedInputTokens = usageNotice
-      ? parseRuntimeNoticeNumber(usageNotice, ['输入 Tokens', 'input tokens'])
-      : null
-    const persistedOutputTokens = usageNotice
-      ? parseRuntimeNoticeNumber(usageNotice, ['输出 Tokens', 'output tokens'])
-      : null
-    const persistedExplicitOccupancyTokens = usageNotice
-      ? parseRuntimeNoticeNumber(usageNotice, ['上下文占用 Tokens', 'context occupancy tokens'])
-      : null
-    const persistedCacheReadTokens = usageNotice
-      ? parseRuntimeNoticeNumber(usageNotice, ['缓存读取 Tokens', 'cache read tokens', 'cache hit tokens'])
-      : null
-    const persistedCacheCreationTokens = usageNotice
-      ? parseRuntimeNoticeNumber(usageNotice, ['缓存写入 Tokens', 'cache creation tokens', 'cache write tokens'])
-      : null
-    const mergedUsageCounts = mergeFinalUsageSnapshotCounts({
-      inputTokens: persistedInputTokens ?? undefined,
-      outputTokens: persistedOutputTokens ?? undefined
-    }, {
-      inputTokens: latestUsage.inputTokens,
-      outputTokens: latestUsage.outputTokens
-    }, sessionProvider)
-    const resolvedInputTokens = mergedUsageCounts.inputTokens ?? null
-    const resolvedOutputTokens = mergedUsageCounts.outputTokens ?? null
-    const resolvedOccupancy = latestUsage.contextWindowOccupancy
-      ?? persistedExplicitOccupancyTokens
-      ?? (
-        (resolvedInputTokens ?? 0) > 0 || (resolvedOutputTokens ?? 0) > 0
-          ? (resolvedInputTokens ?? 0) + (resolvedOutputTokens ?? 0)
-          : undefined
-      )
-    if (
-      ((resolvedInputTokens ?? 0) <= 0 && (resolvedOutputTokens ?? 0) <= 0)
-      || (
-        persistedInputTokens === resolvedInputTokens
-        && persistedOutputTokens === resolvedOutputTokens
-        && (persistedExplicitOccupancyTokens ?? null) === (resolvedOccupancy ?? null)
-      )
-    ) {
-      return messages
-    }
-
-    const nextUsageNotice = buildUsageNotice({
-      model: latestUsage.model,
-      inputTokens: resolvedInputTokens ?? undefined,
-      outputTokens: resolvedOutputTokens ?? undefined,
-      contextWindowOccupancy: resolvedOccupancy,
-      cacheReadInputTokens: persistedCacheReadTokens ?? undefined,
-      cacheCreationInputTokens: persistedCacheCreationTokens ?? undefined
-    })
-    if (!nextUsageNotice) {
-      return messages
-    }
-
-    return messages.map((message, index) => {
-      if (index !== latestAssistantIndex) {
-        return message
-      }
-
-      const runtimeNotices = usageNotice
-        ? (message.runtimeNotices ?? []).map(notice =>
-          notice.id === 'usage' ? nextUsageNotice : notice
-        )
-        : [...(message.runtimeNotices ?? []), nextUsageNotice]
-
-      return {
-        ...message,
-        runtimeNotices
-      }
-    })
+    // 新消息结构（一行一事件）下用量是独立 usage 行，不再需要从 assistant 消息的 runtimeNotices 回填
+    return messages
   }
 
   // 加载更多历史消息
@@ -990,23 +736,28 @@ export const useMessageStore = defineStore('message', () => {
     }
   }
 
-  async function addMessage(message: Omit<Message, 'id' | 'createdAt'>) {
+  async function addMessage(message: Omit<Message, 'id' | 'createdAt' | 'updatedAt'>) {
     const notificationStore = useNotificationStore()
     const input: CreateMessageInput = {
       session_id: message.sessionId,
+      request_id: message.requestId,
       role: message.role,
+      message_type: message.messageType,
       content: message.content,
       attachments: message.attachments ? JSON.stringify(message.attachments) : undefined,
       status: message.status,
-      tokens: message.tokens,
+      tool_call_id: message.toolCallId,
+      tool_name: message.toolName,
+      tool_input: message.toolInput,
+      tool_result: message.toolResult,
+      input_tokens: message.inputTokens,
+      output_tokens: message.outputTokens,
+      cache_read_tokens: message.cacheReadTokens,
+      cache_creation_tokens: message.cacheCreationTokens,
+      model: message.model,
+      cost_usd: message.costUsd,
       error_message: message.errorMessage,
-      tool_calls: message.toolCalls ? serializeToolCalls(message.toolCalls) : undefined,
-      thinking: message.thinking,
-      edit_traces: message.editTraces ? JSON.stringify(message.editTraces) : undefined,
-      runtime_notices: message.runtimeNotices ? JSON.stringify(message.runtimeNotices) : undefined,
-      compression_metadata: message.compressionMetadata
-        ? JSON.stringify(message.compressionMetadata)
-        : undefined
+      seq: message.seq
     }
 
     try {
