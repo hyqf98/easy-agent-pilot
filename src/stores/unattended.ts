@@ -1054,15 +1054,21 @@ export const useUnattendedStore = defineStore('unattended', () => {
 
     await messageStore.addMessage({
       sessionId,
+      requestId: `unattended-${Date.now()}`,
       role: 'user',
+      messageType: 'text',
       content: userText,
-      status: 'completed'
+      status: 'completed',
+      seq: 0
     })
     await messageStore.addMessage({
       sessionId,
+      requestId: `unattended-${Date.now()}`,
       role: 'assistant',
+      messageType: 'text',
       content: assistantText,
-      status: 'completed'
+      status: 'completed',
+      seq: 1
     })
     sessionStore.updateLastMessage(sessionId, compactText(assistantText, '无人值守回复'))
   }

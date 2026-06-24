@@ -36,7 +36,7 @@ export function useActiveFormRequest(sessionId: () => string | null | undefined)
       const message = messages[i]
       if (message.role !== 'assistant') continue
 
-      const request = extractFirstFormRequest(message.content)
+      const request = extractFirstFormRequest(message.content ?? '')
       if (!request) continue
 
       const formSchema = request.formSchema ?? request.forms?.[0]
@@ -46,7 +46,7 @@ export function useActiveFormRequest(sessionId: () => string | null | undefined)
       const answered = messages.some((later: Message) => {
         if (later.role !== 'user') return false
         if (!isLaterThan(later, message)) return false
-        const response = extractFormResponse(later.content)
+        const response = extractFormResponse(later.content ?? '')
         return response?.formId === formSchema.formId
       })
 

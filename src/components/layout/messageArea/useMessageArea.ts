@@ -70,7 +70,7 @@ export function useMessageArea() {
     const retry = async (targetMessage: Message, replaceMessageId?: string) => {
       await composerRef.value?.retryMessage(
         targetMessage.id,
-        targetMessage.content,
+        targetMessage.content ?? '',
         targetMessage.attachments ?? [],
         replaceMessageId
       )

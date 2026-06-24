@@ -961,35 +961,48 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
       // 构建对话上下文
       const context: ConversationContext = {
         sessionId: executionSessionId,
+        requestId: `task-${taskId}-${Date.now()}`,
         agent,
         messages: [
           ...(!resumableExternalSessionId && mountedMemoryPrompt
             ? [{
                 id: `task-memory-${taskId}`,
                 sessionId: executionSessionId,
+                requestId: `task-${taskId}`,
                 role: 'system' as const,
+                messageType: 'system' as const,
                 content: mountedMemoryPrompt,
                 status: 'completed' as const,
-                createdAt: new Date().toISOString()
+                seq: 0,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
               }]
             : []),
           ...(!resumableExternalSessionId && selectedExpert?.prompt
             ? [{
                 id: `task-system-${taskId}`,
                 sessionId: executionSessionId,
+                requestId: `task-${taskId}`,
                 role: 'system' as const,
+                messageType: 'system' as const,
                 content: buildExpertSystemPrompt(selectedExpert.prompt),
                 status: 'completed' as const,
-                createdAt: new Date().toISOString()
+                seq: 0,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
               }]
             : []),
           {
             id: `task-prompt-${taskId}`,
             sessionId: executionSessionId,
+            requestId: `task-${taskId}`,
             role: 'user',
+            messageType: 'text',
             content: prompt,
             status: 'completed',
-            createdAt: new Date().toISOString()
+            seq: 0,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
           }
         ],
         workingDirectory,

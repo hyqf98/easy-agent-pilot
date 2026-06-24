@@ -232,10 +232,14 @@ function createMessage(runId: string, role: 'system' | 'user' | 'assistant', con
   return {
     id: `solo-${role}-${runId}-${Math.random().toString(36).slice(2, 8)}`,
     sessionId: runId,
+    requestId: `solo-${runId}`,
     role,
+    messageType: role === 'system' ? 'system' : 'text',
     content,
     status: 'completed' as const,
-    createdAt: now
+    seq: 0,
+    createdAt: now,
+    updatedAt: now
   }
 }
 

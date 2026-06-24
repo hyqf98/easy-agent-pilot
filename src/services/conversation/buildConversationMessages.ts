@@ -20,17 +20,21 @@ function createSyntheticMessage(
   return {
     id: `synthetic-${suffix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     sessionId,
+    requestId: `synthetic-${suffix}`,
     role,
+    messageType: 'text',
     content,
     status: 'completed',
-    createdAt: new Date().toISOString()
+    seq: 0,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   }
 }
 
 function buildCompressionSummaryMessage(messages: Message[], sessionId: string): Message | null {
   const summaries = messages
-    .filter((message) => message.compressionMetadata)
-    .map((message) => normalizeContent(message.compressionMetadata?.summaryContent || message.content))
+    .filter((message) => message.messageType === 'compression')
+    .map((message) => normalizeContent(message.content || ''))
     .filter(Boolean)
 
   const uniqueSummaries = Array.from(new Set(summaries))

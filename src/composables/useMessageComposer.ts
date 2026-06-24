@@ -686,16 +686,22 @@ export function useMessageComposer() {
     try {
       await messageStore.addMessage({
         sessionId,
+        requestId: crypto.randomUUID(),
         role: 'user',
+        messageType: 'text',
         content: '/demo - 模拟流式输出演示',
-        status: 'completed'
+        status: 'completed',
+        seq: 0
       })
 
       const aiMessage = await messageStore.addMessage({
         sessionId,
+        requestId: crypto.randomUUID(),
         role: 'assistant',
+        messageType: 'text',
         content: '',
-        status: 'streaming'
+        status: 'streaming',
+        seq: 0
       })
 
       sessionExecutionStore.setCurrentStreamingMessageId(sessionId, aiMessage.id)
@@ -795,9 +801,12 @@ export function useMessageComposer() {
 
     await messageStore.addMessage({
       sessionId: sessionStore.currentSessionId,
+      requestId: crypto.randomUUID(),
       role: 'assistant',
+      messageType: 'text',
       content: helpContent,
-      status: 'completed'
+      status: 'completed',
+      seq: 0
     })
 
     sessionStore.updateLastMessage(sessionStore.currentSessionId, '可用命令帮助')

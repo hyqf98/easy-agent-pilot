@@ -220,11 +220,11 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
 
   protected toMessageInputs(messages: ConversationContext['messages']): ExecutionRequest['messages'] {
     return messages
-      .filter(message => !message.compressionMetadata)
+      .filter(message => message.messageType !== 'compression')
       .map(message => {
         const nonImageAttachmentPrompt = buildNonImageAttachmentPrompt(message.attachments ?? [])
         const normalizedContent = [
-          message.content.trim(),
+          (message.content ?? '').trim(),
           nonImageAttachmentPrompt
         ].filter(Boolean).join('\n\n')
 

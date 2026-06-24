@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import type { AgentRole } from '@/types/plan'
 import { getAgentRoleConfig } from '@/types/plan'
+import AgentIcon from '@/components/common/AgentIcon.vue'
 
 const props = defineProps<{
   role: AgentRole
@@ -12,12 +13,17 @@ const size = computed(() => props.size || 'md')
 
 const roleConfig = computed(() => getAgentRoleConfig(props.role))
 
-const roleColors: Record<AgentRole, string> = {
-  planner: 'purple'
-}
+const iconSize = computed(() => {
+  const sizeMap = {
+    sm: 13,
+    md: 15,
+    lg: 17
+  } as const
+  return sizeMap[size.value]
+})
 
-const roleIcons: Record<AgentRole, string> = {
-  planner: '📋'
+const roleColors: Record<AgentRole, string> = {
+  planner: 'neutral'
 }
 </script>
 
@@ -28,7 +34,11 @@ const roleIcons: Record<AgentRole, string> = {
     :class="[roleColors[role], size]"
     :title="roleConfig.description"
   >
-    <span class="role-icon">{{ roleIcons[role] }}</span>
+    <AgentIcon
+      class="role-icon"
+      kind="planner"
+      :size="iconSize"
+    />
     <span class="role-name">{{ roleConfig.name }}</span>
   </div>
 </template>
@@ -57,28 +67,15 @@ const roleIcons: Record<AgentRole, string> = {
   font-size: 0.8125rem;
 }
 
-.agent-role-badge.purple {
-  background-color: #f3e8ff;
-  color: #7c3aed;
-}
-
-.agent-role-badge.blue {
-  background-color: #eff6ff;
-  color: #2563eb;
-}
-
-.agent-role-badge.green {
-  background-color: #ecfdf5;
-  color: #059669;
-}
-
-.agent-role-badge.orange {
-  background-color: #fff7ed;
-  color: #ea580c;
+.agent-role-badge.neutral {
+  background: color-mix(in srgb, var(--color-text-primary) 5%, transparent);
+  color: var(--color-text-secondary);
+  border: 1px solid color-mix(in srgb, var(--color-text-primary) 9%, transparent);
 }
 
 .role-icon {
-  font-size: 0.875em;
+  color: var(--color-text-primary);
+  opacity: 0.82;
 }
 
 .role-name {

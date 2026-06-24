@@ -14,10 +14,14 @@ function createMessage(role: Message['role'], content: string): Message {
   return {
     id: `memory-merge-${role}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     sessionId: `memory-merge-${Date.now()}`,
+    requestId: `memory-merge-${Date.now()}`,
     role,
+    messageType: 'text',
     content,
     status: 'completed',
-    createdAt: new Date().toISOString()
+    seq: 0,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   }
 }
 

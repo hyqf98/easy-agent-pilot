@@ -7,6 +7,9 @@ import { useAgentTeamsStore, type AgentExpert, type AgentExpertCategory } from '
 import { useNotificationStore } from '@/stores/notification'
 import { inferAgentProvider, type CliTool } from '@/stores/agent'
 import DetectedCliToolsBanner from '@/components/settings/agent-settings/DetectedCliToolsBanner.vue'
+import AgentIcon from '@/components/common/AgentIcon.vue'
+
+type AgentIconKind = AgentExpertCategory | 'solo-coordinator'
 
 interface ExpertFormState {
   id?: string
@@ -134,6 +137,13 @@ function applyExpertToForm(expert: AgentExpert | null) {
 
 function getCategoryLabel(category: AgentExpertCategory): string {
   return categoryLabelMap.value.get(category) || category
+}
+
+function getExpertIconKind(expert: AgentExpert): AgentIconKind {
+  if (expert.builtinCode === 'builtin-solo-coordinator') {
+    return 'solo-coordinator'
+  }
+  return expert.category
 }
 
 function parseCsv(value: string): string[] {
@@ -379,16 +389,26 @@ onMounted(async () => {
           :class="{ 'expert-list__item--active': expert.id === teamsStore.selectedExpertId && !isCreating }"
           @click="selectExpert(expert.id)"
         >
-          <div class="expert-list__title-row">
-            <span class="expert-list__title">{{ expert.name }}</span>
-            <span
-              v-if="expert.isBuiltin"
-              class="expert-badge"
-            >{{ t('settings.agentTeams.builtinBadge') }}</span>
-          </div>
-          <div class="expert-list__meta">
-            <span>{{ getCategoryLabel(expert.category) }}</span>
-            <span>{{ expert.isEnabled ? t('settings.agentTeams.enabled') : t('settings.agentTeams.disabled') }}</span>
+          <div class="expert-list__identity">
+            <div class="expert-list__icon-shell">
+              <AgentIcon
+                :kind="getExpertIconKind(expert)"
+                :size="22"
+              />
+            </div>
+            <div class="expert-list__heading">
+              <div class="expert-list__title-row">
+                <span class="expert-list__title">{{ expert.name }}</span>
+                <span
+                  v-if="expert.isBuiltin"
+                  class="expert-badge"
+                >{{ t('settings.agentTeams.builtinBadge') }}</span>
+              </div>
+              <div class="expert-list__meta">
+                <span>{{ getCategoryLabel(expert.category) }}</span>
+                <span>{{ expert.isEnabled ? t('settings.agentTeams.enabled') : t('settings.agentTeams.disabled') }}</span>
+              </div>
+            </div>
           </div>
           <p class="expert-list__description">
             {{ expert.description || t('settings.agentTeams.emptyDescription') }}
@@ -742,15 +762,54 @@ onMounted(async () => {
 
 .expert-list__item {
   text-align: left;
-  border: 1px solid var(--color-border);
+  border: 1px solid color-mix(in srgb, var(--color-text-primary) 8%, transparent);
   background: var(--color-bg-primary);
   border-radius: 12px;
   padding: 12px;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: border-color 0.18s ease, background-color 0.18s ease, transform 0.18s ease;
+}
+
+.expert-list__item:hover {
+  background: color-mix(in srgb, var(--color-text-primary) 3%, var(--color-bg-primary));
+  border-color: color-mix(in srgb, var(--color-text-primary) 15%, transparent);
 }
 
 .expert-list__item--active {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 1px var(--color-primary-light);
+  border-color: color-mix(in srgb, var(--color-text-primary) 26%, transparent);
+  background: color-mix(in srgb, var(--color-text-primary) 5%, var(--color-bg-primary));
+}
+
+.expert-list__identity {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.expert-list__icon-shell {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: var(--color-text-primary);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--color-text-primary) 9%, transparent), transparent 62%),
+    color-mix(in srgb, var(--color-text-primary) 4%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-text-primary) 10%, transparent);
+}
+
+.expert-list__item--active .expert-list__icon-shell {
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--color-text-primary) 16%, transparent), transparent 62%),
+    color-mix(in srgb, var(--color-text-primary) 7%, transparent);
+  border-color: color-mix(in srgb, var(--color-text-primary) 18%, transparent);
+}
+
+.expert-list__heading {
+  min-width: 0;
 }
 
 .expert-list__title-row,
@@ -763,10 +822,15 @@ onMounted(async () => {
 
 .expert-list__title-row {
   justify-content: space-between;
+  min-width: 0;
 }
 
 .expert-list__title {
+  min-width: 0;
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .expert-list__meta,
@@ -775,9 +839,22 @@ onMounted(async () => {
   font-size: 13px;
 }
 
+.expert-list__meta {
+  margin-top: 4px;
+}
+
 .expert-badge {
+  flex: 0 0 auto;
   font-size: 12px;
-  color: var(--color-primary);
+  color: var(--color-text-tertiary);
+}
+
+.expert-list__description {
+  margin: 10px 0 0 46px;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .editor-grid {

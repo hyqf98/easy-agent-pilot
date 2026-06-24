@@ -49,7 +49,7 @@ async function handleRetry(message: Message) {
   }
 
   if (message.role === 'user') {
-    sessionExecutionStore.setInputText(sessionId, message.content)
+    sessionExecutionStore.setInputText(sessionId, message.content ?? '')
     sessionExecutionStore.setPendingImages(sessionId, await toPendingImages(message.attachments ?? []))
     composerRef.value?.focusInput()
     return
@@ -61,7 +61,7 @@ async function handleRetry(message: Message) {
 
     for (let index = messageIndex - 1; index >= 0; index -= 1) {
       if (messages[index].role === 'user') {
-        sessionExecutionStore.setInputText(sessionId, messages[index].content)
+        sessionExecutionStore.setInputText(sessionId, messages[index].content ?? '')
         sessionExecutionStore.setPendingImages(sessionId, await toPendingImages(messages[index].attachments ?? []))
         break
       }

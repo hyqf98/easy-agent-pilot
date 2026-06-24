@@ -130,17 +130,13 @@ function parseToolCallTodos(toolCall: ToolCall): TodoItem[] {
 
 function buildMessagesTodoCacheKey(messages: Message[]): string {
   const lastMessage = messages[messages.length - 1]
-  const lastToolCall = lastMessage?.toolCalls?.[lastMessage.toolCalls.length - 1]
 
   return [
     messages.length,
     lastMessage?.id ?? '',
     lastMessage?.status ?? '',
     lastMessage?.createdAt ?? '',
-    lastToolCall?.id ?? '',
-    lastToolCall?.status ?? '',
-    lastToolCall?.name ?? '',
-    typeof lastToolCall?.result === 'string' ? lastToolCall.result.length : 0
+    lastMessage?.messageType ?? ''
   ].join(':')
 }
 
@@ -190,8 +186,14 @@ export function extractTodoSnapshotFromMessages(messages: Message[]): TodoSnapsh
 
   for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
     const message = messages[messageIndex]
-    const toolCalls = message.toolCalls ?? []
-    const snapshot = extractTodoSnapshotFromToolCalls(toolCalls, message.createdAt)
+    // 新结构下工具调用是独立行，todo 提取从 tool_result 行读取
+    if (message.messageType !== 'tool_result' || !message.toolResult) {
+      continue
+    }
+    const snapshot = extractTodoSnapshotFromToolCalls(
+      [{ id: message.toolCallId ?? '', name: message.toolName ?? '', arguments: {}, status: 'success', result: message.toolResult }],
+      message.createdAt
+    )
     if (snapshot) {
       setTodoSnapshotCache(cacheKey, snapshot)
       return snapshot

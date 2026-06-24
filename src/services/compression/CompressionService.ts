@@ -106,16 +106,22 @@ export class CompressionService {
 
     await messageStore.addMessage({
       sessionId,
+      requestId: `compression-${sessionId}-${Date.now()}`,
       role: 'user',
+      messageType: 'text',
       content: triggerMessage,
-      status: 'completed'
+      status: 'completed',
+      seq: 0
     })
 
     const assistantMessage = await messageStore.addMessage({
       sessionId,
+      requestId: `compression-${sessionId}-${Date.now()}`,
       role: 'assistant',
+      messageType: 'text',
       content: this.t('compression.processing'),
-      status: 'streaming'
+      status: 'streaming',
+      seq: 0
     })
 
     return { assistantMessage }
@@ -210,10 +216,12 @@ export class CompressionService {
 
       await messageStore.addMessage({
         sessionId,
-        role: 'user',
+        requestId: `compression-${sessionId}-${Date.now()}`,
+        role: 'assistant',
+        messageType: 'compression',
         content: summaryContent,
         status: 'completed',
-        compressionMetadata
+        seq: 0
       })
       sessionStore.updateLastMessage(sessionId, summaryContent.slice(0, 50))
 
@@ -410,10 +418,14 @@ export class CompressionService {
     const compressionPromptMessage: Message = {
       id: `compression-prompt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       sessionId: session?.id ?? `compress-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      requestId: `compression-prompt-${Date.now()}`,
       role: 'user',
+      messageType: 'text',
       content: prompt,
       status: 'completed',
-      createdAt: new Date().toISOString()
+      seq: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     }
     const executionMessages = buildConversationMessages(
       resumeSessionId
