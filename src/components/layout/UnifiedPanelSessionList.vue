@@ -799,6 +799,8 @@ onBeforeUnmount(() => {
 }
 
 .session-list {
+  /* 取内容高度，不纵向拉伸，让 .session-more-btn 紧跟最后一条会话 */
+  flex: 0 1 auto;
   gap: 2px;
   padding: 2px 0 6px;
   overflow: visible;

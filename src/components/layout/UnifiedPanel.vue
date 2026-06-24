@@ -7,6 +7,7 @@ import { useLayoutStore } from '@/stores/layout'
 import { useUIStore } from '@/stores/ui'
 import { useAgentStore } from '@/stores/agent'
 import { useAgentTeamsStore } from '@/stores/agentTeams'
+import { useSplitPaneStore } from '@/stores/splitPane'
 import { useSessionView } from '@/composables'
 import { EaIcon, EaButton, EaSkeleton } from '@/components/common'
 import { ProjectCreateModal } from '@/components/project'
@@ -26,6 +27,7 @@ defineProps<UnifiedPanelProps>()
 const emit = defineEmits<{
   toggle: []
   openProjectFiles: [project: Project]
+  requestHide: []
 }>()
 
 const projectStore = useProjectStore()
@@ -34,6 +36,7 @@ const layoutStore = useLayoutStore()
 const uiStore = useUIStore()
 const agentStore = useAgentStore()
 const agentTeamsStore = useAgentTeamsStore()
+const splitPaneStore = useSplitPaneStore()
 const {
   openSessionTarget,
 } = useSessionView()
@@ -183,10 +186,31 @@ const handleAddSession = async (projectId: string) => {
     projectStore.incrementSessionCount(projectId)
     uiStore.setAppMode('chat')
     uiStore.setMainContentMode('chat')
-    await sessionStore.openSession(newSession.id)
+
+    // 分屏模式：新会话进入当前聚焦的分屏窗口；否则走全局 tab
+    if (splitPaneStore.isSplitActive && splitPaneStore.focusedPaneId) {
+      splitPaneStore.addSessionToPane(splitPaneStore.focusedPaneId, newSession.id)
+    } else {
+      await sessionStore.openSession(newSession.id)
+    }
   } catch (error) {
     console.error('[UnifiedPanel] 创建会话失败:', error)
   }
+}
+
+// 头部“+”新建会话：落到当前项目，无项目则打开导入弹窗
+const handleCreateSession = async () => {
+  const projectId = projectStore.currentProjectId || projectStore.projects[0]?.id
+  if (!projectId) {
+    uiStore.openProjectCreateModal()
+    return
+  }
+  await handleAddSession(projectId)
+}
+
+// 头部“隐藏”按钮：请求外层收起侧栏
+const handleRequestHide = () => {
+  emit('requestHide')
 }
 
 const handleSelectSession = async (id: string) => {
@@ -276,11 +300,32 @@ const handleOpenProjectFiles = (project: Project) => {
         </button>
         <button
           class="header-action-btn"
+          :title="t('session.newSession')"
+          @click="handleCreateSession"
+        >
+          <EaIcon
+            name="plus"
+            :size="14"
+          />
+        </button>
+        <button
+          class="header-action-btn"
           :title="t('project.createProject')"
           @click="handleAddProject"
         >
           <EaIcon
             name="folder-plus"
+            :size="13"
+          />
+        </button>
+        <button
+          class="header-action-btn"
+          title="隐藏项目管理"
+          aria-label="隐藏项目管理"
+          @click="handleRequestHide"
+        >
+          <EaIcon
+            name="panel-left-close"
             :size="13"
           />
         </button>

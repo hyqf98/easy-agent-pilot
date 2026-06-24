@@ -276,30 +276,12 @@ const handleSplitPane = async (sessionId?: string) => {
   splitPaneStore.focusPane(splitPaneStore.focusedPaneId!)
 }
 
-const handleExitSplit = () => {
-  splitPaneStore.exitSplitMode()
-}
-
 const handleContextMenuSplit = () => {
   const sessionId = contextMenuState.value.sessionId
   if (sessionId) {
     handleSplitPane(sessionId)
   }
   hideContextMenu()
-}
-
-const handleAddPane = async () => {
-  const session = sessionStore.currentSession
-  if (!session) return
-
-  const newSession = await resolveDefaultExpertSession(session.projectId)
-
-  if (!splitPaneStore.isSplitActive) {
-    splitPaneStore.enterSplitMode(session.id, newSession.id)
-  } else {
-    splitPaneStore.addPane(newSession.id)
-  }
-  splitPaneStore.focusPane(splitPaneStore.focusedPaneId!)
 }
 
 // 处理鼠标滚轮滚动（横向滚动）
@@ -426,29 +408,7 @@ watch(() => sessionStore.openSessionIds.join(':'), () => {
     <!-- 分屏按钮 -->
     <div class="session-tabs__actions">
       <button
-        v-if="splitPaneStore.isSplitActive"
-        class="session-tabs__action-btn"
-        :title="t('sessionTabs.addPane')"
-        @click="handleAddPane"
-      >
-        <EaIcon
-          name="plus"
-          :size="14"
-        />
-      </button>
-      <button
-        v-if="splitPaneStore.isSplitActive"
-        class="session-tabs__action-btn"
-        :title="t('sessionTabs.exitSplit')"
-        @click="handleExitSplit"
-      >
-        <EaIcon
-          name="minimize-2"
-          :size="14"
-        />
-      </button>
-      <button
-        v-else-if="sessionStore.openSessions.length >= 1 && sessionStore.currentSessionId"
+        v-if="!splitPaneStore.isSplitActive && sessionStore.openSessions.length >= 1 && sessionStore.currentSessionId"
         class="session-tabs__action-btn"
         :title="t('sessionTabs.splitPane')"
         @click="handleSplitPane()"

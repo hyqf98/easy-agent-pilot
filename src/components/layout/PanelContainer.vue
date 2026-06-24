@@ -4,6 +4,7 @@ import UnifiedPanel from './UnifiedPanel.vue'
 
 defineEmits<{
   openProjectFiles: [project: Project]
+  requestHide: []
 }>()
 </script>
 
@@ -13,6 +14,7 @@ defineEmits<{
       :collapsed="false"
       :show-header-toggle="false"
       @open-project-files="$emit('openProjectFiles', $event)"
+      @request-hide="$emit('requestHide')"
     />
   </div>
 </template>

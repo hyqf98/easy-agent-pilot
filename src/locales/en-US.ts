@@ -329,7 +329,8 @@ export default {
     // Project selection
     selectProject: 'Select Project',
     // Default name
-    unnamedSession: 'Unnamed Session'
+    unnamedSession: 'Unnamed Session',
+    newSession: 'New Session'
   },
 
   // Session tabs bar

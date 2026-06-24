@@ -4,8 +4,11 @@ import { useSessionStore } from './session'
 
 export interface PaneInfo {
   id: string
-  sessionId: string
+  sessionIds: string[]
+  activeSessionId: string | null
 }
+
+export type DropZone = 'center' | 'left' | 'right' | 'top' | 'bottom'
 
 let paneSeq = 0
 
@@ -39,12 +42,18 @@ export const useSplitPaneStore = defineStore('splitPane', () => {
     return null
   }
 
-  function addPane(sessionId: string): PaneInfo {
+  function createPane(sessionIds: string[]): PaneInfo {
     paneSeq++
-    const pane: PaneInfo = {
+    const active = sessionIds[0] ?? null
+    return {
       id: `pane-${paneSeq}`,
-      sessionId
+      sessionIds: [...sessionIds],
+      activeSessionId: active
     }
+  }
+
+  function addPane(sessionId: string): PaneInfo {
+    const pane = createPane([sessionId])
     activePanes.value.push(pane)
 
     if (paneGrid.value.length === 0) {
@@ -56,11 +65,7 @@ export const useSplitPaneStore = defineStore('splitPane', () => {
   }
 
   function addPaneToNewRow(sessionId: string): PaneInfo {
-    paneSeq++
-    const pane: PaneInfo = {
-      id: `pane-${paneSeq}`,
-      sessionId
-    }
+    const pane = createPane([sessionId])
     activePanes.value.push(pane)
     paneGrid.value.push([pane.id])
     focusedPaneId.value = pane.id
@@ -71,6 +76,7 @@ export const useSplitPaneStore = defineStore('splitPane', () => {
     const idx = activePanes.value.findIndex(p => p.id === paneId)
     if (idx < 0) return
 
+    const removed = activePanes.value[idx]
     activePanes.value.splice(idx, 1)
 
     for (let r = 0; r < paneGrid.value.length; r++) {
@@ -83,12 +89,24 @@ export const useSplitPaneStore = defineStore('splitPane', () => {
     }
     paneGrid.value = paneGrid.value.filter(row => row.length > 0)
 
+    // 把被关闭 pane 的剩余 tab 合并到相邻 pane
+    if (removed.sessionIds.length > 0 && activePanes.value.length > 0) {
+      const neighborIdx = Math.min(idx, activePanes.value.length - 1)
+      const neighbor = activePanes.value[neighborIdx]
+      neighbor.sessionIds.push(...removed.sessionIds)
+      if (!neighbor.activeSessionId) {
+        neighbor.activeSessionId = removed.activeSessionId
+      }
+    }
+
     if (focusedPaneId.value === paneId) {
-      if (activePanes.value.length > 0) {
+      if (activePanes.value.length > 1) {
         const nextIdx = Math.min(idx, activePanes.value.length - 1)
         focusedPaneId.value = activePanes.value[nextIdx].id
+        syncCurrentSession()
       } else {
-        focusedPaneId.value = null
+        // 只剩一个 pane，退出分屏
+        exitSplitMode()
       }
     }
   }
@@ -169,27 +187,150 @@ export const useSplitPaneStore = defineStore('splitPane', () => {
     focusedPaneId.value = targetPaneId
   }
 
+  function syncCurrentSession() {
+    const focused = focusedPane.value
+    if (focused?.activeSessionId) {
+      const sessionStore = useSessionStore()
+      sessionStore.setCurrentSession(focused.activeSessionId)
+    }
+  }
+
   function focusPane(paneId: string) {
     const pane = getPaneById(paneId)
     if (pane) {
       focusedPaneId.value = paneId
-      const sessionStore = useSessionStore()
-      sessionStore.setCurrentSession(pane.sessionId)
+      syncCurrentSession()
     }
   }
 
-  function updatePaneSession(paneId: string, sessionId: string) {
+  function setActiveSessionInPane(paneId: string, sessionId: string) {
     const pane = getPaneById(paneId)
-    if (pane) {
-      pane.sessionId = sessionId
+    if (!pane || !pane.sessionIds.includes(sessionId)) return
+    pane.activeSessionId = sessionId
+    if (paneId === focusedPaneId.value) {
+      syncCurrentSession()
     }
+  }
+
+  function addSessionToPane(paneId: string, sessionId: string) {
+    const pane = getPaneById(paneId)
+    if (!pane) return
+    if (!pane.sessionIds.includes(sessionId)) {
+      pane.sessionIds.push(sessionId)
+    }
+    pane.activeSessionId = sessionId
+    focusedPaneId.value = paneId
+    syncCurrentSession()
+  }
+
+  function removeSessionFromPane(paneId: string, sessionId: string) {
+    const pane = getPaneById(paneId)
+    if (!pane) return
+    const idx = pane.sessionIds.indexOf(sessionId)
+    if (idx < 0) return
+
+    pane.sessionIds.splice(idx, 1)
+
+    if (pane.activeSessionId === sessionId) {
+      pane.activeSessionId = pane.sessionIds[0] ?? null
+    }
+
+    // pane 空了就移除 pane
+    if (pane.sessionIds.length === 0) {
+      removePane(paneId)
+      return
+    }
+
+    if (paneId === focusedPaneId.value) {
+      syncCurrentSession()
+    }
+  }
+
+  // 兼容旧接口：更新 pane 的唯一/活动会话
+  function updatePaneSession(paneId: string, sessionId: string) {
+    addSessionToPane(paneId, sessionId)
+  }
+
+  // 兼容旧接口：返回 pane 活动会话
+  function getPaneSessionId(paneId: string): string {
+    return getPaneById(paneId)?.activeSessionId ?? ''
+  }
+
+  // 从源 pane 拖动一个会话到目标 pane 的指定区域
+  // center: 并入目标 pane 的 tab
+  // left/right: 新建 pane 放到目标同行左/右
+  // top/bottom: 新建 pane 放到目标上/下新行
+  function moveSessionToPane(
+    fromPaneId: string,
+    toPaneId: string,
+    sessionId: string,
+    zone: DropZone
+  ) {
+    const fromPane = getPaneById(fromPaneId)
+    const toPane = getPaneById(toPaneId)
+    if (!fromPane || !toPane) return
+
+    // 先从源 pane 摘除会话
+    const sIdx = fromPane.sessionIds.indexOf(sessionId)
+    if (sIdx < 0) return
+    fromPane.sessionIds.splice(sIdx, 1)
+    const wasActive = fromPane.activeSessionId === sessionId
+
+    if (zone === 'center') {
+      // 并入目标 pane
+      if (!toPane.sessionIds.includes(sessionId)) {
+        toPane.sessionIds.push(sessionId)
+      }
+      toPane.activeSessionId = sessionId
+      focusedPaneId.value = toPaneId
+    } else {
+      const newPane = createPane([sessionId])
+      activePanes.value.push(newPane)
+      const toPos = getPanePosition(toPaneId)
+      if (!toPos) return
+
+      if (zone === 'top') {
+        paneGrid.value.splice(toPos.row, 0, [newPane.id])
+      } else if (zone === 'bottom') {
+        paneGrid.value.splice(toPos.row + 1, 0, [newPane.id])
+      } else if (zone === 'left') {
+        paneGrid.value[toPos.row].splice(toPos.col, 0, newPane.id)
+      } else if (zone === 'right') {
+        paneGrid.value[toPos.row].splice(toPos.col + 1, 0, newPane.id)
+      }
+      focusedPaneId.value = newPane.id
+    }
+
+    // 处理源 pane：若被摘除的是活动会话则重置
+    if (wasActive) {
+      fromPane.activeSessionId = fromPane.sessionIds[0] ?? null
+    }
+
+    // 源 pane 空了就移除
+    if (fromPane.sessionIds.length === 0) {
+      const fromId = fromPane.id
+      const fIdx = activePanes.value.findIndex(p => p.id === fromId)
+      activePanes.value = activePanes.value.filter(p => p.id !== fromId)
+      for (let r = 0; r < paneGrid.value.length; r++) {
+        paneGrid.value[r] = paneGrid.value[r].filter(id => id !== fromId)
+      }
+      paneGrid.value = paneGrid.value.filter(row => row.length > 0)
+      void fIdx
+      if (activePanes.value.length <= 1) {
+        exitSplitMode()
+        return
+      }
+    }
+
+    paneGrid.value = paneGrid.value.filter(row => row.length > 0)
+    syncCurrentSession()
   }
 
   function exitSplitMode() {
     const focused = focusedPane.value
-    if (focused) {
+    if (focused?.activeSessionId) {
       const sessionStore = useSessionStore()
-      sessionStore.setCurrentSession(focused.sessionId)
+      sessionStore.setCurrentSession(focused.activeSessionId)
     }
     activePanes.value = []
     paneGrid.value = []
@@ -220,6 +361,7 @@ export const useSplitPaneStore = defineStore('splitPane', () => {
     focusedPane,
     getPaneById,
     getPanePosition,
+    getPaneSessionId,
     addPane,
     addPaneToNewRow,
     removePane,
@@ -227,6 +369,10 @@ export const useSplitPaneStore = defineStore('splitPane', () => {
     movePaneBefore,
     movePaneAfter,
     focusPane,
+    setActiveSessionInPane,
+    addSessionToPane,
+    removeSessionFromPane,
+    moveSessionToPane,
     updatePaneSession,
     exitSplitMode,
     enterSplitMode

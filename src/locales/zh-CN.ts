@@ -248,7 +248,8 @@ const zhCN = {
     summaryContent: '摘要内容',
     noSummaryAvailable: '暂无摘要',
     selectProject: '选择项目',
-    unnamedSession: '未命名会话'
+    unnamedSession: '未命名会话',
+    newSession: '新建会话'
   },
   sessionTabs: {
     ...enUS.sessionTabs,

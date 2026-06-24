@@ -6,6 +6,7 @@ import TokenProgressBar from '@/components/common/TokenProgressBar.vue'
 import CompressionConfirmDialog from '@/components/common/CompressionConfirmDialog.vue'
 import { MessageList } from '@/components/message'
 import ConversationComposer from '../conversationComposer/ConversationComposer.vue'
+import PaneTabBar from './PaneTabBar.vue'
 import { useSessionStore } from '@/stores/session'
 import { useMessageStore } from '@/stores/message'
 import { useSessionExecutionStore } from '@/stores/sessionExecution'
@@ -21,7 +22,6 @@ import type { ComponentPublicInstance } from 'vue'
 
 const props = defineProps<{
   paneId: string
-  sessionId: string
 }>()
 
 const emit = defineEmits<{
@@ -85,10 +85,9 @@ onUnmounted(() => {
 const isFocused = computed(() => splitPaneStore.focusedPaneId === props.paneId)
 const canClose = computed(() => splitPaneStore.paneCount > 1)
 
-const sessionName = computed(() => {
-  const session = sessionStore.sessions.find(s => s.id === props.sessionId)
-  return session?.name ?? ''
-})
+// pane 当前活动会话（多 tab 模型）
+const pane = computed(() => splitPaneStore.getPaneById(props.paneId))
+const activeSessionId = computed(() => pane.value?.activeSessionId ?? '')
 
 const isCompactMode = computed(() => paneWidth.value < 500)
 const isMiniMode = computed(() => paneWidth.value < 360)
@@ -96,15 +95,15 @@ const isHeightCompact = computed(() => paneHeight.value < 650)
 const isHeightMini = computed(() => paneHeight.value < 450)
 
 const currentTokenUsage = computed(() =>
-  tokenStore.getTokenUsage(props.sessionId)
+  tokenStore.getTokenUsage(activeSessionId.value)
 )
 
 const currentMessageCount = computed(() =>
-  messageStore.messagesBySession(props.sessionId).length
+  messageStore.messagesBySession(activeSessionId.value).length
 )
 
 const isSending = computed(() =>
-  sessionExecutionStore.getIsSending(props.sessionId)
+  sessionExecutionStore.getIsSending(activeSessionId.value)
 )
 
 function handleFocus() {
@@ -115,9 +114,9 @@ function handleClose() {
   emit('close', props.paneId)
 }
 
-function handleDragHandleMouseDown(e: MouseEvent) {
-  e.preventDefault()
-  emit('dragstart', props.paneId)
+// tab 栏 grip 触发的整 pane 重排
+function onTabBarDragStart(paneId: string) {
+  emit('dragstart', paneId)
 }
 
 function handleComposerFocus() {
@@ -142,7 +141,7 @@ async function handleRetry(message: Message) {
   }
 
   if (message.role === 'assistant') {
-    const messages = messageStore.messagesBySession(props.sessionId)
+    const messages = messageStore.messagesBySession(activeSessionId.value)
     const messageIndex = messages.findIndex(m => m.id === message.id)
     for (let i = messageIndex - 1; i >= 0; i--) {
       if (messages[i].role === 'user') {
@@ -166,8 +165,8 @@ function handleOpenCompress() {
 }
 
 async function handleConfirmCompress(strategy: CompressionStrategy) {
-  const sessionId = props.sessionId
-  const session = sessionStore.sessions.find(s => s.id === sessionId)
+  const targetSessionId = activeSessionId.value
+  const session = sessionStore.sessions.find(s => s.id === targetSessionId)
   const agentStore = useAgentStore()
   const agentId = resolveSessionAgentId(session, agentStore.agents)
 
@@ -182,13 +181,13 @@ async function handleConfirmCompress(strategy: CompressionStrategy) {
 
   try {
     const result = await compressionService.compressSession(
-      sessionId,
+      targetSessionId,
       agentId,
       { strategy, triggerSource: 'manual' }
     )
     if (result.success) {
       notificationStore.success(t('compression.success'))
-      await conversationService.drainQueue(sessionId)
+      await conversationService.drainQueue(targetSessionId)
     } else {
       notificationStore.error(t('compression.failed'), result.error)
     }
@@ -219,28 +218,19 @@ function handleCancelCompress() {
       }
     ]"
   >
-    <div
-      class="pane-header"
-      @click="handleFocus"
-    >
+    <div class="pane-wrapper__header">
+      <PaneTabBar
+        :pane-id="paneId"
+        :is-focused="isFocused"
+        :is-mini="isMiniMode || isHeightMini"
+        @focus="handleFocus"
+        @dragstart="onTabBarDragStart"
+      />
       <div
-        class="pane-header__left"
-        @mousedown="handleDragHandleMouseDown"
-      >
-        <span class="pane-header__drag-handle">
-          <EaIcon
-            name="grip-vertical"
-            :size="12"
-          />
-        </span>
-        <span class="pane-header__title">{{ sessionName || t('splitPane.newPane') }}</span>
-      </div>
-      <div
-        class="pane-header__right"
-        @mousedown.stop
+        v-if="canClose"
+        class="pane-wrapper__header-close-wrap"
       >
         <button
-          v-if="canClose"
           class="pane-header__close"
           :title="t('splitPane.closePane')"
           @click.stop="handleClose"
@@ -267,7 +257,7 @@ function handleCancelCompress() {
         </div>
         <div class="pane-wrapper__token-full">
           <TokenProgressBar
-            :session-id="sessionId"
+            :session-id="activeSessionId"
             :show-compress-button="true"
             @compress="handleOpenCompress"
           />
@@ -276,7 +266,7 @@ function handleCancelCompress() {
 
       <MessageList
         class="pane-wrapper__list"
-        :session-id="sessionId"
+        :session-id="activeSessionId"
         :top-safe-inset="30"
         @retry="handleRetry"
         @form-submit="handleMessageFormSubmit"
@@ -284,7 +274,7 @@ function handleCancelCompress() {
 
       <ConversationComposer
         ref="composerRef"
-        :session-id="sessionId"
+        :session-id="activeSessionId"
         :panel-type="isMiniMode ? 'mini' : 'main'"
         :compact="isCompactMode"
         @focus="handleComposerFocus"
@@ -318,72 +308,30 @@ function handleCancelCompress() {
   background: var(--color-bg-primary);
 }
 
-.pane-header {
+/* 头部：tab 栏 + 关闭按钮 */
+.pane-wrapper__header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 8px;
-  height: 30px;
+  align-items: stretch;
   flex-shrink: 0;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
   user-select: none;
-  cursor: pointer;
 }
 
-.pane-wrapper--focused .pane-header {
+.pane-wrapper--focused .pane-wrapper__header {
   border-bottom-color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary-light, var(--color-surface)) 40%, var(--color-surface));
 }
 
-.pane-header__left {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
+/* tab 栏占据剩余空间 */
+.pane-wrapper__header > :first-child {
   flex: 1;
-  cursor: grab;
+  min-width: 0;
 }
 
-.pane-header__left:active {
-  cursor: grabbing;
-}
-
-.pane-header__drag-handle {
+.pane-wrapper__header-close-wrap {
   display: flex;
   align-items: center;
-  color: var(--color-text-quaternary);
-  flex-shrink: 0;
-  opacity: 0.4;
-  transition: opacity var(--transition-fast) var(--easing-default);
-}
-
-.pane-header__drag-handle:hover {
-  opacity: 1;
-}
-
-.pane-header__title {
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  pointer-events: none;
-}
-
-.pane-wrapper--focused .pane-header__title {
-  color: var(--color-primary);
-}
-
-.pane-wrapper--mini .pane-header__title {
-  max-width: 80px;
-}
-
-.pane-header__right {
-  display: flex;
-  align-items: center;
-  gap: 2px;
+  padding-right: 6px;
   flex-shrink: 0;
 }
 
@@ -402,7 +350,7 @@ function handleCancelCompress() {
   transition: all var(--transition-fast) var(--easing-default);
 }
 
-.pane-header:hover .pane-header__close {
+.pane-wrapper__header:hover .pane-header__close {
   opacity: 1;
 }
 
@@ -583,14 +531,7 @@ function handleCancelCompress() {
 }
 
 /* Height-compact: panes shorter than 550px (typical 2-row layout) */
-.pane-wrapper--h-compact .pane-header {
-  height: 26px;
-  padding: 0 6px;
-}
-
-.pane-wrapper--h-compact .pane-header__title {
-  font-size: 11px;
-}
+/* tab 栏高度由 PaneTabBar 的 is-mini 控制，这里只调整内容区 */
 
 .pane-wrapper--h-compact :deep(.conversation-composer) {
   padding: 4px 8px;
@@ -638,14 +579,7 @@ function handleCancelCompress() {
 }
 
 /* Height-mini: panes shorter than 400px (3-row or very cramped) */
-.pane-wrapper--h-mini .pane-header {
-  height: 22px;
-  padding: 0 4px;
-}
-
-.pane-wrapper--h-mini .pane-header__drag-handle {
-  display: none;
-}
+/* tab 栏在极矮模式下由 PaneTabBar is-mini 简化 */
 
 .pane-wrapper--h-mini :deep(.conversation-composer) {
   padding: 2px 6px;

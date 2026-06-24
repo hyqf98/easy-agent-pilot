@@ -3,7 +3,13 @@ import { computed, ref, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EaIcon } from '@/components/common'
 import PaneWrapper from './PaneWrapper.vue'
-import { useSplitPaneStore } from '@/stores/splitPane'
+import { useSplitPaneStore, type DropZone } from '@/stores/splitPane'
+import { useTabDrag } from './useTabDrag'
+
+interface PaneDropTarget {
+  paneId: string
+  zone: DropZone
+}
 
 interface DropTarget {
   row: number
@@ -25,13 +31,20 @@ interface DisplayRow {
 }
 
 const DRAG_Y_SPLIT = 0.5
+// 拖拽 tab 时四边吸附阈值（距边占比）
+const EDGE_THRESHOLD = 0.28
 
 const { t } = useI18n()
 const splitPaneStore = useSplitPaneStore()
+const { dragState, endTabDrag } = useTabDrag()
 
 const containerRef = ref<HTMLElement | null>(null)
 const draggingPaneId = ref<string | null>(null)
 const dropTarget = ref<DropTarget | null>(null)
+
+// tab 跨分屏拖拽的放置目标
+const tabDropTarget = ref<PaneDropTarget | null>(null)
+const isTabDragging = computed(() => dragState.active)
 
 let onMouseMove: ((e: MouseEvent) => void) | null = null
 let onMouseUp: (() => void) | null = null
@@ -39,11 +52,6 @@ let rafId = 0
 let pendingX = 0
 let pendingY = 0
 let hasPendingMove = false
-
-function getPaneSessionId(paneId: string): string {
-  const pane = splitPaneStore.getPaneById(paneId)
-  return pane?.sessionId ?? ''
-}
 
 const displayRows = computed<DisplayRow[]>(() => {
   const grid = splitPaneStore.paneGrid
@@ -107,6 +115,7 @@ function flushMove() {
   }
 }
 
+// ========== 整 pane 重排（mouse 事件）==========
 function onPaneDragStart(paneId: string) {
   draggingPaneId.value = paneId
   dropTarget.value = null
@@ -253,6 +262,82 @@ function finishDrag() {
   onMouseUp = null
 }
 
+// ========== tab 跨分屏拖拽（HTML5 DnD）==========
+function computeZone(rect: DOMRect, clientX: number, clientY: number): DropZone {
+  const xRatio = (clientX - rect.left) / rect.width
+  const yRatio = (clientY - rect.top) / rect.height
+
+  const fromLeft = xRatio
+  const fromRight = 1 - xRatio
+  const fromTop = yRatio
+  const fromBottom = 1 - yRatio
+
+  const minEdge = Math.min(fromLeft, fromRight, fromTop, fromBottom)
+
+  // 距边小于阈值 → 该方向吸附
+  if (minEdge < EDGE_THRESHOLD) {
+    if (fromLeft === minEdge) return 'left'
+    if (fromRight === minEdge) return 'right'
+    if (fromTop === minEdge) return 'top'
+    return 'bottom'
+  }
+  return 'center'
+}
+
+function onPaneDragOver(event: DragEvent) {
+  if (!isTabDragging.value) return
+  const target = event.currentTarget as HTMLElement
+  const paneId = target.dataset.paneId
+  if (!paneId || paneId === dragState.fromPaneId) {
+    tabDropTarget.value = null
+    return
+  }
+
+  event.preventDefault()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move'
+  }
+
+  const rect = target.getBoundingClientRect()
+  const zone = computeZone(rect, event.clientX, event.clientY)
+  tabDropTarget.value = { paneId, zone }
+}
+
+function onPaneDragLeave(event: DragEvent) {
+  const related = event.relatedTarget as HTMLElement | null
+  const target = event.currentTarget as HTMLElement
+  if (!related || !target.contains(related)) {
+    if (tabDropTarget.value && tabDropTarget.value.paneId === target.dataset.paneId) {
+      tabDropTarget.value = null
+    }
+  }
+}
+
+function onPaneDrop(event: DragEvent) {
+  const target = event.currentTarget as HTMLElement
+  const toPaneId = target.dataset.paneId
+  event.preventDefault()
+  event.stopPropagation()
+
+  const fromPaneId = dragState.fromPaneId
+  const sessionId = dragState.sessionId
+  const zone = tabDropTarget.value?.zone ?? 'center'
+
+  tabDropTarget.value = null
+  endTabDrag()
+
+  if (!fromPaneId || !sessionId || !toPaneId) return
+  if (fromPaneId === toPaneId) return
+
+  splitPaneStore.moveSessionToPane(fromPaneId, toPaneId, sessionId, zone)
+}
+
+// tab 栏请求新增分屏组
+function getTabDropZone(paneId: string): DropZone | null {
+  if (!tabDropTarget.value) return null
+  return tabDropTarget.value.paneId === paneId ? tabDropTarget.value.zone : null
+}
+
 onUnmounted(() => {
   cancelAnimationFrame(rafId)
   if (onMouseMove) document.removeEventListener('mousemove', onMouseMove)
@@ -293,12 +378,20 @@ onUnmounted(() => {
           :data-pane-id="cell.paneId"
           :data-row="rowIdx"
           :data-col="colIdx"
+          @dragover="onPaneDragOver"
+          @dragleave="onPaneDragLeave"
+          @drop="onPaneDrop"
         >
           <PaneWrapper
             :pane-id="cell.paneId!"
-            :session-id="getPaneSessionId(cell.paneId!)"
             @close="onPaneClose"
             @dragstart="onPaneDragStart"
+          />
+          <!-- tab 拖拽时的绿色虚线幽灵吸附提示 -->
+          <div
+            v-if="isTabDragging && getTabDropZone(cell.paneId!)"
+            class="tab-drop-ghost"
+            :class="`tab-drop-ghost--${getTabDropZone(cell.paneId!)}`"
           />
         </div>
       </template>
@@ -396,6 +489,49 @@ onUnmounted(() => {
     background: color-mix(in srgb, var(--color-primary) 15%, transparent);
     border-color: var(--color-primary);
   }
+}
+
+/* tab 拖拽时的绿色虚线吸附幽灵 */
+.tab-drop-ghost {
+  position: absolute;
+  z-index: 20;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--color-success) 14%, transparent);
+  border: 2px dashed var(--color-success);
+  border-radius: var(--radius-md);
+  transition: all 0.08s ease;
+}
+
+.tab-drop-ghost--center {
+  inset: 6px;
+}
+
+.tab-drop-ghost--left {
+  top: 6px;
+  bottom: 6px;
+  left: 6px;
+  width: calc(50% - 6px);
+}
+
+.tab-drop-ghost--right {
+  top: 6px;
+  bottom: 6px;
+  right: 6px;
+  width: calc(50% - 6px);
+}
+
+.tab-drop-ghost--top {
+  top: 6px;
+  left: 6px;
+  right: 6px;
+  height: calc(50% - 6px);
+}
+
+.tab-drop-ghost--bottom {
+  bottom: 6px;
+  left: 6px;
+  right: 6px;
+  height: calc(50% - 6px);
 }
 
 .drag-overlay {

@@ -5,6 +5,7 @@ import { useProjectStore } from '@/stores/project'
 import { useSessionStore, type SessionStatus } from '@/stores/session'
 import { useTaskStore } from '@/stores/task'
 import { useUIStore } from '@/stores/ui'
+import { useSplitPaneStore } from '@/stores/splitPane'
 
 interface OpenSessionTargetOptions {
   onBeforeOpen?: () => void
@@ -18,6 +19,7 @@ export function useSessionView() {
   const uiStore = useUIStore()
   const taskStore = useTaskStore()
   const planStore = usePlanStore()
+  const splitPaneStore = useSplitPaneStore()
 
   async function openSessionTarget(id: string, options: OpenSessionTargetOptions = {}) {
     options.onBeforeOpen?.()
@@ -50,7 +52,13 @@ export function useSessionView() {
 
     uiStore.setAppMode('chat')
     uiStore.setMainContentMode('chat')
-    await sessionStore.openSession(id)
+
+    // 分屏模式：会话进入当前聚焦的分屏窗口（各自管理 tab）
+    if (splitPaneStore.isSplitActive && splitPaneStore.focusedPaneId) {
+      splitPaneStore.addSessionToPane(splitPaneStore.focusedPaneId, id)
+    } else {
+      await sessionStore.openSession(id)
+    }
 
     if (session?.projectId) {
       void sessionStore.loadSessions(session.projectId, { force: true }).catch(() => {})
