@@ -774,6 +774,8 @@ fn rebuild_messages_if_legacy(conn: &Connection) -> Result<()> {
         return Ok(());
     }
     println!("Detected legacy messages schema, rebuilding messages table...");
+    // 注意：DROP 会级联清空 session_memory_reference_history 中引用旧消息的行（ON DELETE CASCADE），
+    // 符合"抛弃旧数据"的既定决策。
     conn.execute_batch(
         r#"
         DROP TABLE IF EXISTS messages;
@@ -1005,18 +1007,9 @@ pub fn init_database() -> Result<()> {
     }
 
     // messages 表添�?error_message 字段（用于存储发送失败的原因�?
-    let message_migrations: [&str; 0] = [];
     // messages 表已在新结构中内置 attachments/error_message/tool 相关列与 token 列；
-    // 旧的 ALTER（tool_calls/thinking/edit_traces/runtime_notices/compression_metadata）已废弃。
-
-    for migration in message_migrations {
-        if let Err(e) = conn.execute(migration, []) {
-            let err_str = e.to_string();
-            if !err_str.contains("duplicate column name") {
-                println!("Messages migration warning: {}", e);
-            }
-        }
-    }
+    // 旧的 ALTER（tool_calls/thinking/edit_traces/runtime_notices/compression_metadata）已废弃，
+    // 旧结构由 rebuild_messages_if_legacy 在 INIT_SQL 后统一重建。
 
     // agent_models 表迁移（智能体模型配置表�?
     let agent_models_table_sql = r#"
