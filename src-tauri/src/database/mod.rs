@@ -51,15 +51,31 @@ const INIT_SQL: &str = r#"
     CREATE TABLE IF NOT EXISTS messages (
         id TEXT PRIMARY KEY,
         session_id TEXT NOT NULL,
+        request_id TEXT NOT NULL,
         role TEXT NOT NULL,
-        content TEXT NOT NULL,
-        attachments TEXT,
+        message_type TEXT NOT NULL,
+        content TEXT,
         status TEXT NOT NULL DEFAULT 'completed',
-        tokens INTEGER,
+        tool_call_id TEXT,
+        tool_name TEXT,
+        tool_input TEXT,
+        tool_result TEXT,
+        input_tokens INTEGER,
+        output_tokens INTEGER,
+        cache_read_tokens INTEGER,
+        cache_creation_tokens INTEGER,
+        model TEXT,
+        cost_usd REAL,
+        attachments TEXT,
+        error_message TEXT,
         created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        seq INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
     );
-    CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
+    CREATE INDEX IF NOT EXISTS idx_messages_session_created ON messages(session_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_messages_request ON messages(request_id);
+    CREATE INDEX IF NOT EXISTS idx_messages_session_type ON messages(session_id, message_type);
 
     -- 智能体配置表
     CREATE TABLE IF NOT EXISTS agents (
@@ -937,15 +953,9 @@ pub fn init_database() -> Result<()> {
     }
 
     // messages 表添�?error_message 字段（用于存储发送失败的原因�?
-    let message_migrations = [
-        "ALTER TABLE messages ADD COLUMN attachments TEXT",
-        "ALTER TABLE messages ADD COLUMN error_message TEXT",
-        "ALTER TABLE messages ADD COLUMN tool_calls TEXT", // JSON string for tool calls
-        "ALTER TABLE messages ADD COLUMN thinking TEXT",   // 思��内容（扩展思维模型�?
-        "ALTER TABLE messages ADD COLUMN edit_traces TEXT",
-        "ALTER TABLE messages ADD COLUMN runtime_notices TEXT",
-        "ALTER TABLE messages ADD COLUMN compression_metadata TEXT",
-    ];
+    let message_migrations: [&str; 0] = [];
+    // messages 表已在新结构中内置 attachments/error_message/tool 相关列与 token 列；
+    // 旧的 ALTER（tool_calls/thinking/edit_traces/runtime_notices/compression_metadata）已废弃。
 
     for migration in message_migrations {
         if let Err(e) = conn.execute(migration, []) {
