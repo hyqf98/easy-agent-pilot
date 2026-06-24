@@ -44,6 +44,8 @@ export interface PermissionConfig {
 export interface ConversationContext {
   /** 会话 ID */
   sessionId: string
+  /** 回合 ID：本次发送的 user 消息与其触发的所有 assistant 事件共享 */
+  requestId: string
   /** 智能体配置 */
   agent: AgentConfig
   /** 消息历史 */

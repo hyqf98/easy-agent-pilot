@@ -205,6 +205,7 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
   protected buildRequest(context: ConversationContext): ExecutionRequest {
     return buildAgentExecutionRequest({
       sessionId: context.sessionId,
+      requestId: context.requestId,
       agent: context.agent,
       messages: this.toMessageInputs(context.messages),
       workingDirectory: context.workingDirectory,

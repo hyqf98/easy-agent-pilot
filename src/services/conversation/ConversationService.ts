@@ -22,15 +22,6 @@ import {
   buildMainConversationFormRequestPrompt
 } from './prompts'
 import { resolveUsageModelHint } from './usageModelHint'
-import {
-  buildCliEnvironmentNotice,
-  buildContextStrategyNotice,
-  buildProcessingTimeNotice,
-  buildRuntimeNoticeFromSystemContent,
-  buildUsageNotice,
-  upsertRuntimeNotice,
-  type RuntimeNotice
-} from '@/utils/runtimeNotice'
 import { loadAgentMcpServers } from '@/utils/mcpServerConfig'
 import { mergeToolInputArguments } from '@/utils/toolInput'
 import { getErrorMessage } from '@/utils/api'
@@ -124,14 +115,6 @@ function resolveRuntimeContextWindowOccupancy(options: {
   }
 
   return undefined
-}
-
-function removeRuntimeNoticeById(
-  notices: RuntimeNotice[] | undefined,
-  noticeId: string
-): RuntimeNotice[] | undefined {
-  const filtered = notices?.filter(notice => notice.id !== noticeId) ?? []
-  return filtered.length > 0 ? filtered : undefined
 }
 
 const REFERENCED_MEMORY_BLOCK_HEADER = '[用户主动引用的历史记忆]'
@@ -265,6 +248,8 @@ export class ConversationService {
   private readonly conversationRetryCount = new Map<string, number>()
   private readonly conversationRetryTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly sendEpochs = new Map<string, number>()
+  /** 当前发送回合 ID（一次 sendMessage 对应一个，user 与其触发的 assistant 事件共享） */
+  private currentRequestId = crypto.randomUUID()
 
   private constructor() {}
 
@@ -357,6 +342,9 @@ export class ConversationService {
       throw new Error('当前会话正在处理中，请等待当前消息完成后再发送')
     }
 
+    // 生成本次发送的回合 ID（user 消息与其触发的所有 assistant 事件共享）
+    this.currentRequestId = crypto.randomUUID()
+
     // 检查策略支持
     if (!agentExecutor.isSupported(agent)) {
       throw new Error(`不支持的智能体类型: ${agent.type}`)
@@ -377,17 +365,20 @@ export class ConversationService {
       const existingSessionMessages = messageStore.messagesBySession(sessionId)
       const hadPriorConversation = existingSessionMessages.some(message =>
         (message.role === 'system' || message.role === 'user' || message.role === 'assistant')
-        && !message.compressionMetadata
+        && message.messageType !== 'compression'
       )
       const userMessage = existingUserMessageId
         ? existingSessionMessages.find(message => message.id === existingUserMessageId && message.role === 'user')
         : undefined
       const targetUserMessage = userMessage ?? await messageStore.addMessage({
         sessionId,
+        requestId: this.currentRequestId,
         role: 'user',
+        messageType: 'text',
         content,
         attachments,
-        status: 'completed'
+        status: 'completed',
+        seq: 0
       })
 
       if (!userMessage) {
@@ -433,20 +424,18 @@ export class ConversationService {
 
       const aiMessage = reusableAssistantMessage ?? await messageStore.addMessage({
         sessionId,
+        requestId: this.currentRequestId,
         role: 'assistant',
+        messageType: 'text',
         content: '',
-        status: 'streaming'
+        status: 'streaming',
+        seq: 0
       })
 
       if (reusableAssistantMessage) {
         await messageStore.updateMessage(reusableAssistantMessage.id, {
           status: 'streaming',
-          thinking: '',
-          thinkingActive: false,
-          toolCalls: [],
-          editTraces: [],
-          errorMessage: '',
-          retryState: undefined
+          errorMessage: ''
         })
       }
 
@@ -463,12 +452,7 @@ export class ConversationService {
         tokenStore.updateRealtimeTokens(sessionId, undefined, undefined, requestedUsageModel)
       }
 
-      const environmentNotice = await buildCliEnvironmentNotice(executionAgent)
-      if (environmentNotice) {
-        messageStore.updateMessageBuffered(aiMessage.id, {
-          runtimeNotices: [environmentNotice]
-        })
-      }
+      // 环境提示在新消息结构下走独立 system 行，此处不再塞进 aiMessage.runtimeNotices
 
       // 保存当前流式消息 ID
       sessionExecutionStore.setCurrentStreamingMessageId(sessionId, aiMessage.id)
@@ -555,17 +539,8 @@ export class ConversationService {
       const systemMessages = messages.filter(message => message.role === 'system')
       const assistantMessages = messages.filter(message => message.role === 'assistant')
       const selectedExpert = resolveExpertById(session?.expertId, useAgentTeamsStore().experts)
-      const contextStrategyNotice = buildContextStrategyNotice({
-        strategy: reusableCliSessionId ? 'CLI Resume + Delta Prompt' : 'Full Conversation Context',
-        runtime: inferAgentProvider(executionAgent)?.toUpperCase() || executionAgent.type,
-        model: executionAgent.modelId || usageModelHint || undefined,
-        expert: selectedExpert?.name || session?.expertId || undefined,
-        systemMessageCount: systemMessages.length,
-        userMessageCount: userMessages.length,
-        assistantMessageCount: assistantMessages.length,
-        historyMessageCount: Math.max(0, fullMessages.length - 1),
-        resumeSessionId: reusableCliSessionId ?? undefined
-      })
+      // 上下文策略提示在新结构下走独立 system 行，不再构造塞进 aiMessage
+      void selectedExpert
 
       console.info('[ConversationService] assembled context messages', {
         sessionId,
@@ -575,20 +550,15 @@ export class ConversationService {
         historyMessageCount: Math.max(0, fullMessages.length - 1),
         resumeSessionId: reusableCliSessionId ?? null,
         lastUserMessageLength: userMessages.length > 0
-          ? userMessages[userMessages.length - 1].content.length
+          ? (userMessages[userMessages.length - 1].content ?? '').length
           : 0
       })
 
-      if (contextStrategyNotice) {
-        const currentMessage = messageStore.messagesBySession(sessionId)
-          .find(message => message.id === aiMessage.id)
-        messageStore.updateMessageBuffered(aiMessage.id, {
-          runtimeNotices: upsertRuntimeNotice(currentMessage?.runtimeNotices, contextStrategyNotice)
-        })
-      }
+      // 上下文策略提示在新结构下不再塞进 aiMessage.runtimeNotices
 
       const context: ConversationContext = {
         sessionId,
+        requestId: this.currentRequestId,
         agent: executionAgent,
         messages,
         workingDirectory,
@@ -949,9 +919,6 @@ export class ConversationService {
         requestedModelId: context.agent.modelId
       })
     }
-    let runtimeNoticesState = messageStore.messagesBySession(sessionId)
-      .find(message => message.id === aiMessage.id)
-      ?.runtimeNotices
     const fileTraceCollector = new FileTraceCollector({
       sessionId,
       messageId: aiMessage.id,
@@ -1058,10 +1025,6 @@ export class ConversationService {
 
       delete nextUpdates.errorMessage
 
-      if (nextUpdates.thinkingActive !== undefined) {
-        nextUpdates.thinkingActive = false
-      }
-
       return Object.keys(nextUpdates).length > 0 ? nextUpdates : null
     }
 
@@ -1076,10 +1039,6 @@ export class ConversationService {
       pendingUiUpdate = null
       if (!updates) {
         return
-      }
-      if (updates.toolCalls) {
-        const summary = updates.toolCalls.map((tc: { id: string; name: string; status: string }) => `${tc.name}(${tc.id?.slice(-6)})=${tc.status}`)
-        logger.log('[🔧 flushUi] toolCalls update:', summary)
       }
       messageStore.updateMessageBuffered(aiMessage.id, updates, options)
     }
@@ -1180,30 +1139,19 @@ export class ConversationService {
       })
     }
 
-    const syncRealtimeUsageNotice = (options?: { immediate?: boolean }) => {
-      const usageNotice = buildUsageNotice(usageState)
-      if (!usageNotice) {
-        return
-      }
-
-      runtimeNoticesState = upsertRuntimeNotice(runtimeNoticesState, usageNotice)
-      bufferMessageUpdate({
-        runtimeNotices: runtimeNoticesState
-      }, options)
+    const syncRealtimeUsageNotice = (_options?: { immediate?: boolean }) => {
+      // 用量在新结构下由后端 MessageRecorder 落库为独立 usage 行，前端仅更新 token 进度条
+      tokenStore.updateRealtimeTokens(
+        sessionId,
+        usageState.inputTokens,
+        usageState.outputTokens,
+        usageState.model,
+        usageState.contextWindowOccupancy
+      )
     }
 
     const syncProcessingTimeNotice = () => {
-      const finishedAt = streamMetrics.doneAt ?? now()
-      const durationMs = Math.max(0, finishedAt - streamMetrics.startedAt)
-      const processingTimeNotice = buildProcessingTimeNotice(durationMs)
-      if (!processingTimeNotice) {
-        return
-      }
-
-      runtimeNoticesState = upsertRuntimeNotice(runtimeNoticesState, processingTimeNotice)
-      bufferMessageUpdate({
-        runtimeNotices: runtimeNoticesState
-      })
+      // 处理时长提示在新结构下不再塞进 aiMessage.runtimeNotices
     }
 
     const applyFinalUsageSnapshot = async () => {
@@ -1311,10 +1259,6 @@ export class ConversationService {
         bufferMessageUpdate({
           status: 'streaming',
           errorMessage: '',
-          thinking: '',
-          thinkingActive: false,
-          toolCalls: [],
-          editTraces: [],
           content: ''
         }, { immediate: true })
         await messageStore.flushBufferedMessageUpdate(aiMessage.id, { notifyOnFailure: true })
@@ -1332,15 +1276,9 @@ export class ConversationService {
           })
           : null
         const retryAttemptNumber = retryState?.current ?? retryCount
-        const retryNotice: RuntimeNotice = {
-          id: 'conversation-auto-retry',
-          title: '自动重试',
-          content: `自动重试中... 第 ${retryAttemptNumber}/${maxRetries} 次，${intervalMinutes} 分钟后重试\n原因: ${(classifiedFailure?.message || errorMessage).slice(0, 200)}`,
-          tone: 'warning'
-        }
-        runtimeNoticesState = upsertRuntimeNotice(runtimeNoticesState, retryNotice)
+        // 自动重试提示在新结构下走独立 system 行，此处仅更新重试状态
+        void retryAttemptNumber
         messageStore.updateMessageBuffered(aiMessage.id, {
-          runtimeNotices: runtimeNoticesState,
           retryState: retryState ?? undefined,
           createdAt: new Date().toISOString()
         })
@@ -1363,8 +1301,7 @@ export class ConversationService {
       syncProcessingTimeNotice()
       bufferMessageUpdate({
         status: 'error',
-        errorMessage,
-        thinkingActive: false
+        errorMessage
       }, { immediate: true })
       await messageStore.flushBufferedMessageUpdate(aiMessage.id, { notifyOnFailure: true })
       markMetric('persistedAt')
@@ -1434,16 +1371,10 @@ export class ConversationService {
             clearRetryPresentationOnRecoveredStream()
             markMetric('firstThinkingAt')
             accumulatedThinking = mergeStreamingText(accumulatedThinking, thinking, runtimeProvider)
-            bufferMessageUpdate({
-              thinking: accumulatedThinking,
-              thinkingActive: true
-            })
+            // 思考内容由后端 MessageRecorder 落库为独立 thinking 行，前端实时累积仅保留在局部变量
           },
           onThinkingStart: () => {
             clearRetryPresentationOnRecoveredStream()
-            bufferMessageUpdate({
-              thinkingActive: true
-            })
           },
           onToolUse: (toolCall) => {
             clearRetryPresentationOnRecoveredStream()
@@ -1470,9 +1401,7 @@ export class ConversationService {
               logger.log('[🔧 tool_use] NEW tool pushed, total:', toolCalls.length)
             }
             logger.log('[🔧 tool_use] buffering update, msgStatus:', getCurrentAiMessage()?.status)
-            bufferMessageUpdate({
-              toolCalls: [...toolCalls]
-            })
+            // 工具调用由后端 MessageRecorder 落库为独立 tool_use 行，前端累积仅在局部
             if (isNewToolCall) {
               registerTraceTask((async () => {
                 await fileTraceCollector.captureToolUse(toolCall)
@@ -1497,9 +1426,6 @@ export class ConversationService {
                 targetToolCall.arguments
               )
             }
-            bufferMessageUpdate({
-              toolCalls: [...toolCalls]
-            })
           },
           onToolResult: (toolCallId, result, isError) => {
             logger.log('[🔧 tool_result] received:', { toolCallId, isError, resultLen: result?.length })
@@ -1514,9 +1440,7 @@ export class ConversationService {
                 tc.errorMessage = result
               }
               logger.log('[🔧 tool_result] updating tool status to', tc.status)
-              bufferMessageUpdate({
-                toolCalls: [...toolCalls]
-              })
+              // 工具结果由后端落库为独立 tool_result 行
             } else {
               console.warn('[🔧 tool_result] toolCallId not found:', toolCallId, 'existing:', toolCalls.map(t => t.id))
             }
@@ -1529,9 +1453,7 @@ export class ConversationService {
                 }
 
                 editTraces.push(trace)
-                bufferMessageUpdate({
-                  editTraces: [...editTraces]
-                })
+                // 编辑追踪在新结构下不塞进 message
               })())
             }
           },
@@ -1542,9 +1464,7 @@ export class ConversationService {
             }
 
             editTraces.push(trace)
-            bufferMessageUpdate({
-              editTraces: [...editTraces]
-            })
+            // 编辑追踪在新结构下不塞进 message
           },
           onUsage: (usage) => {
             clearRetryPresentationOnRecoveredStream()
@@ -1621,7 +1541,7 @@ export class ConversationService {
               usageState.inputTokens = undefined
               usageState.outputTokens = undefined
               usageState.contextWindowOccupancy = undefined
-              runtimeNoticesState = removeRuntimeNoticeById(runtimeNoticesState, 'usage')
+              // 压缩提示在新结构下由后端落库为独立 compression 行，前端不再维护 runtimeNoticesState
               const lines = content.split('\n').slice(1)
               const detailParts: string[] = []
               for (const line of lines) {
@@ -1641,41 +1561,18 @@ export class ConversationService {
                   detailParts.push(trimmed)
                 }
               }
-              const compressionNotice: RuntimeNotice = {
-                id: 'cli-context-compression',
-                title: i18n.global.t('compression.cliCompactionTitle'),
-                content: detailParts.length > 0 ? detailParts.join('\n') : i18n.global.t('compression.cliCompactionResetNotice'),
-                tone: 'warning'
-              }
-              runtimeNoticesState = upsertRuntimeNotice(runtimeNoticesState, compressionNotice)
-              bufferMessageUpdate({
-                runtimeNotices: runtimeNoticesState
-              })
+              void detailParts
               return
             }
 
-            const runtimeNotice = buildRuntimeNoticeFromSystemContent(content)
-            if (!runtimeNotice) {
-              return
-            }
-
-            runtimeNoticesState = upsertRuntimeNotice(runtimeNoticesState, runtimeNotice)
-            bufferMessageUpdate({
-              runtimeNotices: runtimeNoticesState
-            })
+            // 系统提示在新结构下走独立 system 行，前端不再塞进 aiMessage.runtimeNotices
           },
           onError: (error) => {
             if (isAiMessageInterrupted()) {
-              bufferMessageUpdate({
-                thinkingActive: false
-              }, { immediate: true })
               return
             }
 
             lastErrorMessage = error
-            bufferMessageUpdate({
-              thinkingActive: false
-            }, { immediate: true })
           },
           onDone: () => {
             markMetric('doneAt')
@@ -1687,9 +1584,7 @@ export class ConversationService {
             if (!shouldSurfaceExecutionFailure() && !isAiMessageInterrupted()) {
               bufferMessageUpdate({
                 status: 'completed',
-                thinkingActive: false,
-                errorMessage: '',
-                toolCalls: [...toolCalls]
+                errorMessage: ''
               }, { immediate: true })
               this.clearConversationRetryState(sessionId)
               sessionExecutionStore.clearCurrentRetryState(sessionId)
@@ -1738,9 +1633,7 @@ export class ConversationService {
         if (!shouldSurfaceExecutionFailure()) {
           bufferMessageUpdate({
             status: 'completed',
-            thinkingActive: false,
-            errorMessage: '',
-            toolCalls: [...toolCalls]
+            errorMessage: ''
           }, { immediate: true })
           this.clearConversationRetryState(sessionId)
           sessionExecutionStore.clearCurrentRetryState(sessionId)
@@ -1789,10 +1682,6 @@ export class ConversationService {
         })
         await messageStore.updateMessage(aiMessage.id, {
           content: '',
-          thinking: '',
-          thinkingActive: false,
-          toolCalls: [],
-          editTraces: [],
           errorMessage: '',
           status: 'pending'
         })
@@ -1805,9 +1694,6 @@ export class ConversationService {
         await Promise.allSettled(Array.from(pendingPersistenceTasks))
         await applyFinalUsageSnapshot()
         syncProcessingTimeNotice()
-        bufferMessageUpdate({
-          thinkingActive: false
-        }, { immediate: true })
         await messageStore.flushBufferedMessageUpdate(aiMessage.id, { notifyOnFailure: true })
         markMetric('persistedAt')
         recordTimingSummary()
@@ -1876,11 +1762,6 @@ export class ConversationService {
       try {
         await messageStore.updateMessage(aiMessage.id, {
           content: '',
-          thinking: '',
-          thinkingActive: false,
-          toolCalls: [],
-          editTraces: [],
-          runtimeNotices: removeRuntimeNoticeById(currentMessage.runtimeNotices, 'conversation-auto-retry'),
           errorMessage: '',
           status: 'streaming',
           createdAt: new Date().toISOString()
