@@ -50,18 +50,26 @@ pub struct SessionExport {
 pub struct MessageExport {
     pub id: String,
     pub session_id: String,
+    pub request_id: String,
     pub role: String,
-    pub content: String,
+    pub message_type: String,
+    pub content: Option<String>,
     pub attachments: Option<String>,
     pub status: String,
-    pub tokens: Option<i32>,
+    pub tool_call_id: Option<String>,
+    pub tool_name: Option<String>,
+    pub tool_input: Option<String>,
+    pub tool_result: Option<String>,
+    pub input_tokens: Option<i32>,
+    pub output_tokens: Option<i32>,
+    pub cache_read_tokens: Option<i32>,
+    pub cache_creation_tokens: Option<i32>,
+    pub model: Option<String>,
+    pub cost_usd: Option<f64>,
     pub error_message: Option<String>,
-    pub tool_calls: Option<String>,
-    pub thinking: Option<String>,
-    pub edit_traces: Option<String>,
-    pub runtime_notices: Option<String>,
-    pub compression_metadata: Option<String>,
     pub created_at: String,
+    pub updated_at: String,
+    pub seq: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -245,17 +253,20 @@ pub fn get_data_management_stats() -> Result<DataManagementStats, String> {
         "SELECT COALESCE(SUM(
             LENGTH(COALESCE(id, '')) +
             LENGTH(COALESCE(session_id, '')) +
+            LENGTH(COALESCE(request_id, '')) +
             LENGTH(COALESCE(role, '')) +
+            LENGTH(COALESCE(message_type, '')) +
             LENGTH(COALESCE(content, '')) +
             LENGTH(COALESCE(attachments, '')) +
             LENGTH(COALESCE(status, '')) +
+            LENGTH(COALESCE(tool_call_id, '')) +
+            LENGTH(COALESCE(tool_name, '')) +
+            LENGTH(COALESCE(tool_input, '')) +
+            LENGTH(COALESCE(tool_result, '')) +
+            LENGTH(COALESCE(model, '')) +
             LENGTH(COALESCE(error_message, '')) +
-            LENGTH(COALESCE(tool_calls, '')) +
-            LENGTH(COALESCE(thinking, '')) +
-            LENGTH(COALESCE(edit_traces, '')) +
-            LENGTH(COALESCE(runtime_notices, '')) +
-            LENGTH(COALESCE(compression_metadata, '')) +
-            LENGTH(COALESCE(created_at, ''))
+            LENGTH(COALESCE(created_at, '')) +
+            LENGTH(COALESCE(updated_at, ''))
         ), 0) FROM messages",
     )?;
 
@@ -597,7 +608,7 @@ fn export_sessions(conn: &Connection) -> Result<Vec<SessionExport>, String> {
 
 fn export_messages(conn: &Connection) -> Result<Vec<MessageExport>, String> {
     let mut stmt = conn
-        .prepare("SELECT id, session_id, role, content, attachments, status, tokens, error_message, tool_calls, thinking, edit_traces, runtime_notices, compression_metadata, created_at FROM messages ORDER BY created_at ASC")
+        .prepare("SELECT id, session_id, request_id, role, message_type, content, attachments, status, tool_call_id, tool_name, tool_input, tool_result, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model, cost_usd, error_message, created_at, updated_at, seq FROM messages ORDER BY created_at ASC, seq ASC")
         .map_err(|e| e.to_string())?;
 
     let messages = stmt
@@ -605,18 +616,26 @@ fn export_messages(conn: &Connection) -> Result<Vec<MessageExport>, String> {
             Ok(MessageExport {
                 id: row.get(0)?,
                 session_id: row.get(1)?,
-                role: row.get(2)?,
-                content: row.get(3)?,
-                attachments: row.get(4)?,
-                status: row.get(5)?,
-                tokens: row.get(6)?,
-                error_message: row.get(7)?,
-                tool_calls: row.get(8)?,
-                thinking: row.get(9)?,
-                edit_traces: row.get(10)?,
-                runtime_notices: row.get(11)?,
-                compression_metadata: row.get(12)?,
-                created_at: row.get(13)?,
+                request_id: row.get(2)?,
+                role: row.get(3)?,
+                message_type: row.get(4)?,
+                content: row.get(5)?,
+                attachments: row.get(6)?,
+                status: row.get(7)?,
+                tool_call_id: row.get(8)?,
+                tool_name: row.get(9)?,
+                tool_input: row.get(10)?,
+                tool_result: row.get(11)?,
+                input_tokens: row.get(12)?,
+                output_tokens: row.get(13)?,
+                cache_read_tokens: row.get(14)?,
+                cache_creation_tokens: row.get(15)?,
+                model: row.get(16)?,
+                cost_usd: row.get(17)?,
+                error_message: row.get(18)?,
+                created_at: row.get(19)?,
+                updated_at: row.get(20)?,
+                seq: row.get(21)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -1061,27 +1080,49 @@ pub fn import_data_from_file(file_path: String) -> Result<ImportResult, String> 
         }
     }
 
-    // 导入消息
+    // 导入消息（request_id/message_type 为 NOT NULL，旧备份缺失时给默认值）
     for message in &data.messages {
-        let tokens = message.tokens.map(|t| t.to_string()).unwrap_or_default();
+        let request_id = if message.request_id.is_empty() {
+            "imported".to_string()
+        } else {
+            message.request_id.clone()
+        };
+        let message_type = if message.message_type.is_empty() {
+            "text".to_string()
+        } else {
+            message.message_type.clone()
+        };
+        let updated_at = if message.updated_at.is_empty() {
+            message.created_at.clone()
+        } else {
+            message.updated_at.clone()
+        };
         let res = tx.execute(
-            "INSERT OR REPLACE INTO messages (id, session_id, role, content, attachments, status, tokens, error_message, tool_calls, thinking, edit_traces, runtime_notices, compression_metadata, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-            [
+            "INSERT OR REPLACE INTO messages (id, session_id, request_id, role, message_type, content, attachments, status, tool_call_id, tool_name, tool_input, tool_result, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model, cost_usd, error_message, created_at, updated_at, seq)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+            rusqlite::params![
                 &message.id,
                 &message.session_id,
+                &request_id,
                 &message.role,
+                &message_type,
                 &message.content,
                 &message.attachments.clone().unwrap_or_default(),
                 &message.status,
-                &tokens,
-                &message.error_message.clone().unwrap_or_default(),
-                &message.tool_calls.clone().unwrap_or_default(),
-                &message.thinking.clone().unwrap_or_default(),
-                &message.edit_traces.clone().unwrap_or_default(),
-                &message.runtime_notices.clone().unwrap_or_default(),
-                &message.compression_metadata.clone().unwrap_or_default(),
+                &message.tool_call_id,
+                &message.tool_name,
+                &message.tool_input,
+                &message.tool_result,
+                &message.input_tokens,
+                &message.output_tokens,
+                &message.cache_read_tokens,
+                &message.cache_creation_tokens,
+                &message.model,
+                &message.cost_usd,
+                &message.error_message,
                 &message.created_at,
+                &updated_at,
+                message.seq,
             ],
         );
         if res.is_ok() {
