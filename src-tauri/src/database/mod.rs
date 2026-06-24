@@ -7,7 +7,7 @@ use crate::commands::support::{
 
 /// 数据库初始化 SQL 脚本
 const INIT_SQL: &str = r#"
-    -- 项目�?
+    -- 项目表
     CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -18,7 +18,7 @@ const INIT_SQL: &str = r#"
     );
     CREATE INDEX IF NOT EXISTS idx_projects_path ON projects(path);
 
-    -- 会话�?
+    -- 会话表
     CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL,
@@ -47,7 +47,11 @@ const INIT_SQL: &str = r#"
     CREATE INDEX IF NOT EXISTS idx_session_runtime_bindings_runtime
         ON session_runtime_bindings(runtime_key, updated_at DESC);
 
-    -- 消息�?
+    -- 消息表
+    -- 注意：索引（idx_messages_request / idx_messages_session_type）引用新列，
+    -- 不能放在 INIT_SQL 里——旧库表已存在时 CREATE TABLE IF NOT EXISTS 会跳过建表，
+    -- 但后续 CREATE INDEX 会因列不存在而让整个 batch 失败。
+    -- 索引由 rebuild_messages_if_legacy 统一补建。
     CREATE TABLE IF NOT EXISTS messages (
         id TEXT PRIMARY KEY,
         session_id TEXT NOT NULL,
@@ -74,8 +78,6 @@ const INIT_SQL: &str = r#"
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_messages_session_created ON messages(session_id, created_at);
-    CREATE INDEX IF NOT EXISTS idx_messages_request ON messages(request_id);
-    CREATE INDEX IF NOT EXISTS idx_messages_session_type ON messages(session_id, message_type);
 
     -- 智能体配置表
     CREATE TABLE IF NOT EXISTS agents (
@@ -129,18 +131,18 @@ const INIT_SQL: &str = r#"
         updated_at TEXT NOT NULL
     );
 
-    -- Skills 配置表（从市场安装的 Skills�?
+    -- Skills 配置表（从市场安装的 Skills）
     CREATE TABLE IF NOT EXISTS skills (
         id TEXT PRIMARY KEY,
         skill_id TEXT,                      -- 市场 Skill ID
         name TEXT NOT NULL,
         description TEXT,
-        file_name TEXT NOT NULL,            -- 文件�?
+        file_name TEXT NOT NULL,            -- 文件名
         path TEXT NOT NULL,                 -- 完整路径
         source_market TEXT,                 -- 来源市场名称
         cli_type TEXT NOT NULL,             -- 目标 CLI (claude, cursor, aider, windsurf)
         scope TEXT NOT NULL DEFAULT 'global', -- 安装范围 (global, project)
-        project_path TEXT,                  -- 项目路径（如果是 project scope�?
+        project_path TEXT,                  -- 项目路径（如果是 project scope）
         disabled INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -148,7 +150,7 @@ const INIT_SQL: &str = r#"
     CREATE INDEX IF NOT EXISTS idx_skills_path ON skills(path);
     CREATE INDEX IF NOT EXISTS idx_skills_name ON skills(name);
 
-    -- 会话 MCP 关联�?
+    -- 会话 MCP 关联表
     CREATE TABLE IF NOT EXISTS session_mcp (
         session_id TEXT NOT NULL,
         mcp_server_id TEXT NOT NULL,
@@ -158,23 +160,24 @@ const INIT_SQL: &str = r#"
         FOREIGN KEY (mcp_server_id) REFERENCES mcp_servers(id) ON DELETE CASCADE
     );
 
-    -- 主题配置�?
+    -- 主题配置表
     CREATE TABLE IF NOT EXISTS themes (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         colors_light TEXT NOT NULL,
         colors_dark TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
     );
 
-    -- 应用设置�?
+    -- 应用设置表
     CREATE TABLE IF NOT EXISTS app_settings (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,
         updated_at TEXT NOT NULL
     );
 
-    -- CLI 路径配置表（手动配置�?
+    -- CLI 路径配置表（手动配置）
     CREATE TABLE IF NOT EXISTS cli_paths (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -185,7 +188,7 @@ const INIT_SQL: &str = r#"
     );
     CREATE INDEX IF NOT EXISTS idx_cli_paths_name ON cli_paths(name);
 
-    -- 已安�?MCP 测试结果表（存储 CLI 配置文件中的 MCP 测试结果�?
+    -- 已安装 MCP 测试结果表（存储 CLI 配置文件中的 MCP 测试结果）
     CREATE TABLE IF NOT EXISTS installed_mcp_test_results (
         id TEXT PRIMARY KEY,
         config_path TEXT NOT NULL,
@@ -198,7 +201,7 @@ const INIT_SQL: &str = r#"
     );
     CREATE INDEX IF NOT EXISTS idx_installed_mcp_test_results_lookup ON installed_mcp_test_results(config_path, mcp_name);
 
-    -- MCP 安装历史�?
+    -- MCP 安装历史表
     CREATE TABLE IF NOT EXISTS mcp_install_history (
         id TEXT PRIMARY KEY,
         mcp_id TEXT NOT NULL,
@@ -214,7 +217,7 @@ const INIT_SQL: &str = r#"
     CREATE INDEX IF NOT EXISTS idx_mcp_install_history_created ON mcp_install_history(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_mcp_install_history_mcp ON mcp_install_history(mcp_name);
 
-    -- SDK 智能�?MCP 配置�?
+    -- SDK 智能体 MCP 配置表
     CREATE TABLE IF NOT EXISTS agent_mcp_configs (
         id TEXT PRIMARY KEY,
         agent_id TEXT NOT NULL,
@@ -233,7 +236,7 @@ const INIT_SQL: &str = r#"
     );
     CREATE INDEX IF NOT EXISTS idx_agent_mcp_configs_agent ON agent_mcp_configs(agent_id);
 
-    -- SDK 智能�?Skills 配置�?
+    -- SDK 智能体 Skills 配置表
     CREATE TABLE IF NOT EXISTS agent_skills_configs (
         id TEXT PRIMARY KEY,
         agent_id TEXT NOT NULL,
@@ -250,7 +253,7 @@ const INIT_SQL: &str = r#"
     );
     CREATE INDEX IF NOT EXISTS idx_agent_skills_configs_agent ON agent_skills_configs(agent_id);
 
-    -- SDK 智能�?Plugins 配置�?
+    -- SDK 智能体 Plugins 配置表
     CREATE TABLE IF NOT EXISTS agent_plugins_configs (
         id TEXT PRIMARY KEY,
         agent_id TEXT NOT NULL,
@@ -265,7 +268,7 @@ const INIT_SQL: &str = r#"
     );
     CREATE INDEX IF NOT EXISTS idx_agent_plugins_configs_agent ON agent_plugins_configs(agent_id);
 
-    -- Provider 配置�?(CC-Switch)
+    -- Provider 配置表 (CC-Switch)
     CREATE TABLE IF NOT EXISTS provider_profiles (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -288,7 +291,7 @@ const INIT_SQL: &str = r#"
     CREATE INDEX IF NOT EXISTS idx_provider_profiles_cli_type ON provider_profiles(cli_type);
     CREATE INDEX IF NOT EXISTS idx_provider_profiles_is_active ON provider_profiles(is_active);
 
-    -- 计划�?(Plan Mode)
+    -- 计划表 (Plan Mode)
     CREATE TABLE IF NOT EXISTS plans (
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL,
@@ -406,7 +409,7 @@ const INIT_SQL: &str = r#"
     CREATE INDEX IF NOT EXISTS idx_solo_runtime_bindings_runtime
         ON solo_runtime_bindings(runtime_key, updated_at DESC);
 
-    -- 任务�?(Plan Mode)
+    -- 任务表 (Plan Mode)
     CREATE TABLE IF NOT EXISTS tasks (
         id TEXT PRIMARY KEY,
         project_id TEXT,
@@ -476,14 +479,14 @@ const INIT_SQL: &str = r#"
     );
     CREATE INDEX IF NOT EXISTS idx_agent_models_agent ON agent_models(agent_id);
 
-    -- 应用状��表（窗口状态恢复）
+    -- 应用状态表（窗口状态恢复）
     CREATE TABLE IF NOT EXISTS app_state (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,
         updated_at INTEGER DEFAULT (strftime('%s', 'now'))
     );
 
-    -- 项目访问记录表（朢�近项目列表）
+    -- 项目访问记录表（最近项目列表）
     CREATE TABLE IF NOT EXISTS project_access_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         project_id TEXT NOT NULL UNIQUE,
@@ -493,7 +496,7 @@ const INIT_SQL: &str = r#"
     );
     CREATE INDEX IF NOT EXISTS idx_project_access_log_time ON project_access_log(last_accessed_at DESC);
 
-    -- 窗口会话锁定表（防止同会话多窗口�?
+    -- 窗口会话锁定表（防止同会话多窗口）
     CREATE TABLE IF NOT EXISTS window_session_locks (
         session_id TEXT PRIMARY KEY,
         window_label TEXT NOT NULL,
@@ -516,7 +519,7 @@ const INIT_SQL: &str = r#"
     );
     CREATE INDEX IF NOT EXISTS idx_task_split_sessions_plan ON task_split_sessions(plan_id);
 
-    -- 任务执行日志�?
+    -- 任务执行日志表
     CREATE TABLE IF NOT EXISTS task_execution_logs (
         id TEXT PRIMARY KEY,
         task_id TEXT NOT NULL,
@@ -566,7 +569,7 @@ const INIT_SQL: &str = r#"
     CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_model_time ON agent_cli_usage_records(model_id, occurred_at DESC);
     CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_mode_time ON agent_cli_usage_records(execution_mode, occurred_at DESC);
 
-    -- 部门�?
+    -- 部门表
     CREATE TABLE IF NOT EXISTS departments (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -583,7 +586,7 @@ const INIT_SQL: &str = r#"
     CREATE INDEX IF NOT EXISTS idx_departments_name ON departments(name);
     CREATE INDEX IF NOT EXISTS idx_departments_status ON departments(status);
 
-    -- 人员�?
+    -- 人员表
     CREATE TABLE IF NOT EXISTS employees (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -605,7 +608,7 @@ const INIT_SQL: &str = r#"
     CREATE INDEX IF NOT EXISTS idx_employees_name ON employees(name);
     CREATE INDEX IF NOT EXISTS idx_employees_status ON employees(status);
 
-    -- 任务执行结果快照历史�?
+    -- 任务执行结果快照历史表
     CREATE TABLE IF NOT EXISTS task_execution_results (
         id TEXT PRIMARY KEY,
         task_id TEXT NOT NULL,
@@ -727,7 +730,7 @@ const INIT_SQL: &str = r#"
     );
     CREATE INDEX IF NOT EXISTS idx_memory_categories_parent ON memory_categories(parent_id);
 
-    -- 用户记忆�?
+    -- 用户记忆表
     CREATE TABLE IF NOT EXISTS user_memories (
         id TEXT PRIMARY KEY,
         session_id TEXT,
@@ -749,7 +752,7 @@ const INIT_SQL: &str = r#"
     CREATE INDEX IF NOT EXISTS idx_user_memories_category ON user_memories(category_id);
     CREATE INDEX IF NOT EXISTS idx_user_memories_source_type ON user_memories(source_type);
 
-    -- 记忆压缩历史�?
+    -- 记忆压缩历史表
     CREATE TABLE IF NOT EXISTS memory_compressions (
         id TEXT PRIMARY KEY,
         memory_id TEXT NOT NULL,
@@ -769,8 +772,9 @@ const INIT_SQL: &str = r#"
 /// 新结构是"一行一事件"，每种事件（思考/工具/文本/用量/压缩…）各自独立成行。
 /// 历史消息不保留（已确认抛弃旧数据）。
 fn rebuild_messages_if_legacy(conn: &Connection) -> Result<()> {
-    // 新库 messages 表已由 INIT_SQL 按新结构创建，直接跳过
+    // 新库 messages 表已由 INIT_SQL 按新结构创建，补建依赖新列的索引后直接跳过
     if table_has_column(conn, "messages", "request_id")? {
+        ensure_messages_indexes(conn)?;
         return Ok(());
     }
     println!("Detected legacy messages schema, rebuilding messages table...");
@@ -804,12 +808,22 @@ fn rebuild_messages_if_legacy(conn: &Connection) -> Result<()> {
             seq INTEGER NOT NULL DEFAULT 0,
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
         );
-        CREATE INDEX IF NOT EXISTS idx_messages_session_created ON messages(session_id, created_at);
+        "#,
+    )?;
+    ensure_messages_indexes(conn)?;
+    println!("Messages table rebuilt to one-row-per-event schema.");
+    Ok(())
+}
+
+/// 补建依赖新列（request_id / message_type）的索引。
+/// 这些索引不能放在 INIT_SQL 里（旧库表已存在时会让 batch 失败）。
+fn ensure_messages_indexes(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        r#"
         CREATE INDEX IF NOT EXISTS idx_messages_request ON messages(request_id);
         CREATE INDEX IF NOT EXISTS idx_messages_session_type ON messages(session_id, message_type);
         "#,
     )?;
-    println!("Messages table rebuilt to one-row-per-event schema.");
     Ok(())
 }
 
@@ -830,7 +844,7 @@ fn table_has_column(conn: &Connection, table_name: &str, column_name: &str) -> R
 
 /// 初始化数据库
 pub fn init_database() -> Result<()> {
-    // 获取持久化目�?
+    // 获取持久化目录
     let persistence_dir = crate::commands::get_persistence_dir_path()?;
     let db_path = persistence_dir.join("data").join("easy-agent.db");
 
@@ -840,7 +854,7 @@ pub fn init_database() -> Result<()> {
 
     println!("Database path: {:?}", db_path);
 
-    // 打开数据库连�?
+    // 打开数据库连接
     let conn = Connection::open(&db_path)?;
 
     // 启用 WAL 模式以支持并发读写，避免 "database is locked" 错误
@@ -848,16 +862,16 @@ pub fn init_database() -> Result<()> {
     // 启用外键约束（SQLite 默认不启用）
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
-    // 执行初始�?SQL
+    // 执行初始化 SQL
     conn.execute_batch(INIT_SQL)?;
 
     // messages 表结构升级：旧库为"一行一回合"折叠结构，新结构为"一行一事件"。
     // 检测旧结构（缺少 request_id 列）时 DROP 重建，历史消息不保留（已确认抛弃旧数据）。
     rebuild_messages_if_legacy(&conn)?;
 
-    // 执行迁移（忽略列已存在的错误�?
-    // SQLite 不支�?IF NOT EXISTS 用于 ALTER TABLE ADD COLUMN
-    // 扢�以我们需要单独执行每条语句并忽略错误
+    // 执行迁移（忽略列已存在的错误）
+    // SQLite 不支持 IF NOT EXISTS 用于 ALTER TABLE ADD COLUMN
+    // 所以我们需要单独执行每条语句并忽略错误
     let migrations = [
         "ALTER TABLE mcp_servers ADD COLUMN test_status TEXT",
         "ALTER TABLE mcp_servers ADD COLUMN test_message TEXT",
@@ -866,7 +880,7 @@ pub fn init_database() -> Result<()> {
         "ALTER TABLE mcp_servers ADD COLUMN server_type TEXT DEFAULT 'stdio'",
         "ALTER TABLE mcp_servers ADD COLUMN url TEXT",
         "ALTER TABLE mcp_servers ADD COLUMN headers TEXT",
-        // sessions 表添�?pinned �?last_message 字段
+        // sessions 表添加 pinned / last_message 字段
         "ALTER TABLE sessions ADD COLUMN pinned INTEGER DEFAULT 0",
         "ALTER TABLE sessions ADD COLUMN last_message TEXT",
         "ALTER TABLE sessions ADD COLUMN error_message TEXT",
@@ -891,7 +905,7 @@ pub fn init_database() -> Result<()> {
         }
     }
 
-    // agents 表添加测试相关字�?
+    // agents 表添加测试相关字段
     let agent_migrations = [
         "ALTER TABLE agents ADD COLUMN status TEXT DEFAULT 'offline'",
         "ALTER TABLE agents ADD COLUMN test_message TEXT",
@@ -907,10 +921,10 @@ pub fn init_database() -> Result<()> {
         }
     }
 
-    // agents 表添加统丢�智能体模型字�?
-    // provider: 提供�?(claude/codex)
+    // agents 表添加统一智能体模型字段
+    // provider: 提供商 (claude/codex)
     // model_id: 模型ID
-    // custom_model_enabled: 是否启用自定义模�?
+    // custom_model_enabled: 是否启用自定义模型
     let unified_agent_migrations = [
         "ALTER TABLE agents ADD COLUMN provider TEXT",
         "ALTER TABLE agents ADD COLUMN model_id TEXT",
@@ -944,7 +958,17 @@ pub fn init_database() -> Result<()> {
         )?;
     }
 
-    // skills 表添加新字段（从市场安装�?skills�?
+    // themes 表统一加 updated_at（与其他配置表保持一致）
+    if !table_has_column(&conn, "themes", "updated_at")? {
+        conn.execute(
+            "ALTER TABLE themes ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
+            [],
+        )?;
+        // 用已有 created_at 回填，保证非空
+        conn.execute("UPDATE themes SET updated_at = created_at WHERE updated_at = ''", [])?;
+    }
+
+    // skills 表添加新字段（从市场安装的 skills）
     let skills_migrations = [
         "ALTER TABLE skills ADD COLUMN skill_id TEXT",
         "ALTER TABLE skills ADD COLUMN file_name TEXT",
@@ -964,7 +988,7 @@ pub fn init_database() -> Result<()> {
         }
     }
 
-    // 创建 skills 表的索引（如果不存在�?
+    // 创建 skills 表的索引（如果不存在）
     let index_migrations = [
         "CREATE INDEX IF NOT EXISTS idx_skills_path ON skills(path)",
         "CREATE INDEX IF NOT EXISTS idx_skills_name ON skills(name)",
@@ -1006,12 +1030,10 @@ pub fn init_database() -> Result<()> {
         }
     }
 
-    // messages 表添�?error_message 字段（用于存储发送失败的原因�?
-    // messages 表已在新结构中内置 attachments/error_message/tool 相关列与 token 列；
-    // 旧的 ALTER（tool_calls/thinking/edit_traces/runtime_notices/compression_metadata）已废弃，
-    // 旧结构由 rebuild_messages_if_legacy 在 INIT_SQL 后统一重建。
+    // messages 表已在新结构（INIT_SQL / rebuild_messages_if_legacy）中内置
+    // attachments/error_message/tool 相关列与 token 列，无需再单独 ALTER。
 
-    // agent_models 表迁移（智能体模型配置表�?
+    // agent_models 表迁移（智能体模型配置表）
     let agent_models_table_sql = r#"
         CREATE TABLE IF NOT EXISTS agent_models (
             id TEXT PRIMARY KEY,
@@ -1038,7 +1060,7 @@ pub fn init_database() -> Result<()> {
         println!("Agent models index migration warning: {}", e);
     }
 
-    // agent_models 表添�?context_window 字段
+    // agent_models 表添加 context_window 字段
     let agent_models_migrations =
         ["ALTER TABLE agent_models ADD COLUMN context_window INTEGER DEFAULT 128000"];
 
@@ -1051,7 +1073,7 @@ pub fn init_database() -> Result<()> {
         }
     }
 
-    // plans 表添加新字段（任务拆分颗粒度、最大重试次数��执行状态��当前任务ID�?
+    // plans 表添加新字段（任务拆分颗粒度、最大重试次数、执行状态、当前任务ID）
     let plans_migrations = [
         "ALTER TABLE plans ADD COLUMN granularity INTEGER DEFAULT 20",
         "ALTER TABLE plans ADD COLUMN max_retry_count INTEGER DEFAULT 3",
@@ -1090,7 +1112,7 @@ pub fn init_database() -> Result<()> {
         println!("Plan memory libraries table migration warning: {}", e);
     }
 
-    // tasks 表添加新字段（重试计数��最大重试��错误信息��实现步骤��测试步骤��验收标准）
+    // tasks 表添加新字段（重试计数、最大重试、错误信息、实现步骤、测试步骤、验收标准）
     let tasks_migrations = [
         "ALTER TABLE tasks ADD COLUMN project_id TEXT",
         "ALTER TABLE tasks ADD COLUMN agent_id TEXT",
