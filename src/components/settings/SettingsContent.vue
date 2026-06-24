@@ -41,7 +41,7 @@ const activeTabDescriptor = computed(() => getSettingsTabDescriptor(uiStore.acti
 .settings-content {
   flex: 1;
   overflow-y: auto;
-  padding: var(--spacing-6);
+  padding: 14px;
   display: flex;
   justify-content: center;
   min-height: 0;
@@ -53,7 +53,7 @@ const activeTabDescriptor = computed(() => getSettingsTabDescriptor(uiStore.acti
 
 .settings-content--full {
   justify-content: stretch;
-  padding: var(--spacing-4);
+  padding: 10px;
   overflow: hidden;
 }
 
@@ -62,7 +62,7 @@ const activeTabDescriptor = computed(() => getSettingsTabDescriptor(uiStore.acti
 }
 
 .settings-content__inner {
-  max-width: 640px;
+  max-width: 760px;
   width: 100%;
 }
 

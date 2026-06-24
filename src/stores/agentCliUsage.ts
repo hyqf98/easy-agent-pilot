@@ -53,6 +53,8 @@ function createEmptyResponse(filters: AgentCliUsageFilters): AgentCliUsageStatsR
       inputTokens: 0,
       outputTokens: 0,
       totalTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
       estimatedTotalCostUsd: 0,
       unpricedCalls: 0
     },

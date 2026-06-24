@@ -11,6 +11,7 @@ pub(crate) mod cli_support;
 pub mod conversation;
 pub mod data;
 pub mod file_editor;
+pub(crate) mod fs_shared;
 pub mod install;
 pub mod lsp;
 pub mod mcp;
@@ -179,8 +180,9 @@ pub fn migrate_persistence_path(new_path: String) -> Result<PersistenceMigration
         let src = old_dir.join(entry_name);
         let dst = new_dir.join(entry_name);
         if src.exists() {
-            if let Err(e) = copy_dir_recursive(&src, &dst, &mut migrated) {
-                return Err(format!("迁移 {} 失败: {}", entry_name, e));
+            match fs_shared::copy_dir_recursive(&src, &dst) {
+                Ok(count) => migrated += count,
+                Err(e) => return Err(format!("迁移 {} 失败: {}", entry_name, e)),
             }
         }
     }
@@ -203,22 +205,4 @@ pub fn migrate_persistence_path(new_path: String) -> Result<PersistenceMigration
         migrated_files: migrated,
         message: format!("成功迁移 {} 个文件", migrated),
     })
-}
-
-fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf, count: &mut usize) -> Result<()> {
-    if !dst.exists() {
-        fs::create_dir_all(dst)?;
-    }
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
-        let src_path = entry.path();
-        let dst_path = dst.join(entry.file_name());
-        if src_path.is_dir() {
-            copy_dir_recursive(&src_path, &dst_path, count)?;
-        } else {
-            fs::copy(&src_path, &dst_path)?;
-            *count += 1;
-        }
-    }
-    Ok(())
 }

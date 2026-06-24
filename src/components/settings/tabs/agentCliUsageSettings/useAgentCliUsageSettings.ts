@@ -83,6 +83,30 @@ export function useAgentCliUsageSettings() {
     }
   ])
 
+  const todayCards = computed(() => {
+    const summary = usageStore.todaySummary
+    const totalInput = summary.inputTokens + summary.cacheReadTokens + summary.cacheCreationTokens
+    const cacheHitRate = totalInput > 0 ? summary.cacheReadTokens / totalInput : 0
+
+    return [
+      {
+        key: 'today-input',
+        label: t('settings.usageStats.todayInputTokens'),
+        value: formatInteger(summary.inputTokens)
+      },
+      {
+        key: 'today-output',
+        label: t('settings.usageStats.todayOutputTokens'),
+        value: formatInteger(summary.outputTokens)
+      },
+      {
+        key: 'today-cache-hit',
+        label: t('settings.usageStats.todayCacheHitRate'),
+        value: totalInput > 0 ? formatPercentage(cacheHitRate) : '-'
+      }
+    ]
+  })
+
   const providerBreakdown = computed<ProviderBreakdownEntry[]>(() => {
     const grouped = new Map<string, ProviderBreakdownEntry>()
 
@@ -317,6 +341,7 @@ export function useAgentCliUsageSettings() {
     cliTypeOptions,
     dateRangePresets,
     summaryCards,
+    todayCards,
     insightCards,
     hasStats,
     applyDatePreset,

@@ -1,16 +1,5 @@
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
-
 use super::support::open_db_connection;
-
-/// 项目访问记录
-#[allow(dead_code)]
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ProjectAccessLog {
-    pub project_id: String,
-    pub last_accessed_at: i64,
-    pub access_count: i64,
-}
 
 /// 记录项目访问
 #[tauri::command]

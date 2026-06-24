@@ -7,6 +7,18 @@ import TerminalTabPane from './TerminalTabPane.vue'
 import { useProjectStore } from '@/stores/project'
 import { useTerminalStore } from '@/stores/terminal'
 
+interface Props {
+  variant?: 'bottom' | 'workspace'
+  forceExpanded?: boolean
+  showCollapseControl?: boolean
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  variant: 'bottom',
+  forceExpanded: false,
+  showCollapseControl: true
+})
+
 const { t } = useI18n()
 const projectStore = useProjectStore()
 const terminalStore = useTerminalStore()
@@ -25,6 +37,7 @@ function flushResize() {
 }
 
 const activeTab = computed(() => terminalStore.activeTab)
+const isPanelCollapsed = computed(() => props.forceExpanded ? false : terminalStore.isCollapsed)
 const projectOptions = computed<SelectOption[]>(() => [
   {
     value: '',
@@ -55,6 +68,19 @@ async function ensureTerminalReady(projectId: string | null) {
 async function handleOpenPanel() {
   await ensureTerminalReady(projectStore.currentProjectId)
   terminalStore.setCollapsed(false)
+}
+
+async function handleTogglePanel() {
+  if (!props.showCollapseControl) {
+    return
+  }
+
+  if (isPanelCollapsed.value) {
+    await handleOpenPanel()
+    return
+  }
+
+  handleClosePanel()
 }
 
 function handleClosePanel() {
@@ -95,7 +121,7 @@ function handleResizeEnd() {
 }
 
 function handleResizeStart(event: MouseEvent) {
-  if (terminalStore.isCollapsed) {
+  if (isPanelCollapsed.value) {
     return
   }
 
@@ -132,11 +158,14 @@ onBeforeUnmount(() => {
 <template>
   <section
     class="bottom-terminal"
-    :class="{ 'bottom-terminal--collapsed': terminalStore.isCollapsed }"
-    :style="terminalStore.isCollapsed ? undefined : { height: `${terminalStore.panelHeight}px` }"
+    :class="[
+      `bottom-terminal--${props.variant}`,
+      { 'bottom-terminal--collapsed': isPanelCollapsed }
+    ]"
+    :style="isPanelCollapsed || props.variant !== 'bottom' ? undefined : { height: `${terminalStore.panelHeight}px` }"
   >
     <div
-      v-if="!terminalStore.isCollapsed"
+      v-if="!isPanelCollapsed && props.variant === 'bottom'"
       class="bottom-terminal__resizer"
       @mousedown="handleResizeStart"
     />
@@ -145,8 +174,8 @@ onBeforeUnmount(() => {
       <button
         type="button"
         class="bottom-terminal__title bottom-terminal__title-button"
-        :title="terminalStore.isCollapsed ? t('terminal.expand') : t('terminal.collapse')"
-        @click="terminalStore.isCollapsed ? handleOpenPanel() : handleClosePanel()"
+        :title="isPanelCollapsed ? t('terminal.expand') : t('terminal.collapse')"
+        @click="handleTogglePanel"
       >
         <EaIcon
           name="terminal"
@@ -158,7 +187,7 @@ onBeforeUnmount(() => {
 
       <div class="bottom-terminal__toolbar-actions">
         <div
-          v-if="activeTab && !terminalStore.isCollapsed"
+          v-if="activeTab && !isPanelCollapsed"
           class="bottom-terminal__project-select"
         >
           <span class="bottom-terminal__label">{{ t('terminal.projectLabel') }}</span>
@@ -170,7 +199,7 @@ onBeforeUnmount(() => {
         </div>
 
         <button
-          v-if="!terminalStore.isCollapsed"
+          v-if="!isPanelCollapsed"
           type="button"
           class="bottom-terminal__toolbar-btn"
           :title="t('terminal.newTab')"
@@ -183,13 +212,14 @@ onBeforeUnmount(() => {
         </button>
 
         <button
+          v-if="props.showCollapseControl"
           type="button"
           class="bottom-terminal__toolbar-btn"
-          :title="terminalStore.isCollapsed ? t('terminal.expand') : t('terminal.collapse')"
-          @click="terminalStore.isCollapsed ? handleOpenPanel() : handleClosePanel()"
+          :title="isPanelCollapsed ? t('terminal.expand') : t('terminal.collapse')"
+          @click="handleTogglePanel"
         >
           <EaIcon
-            :name="terminalStore.isCollapsed ? 'chevron-up' : 'chevron-down'"
+            :name="isPanelCollapsed ? 'chevron-up' : 'chevron-down'"
             :size="15"
           />
         </button>
@@ -197,7 +227,7 @@ onBeforeUnmount(() => {
     </header>
 
     <div
-      v-show="!terminalStore.isCollapsed"
+      v-show="!isPanelCollapsed"
       class="bottom-terminal__body"
     >
       <div class="bottom-terminal__tabs">
@@ -280,6 +310,89 @@ onBeforeUnmount(() => {
 
 .bottom-terminal--collapsed {
   height: 48px;
+}
+
+.bottom-terminal--workspace {
+  min-height: 40px;
+  border-top: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent);
+  background: color-mix(in srgb, var(--workspace-sidebar-bg, var(--color-bg-secondary)) 94%, transparent);
+}
+
+.bottom-terminal--workspace:not(.bottom-terminal--collapsed) {
+  height: 240px;
+}
+
+.bottom-terminal--workspace.bottom-terminal--collapsed {
+  height: 40px;
+}
+
+.bottom-terminal--workspace .bottom-terminal__toolbar {
+  min-height: 40px;
+  padding: 0 10px;
+}
+
+.bottom-terminal--workspace .bottom-terminal__title {
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.bottom-terminal--workspace .bottom-terminal__count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  font-size: 10px;
+}
+
+.bottom-terminal--workspace .bottom-terminal__toolbar-actions {
+  gap: 6px;
+}
+
+.bottom-terminal--workspace .bottom-terminal__project-select {
+  min-width: 150px;
+}
+
+.bottom-terminal--workspace .bottom-terminal__toolbar-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+}
+
+.bottom-terminal--workspace .bottom-terminal__body {
+  gap: 8px;
+  padding: 0 10px 10px;
+}
+
+.bottom-terminal--workspace .bottom-terminal__tabs {
+  gap: 6px;
+}
+
+.bottom-terminal--workspace .bottom-terminal__tab {
+  max-width: 11rem;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+}
+
+.bottom-terminal--workspace .bottom-terminal__tab-shell,
+.bottom-terminal--workspace .bottom-terminal__label {
+  display: none;
+}
+
+.bottom-terminal--workspace .bottom-terminal__meta {
+  min-height: 18px;
+  padding: 0;
+}
+
+.bottom-terminal--workspace .bottom-terminal__pane-shell {
+  border: 1px solid color-mix(in srgb, var(--terminal-surface-border) 82%, transparent);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.bottom-terminal--workspace .bottom-terminal__empty {
+  border-radius: var(--radius-sm);
 }
 
 .bottom-terminal__resizer {

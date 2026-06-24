@@ -7,6 +7,8 @@ interface TimelineRow {
   label: string
   inputTokens: number
   outputTokens: number
+  cacheReadTokens: number
+  cacheCreationTokens: number
   estimatedTotalCostUsd: number
 }
 
@@ -81,16 +83,24 @@ export function applyTrendChart(options: {
     return
   }
 
+  const cacheHitRateData = timeline.map(item => {
+    const totalInput = item.inputTokens + item.cacheReadTokens + item.cacheCreationTokens
+    return totalInput > 0
+      ? Number((item.cacheReadTokens / totalInput).toFixed(4))
+      : 0
+  })
+
   chart.setOption({
     animation: false,
-    color: ['#2563eb', '#0f766e', '#ea580c'],
+    color: ['#2563eb', '#0f766e', '#ea580c', '#8b5cf6'],
     tooltip: { trigger: 'axis' },
     legend: {
       top: 0,
       data: [
         t('settings.usageStats.summaryInputTokens'),
         t('settings.usageStats.summaryOutputTokens'),
-        t('settings.usageStats.summaryEstimatedCost')
+        t('settings.usageStats.summaryEstimatedCost'),
+        t('settings.usageStats.cacheHitRate')
       ]
     },
     grid: { left: 48, right: 96, top: 48, bottom: 28 },
@@ -110,6 +120,14 @@ export function applyTrendChart(options: {
         axisLabel: {
           formatter: (value: number) => `$${value.toFixed(value < 1 ? 3 : 2)}`
         }
+      },
+      {
+        type: 'value',
+        name: '%',
+        position: 'right',
+        min: 0,
+        max: 1,
+        show: false
       }
     ],
     series: [
@@ -133,6 +151,15 @@ export function applyTrendChart(options: {
         smooth: true,
         yAxisIndex: 1,
         data: timeline.map(item => Number(item.estimatedTotalCostUsd.toFixed(6)))
+      },
+      {
+        name: t('settings.usageStats.cacheHitRate'),
+        type: 'line',
+        smooth: true,
+        yAxisIndex: 2,
+        symbol: 'circle',
+        symbolSize: 6,
+        data: cacheHitRateData
       }
     ]
   })

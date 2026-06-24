@@ -3,15 +3,13 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useProjectStore, type Project } from '@/stores/project'
 import { useSessionStore, type Session } from '@/stores/session'
-import { useLayoutStore, type ProjectTabType } from '@/stores/layout'
+import { useLayoutStore } from '@/stores/layout'
 import { useUIStore } from '@/stores/ui'
 import { useAgentStore } from '@/stores/agent'
 import { useAgentTeamsStore } from '@/stores/agentTeams'
 import { useSessionView } from '@/composables'
-import { openProjectFileInWorkspace } from '@/modules/fileEditor'
 import { EaIcon, EaButton, EaSkeleton } from '@/components/common'
 import { ProjectCreateModal } from '@/components/project'
-import { refreshProjectFileTreeView } from '@/components/fileTree'
 import UnifiedPanelConfirmDialog from './UnifiedPanelConfirmDialog.vue'
 import UnifiedPanelProjectEntry from './UnifiedPanelProjectEntry.vue'
 import { resolveExpertRuntime } from '@/services/agentTeams/runtime'
@@ -25,8 +23,9 @@ export interface UnifiedPanelProps {
 
 defineProps<UnifiedPanelProps>()
 
-defineEmits<{
+const emit = defineEmits<{
   toggle: []
+  openProjectFiles: [project: Project]
 }>()
 
 const projectStore = useProjectStore()
@@ -52,30 +51,6 @@ const deletingSessions = ref<Session[]>([])
 // 编辑会话名称状态
 const editingSessionId = ref<string | null>(null)
 const editingSessionName = ref('')
-
-// 获取项目当前 Tab
-const getProjectTab = (projectId: string): ProjectTabType => {
-  return layoutStore.getProjectTab(projectId)
-}
-
-// 设置项目当前 Tab
-const setProjectTab = async (projectId: string, tab: ProjectTabType) => {
-  layoutStore.setProjectTab(projectId, tab)
-  if (tab === 'sessions') {
-    await sessionStore.loadSessions(projectId)
-    return
-  }
-
-  if (tab === 'files') {
-    const project = projectStore.projects.find(item => item.id === projectId)
-    if (!project) {
-      return
-    }
-
-    await projectStore.refreshFileTree(project.id, project.path)
-    await refreshProjectFileTreeView(project.id, project.path)
-  }
-}
 
 // 按项目筛选的会话列表
 const getSessionsByProject = (projectId: string) => {
@@ -113,13 +88,7 @@ const handleProjectCardClick = async (project: Project) => {
     return
   }
 
-  if (getProjectTab(project.id) === 'sessions') {
-    await sessionStore.loadSessions(project.id)
-    return
-  }
-
-  await projectStore.refreshFileTree(project.id, project.path)
-  await refreshProjectFileTreeView(project.id, project.path)
+  await sessionStore.loadSessions(project.id)
 }
 
 // 生命周期
@@ -153,16 +122,7 @@ const handleRefresh = async () => {
 
   const expandedProjectIds = Array.from(projectStore.expandedProjects)
   const expandedProjects = projectStore.projects.filter(project => expandedProjectIds.includes(project.id))
-  const fileTabProjects = expandedProjects.filter(project => getProjectTab(project.id) === 'files')
-
-  await Promise.all(fileTabProjects.map(async (project) => {
-    await projectStore.refreshFileTree(project.id, project.path)
-    await refreshProjectFileTreeView(project.id, project.path)
-  }))
-
-  await Promise.all(expandedProjects
-    .filter(project => getProjectTab(project.id) === 'sessions')
-    .map(project => sessionStore.loadSessions(project.id, { force: true })))
+  await Promise.all(expandedProjects.map(project => sessionStore.loadSessions(project.id, { force: true })))
 }
 
 const handleAddProject = () => {
@@ -290,32 +250,20 @@ const saveSessionName = async (session: Session) => {
   cancelEditSessionName()
 }
 
-const handleFileSelect = async (selectedPath: string, project: Project) => {
+const handleOpenProjectFiles = (project: Project) => {
   projectStore.setCurrentProject(project.id)
-
-  await openProjectFileInWorkspace({
-    projectId: project.id,
-    projectPath: project.path,
-    filePath: selectedPath
-  })
+  emit('openProjectFiles', project)
 }
 </script>
 
 <template>
   <div :class="['unified-panel', { 'unified-panel--collapsed': collapsed }]">
-    <!-- 面板头部 -->
     <div
       v-if="!collapsed"
-      class="unified-panel__header"
+      class="unified-panel__section-header"
     >
-      <div class="unified-panel__header-title">
-        <EaIcon
-          name="layout-grid"
-          :size="16"
-        />
-        <span>{{ t('panel.workspace') }}</span>
-      </div>
-      <div class="unified-panel__header-actions">
+      <span>Repositories</span>
+      <div class="unified-panel__section-actions">
         <button
           class="header-action-btn"
           :title="t('common.refresh')"
@@ -323,7 +271,7 @@ const handleFileSelect = async (selectedPath: string, project: Project) => {
         >
           <EaIcon
             name="refresh-cw"
-            :size="14"
+            :size="13"
           />
         </button>
         <button
@@ -332,19 +280,8 @@ const handleFileSelect = async (selectedPath: string, project: Project) => {
           @click="handleAddProject"
         >
           <EaIcon
-            name="plus"
-            :size="14"
-          />
-        </button>
-        <button
-          v-if="showHeaderToggle"
-          class="header-action-btn"
-          :title="t('common.close')"
-          @click="$emit('toggle')"
-        >
-          <EaIcon
-            name="x"
-            :size="14"
+            name="folder-plus"
+            :size="13"
           />
         </button>
       </div>
@@ -354,39 +291,37 @@ const handleFileSelect = async (selectedPath: string, project: Project) => {
       v-if="!collapsed"
       class="unified-panel__content"
     >
-      <!-- 加载状态 -->
       <div
         v-if="projectStore.isLoading"
         class="project-loading"
       >
         <div
-          v-for="i in 3"
+          v-for="i in 5"
           :key="i"
           class="project-skeleton"
         >
           <EaSkeleton
             variant="circle"
-            height="16px"
-            width="16px"
+            height="18px"
+            width="18px"
             animation="wave"
           />
           <EaSkeleton
             variant="text"
-            height="14px"
-            :width="`${60 + Math.random() * 30}%`"
+            height="13px"
+            :width="`${60 + Math.random() * 24}%`"
             animation="wave"
           />
         </div>
       </div>
 
-      <!-- 错误状态 -->
       <div
         v-else-if="projectStore.loadError"
         class="project-error"
       >
         <EaIcon
           name="alert-circle"
-          :size="32"
+          :size="24"
           class="project-error__icon"
         />
         <p class="project-error__text">
@@ -396,51 +331,34 @@ const handleFileSelect = async (selectedPath: string, project: Project) => {
           {{ projectStore.loadError }}
         </p>
         <EaButton
-          type="primary"
+          type="secondary"
           size="small"
           @click="handleRefresh"
         >
-          <EaIcon
-            name="refresh-cw"
-            :size="14"
-          />
           {{ t('common.retry') }}
         </EaButton>
       </div>
 
-      <!-- 空状态 -->
       <div
         v-else-if="projectStore.projects.length === 0"
         class="project-empty"
       >
-        <div class="project-empty__illustration">
-          <EaIcon
-            name="folder-plus"
-            :size="48"
-            class="project-empty__icon"
-          />
-        </div>
         <p class="project-empty__title">
-          {{ t('project.noProjects') }}
+          No repositories yet
         </p>
-        <p class="project-empty__hint">
-          {{ t('project.noProjectsHint') }}
-        </p>
-        <EaButton
-          type="primary"
-          size="medium"
+        <button
           class="project-empty__button"
+          type="button"
           @click="handleAddProject"
         >
           <EaIcon
-            name="plus"
-            :size="16"
+            name="folder-plus"
+            :size="14"
           />
-          {{ t('project.createFirstProject') }}
-        </EaButton>
+          <span>Import Repository</span>
+        </button>
       </div>
 
-      <!-- 项目列表 -->
       <div
         v-else
         class="project-list"
@@ -452,7 +370,6 @@ const handleFileSelect = async (selectedPath: string, project: Project) => {
           :project="project"
           :is-active="project.id === projectStore.currentProjectId"
           :is-expanded="projectStore.isProjectExpanded(project.id)"
-          :current-tab="getProjectTab(project.id)"
           :session-sort-by="layoutStore.sessionSortBy"
           :sessions="getSessionsByProject(project.id)"
           :current-session-id="sessionStore.currentSessionId"
@@ -460,9 +377,9 @@ const handleFileSelect = async (selectedPath: string, project: Project) => {
           :editing-session-name="editingSessionName"
           :imported-time-label="formatImportTime(project.createdAt)"
           @toggle-project="handleProjectCardClick"
+          @open-project-files="handleOpenProjectFiles"
           @edit-project="handleEditProject"
           @delete-project="handleDeleteProject"
-          @set-tab="setProjectTab"
           @toggle-sort="toggleSessionSort"
           @add-session="handleAddSession"
           @select-session="handleSelectSession"
@@ -473,7 +390,6 @@ const handleFileSelect = async (selectedPath: string, project: Project) => {
           @delete-session="handleDeleteSession"
           @delete-sessions="handleDeleteSessions"
           @update-editing-name="editingSessionName = $event"
-          @select-file="handleFileSelect"
         />
       </div>
     </div>
@@ -788,5 +704,92 @@ const handleFileSelect = async (selectedPath: string, project: Project) => {
 
 .animate-spin {
   animation: spin 1s linear infinite;
+}
+
+.unified-panel {
+  background: var(--workspace-sidebar-bg);
+  border-right: none;
+}
+
+.unified-panel__section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 11px 10px 7px;
+  color: var(--workspace-text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.unified-panel__section-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.header-action-btn {
+  color: var(--workspace-text-tertiary);
+  border-radius: 7px;
+}
+
+.header-action-btn:hover {
+  background: var(--workspace-control-hover-bg);
+  color: var(--workspace-text-primary);
+}
+
+.unified-panel__content {
+  padding: 0 8px 10px;
+}
+
+.project-list {
+  gap: 3px;
+  padding-right: 2px;
+}
+
+.project-loading {
+  padding: 8px 2px;
+  gap: 8px;
+}
+
+.project-skeleton {
+  padding: 8px;
+  background: transparent;
+}
+
+.project-error,
+.project-empty {
+  min-height: 150px;
+  padding: 24px 16px;
+  color: var(--workspace-text-tertiary);
+}
+
+.project-empty__title {
+  color: var(--workspace-text-primary);
+  font-size: 13px;
+}
+
+.project-error__detail {
+  color: var(--workspace-text-tertiary);
+  font-size: 12px;
+}
+
+.project-empty__button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--workspace-control-border);
+  border-radius: 8px;
+  background: var(--workspace-control-bg);
+  color: var(--workspace-text-primary);
+  font-size: 12px;
+}
+
+.project-empty__button:hover {
+  background: var(--workspace-control-hover-bg);
 }
 </style>

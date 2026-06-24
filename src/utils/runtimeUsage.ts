@@ -19,6 +19,8 @@ export interface NormalizeRuntimeUsageOptions {
 export interface NormalizeRuntimeUsageResult {
   inputTokens?: number
   outputTokens?: number
+  cacheReadInputTokens?: number
+  cacheCreationInputTokens?: number
   nextBaseline: UsageBaseline | null
   didReset: boolean
 }
@@ -61,6 +63,8 @@ export function normalizeRuntimeUsage(
     return {
       inputTokens,
       outputTokens,
+      cacheReadInputTokens,
+      cacheCreationInputTokens,
       nextBaseline: null,
       didReset: false
     }
@@ -113,9 +117,22 @@ export function normalizeRuntimeUsage(
     || typeof cacheCreationInputTokens === 'number'
   )
 
+  const normalizedCacheReadInputTokens = didReset
+    ? cacheReadInputTokens
+    : (typeof cacheReadInputTokens === 'number'
+        ? Math.max(0, cacheReadInputTokens - previousCacheReadInputTokens)
+        : undefined)
+  const normalizedCacheCreationInputTokens = didReset
+    ? cacheCreationInputTokens
+    : (typeof cacheCreationInputTokens === 'number'
+        ? Math.max(0, cacheCreationInputTokens - previousCacheCreationInputTokens)
+        : undefined)
+
   return {
     inputTokens: normalizedInputTokens,
     outputTokens: normalizedOutputTokens,
+    cacheReadInputTokens: normalizedCacheReadInputTokens,
+    cacheCreationInputTokens: normalizedCacheCreationInputTokens,
     nextBaseline: hasUsageBaseline
       ? {
           rawInputTokens: typeof nextRawInputTokens === 'number'

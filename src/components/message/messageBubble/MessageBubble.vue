@@ -86,7 +86,10 @@ const {
       <CompressionMessageBubble :message="message" />
     </div>
     <div class="message-bubble__avatar message-bubble__avatar--user">
-      <span class="avatar-icon">🙂</span>
+      <EaIcon
+        name="user"
+        :size="15"
+      />
     </div>
   </div>
 
@@ -107,7 +110,10 @@ const {
       v-if="isAssistant"
       class="message-bubble__avatar"
     >
-      <span class="avatar-icon">🤖</span>
+      <EaIcon
+        name="bot"
+        :size="15"
+      />
     </div>
     <div class="message-bubble__body">
       <!-- 思考过程显示 -->
@@ -162,7 +168,11 @@ const {
               v-if="part.type === 'file-mention'"
               class="file-mention"
             >
-              <span class="file-mention__icon">📄</span>
+              <EaIcon
+                name="file"
+                :size="13"
+                class="file-mention__icon"
+              />
               <span class="file-mention__path">{{ part.content }}</span>
             </span>
             <span v-else>{{ part.content }}</span>
@@ -325,15 +335,30 @@ const {
           <span
             v-if="statusInfo.icon === 'loading'"
             class="status-icon status-icon--loading"
-          >⏳</span>
+          >
+            <EaIcon
+              name="loader-circle"
+              :size="11"
+            />
+          </span>
           <span
             v-else-if="statusInfo.icon === 'error'"
             class="status-icon"
-          >⚠️</span>
+          >
+            <EaIcon
+              name="triangle-alert"
+              :size="11"
+            />
+          </span>
           <span
             v-else-if="statusInfo.icon === 'check'"
             class="status-icon"
-          >✓</span>
+          >
+            <EaIcon
+              name="check"
+              :size="11"
+            />
+          </span>
           <span class="status-text">{{ statusInfo.text }}</span>
         </span>
         <!-- AI 消息状态 -->
@@ -344,19 +369,39 @@ const {
           <span
             v-if="assistantStatusInfo.icon === 'loading'"
             class="status-icon status-icon--loading"
-          >⏳</span>
+          >
+            <EaIcon
+              name="loader-circle"
+              :size="11"
+            />
+          </span>
           <span
             v-else-if="assistantStatusInfo.icon === 'error'"
             class="status-icon"
-          >⚠️</span>
+          >
+            <EaIcon
+              name="triangle-alert"
+              :size="11"
+            />
+          </span>
           <span
             v-else-if="assistantStatusInfo.icon === 'check'"
             class="status-icon"
-          >✓</span>
+          >
+            <EaIcon
+              name="check"
+              :size="11"
+            />
+          </span>
           <span
             v-else-if="assistantStatusInfo.icon === 'square'"
             class="status-icon status-icon--interrupted"
-          >⏹</span>
+          >
+            <EaIcon
+              name="square"
+              :size="11"
+            />
+          </span>
           <span class="status-text">{{ assistantStatusInfo.text }}</span>
           <span
             v-if="assistantElapsedLabel"
@@ -372,7 +417,10 @@ const {
           :title="t('common.stop')"
           @click="handleStop"
         >
-          ⏹
+          <EaIcon
+            name="square"
+            :size="12"
+          />
         </button>
         <!-- 重试按钮 - 用户消息失败/中断 -->
         <button
@@ -405,7 +453,10 @@ const {
       v-if="isUser"
       class="message-bubble__avatar message-bubble__avatar--user"
     >
-      <span class="avatar-icon">🙂</span>
+      <EaIcon
+        name="user"
+        :size="15"
+      />
     </div>
   </div>
 </template>

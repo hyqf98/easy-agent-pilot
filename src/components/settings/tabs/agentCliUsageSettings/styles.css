@@ -163,6 +163,37 @@
   color: #fdba74;
 }
 
+.usage-today-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--spacing-3);
+}
+
+.usage-today-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  padding: var(--spacing-5);
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-border) 76%);
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--color-primary) 10%, transparent), transparent 60%),
+    var(--color-bg-secondary);
+}
+
+.usage-today-card__label {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.usage-today-card__value {
+  color: var(--color-text-primary);
+  font-size: 1.6rem;
+  font-weight: var(--font-weight-semibold);
+}
+
 .usage-summary-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -249,6 +280,7 @@
 
 @media (max-width: 1200px) {
   .usage-filters,
+  .usage-today-grid,
   .usage-summary-grid,
   .usage-insight-grid,
   .usage-chart-grid {
@@ -264,6 +296,7 @@
 
 @media (max-width: 768px) {
   .usage-stats-page__hero,
+  .usage-today-grid,
   .usage-summary-grid,
   .usage-insight-grid,
   .usage-filters,

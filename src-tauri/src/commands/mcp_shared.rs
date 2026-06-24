@@ -139,7 +139,7 @@ pub fn write_json_config_pretty(path: &Path, value: &Value) -> Result<(), String
 
     let content =
         serde_json::to_string_pretty(value).map_err(|e| format!("序列化配置失败: {}", e))?;
-    fs::write(path, content).map_err(|e| format!("写入配置文件失败: {}", e))?;
+    fs::write(path, format!("{}\n", content)).map_err(|e| format!("写入配置文件失败: {}", e))?;
     Ok(())
 }
 

@@ -11,6 +11,7 @@ import TaskExecutionLog from './taskExecutionLog/TaskExecutionLog.vue'
 import TaskDetail from './TaskDetail.vue'
 import PlanProgressDetail from './PlanProgressDetail.vue'
 import AgentRoleBadge from './AgentRoleBadge.vue'
+import { EaIcon } from '@/components/common'
 import type { Plan, Task } from '@/types/plan'
 
 const planStore = usePlanStore()
@@ -179,18 +180,10 @@ onUnmounted(() => {
         title="收起详情面板"
         @click="closeRightPanel"
       >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <polyline points="9 18 15 12 9 6" />
-        </svg>
+        <EaIcon
+          name="chevron-right"
+          :size="15"
+        />
       </button>
       <PlanProgressDetail
         v-if="rightPanelView === 'plan_progress' && selectedPlanId"
@@ -223,23 +216,25 @@ onUnmounted(() => {
 .plan-mode-panel {
   display: flex;
   height: 100%;
-  background-color: var(--bg-primary, #fff);
+  background-color: var(--workspace-stage-bg, var(--bg-primary, #fff));
   position: relative;
 }
 
 .plan-list-container {
-  width: 320px;
+  width: 292px;
   flex-shrink: 0;
-  border-right: 1px solid var(--border-color, #e5e7eb);
+  border-right: 1px solid var(--workspace-border, var(--border-color, #e5e7eb));
+  background: var(--workspace-sidebar-bg, var(--color-bg-secondary));
 }
 
 .task-board-container {
   flex: 1;
   min-width: 0;
+  background: var(--workspace-stage-bg, var(--color-bg-secondary));
 }
 
 .task-board-container--with-right {
-  border-right: 1px solid var(--border-color, #e5e7eb);
+  border-right: 1px solid var(--workspace-border, var(--border-color, #e5e7eb));
 }
 
 .task-detail-container {
@@ -247,18 +242,13 @@ onUnmounted(() => {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  border-left: 1px solid var(--border-color, #e5e7eb);
+  border-left: 1px solid var(--workspace-border, var(--border-color, #e5e7eb));
   position: relative;
   min-width: 280px;
   max-width: 600px;
   min-height: 0;
   overflow: hidden;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--detail-panel-surface) 96%, #ffffff) 0%,
-      color-mix(in srgb, var(--detail-panel-surface) 90%, var(--color-bg-secondary, #f8fafc)) 100%
-    );
+  background: var(--workspace-panel-bg, var(--detail-panel-surface));
 }
 
 .task-detail-container > :not(.resize-handle):not(.collapse-button) {
@@ -283,7 +273,7 @@ onUnmounted(() => {
 
 .resize-handle:hover,
 .resize-handle--active {
-  background-color: var(--color-primary, #3b82f6);
+  background-color: color-mix(in srgb, var(--workspace-text-secondary, #64748b) 16%, transparent);
 }
 
 .resize-handle::after {
@@ -303,7 +293,7 @@ onUnmounted(() => {
 .resize-handle:hover::after,
 .resize-handle--active::after {
   opacity: 1;
-  background-color: white;
+  background-color: var(--workspace-text-tertiary, white);
 }
 
 .collapse-button {
@@ -316,8 +306,8 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: var(--color-surface, #fff);
-  border: 1px solid var(--border-color, #e5e7eb);
+  background-color: var(--workspace-panel-bg, var(--color-surface, #fff));
+  border: 1px solid var(--workspace-border, var(--border-color, #e5e7eb));
   border-left: none;
   border-radius: 0 6px 6px 0;
   cursor: pointer;
@@ -327,8 +317,8 @@ onUnmounted(() => {
 }
 
 .collapse-button:hover {
-  background-color: var(--color-bg-secondary, #f8fafc);
-  color: var(--color-text-primary, #1e293b);
+  background-color: var(--workspace-control-hover-bg, var(--color-bg-secondary, #f8fafc));
+  color: var(--workspace-text-primary, var(--color-text-primary, #1e293b));
   width: 24px;
 }
 
@@ -339,8 +329,54 @@ onUnmounted(() => {
   z-index: 10;
 }
 
+:deep(.plan-list),
+:deep(.task-board) {
+  background: transparent;
+}
+
+:deep(.board-header),
+:deep(.plan-list__header),
+:deep(.plan-header) {
+  border-color: var(--workspace-border, var(--color-border));
+  background: var(--workspace-topbar-bg, var(--color-surface));
+}
+
+:deep(.title),
+:deep(.plan-title) {
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  font-size: 13px;
+}
+
+:deep(.stat-item),
+:deep(.btn) {
+  border-radius: 6px;
+}
+
+:deep(.board-columns) {
+  gap: 10px;
+  padding: 10px;
+}
+
+:deep(.kanban-column),
+:deep(.column),
+:deep(.task-column) {
+  border-color: var(--workspace-border, var(--color-border));
+  border-radius: 8px;
+  background: var(--workspace-panel-bg, var(--color-surface));
+  box-shadow: none;
+}
+
+:deep(.task-card),
+:deep(.plan-card),
+:deep(.plan-item) {
+  border-color: var(--workspace-border, var(--color-border));
+  border-radius: 8px;
+  background: var(--workspace-control-bg, var(--color-surface));
+  box-shadow: none;
+}
+
 [data-theme='dark'] .plan-mode-panel {
-  background-color: rgba(2, 6, 23, 0.92);
+  background-color: var(--workspace-stage-bg, rgba(2, 6, 23, 0.92));
 }
 
 [data-theme='dark'] .plan-list-container,

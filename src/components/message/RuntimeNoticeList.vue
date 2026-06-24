@@ -5,6 +5,7 @@ import MarkdownRenderer from './MarkdownRenderer.vue'
 import type { RuntimeNotice } from '@/utils/runtimeNotice'
 import { getUsageNoticeSummary, summarizeRuntimeNotice } from '@/utils/runtimeNotice'
 import { resolveRecordedModelId } from '@/services/usage/agentCliUsageRecorder'
+import { EaIcon } from '@/components/common'
 
 interface UsageFallback {
   model?: string
@@ -229,7 +230,12 @@ function formatChipLabel(notice: RuntimeNotice, chip: string) {
           <span
             class="runtime-notice__chevron"
             :class="{ 'runtime-notice__chevron--expanded': isExpanded(primaryRegularNotice.id) }"
-          >▼</span>
+          >
+            <EaIcon
+              name="chevron-down"
+              :size="12"
+            />
+          </span>
         </button>
 
         <div class="runtime-notice__summary-usage">
@@ -290,7 +296,12 @@ function formatChipLabel(notice: RuntimeNotice, chip: string) {
             <span
               class="runtime-notice__chevron"
               :class="{ 'runtime-notice__chevron--expanded': isExpanded(notice.id) }"
-            >▼</span>
+            >
+              <EaIcon
+                name="chevron-down"
+                :size="12"
+              />
+            </span>
           </div>
         </button>
 
@@ -408,7 +419,12 @@ function formatChipLabel(notice: RuntimeNotice, chip: string) {
               <span
                 class="runtime-notice__chevron"
                 :class="{ 'runtime-notice__chevron--expanded': isExpanded(notice.id) }"
-              >▼</span>
+              >
+                <EaIcon
+                  name="chevron-down"
+                  :size="12"
+                />
+              </span>
             </div>
           </button>
 

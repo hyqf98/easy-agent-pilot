@@ -31,22 +31,12 @@ pub struct ProjectFileContent {
     pub line_count: usize,
 }
 
-fn resolve_path(path: &str) -> Result<PathBuf, String> {
-    if let Some(rest) = path.strip_prefix('~') {
-        let home = dirs::home_dir().ok_or_else(|| "无法获取用户主目录".to_string())?;
-        let rest = rest.strip_prefix('/').unwrap_or(rest);
-        return Ok(home.join(rest));
-    }
-
-    Ok(PathBuf::from(path))
-}
-
 fn canonicalize_existing(path: &Path) -> Result<PathBuf, String> {
     fs::canonicalize(path).map_err(|e| format!("无法解析路径 {}: {}", path.display(), e))
 }
 
 fn validate_project_file(project_path: &str, file_path: &str) -> Result<PathBuf, String> {
-    let project_root = resolve_path(project_path)?;
+    let project_root = crate::commands::fs_shared::expand_home_path(project_path)?;
     if !project_root.exists() {
         return Err(format!("项目路径不存在: {}", project_path));
     }
@@ -54,7 +44,7 @@ fn validate_project_file(project_path: &str, file_path: &str) -> Result<PathBuf,
         return Err(format!("项目路径不是目录: {}", project_path));
     }
 
-    let target_path = resolve_path(file_path)?;
+    let target_path = crate::commands::fs_shared::expand_home_path(file_path)?;
     if !target_path.exists() {
         return Err(format!("文件不存在: {}", file_path));
     }
@@ -256,7 +246,7 @@ pub fn write_project_file(
 
 #[tauri::command]
 pub fn write_binary_file(file_path: String, data: Vec<u8>) -> Result<(), String> {
-    let path = resolve_path(&file_path)?;
+    let path = crate::commands::fs_shared::expand_home_path(&file_path)?;
     println!("[write_binary_file] path = {:?}", path);
     println!("[write_binary_file] data len = {} bytes", data.len());
     if !data.is_empty() {
@@ -270,7 +260,7 @@ pub fn write_binary_file(file_path: String, data: Vec<u8>) -> Result<(), String>
 
 #[tauri::command]
 pub fn read_binary_file(file_path: String) -> Result<Vec<u8>, String> {
-    let path = resolve_path(&file_path)?;
+    let path = crate::commands::fs_shared::expand_home_path(&file_path)?;
     if !path.exists() {
         return Err(format!("文件不存在: {}", file_path));
     }

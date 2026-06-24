@@ -322,52 +322,6 @@ fn ensure_path_within(base: &Path, path: &Path, label: &str) -> Result<(), Strin
     }
 }
 
-fn copy_directory_recursive(source: &Path, target: &Path) -> Result<(), String> {
-    fs::create_dir_all(target).map_err(|e| {
-        format!(
-            "Failed to create target directory {}: {}",
-            target.display(),
-            e
-        )
-    })?;
-
-    for entry in fs::read_dir(source).map_err(|e| {
-        format!(
-            "Failed to read source directory {}: {}",
-            source.display(),
-            e
-        )
-    })? {
-        let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
-        let source_path = entry.path();
-        let target_path = target.join(entry.file_name());
-
-        if source_path.is_dir() {
-            copy_directory_recursive(&source_path, &target_path)?;
-        } else {
-            if let Some(parent) = target_path.parent() {
-                fs::create_dir_all(parent).map_err(|e| {
-                    format!(
-                        "Failed to create target directory {}: {}",
-                        parent.display(),
-                        e
-                    )
-                })?;
-            }
-            fs::copy(&source_path, &target_path).map_err(|e| {
-                format!(
-                    "Failed to copy file from {} to {}: {}",
-                    source_path.display(),
-                    target_path.display(),
-                    e
-                )
-            })?;
-        }
-    }
-
-    Ok(())
-}
-
 fn sync_mcp_items(
     source_cli_path: &str,
     target_cli_path: &str,
@@ -504,7 +458,8 @@ fn sync_skill_items(
         }
 
         let copy_result = if source_path.is_dir() {
-            copy_directory_recursive(&source_path, &target_path)
+            crate::commands::fs_shared::copy_dir_recursive(&source_path, &target_path)
+                .map(|_| ())
         } else if source_path.is_file() {
             fs::copy(&source_path, &target_path)
                 .map(|_| ())

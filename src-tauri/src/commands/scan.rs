@@ -180,14 +180,6 @@ fn get_cli_config_dir(
     }
 }
 
-/// 获取 Claude 配置目录路径
-#[allow(dead_code)]
-fn get_claude_config_dir() -> Result<PathBuf> {
-    let home_dir =
-        dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
-    Ok(home_dir.join(".claude"))
-}
-
 /// 解析单个 MCP 服务器配置
 fn transport_from_config_value(value: &str) -> Option<McpTransportType> {
     match value.to_lowercase().as_str() {

@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ToolCall } from '@/stores/message'
 import { useTypewriterText } from '@/composables/useTypewriterText'
+import { EaIcon } from '@/components/common'
 
 const props = withDefaults(defineProps<{
   toolCall: ToolCall
@@ -48,25 +49,25 @@ const statusClass = computed(() => {
 const statusIcon = computed(() => {
   switch (props.toolCall.status) {
     case 'running':
-      return '⏳'
+      return 'loader-circle'
     case 'success':
-      return '✓'
+      return 'check'
     case 'error':
-      return '✗'
+      return 'x'
     default:
-      return '○'
+      return 'circle'
   }
 })
 
 // 工具图标
 const toolIcon = computed(() => {
   const name = props.toolCall.name.toLowerCase()
-  if (name.includes('web') || name.includes('search')) return '🌐'
-  if (name.includes('read') || name.includes('file')) return '📄'
-  if (name.includes('write') || name.includes('edit')) return '✏️'
-  if (name.includes('bash') || name.includes('shell')) return '💻'
-  if (name.includes('grep') || name.includes('search')) return '🔍'
-  return '🔧'
+  if (name.includes('web') || name.includes('search')) return 'globe'
+  if (name.includes('read') || name.includes('file')) return 'file-text'
+  if (name.includes('write') || name.includes('edit')) return 'pencil'
+  if (name.includes('bash') || name.includes('shell')) return 'terminal'
+  if (name.includes('grep') || name.includes('search')) return 'search'
+  return 'wrench'
 })
 
 const isTerminalLikeTool = computed(() => {
@@ -133,13 +134,21 @@ const toolSummary = computed(() => {
       @click="toggleExpand"
     >
       <div class="tool-call__header-left">
-        <span class="tool-call__icon">{{ toolIcon }}</span>
+        <span class="tool-call__icon">
+          <EaIcon
+            :name="toolIcon"
+            :size="13"
+          />
+        </span>
         <span class="tool-call__name">{{ toolCall.name }}</span>
         <span
           class="tool-call__status"
           :class="`tool-call__status--${toolCall.status}`"
         >
-          {{ statusIcon }}
+          <EaIcon
+            :name="statusIcon"
+            :size="12"
+          />
         </span>
       </div>
       <div class="tool-call__header-right">
@@ -150,7 +159,12 @@ const toolSummary = computed(() => {
         <span
           class="tool-call__chevron"
           :class="{ 'tool-call__chevron--expanded': isExpanded }"
-        >▼</span>
+        >
+          <EaIcon
+            name="chevron-down"
+            :size="12"
+          />
+        </span>
       </div>
     </button>
 
@@ -162,7 +176,10 @@ const toolSummary = computed(() => {
       <!-- 参数 -->
       <div class="tool-call__section">
         <div class="tool-call__section-title">
-          <span>📥</span>
+          <EaIcon
+            name="log-in"
+            :size="12"
+          />
           <span>{{ t('message.parameters') }}</span>
         </div>
         <pre class="tool-call__code">{{ animatedArguments }}</pre>
@@ -179,7 +196,10 @@ const toolSummary = computed(() => {
           @click.stop="toggleResultExpand"
         >
           <div class="tool-call__section-title">
-            <span>📤</span>
+            <EaIcon
+              name="log-out"
+              :size="12"
+            />
             <span>{{ t('message.result') }}</span>
           </div>
           <div class="tool-call__section-toggle">
@@ -187,7 +207,12 @@ const toolSummary = computed(() => {
             <span
               class="tool-call__chevron"
               :class="{ 'tool-call__chevron--expanded': isResultExpanded }"
-            >▼</span>
+            >
+              <EaIcon
+                name="chevron-down"
+                :size="12"
+              />
+            </span>
           </div>
         </button>
         <div
@@ -207,7 +232,10 @@ const toolSummary = computed(() => {
         class="tool-call__section tool-call__error-section"
       >
         <div class="tool-call__section-title">
-          <span>⚠️</span>
+          <EaIcon
+            name="triangle-alert"
+            :size="12"
+          />
           <span>{{ t('message.error') }}</span>
         </div>
         <div class="tool-call__error">
@@ -226,12 +254,11 @@ const toolSummary = computed(() => {
   min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
-  border-radius: var(--radius-lg);
+  border-radius: 8px;
   background: var(--tool-call-bg);
   border: 1px solid var(--tool-call-border);
-  box-shadow: var(--tool-call-shadow);
   overflow: hidden;
-  transition: border-color 0.25s ease, box-shadow 0.25s ease, background 0.25s ease;
+  transition: border-color 0.16s ease, background 0.16s ease;
 }
 
 .tool-call--compact {
@@ -240,7 +267,6 @@ const toolSummary = computed(() => {
 
 .tool-call:hover {
   border-color: var(--tool-call-hover-border);
-  box-shadow: var(--tool-call-hover-shadow);
 }
 
 .tool-call--running {
@@ -264,7 +290,8 @@ const toolSummary = computed(() => {
   justify-content: space-between;
   gap: var(--spacing-2);
   width: 100%;
-  padding: var(--spacing-2) var(--spacing-3);
+  min-height: 32px;
+  padding: 5px 8px;
   border: 0;
   background: transparent;
   cursor: pointer;
@@ -292,19 +319,21 @@ const toolSummary = computed(() => {
 .tool-call__header-left {
   display: flex;
   align-items: center;
-  gap: var(--spacing-2);
+  gap: 7px;
   min-width: 0;
   flex: 1 1 auto;
 }
 
 .tool-call__icon {
-  font-size: 14px;
-  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--tool-call-meta);
 }
 
 .tool-call__name {
-  font-size: var(--font-size-sm);
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
   color: var(--tool-call-name);
   min-width: 0;
   white-space: nowrap;
@@ -313,8 +342,11 @@ const toolSummary = computed(() => {
 }
 
 .tool-call__status {
-  font-size: 12px;
-  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
 }
 
 .tool-call__status--running {
@@ -333,7 +365,7 @@ const toolSummary = computed(() => {
 .tool-call__header-right {
   display: flex;
   align-items: center;
-  gap: var(--spacing-2);
+  gap: 7px;
   min-width: 0;
   flex: 0 1 auto;
   max-width: min(70%, 24rem);
@@ -343,7 +375,7 @@ const toolSummary = computed(() => {
   flex: 1 1 auto;
   min-width: 0;
   max-width: min(18rem, 42vw);
-  font-size: 0.72rem;
+  font-size: 11px;
   color: var(--tool-call-summary);
   white-space: nowrap;
   overflow: hidden;
@@ -353,13 +385,15 @@ const toolSummary = computed(() => {
 
 .tool-call__toggle {
   flex-shrink: 0;
-  font-size: var(--font-size-xs);
+  font-size: 11px;
   color: var(--tool-call-meta);
   white-space: nowrap;
 }
 
 .tool-call__chevron {
-  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--tool-call-meta);
   transition: transform 0.2s ease;
 }
@@ -372,7 +406,7 @@ const toolSummary = computed(() => {
   width: 100%;
   box-sizing: border-box;
   border-top: 1px solid var(--tool-call-content-border);
-  padding: var(--spacing-2) var(--spacing-3);
+  padding: 7px 8px 8px;
   overflow: hidden;
 }
 
@@ -421,12 +455,12 @@ const toolSummary = computed(() => {
 .tool-call__section-title {
   display: flex;
   align-items: center;
-  gap: var(--spacing-2);
-  font-size: var(--font-size-xs);
+  gap: 6px;
+  font-size: 11px;
   font-weight: 500;
   color: var(--tool-call-meta);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .tool-call__section-toggle {
@@ -439,12 +473,12 @@ const toolSummary = computed(() => {
 
 .tool-call__code {
   margin: var(--spacing-1) 0 0 0;
-  padding: var(--spacing-2);
+  padding: 7px;
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
   background: var(--tool-call-code-bg);
-  border-radius: var(--radius-md);
+  border-radius: 6px;
   font-family: var(--font-family-mono);
   font-size: var(--font-size-xs);
   line-height: 1.5;
@@ -473,10 +507,10 @@ const toolSummary = computed(() => {
 
 .tool-call__error-section {
   margin-top: var(--spacing-2);
-  padding: var(--spacing-2);
+  padding: 7px;
   background: var(--tool-call-error-panel-bg);
-  border-radius: var(--radius-md);
-  border-left: 3px solid var(--color-error);
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--color-error) 24%, transparent);
 }
 
 .tool-call__error {

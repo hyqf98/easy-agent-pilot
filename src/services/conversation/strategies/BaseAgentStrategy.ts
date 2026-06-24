@@ -307,10 +307,25 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
           error: event.error,
           ...baseEvent
         }
+      case 'plan':
+        return {
+          type: 'plan',
+          content: event.content,
+          ...baseEvent
+        }
       case 'file_edit':
         return {
           type: 'file_edit',
           fileEdit: event.fileEdit,
+          ...baseEvent
+        }
+      case 'permission_request':
+        return {
+          type: 'permission_request',
+          toolName: event.toolName,
+          toolCallId: event.toolCallId,
+          toolInput: parseToolPayload(event.toolInput),
+          content: event.content,
           ...baseEvent
         }
       case 'done':

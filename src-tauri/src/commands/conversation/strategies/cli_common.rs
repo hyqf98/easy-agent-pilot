@@ -157,6 +157,22 @@ pub fn read_cli_timeout_minutes() -> Option<u64> {
     value.and_then(|v| v.parse::<u64>().ok())
 }
 
+pub fn read_acp_permission_mode() -> String {
+    let conn = match open_db_connection() {
+        Ok(c) => c,
+        Err(_) => return "ask".to_string(),
+    };
+    let value: Option<String> = conn
+        .query_row(
+            "SELECT value FROM app_settings WHERE key = 'acpPermissionMode'",
+            [],
+            |row| row.get(0),
+        )
+        .ok()
+        .flatten();
+    value.unwrap_or_else(|| "ask".to_string())
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct CliExecutionSnapshot {
     pub started_at: Instant,
@@ -194,21 +210,6 @@ impl CliExecutionMonitor {
         if meaningful && state.first_meaningful_event_at.is_none() {
             state.first_meaningful_event_at = Some(now);
         }
-    }
-
-    #[allow(dead_code)]
-    pub fn note_stderr_warning(&self) {
-        let now = Instant::now();
-        let mut state = self.state.lock().expect("cli monitor poisoned");
-        state.last_activity_at = Some(now);
-        state.stderr_warning_count += 1;
-    }
-
-    #[allow(dead_code)]
-    pub fn note_process_exit(&self, exit_code: Option<i32>) {
-        let mut state = self.state.lock().expect("cli monitor poisoned");
-        state.process_exited_at = Some(Instant::now());
-        state.exit_code = exit_code;
     }
 
     pub fn snapshot(&self) -> CliExecutionSnapshot {

@@ -798,6 +798,129 @@ onBeforeUnmount(() => {
   font-size: var(--sidebar-font-meta);
 }
 
+.session-list {
+  gap: 2px;
+  padding: 2px 0 6px;
+  overflow: visible;
+}
+
+.session-item {
+  align-items: center;
+  padding: 6px 7px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+}
+
+.session-item:hover,
+.session-item--active {
+  background: var(--workspace-list-hover-bg);
+  border-color: transparent;
+}
+
+.session-item--active {
+  background: var(--workspace-list-active-bg);
+}
+
+.session-item--active:hover {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.session-item--selected {
+  background: var(--workspace-list-active-bg);
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.session-item__content {
+  gap: 2px;
+}
+
+.session-item__main {
+  gap: 7px;
+}
+
+.session-item__selector {
+  width: 12px;
+  height: 12px;
+  border-width: 1px;
+  opacity: 0;
+}
+
+.session-item:hover .session-item__selector,
+.session-item--selected .session-item__selector {
+  opacity: 1;
+}
+
+.session-item__name {
+  color: var(--workspace-text-primary);
+  font-size: 12px;
+  font-weight: 450;
+}
+
+.session-item--active .session-item__name,
+.session-item:hover .session-item__name {
+  color: var(--workspace-text-primary);
+}
+
+.session-item__time {
+  color: var(--workspace-text-tertiary);
+  font-size: 11px;
+}
+
+.session-item__status-text {
+  padding: 0;
+  background: transparent;
+  font-size: 11px;
+}
+
+.session-item__meta,
+.session-item__preview {
+  padding-left: 19px;
+}
+
+.session-item__meta {
+  gap: 7px;
+}
+
+.session-item__meta-item,
+.session-item__preview {
+  color: var(--workspace-text-tertiary);
+  font-size: 11px;
+}
+
+.session-item__meta-item:first-child {
+  color: var(--workspace-text-tertiary);
+}
+
+.session-item__actions,
+.session-item:hover .session-item__actions {
+  display: none;
+}
+
+.session-item__menu {
+  display: flex;
+}
+
+.session-item__menu-trigger {
+  width: 21px;
+  height: 21px;
+  border-radius: 6px;
+  color: var(--workspace-text-tertiary);
+}
+
+.session-item__menu-trigger:hover {
+  background: var(--workspace-control-hover-bg);
+  color: var(--workspace-text-primary);
+}
+
+.session-item__menu-popover {
+  border-color: var(--workspace-border);
+  background: var(--workspace-panel-bg);
+  box-shadow: var(--workspace-card-shadow);
+}
+
 @container (max-width: 320px) {
   .session-item {
     padding: var(--spacing-2) var(--spacing-3);

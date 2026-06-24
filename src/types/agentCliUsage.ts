@@ -15,6 +15,8 @@ export interface RecordAgentCliUsageInput {
   messageId?: string | null
   inputTokens?: number | null
   outputTokens?: number | null
+  cacheReadInputTokens?: number | null
+  cacheCreationInputTokens?: number | null
   occurredAt?: string | null
 }
 
@@ -32,6 +34,8 @@ export interface AgentCliUsageSummary {
   inputTokens: number
   outputTokens: number
   totalTokens: number
+  cacheReadTokens: number
+  cacheCreationTokens: number
   estimatedTotalCostUsd: number
   unpricedCalls: number
 }
@@ -43,6 +47,8 @@ export interface AgentCliUsageTimelinePoint {
   inputTokens: number
   outputTokens: number
   totalTokens: number
+  cacheReadTokens: number
+  cacheCreationTokens: number
   estimatedTotalCostUsd: number
 }
 

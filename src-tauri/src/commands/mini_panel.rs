@@ -93,10 +93,8 @@ fn resolve_path_input(input: &str, current_directory: &Path) -> Result<PathBuf, 
         return Ok(current_directory.to_path_buf());
     }
 
-    let candidate = if let Some(stripped) = trimmed.strip_prefix('~') {
-        let home = home_directory()?;
-        let rest = stripped.strip_prefix('/').unwrap_or(stripped);
-        home.join(rest)
+    let candidate = if trimmed.starts_with('~') {
+        crate::commands::fs_shared::expand_home_path(trimmed)?
     } else {
         let path = PathBuf::from(trimmed);
         if path.is_absolute() {

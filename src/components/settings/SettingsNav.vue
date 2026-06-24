@@ -67,20 +67,19 @@ watch(
 .settings-nav {
   display: flex;
   flex-direction: column;
-  width: 240px;
+  width: 216px;
   flex-shrink: 0;
-  padding: var(--spacing-4);
-  padding-bottom: var(--spacing-2);
-  background-color: var(--color-bg-secondary);
-  border-right: 1px solid var(--color-border);
+  padding: 8px;
+  background-color: var(--workspace-sidebar-bg, var(--color-bg-secondary));
+  border-right: 1px solid var(--workspace-border, var(--color-border));
   overflow-y: auto;
   overflow-x: hidden;
   transition: width var(--transition-normal) var(--easing-default);
 }
 
 .settings-nav--collapsed {
-  width: 56px;
-  padding: var(--spacing-2);
+  width: 44px;
+  padding: 6px;
 }
 
 .settings-nav--logs {
@@ -91,42 +90,43 @@ watch(
 .settings-nav__list {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-1);
+  gap: 2px;
   flex: 1;
 }
 
 .settings-nav__item {
   display: flex;
   align-items: center;
-  gap: var(--spacing-3);
+  gap: 8px;
   width: 100%;
-  padding: var(--spacing-3) var(--spacing-4);
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
+  min-height: 30px;
+  padding: 0 9px;
+  border-radius: 7px;
+  font-size: 12px;
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
   text-align: left;
   transition: all var(--transition-fast) var(--easing-default);
 }
 
 .settings-nav--collapsed .settings-nav__item {
   justify-content: center;
-  padding: var(--spacing-3);
+  padding: 0;
 }
 
 .settings-nav__item:hover {
-  background-color: var(--color-surface-hover);
-  color: var(--color-text-primary);
+  background-color: var(--workspace-control-hover-bg, var(--color-surface-hover));
+  color: var(--workspace-text-primary, var(--color-text-primary));
 }
 
 .settings-nav__item--active {
-  background-color: var(--color-primary-light);
-  color: var(--color-primary);
+  background-color: var(--workspace-list-active-bg, var(--color-primary-light));
+  color: var(--workspace-text-primary, var(--color-primary));
   font-weight: var(--font-weight-medium);
 }
 
 .settings-nav__item--active:hover {
-  background-color: var(--color-primary-light);
-  color: var(--color-primary);
+  background-color: var(--workspace-list-active-bg, var(--color-primary-light));
+  color: var(--workspace-text-primary, var(--color-primary));
 }
 
 [data-theme='dark'] .settings-nav__item--active {

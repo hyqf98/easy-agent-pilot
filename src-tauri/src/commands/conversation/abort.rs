@@ -68,17 +68,6 @@ pub async fn clear_abort_flag(session_id: &str) {
     pids.remove(session_id);
 }
 
-/// 注册会话的进程 PID
-#[allow(dead_code)]
-pub async fn register_session_pid(session_id: &str, pid: u32) {
-    let mut pids = SESSION_PIDS.write().await;
-    pids.insert(session_id.to_string(), pid);
-    write_abort_log(
-        "DEBUG",
-        &format!("注册 CLI 进程 PID: session={}, pid={}, source=cli_spawn", session_id, pid),
-    );
-}
-
 /// 注销会话的进程 PID
 pub async fn unregister_session_pid(session_id: &str) {
     let mut pids = SESSION_PIDS.write().await;

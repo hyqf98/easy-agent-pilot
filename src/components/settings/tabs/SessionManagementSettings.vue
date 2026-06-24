@@ -492,31 +492,33 @@ onMounted(async () => {
         v-if="hasCliAgents"
         class="toolbar"
       >
-        <div class="toolbar__item">
-          <label class="toolbar__label">{{ t('settings.sessionManager.agentLabel') }}</label>
-          <EaSelect
-            v-model="selectedAgentId"
-            :options="agentOptions"
-          />
+        <div class="toolbar__row toolbar__filters">
+          <div class="toolbar__item">
+            <label class="toolbar__label">{{ t('settings.sessionManager.agentLabel') }}</label>
+            <EaSelect
+              v-model="selectedAgentId"
+              :options="agentOptions"
+            />
+          </div>
+
+          <div class="toolbar__item">
+            <label class="toolbar__label">{{ t('settings.sessionManager.projectLabel') }}</label>
+            <EaSelect
+              v-model="selectedProjectPath"
+              :options="projectOptions"
+            />
+          </div>
+
+          <div class="toolbar__item">
+            <label class="toolbar__label">{{ t('settings.sessionManager.updatedRangeLabel') }}</label>
+            <EaSelect
+              v-model="selectedUpdatedRange"
+              :options="updatedRangeOptions"
+            />
+          </div>
         </div>
 
-        <div class="toolbar__item">
-          <label class="toolbar__label">{{ t('settings.sessionManager.projectLabel') }}</label>
-          <EaSelect
-            v-model="selectedProjectPath"
-            :options="projectOptions"
-          />
-        </div>
-
-        <div class="toolbar__item">
-          <label class="toolbar__label">{{ t('settings.sessionManager.updatedRangeLabel') }}</label>
-          <EaSelect
-            v-model="selectedUpdatedRange"
-            :options="updatedRangeOptions"
-          />
-        </div>
-
-        <div class="toolbar__actions">
+        <div class="toolbar__row toolbar__actions">
           <EaButton
             type="danger"
             size="small"
@@ -625,24 +627,33 @@ onMounted(async () => {
 }
 
 .toolbar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+}
+
+.toolbar__row {
+  display: flex;
+  align-items: flex-end;
   gap: var(--spacing-3);
-  align-items: end;
+}
+
+.toolbar__filters {
+  flex-wrap: wrap;
 }
 
 .toolbar__item {
+  flex: 1 1 0;
+  min-width: 160px;
   display: flex;
   flex-direction: column;
   gap: var(--spacing-2);
 }
 
 .toolbar__actions {
-  display: flex;
-  align-items: center;
   justify-content: flex-end;
-  gap: var(--spacing-2);
   flex-wrap: wrap;
+  gap: var(--spacing-2);
 }
 
 .toolbar__label {
@@ -677,8 +688,14 @@ onMounted(async () => {
 }
 
 @media (max-width: 860px) {
-  .toolbar {
-    grid-template-columns: 1fr;
+  .toolbar__filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .toolbar__item {
+    min-width: 0;
+    width: 100%;
   }
 
   .toolbar__actions {

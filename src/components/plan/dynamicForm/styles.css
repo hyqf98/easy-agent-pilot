@@ -1,39 +1,36 @@
 .dynamic-form {
-  --form-accent: #2563eb;
-  --form-accent-alt: #0891b2;
-  --form-accent-soft: color-mix(in srgb, var(--form-accent) 14%, #ffffff);
-  --form-border: color-mix(in srgb, var(--form-accent) 22%, #dbe3ee);
-  --form-surface: var(--color-surface, #ffffff);
+  --form-accent: var(--workspace-text-primary, #20201e);
+  --form-accent-alt: var(--workspace-text-secondary, #5f5f5a);
+  --form-accent-soft: color-mix(in srgb, var(--workspace-text-primary, #20201e) 6%, #ffffff);
+  --form-border: var(--workspace-border, #dbe3ee);
+  --form-surface: var(--workspace-panel-bg, var(--color-surface, #ffffff));
   --form-muted: var(--color-text-secondary, #64748b);
-  --form-input-bg: color-mix(in srgb, var(--form-accent) 4%, #ffffff);
+  --form-input-bg: rgba(255, 255, 255, 0.72);
   --text-color: var(--color-text-primary, #0f172a);
   --text-secondary: var(--color-text-secondary, #64748b);
   --border-color: color-mix(in srgb, var(--form-accent) 20%, #ccd7e5);
   --input-bg: var(--form-input-bg);
   --primary-color: var(--form-accent);
-  --form-card-bg:
-    radial-gradient(circle at 100% 0%, rgba(8, 145, 178, 0.08), transparent 40%),
-    radial-gradient(circle at 0% 100%, rgba(37, 99, 235, 0.06), transparent 36%),
-    linear-gradient(160deg, var(--form-surface), #f8fbff 72%);
-  --form-card-shadow: 0 10px 26px rgba(15, 23, 42, 0.05);
-  --form-header-bg: linear-gradient(120deg, rgba(239, 246, 255, 0.92), rgba(236, 254, 255, 0.72));
-  --form-submit-header-bg: linear-gradient(120deg, rgba(248, 250, 252, 0.96), rgba(241, 245, 249, 0.92));
-  --form-archived-header-bg: linear-gradient(120deg, rgba(248, 250, 252, 0.94), rgba(241, 245, 249, 0.9));
-  --form-title-color: #0f172a;
-  --form-question-color: #1e3a8a;
+  --form-card-bg: var(--form-surface);
+  --form-card-shadow: none;
+  --form-header-bg: rgba(38, 38, 38, 0.03);
+  --form-submit-header-bg: rgba(38, 38, 38, 0.025);
+  --form-archived-header-bg: rgba(38, 38, 38, 0.02);
+  --form-title-color: var(--workspace-text-primary, #0f172a);
+  --form-question-color: var(--workspace-text-secondary, #475569);
   --form-state-bg: rgba(15, 23, 42, 0.06);
   --form-state-text: #475569;
-  --form-footer-bg: linear-gradient(180deg, #fbfdff, #f3f8fd);
-  --form-submit-footer-bg: linear-gradient(180deg, #fbfcfe, #f7f9fc);
-  --form-submitted-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.96));
-  --form-submitted-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
-  --form-archived-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(248, 250, 252, 0.94));
-  --form-archived-shadow: 0 8px 20px rgba(15, 23, 42, 0.035);
-  --form-option-bg: linear-gradient(180deg, var(--color-surface, #ffffff), var(--color-bg-secondary, #f8fbff));
+  --form-footer-bg: rgba(38, 38, 38, 0.025);
+  --form-submit-footer-bg: rgba(38, 38, 38, 0.02);
+  --form-submitted-bg: rgba(255, 255, 255, 0.72);
+  --form-submitted-shadow: none;
+  --form-archived-bg: rgba(255, 255, 255, 0.58);
+  --form-archived-shadow: none;
+  --form-option-bg: rgba(255, 255, 255, 0.76);
   --form-option-hover-text: var(--color-text-primary, #1e293b);
-  --form-option-selected-bg: linear-gradient(135deg, rgba(219, 234, 254, 0.9), rgba(207, 250, 254, 0.76));
-  --form-option-selected-text: #1d4ed8;
-  --form-check-bg: linear-gradient(180deg, #ffffff, #f8fbff);
+  --form-option-selected-bg: var(--workspace-list-active-bg, rgba(38, 38, 38, 0.08));
+  --form-option-selected-text: var(--workspace-text-primary, #20201e);
+  --form-check-bg: rgba(255, 255, 255, 0.74);
   --form-header-padding-x: 0.78rem;
   --form-header-padding-top: 0.56rem;
   --form-header-padding-bottom: 0.52rem;
@@ -53,12 +50,12 @@
   --form-button-min-width: 4.8rem;
   --form-control-padding-y: 0.36rem;
   --form-control-padding-x: 0.56rem;
-  --form-control-radius: 0.64rem;
+  --form-control-radius: 0.45rem;
   --form-chip-size: 0.76rem;
   --form-chip-padding-y: 0.24rem;
   --form-chip-padding-x: 0.48rem;
   background: var(--form-card-bg);
-  border-radius: 0.95rem;
+  border-radius: 8px;
   border: 1px solid var(--form-border);
   overflow: hidden;
   width: 100%;
@@ -95,7 +92,7 @@
     var(--form-header-padding-top)
     var(--form-header-padding-x)
     var(--form-header-padding-bottom);
-  border-bottom: 1px solid color-mix(in srgb, var(--form-accent) 14%, #dbe3ee);
+  border-bottom: 1px solid var(--workspace-border, color-mix(in srgb, var(--form-accent) 14%, #dbe3ee));
   background: var(--form-header-bg);
 }
 
@@ -116,7 +113,7 @@
   font-size: var(--form-title-size);
   font-weight: 600;
   color: var(--form-title-color);
-  letter-spacing: 0.01em;
+  letter-spacing: 0;
   line-height: 1.35;
 }
 
@@ -171,7 +168,7 @@
   flex-wrap: wrap;
   gap: 0.45rem;
   padding: var(--form-footer-padding-y) var(--form-footer-padding-x);
-  border-top: 1px solid color-mix(in srgb, var(--form-accent) 10%, #dbe3ee);
+  border-top: 1px solid var(--workspace-border, color-mix(in srgb, var(--form-accent) 10%, #dbe3ee));
   background: var(--form-footer-bg);
 }
 
@@ -181,7 +178,7 @@
 
 .btn {
   padding: 0.3rem 0.66rem;
-  border-radius: 0.7rem;
+  border-radius: 6px;
   min-width: var(--form-button-min-width);
   font-size: var(--form-button-size);
   font-weight: 500;
@@ -190,14 +187,14 @@
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, var(--form-accent), var(--form-accent-alt));
-  color: white;
-  border: 1px solid color-mix(in srgb, var(--form-accent) 78%, #1d4ed8);
+  background: var(--workspace-text-primary, #20201e);
+  color: var(--workspace-panel-bg, #ffffff);
+  border: 1px solid var(--workspace-text-primary, #20201e);
 }
 
 .btn-primary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.18);
+  background: var(--workspace-text-secondary, #5f5f5a);
+  border-color: var(--workspace-text-secondary, #5f5f5a);
 }
 
 .btn-secondary {
@@ -207,8 +204,8 @@
 }
 
 .btn-secondary:hover {
-  border-color: color-mix(in srgb, var(--form-accent) 40%, #b6c4d5);
-  background-color: color-mix(in srgb, var(--form-accent) 4%, var(--color-surface, #ffffff));
+  border-color: var(--workspace-border-strong, color-mix(in srgb, var(--form-accent) 40%, #b6c4d5));
+  background-color: var(--workspace-control-hover-bg, color-mix(in srgb, var(--form-accent) 4%, var(--color-surface, #ffffff)));
 }
 
 .dynamic-form :deep(.form-field) {
@@ -273,10 +270,8 @@
 .dynamic-form :deep(.textarea:focus),
 .dynamic-form :deep(.select:focus) {
   outline: none;
-  border-color: color-mix(in srgb, var(--form-accent) 68%, #3730a3);
-  box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--form-accent) 16%, transparent),
-    0 5px 12px rgba(37, 99, 235, 0.08);
+  border-color: var(--workspace-border-strong, color-mix(in srgb, var(--form-accent) 42%, #3730a3));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--workspace-text-primary, #20201e) 8%, transparent);
   background-color: var(--color-surface, #ffffff);
 }
 
@@ -320,17 +315,16 @@
 }
 
 .dynamic-form :deep(.option-label:hover) {
-  border-color: color-mix(in srgb, var(--form-accent) 56%, #4338ca);
+  border-color: var(--workspace-border-strong, color-mix(in srgb, var(--form-accent) 40%, #4338ca));
   color: var(--form-option-hover-text);
-  transform: translateY(-1px);
 }
 
 .dynamic-form :deep(.option-label.selected) {
-  border-color: color-mix(in srgb, var(--form-accent) 72%, #4338ca);
+  border-color: var(--workspace-border-strong, color-mix(in srgb, var(--form-accent) 56%, #4338ca));
   background: var(--form-option-selected-bg);
   color: var(--form-option-selected-text);
   font-weight: 500;
-  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.08);
+  box-shadow: none;
 }
 
 .dynamic-form :deep(.option-label.selected::before) {
@@ -359,8 +353,7 @@
 
 .dynamic-form :deep(.checkbox-label:hover),
 .dynamic-form :deep(.radio-label:hover) {
-  border-color: color-mix(in srgb, var(--form-accent) 40%, #6366f1);
-  transform: translateY(-1px);
+  border-color: var(--workspace-border-strong, color-mix(in srgb, var(--form-accent) 32%, #6366f1));
 }
 
 .dynamic-form :deep(.checkbox),
@@ -543,47 +536,46 @@
 
 :global([data-theme='dark']) .dynamic-form,
 :global(.dark) .dynamic-form {
-  --form-accent-soft: color-mix(in srgb, var(--form-accent) 18%, #0f172a);
-  --form-border: color-mix(in srgb, var(--form-accent) 24%, #334155);
-  --form-surface: #111827;
+  --form-accent: var(--workspace-text-primary, #f4f4f0);
+  --form-accent-alt: var(--workspace-text-secondary, #b7b7af);
+  --form-accent-soft: rgba(255, 255, 255, 0.08);
+  --form-border: var(--workspace-border, rgba(255, 255, 255, 0.1));
+  --form-surface: var(--workspace-panel-bg, #1b1b1b);
   --form-muted: #94a3b8;
-  --form-input-bg: color-mix(in srgb, var(--form-accent) 10%, #0f172a);
+  --form-input-bg: rgba(255, 255, 255, 0.06);
   --text-color: #e2e8f0;
   --text-secondary: #94a3b8;
   --border-color: rgba(71, 85, 105, 0.76);
   --input-bg: rgba(15, 23, 42, 0.92);
   --primary-color: var(--form-accent);
-  --form-card-bg:
-    radial-gradient(circle at 100% 0%, rgba(8, 145, 178, 0.16), transparent 40%),
-    radial-gradient(circle at 0% 100%, rgba(37, 99, 235, 0.12), transparent 36%),
-    linear-gradient(160deg, rgba(15, 23, 42, 0.96), rgba(17, 24, 39, 0.98) 72%);
-  --form-card-shadow: 0 16px 36px rgba(2, 6, 23, 0.32);
-  --form-header-bg: linear-gradient(120deg, rgba(30, 64, 175, 0.2), rgba(8, 145, 178, 0.16));
-  --form-submit-header-bg: linear-gradient(120deg, rgba(30, 41, 59, 0.96), rgba(51, 65, 85, 0.78));
-  --form-archived-header-bg: linear-gradient(120deg, rgba(30, 41, 59, 0.94), rgba(51, 65, 85, 0.72));
+  --form-card-bg: var(--form-surface);
+  --form-card-shadow: none;
+  --form-header-bg: rgba(255, 255, 255, 0.04);
+  --form-submit-header-bg: rgba(255, 255, 255, 0.035);
+  --form-archived-header-bg: rgba(255, 255, 255, 0.03);
   --form-title-color: #f8fafc;
-  --form-question-color: #bfdbfe;
+  --form-question-color: var(--workspace-text-secondary, #b7b7af);
   --form-state-bg: rgba(148, 163, 184, 0.12);
   --form-state-text: #cbd5e1;
-  --form-footer-bg: linear-gradient(180deg, rgba(17, 24, 39, 0.98), rgba(15, 23, 42, 0.96));
-  --form-submit-footer-bg: linear-gradient(180deg, rgba(15, 23, 42, 0.94), rgba(17, 24, 39, 0.92));
-  --form-submitted-bg: linear-gradient(180deg, rgba(15, 23, 42, 0.94), rgba(17, 24, 39, 0.94));
-  --form-submitted-shadow: 0 14px 30px rgba(2, 6, 23, 0.24);
-  --form-archived-bg: linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(17, 24, 39, 0.9));
-  --form-archived-shadow: 0 14px 30px rgba(2, 6, 23, 0.2);
-  --form-option-bg: linear-gradient(180deg, rgba(17, 24, 39, 0.92), rgba(15, 23, 42, 0.92));
+  --form-footer-bg: rgba(255, 255, 255, 0.035);
+  --form-submit-footer-bg: rgba(255, 255, 255, 0.03);
+  --form-submitted-bg: rgba(255, 255, 255, 0.04);
+  --form-submitted-shadow: none;
+  --form-archived-bg: rgba(255, 255, 255, 0.035);
+  --form-archived-shadow: none;
+  --form-option-bg: rgba(255, 255, 255, 0.055);
   --form-option-hover-text: #f8fafc;
-  --form-option-selected-bg: linear-gradient(135deg, rgba(30, 64, 175, 0.34), rgba(8, 145, 178, 0.26));
-  --form-option-selected-text: #bfdbfe;
-  --form-check-bg: linear-gradient(180deg, rgba(17, 24, 39, 0.94), rgba(15, 23, 42, 0.92));
+  --form-option-selected-bg: var(--workspace-control-active-bg, rgba(255, 255, 255, 0.14));
+  --form-option-selected-text: var(--workspace-text-primary, #f4f4f0);
+  --form-check-bg: rgba(255, 255, 255, 0.055);
 }
 
 :global([data-theme='dark']) .dynamic-form--dark,
 :global(.dark) .dynamic-form--dark,
 .dynamic-form--dark {
   --form-accent-soft: color-mix(in srgb, var(--form-accent) 18%, #0f172a);
-  --form-border: color-mix(in srgb, var(--form-accent) 24%, #334155);
-  --form-surface: #111827;
+  --form-border: var(--workspace-border, color-mix(in srgb, var(--form-accent) 24%, #334155));
+  --form-surface: var(--workspace-panel-bg, #111827);
   --form-muted: #94a3b8;
   --form-input-bg: color-mix(in srgb, var(--form-accent) 10%, #0f172a);
   --text-color: #e2e8f0;
@@ -591,29 +583,26 @@
   --border-color: rgba(71, 85, 105, 0.76);
   --input-bg: rgba(15, 23, 42, 0.92);
   --primary-color: var(--form-accent);
-  --form-card-bg:
-    radial-gradient(circle at 100% 0%, rgba(8, 145, 178, 0.16), transparent 40%),
-    radial-gradient(circle at 0% 100%, rgba(37, 99, 235, 0.12), transparent 36%),
-    linear-gradient(160deg, rgba(15, 23, 42, 0.96), rgba(17, 24, 39, 0.98) 72%);
-  --form-card-shadow: 0 16px 36px rgba(2, 6, 23, 0.32);
-  --form-header-bg: linear-gradient(120deg, rgba(30, 64, 175, 0.2), rgba(8, 145, 178, 0.16));
-  --form-submit-header-bg: linear-gradient(120deg, rgba(30, 41, 59, 0.96), rgba(51, 65, 85, 0.78));
-  --form-archived-header-bg: linear-gradient(120deg, rgba(30, 41, 59, 0.94), rgba(51, 65, 85, 0.72));
+  --form-card-bg: var(--form-surface);
+  --form-card-shadow: none;
+  --form-header-bg: rgba(255, 255, 255, 0.04);
+  --form-submit-header-bg: rgba(255, 255, 255, 0.035);
+  --form-archived-header-bg: rgba(255, 255, 255, 0.03);
   --form-title-color: #f8fafc;
   --form-question-color: #bfdbfe;
   --form-state-bg: rgba(148, 163, 184, 0.12);
   --form-state-text: #cbd5e1;
-  --form-footer-bg: linear-gradient(180deg, rgba(17, 24, 39, 0.98), rgba(15, 23, 42, 0.96));
-  --form-submit-footer-bg: linear-gradient(180deg, rgba(15, 23, 42, 0.94), rgba(17, 24, 39, 0.92));
-  --form-submitted-bg: linear-gradient(180deg, rgba(15, 23, 42, 0.94), rgba(17, 24, 39, 0.94));
-  --form-submitted-shadow: 0 14px 30px rgba(2, 6, 23, 0.24);
-  --form-archived-bg: linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(17, 24, 39, 0.9));
-  --form-archived-shadow: 0 14px 30px rgba(2, 6, 23, 0.2);
-  --form-option-bg: linear-gradient(180deg, rgba(17, 24, 39, 0.92), rgba(15, 23, 42, 0.92));
+  --form-footer-bg: rgba(255, 255, 255, 0.035);
+  --form-submit-footer-bg: rgba(255, 255, 255, 0.03);
+  --form-submitted-bg: rgba(255, 255, 255, 0.04);
+  --form-submitted-shadow: none;
+  --form-archived-bg: rgba(255, 255, 255, 0.035);
+  --form-archived-shadow: none;
+  --form-option-bg: rgba(255, 255, 255, 0.055);
   --form-option-hover-text: #f8fafc;
-  --form-option-selected-bg: linear-gradient(135deg, rgba(30, 64, 175, 0.34), rgba(8, 145, 178, 0.26));
-  --form-option-selected-text: #bfdbfe;
-  --form-check-bg: linear-gradient(180deg, rgba(17, 24, 39, 0.94), rgba(15, 23, 42, 0.92));
+  --form-option-selected-bg: var(--workspace-control-active-bg, rgba(255, 255, 255, 0.14));
+  --form-option-selected-text: var(--workspace-text-primary, #f4f4f0);
+  --form-check-bg: rgba(255, 255, 255, 0.055);
 }
 
 :global([data-theme='dark']) .dynamic-form :deep(.input:focus),

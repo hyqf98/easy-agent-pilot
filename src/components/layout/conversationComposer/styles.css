@@ -121,13 +121,6 @@
 
 .conversation-composer--main .conversation-composer__panel {
   width: 100%;
-  gap: 10px;
-  padding: 10px 14px;
-  padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px));
-  background: var(--color-surface);
-  border: none;
-  border-radius: 0;
-  box-shadow: none;
 }
 
 .conversation-composer__main-header {
@@ -1564,4 +1557,51 @@
 
 .conversation-composer--dark .composer-chip__tag {
   color: #94a3b8 !important;
+}
+
+.conversation-composer--main {
+  padding: 0 clamp(24px, 5%, 120px) 18px;
+  background: var(--workspace-stage-bg);
+}
+
+.conversation-composer--main .conversation-composer__panel {
+  padding: 12px;
+  border: 1px solid var(--workspace-border);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--workspace-panel-bg) 92%, transparent);
+  box-shadow: var(--workspace-card-shadow);
+}
+
+.conversation-composer__main-header {
+  padding: 0 2px 8px;
+}
+
+.conversation-composer--main .composer-chip,
+.conversation-composer--main .conversation-composer__send {
+  min-height: 27px;
+  border-color: var(--workspace-control-border);
+  border-radius: 8px;
+  background: var(--workspace-control-bg);
+  color: var(--workspace-text-secondary);
+}
+
+.conversation-composer--main .composer-chip:hover,
+.conversation-composer--main .conversation-composer__send--main:hover {
+  border-color: var(--workspace-control-border);
+  background: var(--workspace-control-hover-bg);
+  color: var(--workspace-text-primary);
+}
+
+.conversation-composer__textarea {
+  background: transparent !important;
+}
+
+.conversation-composer__input,
+.conversation-composer__textarea,
+.conversation-composer__rich-input {
+  color: var(--workspace-text-primary) !important;
+}
+
+.conversation-composer__textarea::placeholder {
+  color: var(--workspace-text-tertiary) !important;
 }

@@ -173,10 +173,35 @@
   --input-height: 40px;
   --button-height: 36px;
 
+  /* ========== Cursor Agent 工作台变量 ========== */
+  --workspace-topbar-height: 44px;
+  --workspace-sidebar-width: 292px;
+  --workspace-sidebar-min-width: 252px;
+  --workspace-sidebar-max-width: 340px;
+  --workspace-sidebar-compact-width: 236px;
+  --workspace-content-max-width: 860px;
+  --workspace-app-bg: #f4f4f2;
+  --workspace-topbar-bg: #f7f7f5;
+  --workspace-sidebar-bg: #f2f2f0;
+  --workspace-stage-bg: #fbfbfa;
+  --workspace-panel-bg: #ffffff;
+  --workspace-border: rgba(38, 38, 38, 0.1);
+  --workspace-border-strong: rgba(38, 38, 38, 0.16);
+  --workspace-text-primary: #20201e;
+  --workspace-text-secondary: #5f5f5a;
+  --workspace-text-tertiary: #8b8b84;
+  --workspace-control-bg: rgba(255, 255, 255, 0.68);
+  --workspace-control-hover-bg: rgba(232, 232, 228, 0.86);
+  --workspace-control-active-bg: #ffffff;
+  --workspace-control-border: rgba(38, 38, 38, 0.1);
+  --workspace-control-active-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  --workspace-segment-bg: rgba(232, 232, 228, 0.7);
+  --workspace-list-hover-bg: rgba(229, 229, 225, 0.72);
+  --workspace-list-active-bg: #e9e9e5;
+  --workspace-card-shadow: 0 18px 40px rgba(24, 24, 22, 0.06);
+
   /* ========== 会话主题变量 ========== */
-  --conversation-workspace-bg:
-    radial-gradient(circle at top left, rgba(14, 165, 233, 0.08), transparent 24%),
-    linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(255, 255, 255, 0.92));
+  --conversation-workspace-bg: var(--workspace-stage-bg);
   --conversation-trace-pane-bg: rgba(255, 255, 255, 0.82);
   --conversation-trace-pane-shadow: 18px 0 40px rgba(15, 23, 42, 0.08);
   --conversation-trace-resizer-bg:
@@ -194,44 +219,39 @@
   --conversation-trace-drawer-backdrop: rgba(15, 23, 42, 0.28);
   --conversation-trace-drawer-shadow: -18px 0 32px rgba(15, 23, 42, 0.18);
 
-  --tool-call-bg:
-    linear-gradient(180deg, rgba(255, 251, 235, 0.98), rgba(250, 245, 236, 0.96));
-  --tool-call-shell-bg:
-    linear-gradient(180deg, rgba(255, 251, 235, 0.9), rgba(255, 255, 255, 0.92));
-  --tool-call-shell-border: rgba(245, 158, 11, 0.18);
-  --tool-call-shell-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
+  --tool-call-bg: rgba(255, 255, 255, 0.74);
+  --tool-call-shell-bg: rgba(255, 255, 255, 0.58);
+  --tool-call-shell-border: var(--workspace-border);
+  --tool-call-shell-shadow: none;
   --tool-call-shell-title: var(--color-text-secondary);
-  --tool-call-shell-count-bg: rgba(245, 158, 11, 0.12);
-  --tool-call-shell-count-text: #b45309;
+  --tool-call-shell-count-bg: rgba(38, 38, 38, 0.06);
+  --tool-call-shell-count-text: var(--workspace-text-secondary);
   --tool-call-shell-scrollbar-thumb: rgba(148, 163, 184, 0.42);
-  --tool-call-border: rgba(161, 98, 7, 0.2);
-  --tool-call-shadow: 0 10px 24px rgba(120, 53, 15, 0.08);
-  --tool-call-hover-border: rgba(146, 64, 14, 0.32);
-  --tool-call-hover-shadow: 0 14px 28px rgba(120, 53, 15, 0.12);
-  --tool-call-running-bg:
-    linear-gradient(180deg, rgba(255, 247, 237, 0.99), rgba(255, 251, 235, 0.97));
-  --tool-call-running-border: rgba(217, 119, 6, 0.34);
-  --tool-call-success-bg:
-    linear-gradient(180deg, rgba(250, 250, 249, 0.99), rgba(245, 245, 244, 0.96));
-  --tool-call-success-border: rgba(120, 113, 108, 0.28);
-  --tool-call-error-bg:
-    linear-gradient(180deg, rgba(254, 242, 242, 0.98), rgba(255, 247, 237, 0.96));
+  --tool-call-border: var(--workspace-border);
+  --tool-call-shadow: none;
+  --tool-call-hover-border: var(--workspace-border-strong);
+  --tool-call-hover-shadow: none;
+  --tool-call-running-bg: rgba(255, 255, 255, 0.82);
+  --tool-call-running-border: rgba(38, 38, 38, 0.18);
+  --tool-call-success-bg: rgba(250, 250, 249, 0.92);
+  --tool-call-success-border: rgba(120, 113, 108, 0.22);
+  --tool-call-error-bg: rgba(254, 242, 242, 0.86);
   --tool-call-error-border: rgba(220, 38, 38, 0.34);
-  --tool-call-header-hover: rgba(180, 83, 9, 0.06);
-  --tool-call-running-hover: rgba(217, 119, 6, 0.09);
+  --tool-call-header-hover: rgba(38, 38, 38, 0.04);
+  --tool-call-running-hover: rgba(38, 38, 38, 0.06);
   --tool-call-success-hover: rgba(120, 113, 108, 0.08);
   --tool-call-error-hover: rgba(220, 38, 38, 0.08);
   --tool-call-name: #292524;
   --tool-call-summary: #78716c;
   --tool-call-meta: #78716c;
-  --tool-call-content-border: rgba(161, 98, 7, 0.12);
-  --tool-call-running-content-border: rgba(217, 119, 6, 0.16);
+  --tool-call-content-border: rgba(38, 38, 38, 0.08);
+  --tool-call-running-content-border: rgba(38, 38, 38, 0.12);
   --tool-call-success-content-border: rgba(120, 113, 108, 0.14);
   --tool-call-error-content-border: rgba(220, 38, 38, 0.16);
-  --tool-call-section-hover: rgba(120, 53, 15, 0.06);
+  --tool-call-section-hover: rgba(38, 38, 38, 0.05);
   --tool-call-code-bg: rgba(28, 25, 23, 0.05);
   --tool-call-error-panel-bg: rgba(239, 68, 68, 0.1);
-  --tool-call-running-status: #b45309;
+  --tool-call-running-status: #57534e;
   --tool-call-success-status: #57534e;
   --tool-call-error-status: #dc2626;
   --tool-call-error-text: #dc2626;
@@ -343,9 +363,27 @@
   --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.5);
   --shadow-inner: inset 0 2px 4px 0 rgb(0 0 0 / 0.3);
 
-  --conversation-workspace-bg:
-    radial-gradient(circle at top left, rgba(96, 165, 250, 0.12), transparent 24%),
-    linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(15, 23, 42, 0.92));
+  --workspace-app-bg: #111111;
+  --workspace-topbar-bg: #171717;
+  --workspace-sidebar-bg: #151515;
+  --workspace-stage-bg: #101010;
+  --workspace-panel-bg: #1b1b1b;
+  --workspace-border: rgba(255, 255, 255, 0.1);
+  --workspace-border-strong: rgba(255, 255, 255, 0.16);
+  --workspace-text-primary: #f4f4f0;
+  --workspace-text-secondary: #b7b7af;
+  --workspace-text-tertiary: #77776f;
+  --workspace-control-bg: rgba(255, 255, 255, 0.06);
+  --workspace-control-hover-bg: rgba(255, 255, 255, 0.1);
+  --workspace-control-active-bg: rgba(255, 255, 255, 0.14);
+  --workspace-control-border: rgba(255, 255, 255, 0.1);
+  --workspace-control-active-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --workspace-segment-bg: rgba(255, 255, 255, 0.06);
+  --workspace-list-hover-bg: rgba(255, 255, 255, 0.07);
+  --workspace-list-active-bg: rgba(255, 255, 255, 0.12);
+  --workspace-card-shadow: 0 18px 40px rgba(0, 0, 0, 0.24);
+
+  --conversation-workspace-bg: var(--workspace-stage-bg);
   --conversation-trace-pane-bg: rgba(15, 23, 42, 0.88);
   --conversation-trace-pane-shadow: 18px 0 40px rgba(2, 6, 23, 0.3);
   --conversation-trace-resizer-bg:
@@ -363,44 +401,40 @@
   --conversation-trace-drawer-backdrop: rgba(2, 6, 23, 0.54);
   --conversation-trace-drawer-shadow: -18px 0 32px rgba(2, 6, 23, 0.34);
 
-  --tool-call-bg:
-    linear-gradient(180deg, rgba(28, 25, 23, 0.94), rgba(41, 37, 36, 0.9));
-  --tool-call-shell-bg:
-    linear-gradient(180deg, rgba(30, 41, 59, 0.92), rgba(15, 23, 42, 0.94));
-  --tool-call-shell-border: rgba(245, 158, 11, 0.22);
-  --tool-call-shell-shadow: 0 10px 24px rgba(2, 6, 23, 0.24);
+  --tool-call-bg: rgba(255, 255, 255, 0.06);
+  --tool-call-shell-bg: rgba(255, 255, 255, 0.04);
+  --tool-call-shell-border: var(--workspace-border);
+  --tool-call-shell-shadow: none;
   --tool-call-shell-title: #94a3b8;
-  --tool-call-shell-count-bg: rgba(245, 158, 11, 0.18);
-  --tool-call-shell-count-text: #fcd34d;
+  --tool-call-shell-count-bg: rgba(255, 255, 255, 0.08);
+  --tool-call-shell-count-text: #d6d3d1;
   --tool-call-shell-scrollbar-thumb: rgba(148, 163, 184, 0.54);
-  --tool-call-border: rgba(217, 119, 6, 0.22);
-  --tool-call-shadow: 0 14px 30px rgba(2, 6, 23, 0.24);
-  --tool-call-hover-border: rgba(245, 158, 11, 0.3);
-  --tool-call-hover-shadow: 0 16px 32px rgba(2, 6, 23, 0.28);
-  --tool-call-running-bg:
-    linear-gradient(180deg, rgba(69, 26, 3, 0.92), rgba(41, 37, 36, 0.92));
-  --tool-call-running-border: rgba(245, 158, 11, 0.28);
-  --tool-call-success-bg:
-    linear-gradient(180deg, rgba(28, 25, 23, 0.94), rgba(41, 37, 36, 0.88));
+  --tool-call-border: var(--workspace-border);
+  --tool-call-shadow: none;
+  --tool-call-hover-border: var(--workspace-border-strong);
+  --tool-call-hover-shadow: none;
+  --tool-call-running-bg: rgba(255, 255, 255, 0.08);
+  --tool-call-running-border: rgba(255, 255, 255, 0.16);
+  --tool-call-success-bg: rgba(255, 255, 255, 0.06);
   --tool-call-success-border: rgba(168, 162, 158, 0.2);
   --tool-call-error-bg:
     linear-gradient(180deg, rgba(69, 10, 10, 0.86), rgba(41, 37, 36, 0.92));
   --tool-call-error-border: rgba(239, 68, 68, 0.4);
-  --tool-call-header-hover: rgba(120, 53, 15, 0.22);
-  --tool-call-running-hover: rgba(245, 158, 11, 0.14);
+  --tool-call-header-hover: rgba(255, 255, 255, 0.07);
+  --tool-call-running-hover: rgba(255, 255, 255, 0.09);
   --tool-call-success-hover: rgba(168, 162, 158, 0.12);
   --tool-call-error-hover: rgba(239, 68, 68, 0.14);
   --tool-call-name: #f5f5f4;
   --tool-call-summary: #d6d3d1;
   --tool-call-meta: #a8a29e;
-  --tool-call-content-border: rgba(217, 119, 6, 0.18);
-  --tool-call-running-content-border: rgba(245, 158, 11, 0.2);
+  --tool-call-content-border: rgba(255, 255, 255, 0.1);
+  --tool-call-running-content-border: rgba(255, 255, 255, 0.12);
   --tool-call-success-content-border: rgba(168, 162, 158, 0.18);
   --tool-call-error-content-border: rgba(239, 68, 68, 0.22);
-  --tool-call-section-hover: rgba(245, 158, 11, 0.12);
+  --tool-call-section-hover: rgba(255, 255, 255, 0.06);
   --tool-call-code-bg: rgba(0, 0, 0, 0.2);
   --tool-call-error-panel-bg: rgba(127, 29, 29, 0.24);
-  --tool-call-running-status: #fbbf24;
+  --tool-call-running-status: #d6d3d1;
   --tool-call-success-status: #d6d3d1;
   --tool-call-error-status: #fca5a5;
   --tool-call-error-text: #fecaca;

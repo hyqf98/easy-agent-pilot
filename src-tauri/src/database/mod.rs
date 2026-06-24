@@ -528,6 +528,8 @@ const INIT_SQL: &str = r#"
         input_tokens INTEGER NOT NULL DEFAULT 0,
         output_tokens INTEGER NOT NULL DEFAULT 0,
         total_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_input_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0,
         call_count INTEGER NOT NULL DEFAULT 1,
         estimated_input_cost_usd REAL,
         estimated_output_cost_usd REAL,
@@ -1387,6 +1389,8 @@ pub fn init_database() -> Result<()> {
             input_tokens INTEGER NOT NULL DEFAULT 0,
             output_tokens INTEGER NOT NULL DEFAULT 0,
             total_tokens INTEGER NOT NULL DEFAULT 0,
+            cache_read_input_tokens INTEGER NOT NULL DEFAULT 0,
+            cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0,
             call_count INTEGER NOT NULL DEFAULT 1,
             estimated_input_cost_usd REAL,
             estimated_output_cost_usd REAL,
@@ -1588,6 +1592,20 @@ pub fn init_database() -> Result<()> {
         maybe_rebuild_fts_index(&conn, "memory_library_chunks_fts", "memory_library_chunks")
     {
         println!("Memory chunk FTS rebuild warning: {}", e);
+    }
+
+    // agent_cli_usage_records 表添加缓存字段（缓存命中 token 统计）
+    let usage_cache_migrations = [
+        "ALTER TABLE agent_cli_usage_records ADD COLUMN cache_read_input_tokens INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE agent_cli_usage_records ADD COLUMN cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0",
+    ];
+    for migration in usage_cache_migrations {
+        if let Err(e) = conn.execute(migration, []) {
+            let err_str = e.to_string();
+            if !err_str.contains("duplicate column name") {
+                println!("Usage cache migration warning: {}", e);
+            }
+        }
     }
 
     // agents 表添加 acp_command 字段（ACP 统一运行时命令）

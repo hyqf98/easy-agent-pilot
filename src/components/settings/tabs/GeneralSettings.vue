@@ -38,6 +38,12 @@ const compressionThresholdOptions = computed(() => [
   { value: 80, label: '80%' },
   { value: 90, label: '90%' }
 ])
+
+const acpPermissionModeOptions = computed(() => [
+  { value: 'ask', label: '每次询问' },
+  { value: 'allow_always', label: '自动允许' },
+  { value: 'reject_always', label: '自动拒绝' }
+])
 </script>
 
 <template>
@@ -298,6 +304,19 @@ const compressionThresholdOptions = computed(() => [
           min="1"
           max="30"
         >
+      </div>
+    </SettingsSectionCard>
+
+    <SettingsSectionCard title="ACP 工具权限">
+      <div class="settings-item">
+        <div class="settings-item__info">
+          <span class="settings-item__label">ACP 工具权限</span>
+          <span class="settings-item__desc">控制 ACP 工具调用时的默认权限策略</span>
+        </div>
+        <EaSelect
+          v-model="settingsStore.settings.acpPermissionMode"
+          :options="acpPermissionModeOptions"
+        />
       </div>
     </SettingsSectionCard>
   </div>

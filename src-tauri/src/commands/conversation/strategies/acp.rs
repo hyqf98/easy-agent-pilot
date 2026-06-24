@@ -5,15 +5,19 @@ use async_trait::async_trait;
 use tauri::{AppHandle, Emitter};
 
 use agent_client_protocol::schema::{
-    ContentBlock, McpServer, McpServerStdio, NewSessionRequest, SessionNotification, SessionUpdate,
+    ContentBlock, McpServer, McpServerStdio, NewSessionRequest, PermissionOptionKind,
+    PromptRequest, PromptResponse,
+    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
+    SelectedPermissionOutcome, SessionNotification, SessionUpdate,
 };
 use agent_client_protocol::util::MatchDispatch;
-use agent_client_protocol::{Client, SessionMessage};
+use agent_client_protocol::{on_receive_request, Agent, Client, SessionMessage};
 use agent_client_protocol_tokio::AcpAgent;
 
 use super::cli_common::{
     build_content_event, build_error_event, build_system_event,
     timeout_config_for_execution_mode, read_cli_timeout_minutes,
+    read_acp_permission_mode,
     CliExecutionMonitor,
 };
 use crate::commands::conversation::abort::{
@@ -100,9 +104,80 @@ fn parse_env_string(env_str: &str) -> Vec<(String, String)> {
     pairs
 }
 
+fn resolve_permission_outcome(
+    mode: &str,
+    options: &[agent_client_protocol::schema::PermissionOption],
+) -> RequestPermissionOutcome {
+    let preferred_kind = match mode {
+        "allow_always" => Some(PermissionOptionKind::AllowAlways),
+        "reject_always" => Some(PermissionOptionKind::RejectAlways),
+        _ => None,
+    };
+
+    if let Some(kind) = preferred_kind {
+        if let Some(opt) = options.iter().find(|o| o.kind == kind) {
+            return RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
+                opt.option_id.clone(),
+            ));
+        }
+    }
+
+    if let Some(opt) = options.iter().find(|o| o.kind == PermissionOptionKind::AllowOnce) {
+        return RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
+            opt.option_id.clone(),
+        ));
+    }
+
+    RequestPermissionOutcome::Cancelled
+}
+
+fn build_permission_event(
+    session_id: &str,
+    tool_title: &str,
+    options: &[agent_client_protocol::schema::PermissionOption],
+    outcome: &RequestPermissionOutcome,
+) -> AcpStreamEvent {
+    let outcome_str = match outcome {
+        RequestPermissionOutcome::Selected(sel) => {
+            options
+                .iter()
+                .find(|o| o.option_id == sel.option_id)
+                .map(|o| format!("{} ({:?})", o.name, o.kind))
+                .unwrap_or_else(|| "selected".to_string())
+        }
+        RequestPermissionOutcome::Cancelled => "cancelled".to_string(),
+        _ => "unknown".to_string(),
+    };
+
+    AcpStreamEvent {
+        event_type: "permission_request".to_string(),
+        session_id: session_id.to_string(),
+        content: Some(format!(
+            "Permission: {} -> {}",
+            tool_title, outcome_str
+        )),
+        tool_name: Some(tool_title.to_string()),
+        tool_call_id: None,
+        tool_input: None,
+        tool_result: None,
+        error: None,
+        input_tokens: None,
+        output_tokens: None,
+        raw_input_tokens: None,
+        raw_output_tokens: None,
+        cache_read_input_tokens: None,
+        cache_creation_input_tokens: None,
+        model: None,
+        external_session_id: None,
+    }
+}
+
 fn build_prompt_from_messages(messages: &[super::super::types::MessageInput]) -> String {
     let mut parts = Vec::new();
     for msg in messages {
+        if msg.role == "system" {
+            continue;
+        }
         let role = &msg.role;
         let content = &msg.content;
         if !content.trim().is_empty() {
@@ -264,6 +339,55 @@ fn build_plan_event(session_id: &str, plan_json: String) -> AcpStreamEvent {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+struct PromptUsageSnapshot {
+    input_tokens: Option<u32>,
+    output_tokens: Option<u32>,
+    cache_read_input_tokens: Option<u32>,
+    cache_creation_input_tokens: Option<u32>,
+}
+
+fn extract_prompt_usage(response: &PromptResponse) -> PromptUsageSnapshot {
+    let Some(usage) = response.usage.as_ref() else {
+        return PromptUsageSnapshot::default();
+    };
+
+    PromptUsageSnapshot {
+        input_tokens: Some(usage.input_tokens as u32),
+        output_tokens: Some(usage.output_tokens as u32),
+        cache_read_input_tokens: usage.cached_read_tokens.map(|v| v as u32),
+        cache_creation_input_tokens: usage.cached_write_tokens.map(|v| v as u32),
+    }
+}
+
+fn build_usage_event(
+    session_id: &str,
+    input_tokens: Option<u32>,
+    output_tokens: Option<u32>,
+    cache_read_input_tokens: Option<u32>,
+    cache_creation_input_tokens: Option<u32>,
+    cost: Option<String>,
+) -> AcpStreamEvent {
+    AcpStreamEvent {
+        event_type: "usage".to_string(),
+        session_id: session_id.to_string(),
+        content: cost,
+        tool_name: None,
+        tool_call_id: None,
+        tool_input: None,
+        tool_result: None,
+        error: None,
+        input_tokens,
+        output_tokens,
+        raw_input_tokens: None,
+        raw_output_tokens: None,
+        cache_read_input_tokens,
+        cache_creation_input_tokens,
+        model: None,
+        external_session_id: None,
+    }
+}
+
 fn extract_text_from_content_block(block: &ContentBlock) -> Option<String> {
     match block {
         ContentBlock::Text(t) => Some(t.text.clone()),
@@ -314,6 +438,8 @@ impl AgentExecutionStrategy for AcpStrategy {
         let acp_command = resolve_acp_command(&request.acp_command.clone());
         let working_directory = request.working_directory.clone();
         let execution_mode = request.execution_mode.clone();
+        let reasoning_effort = request.reasoning_effort.clone();
+        let system_prompt = request.system_prompt.clone();
 
         log_info!(
             "Starting ACP session | session_id={} | command={} | cwd={}",
@@ -351,8 +477,41 @@ impl AgentExecutionStrategy for AcpStrategy {
             return Err(anyhow::anyhow!(error_msg));
         }
 
+        let app_for_handler = app.clone();
+        let session_id_for_handler = session_id.clone();
+        let event_name_for_handler = event_name.clone();
+
         #[allow(unused_assignments)]
         let result = Client
+            .builder()
+            .on_receive_request(
+                async move |request: RequestPermissionRequest, responder, _cx| {
+                    let mode = read_acp_permission_mode();
+                    let tool_title = request.tool_call.fields.title.clone().unwrap_or_default();
+                    log_info!(
+                        "ACP permission request | session_id={} | tool={} | mode={}",
+                        session_id_for_handler,
+                        tool_title,
+                        mode
+                    );
+
+                    let outcome = resolve_permission_outcome(&mode, &request.options);
+
+                    let _ = app_for_handler.emit(
+                        &event_name_for_handler,
+                        &build_permission_event(
+                            &session_id_for_handler,
+                            &tool_title,
+                            &request.options,
+                            &outcome,
+                        ),
+                    );
+
+                    let _ = responder.respond(RequestPermissionResponse::new(outcome));
+                    Ok(())
+                },
+                on_receive_request!(),
+            )
             .connect_with(agent, async |connection| {
                 let mut session_request = if let Some(ref cwd) = working_directory {
                     NewSessionRequest::new(cwd)
@@ -361,6 +520,29 @@ impl AgentExecutionStrategy for AcpStrategy {
                 };
                 if !mcp_servers.is_empty() {
                     session_request = session_request.mcp_servers(mcp_servers);
+                }
+
+                let mut session_meta = serde_json::Map::new();
+                if let Some(ref effort) = reasoning_effort {
+                    if !effort.trim().is_empty() {
+                        log_info!("ACP reasoning_effort | session_id={} | effort={}", session_id, effort);
+                        session_meta.insert(
+                            "reasoningEffort".to_string(),
+                            serde_json::Value::String(effort.clone()),
+                        );
+                    }
+                }
+                if let Some(ref prompt) = system_prompt {
+                    if !prompt.trim().is_empty() {
+                        log_info!("ACP system_prompt | session_id={} | length={}", session_id, prompt.len());
+                        session_meta.insert(
+                            "systemPrompt".to_string(),
+                            serde_json::Value::String(prompt.clone()),
+                        );
+                    }
+                }
+                if !session_meta.is_empty() {
+                    session_request = session_request.meta(session_meta);
                 }
 
                 let mut session = connection
@@ -374,7 +556,26 @@ impl AgentExecutionStrategy for AcpStrategy {
                 let external_sid = session.session_id().to_string();
                 let _ = app.emit(&event_name, &build_session_started_event(&session_id, external_sid));
 
-                session.send_prompt(&prompt_text)?;
+                // Bypass session.send_prompt() to retain PromptResponse.usage
+                // (send_prompt discards it via `let PromptResponse { stop_reason, .. }`).
+                // We send the request directly and capture usage via oneshot.
+                let prompt_session_id = session.session_id().clone();
+                let prompt_content = vec![prompt_text.clone().into()];
+                let (usage_tx, mut usage_rx) = tokio::sync::oneshot::channel::<PromptUsageSnapshot>();
+
+                session
+                    .connection()
+                    .send_request_to(Agent, PromptRequest::new(prompt_session_id, prompt_content))
+                    .on_receiving_result(async move |result| {
+                        let snapshot = match result {
+                            Ok(response) => extract_prompt_usage(&response),
+                            Err(_) => PromptUsageSnapshot::default(),
+                        };
+                        let _ = usage_tx.send(snapshot);
+                        Ok(())
+                    })?;
+
+                log_info!("ACP prompt sent | session_id={}", session_id);
 
                 let monitor = CliExecutionMonitor::new();
                 let timeout_config = timeout_config_for_execution_mode(
@@ -477,6 +678,60 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                                 &build_plan_event(&session_id, plan_json),
                                                             );
                                                         }
+                                                        SessionUpdate::UsageUpdate(usage) => {
+                                                            monitor.note_activity(false);
+                                                            let cost_str = usage.cost.as_ref()
+                                                                .map(|c| serde_json::to_string(c).unwrap_or_default());
+                                                            let _ = app.emit(
+                                                                &event_name,
+                                                                &AcpStreamEvent {
+                                                                    event_type: "context_window".to_string(),
+                                                                    session_id: session_id.clone(),
+                                                                    content: cost_str,
+                                                                    tool_name: None,
+                                                                    tool_call_id: None,
+                                                                    tool_input: None,
+                                                                    tool_result: None,
+                                                                    error: None,
+                                                                    input_tokens: Some(usage.used as u32),
+                                                                    output_tokens: Some(usage.size as u32),
+                                                                    raw_input_tokens: None,
+                                                                    raw_output_tokens: None,
+                                                                    cache_read_input_tokens: None,
+                                                                    cache_creation_input_tokens: None,
+                                                                    model: None,
+                                                                    external_session_id: None,
+                                                                },
+                                                            );
+                                                        }
+                                                        SessionUpdate::SessionInfoUpdate(info) => {
+                                                            monitor.note_activity(false);
+                                                            log_info!(
+                                                                "ACP session info updated | session_id={} | {:?}",
+                                                                session_id, info
+                                                            );
+                                                        }
+                                                        SessionUpdate::AvailableCommandsUpdate(cmds) => {
+                                                            monitor.note_activity(false);
+                                                            log_info!(
+                                                                "ACP available commands | session_id={} | count={}",
+                                                                session_id, cmds.available_commands.len()
+                                                            );
+                                                        }
+                                                        SessionUpdate::CurrentModeUpdate(mode_update) => {
+                                                            monitor.note_activity(false);
+                                                            log_info!(
+                                                                "ACP mode changed | session_id={} | mode={:?}",
+                                                                session_id, mode_update.current_mode_id
+                                                            );
+                                                        }
+                                                        SessionUpdate::ConfigOptionUpdate(config) => {
+                                                            monitor.note_activity(false);
+                                                            log_info!(
+                                                                "ACP config updated | session_id={} | {:?}",
+                                                                session_id, config
+                                                            );
+                                                        }
                                                         _ => {
                                                             monitor.note_activity(false);
                                                         }
@@ -516,6 +771,29 @@ impl AgentExecutionStrategy for AcpStrategy {
                                     break;
                                 }
                             }
+                        }
+                        usage_snapshot = &mut usage_rx => {
+                            let snapshot = usage_snapshot.unwrap_or_default();
+                            log_info!(
+                                "ACP prompt usage | session_id={} | input={} | output={} | cache_read={} | cache_creation={}",
+                                session_id,
+                                snapshot.input_tokens.unwrap_or(0),
+                                snapshot.output_tokens.unwrap_or(0),
+                                snapshot.cache_read_input_tokens.unwrap_or(0),
+                                snapshot.cache_creation_input_tokens.unwrap_or(0),
+                            );
+                            let _ = app.emit(
+                                &event_name,
+                                &build_usage_event(
+                                    &session_id,
+                                    snapshot.input_tokens,
+                                    snapshot.output_tokens,
+                                    snapshot.cache_read_input_tokens,
+                                    snapshot.cache_creation_input_tokens,
+                                    None,
+                                ),
+                            );
+                            break;
                         }
                         _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
                             continue;

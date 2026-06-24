@@ -7,6 +7,12 @@ import MonacoCodeEditor from '../monacoCodeEditor/MonacoCodeEditor.vue'
 import RichMarkdownEditor from '../richMarkdownEditor/RichMarkdownEditor.vue'
 import { useFileEditorWorkspace } from './useFileEditorWorkspace'
 
+const props = withDefaults(defineProps<{
+  compact?: boolean
+}>(), {
+  compact: false
+})
+
 const {
   fileEditorStore,
   fileSizeLabel,
@@ -22,6 +28,14 @@ const {
 
 const imageContainerRef = ref<HTMLElement | null>(null)
 let viewerInstance: Viewer | null = null
+
+const editorFontSize = computed(() => {
+  if (!props.compact) {
+    return settingsStore.settings.editorFontSize
+  }
+
+  return Math.min(settingsStore.settings.editorFontSize, 12)
+})
 
 const unsupportedExtension = computed(() => {
   if (fileEditorStore.previewMode !== 'unsupported' || !fileEditorStore.activeFilePath) return ''
@@ -77,7 +91,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="file-editor-workspace">
+  <div
+    class="file-editor-workspace"
+    :class="{ 'file-editor-workspace--compact': compact }"
+  >
     <div class="file-editor-workspace__toolbar">
       <div class="file-editor-workspace__toolbar-left">
         <EaButton
@@ -240,9 +257,9 @@ onBeforeUnmount(() => {
         v-else
         :model-value="fileEditorStore.content"
         :language="fileEditorStore.languageId"
-        :font-size="settingsStore.settings.editorFontSize"
+        :font-size="editorFontSize"
         :tab-size="settingsStore.settings.editorTabSize"
-        :word-wrap="settingsStore.settings.editorWordWrap"
+        :word-wrap="compact ? false : settingsStore.settings.editorWordWrap"
         :completions="fileEditorStore.completionEntries"
         :performance-mode="fileEditorStore.isLargeFile ? 'large' : 'default'"
         :read-only="fileEditorStore.isLoading"

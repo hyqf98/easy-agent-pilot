@@ -10,6 +10,12 @@ const SheetEditor = defineAsyncComponent(() => import('../components/SheetEditor
 const DocxEditor = defineAsyncComponent(() => import('../components/DocxEditor.vue'))
 const SlideEditor = defineAsyncComponent(() => import('../components/SlideEditor.vue'))
 
+withDefaults(defineProps<{
+  compact?: boolean
+}>(), {
+  compact: false
+})
+
 const store = useOfficeViewerStore()
 const uiStore = useUIStore()
 
@@ -80,7 +86,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="office-viewer-workspace">
+  <div
+    class="office-viewer-workspace"
+    :class="{ 'office-viewer-workspace--compact': compact }"
+  >
     <div class="office-viewer-workspace__toolbar">
       <div class="office-viewer-workspace__toolbar-left">
         <EaButton
@@ -161,9 +170,12 @@ onBeforeUnmount(() => {
 .office-viewer-workspace {
   display: flex;
   flex-direction: column;
+  width: 100%;
   height: 100%;
+  min-width: 0;
   min-height: 0;
   background-color: var(--color-surface);
+  overflow: hidden;
 }
 
 .office-viewer-workspace__toolbar {
@@ -246,13 +258,38 @@ onBeforeUnmount(() => {
   min-height: 0;
   min-width: 0;
   display: flex;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .office-viewer-workspace__content > :deep(*) {
   flex: 1;
   min-width: 0;
   min-height: 0;
+}
+
+.office-viewer-workspace--compact .office-viewer-workspace__toolbar {
+  height: 38px;
+  padding: 0 10px;
+}
+
+.office-viewer-workspace--compact .office-viewer-workspace__toolbar-left {
+  gap: 8px;
+}
+
+.office-viewer-workspace--compact .office-viewer-workspace__file-meta {
+  gap: 6px;
+  font-size: 11px;
+}
+
+.office-viewer-workspace--compact .office-viewer-workspace__file-name {
+  max-width: 180px;
+}
+
+.office-viewer-workspace--compact .office-viewer-workspace__type-badge,
+.office-viewer-workspace--compact .office-viewer-workspace__readonly-badge {
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 10px;
 }
 
 .office-viewer-workspace__empty {

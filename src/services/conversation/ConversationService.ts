@@ -944,7 +944,7 @@ export class ConversationService {
     let accumulatedThinking = ''
     const toolCalls: ToolCall[] = []
     const editTraces: FileEditTrace[] = []
-    const usageState: { model?: string, inputTokens?: number, outputTokens?: number, contextWindowOccupancy?: number } = {
+    const usageState: { model?: string, inputTokens?: number, outputTokens?: number, cacheReadInputTokens?: number, cacheCreationInputTokens?: number, contextWindowOccupancy?: number } = {
       model: resolveRequestedUsageModel({
         requestedModelId: context.agent.modelId
       })
@@ -1174,6 +1174,8 @@ export class ConversationService {
         messageId: aiMessage.id,
         inputTokens: usageState.inputTokens,
         outputTokens: usageState.outputTokens,
+        cacheReadInputTokens: usageState.cacheReadInputTokens,
+        cacheCreationInputTokens: usageState.cacheCreationInputTokens,
         occurredAt: occurredAt || new Date().toISOString()
       })
     }
@@ -1573,6 +1575,12 @@ export class ConversationService {
             }, runtimeProvider)
             usageState.inputTokens = mergedUsageCounts.inputTokens
             usageState.outputTokens = mergedUsageCounts.outputTokens
+            if (typeof normalizedUsage.cacheReadInputTokens === 'number') {
+              usageState.cacheReadInputTokens = (usageState.cacheReadInputTokens ?? 0) + normalizedUsage.cacheReadInputTokens
+            }
+            if (typeof normalizedUsage.cacheCreationInputTokens === 'number') {
+              usageState.cacheCreationInputTokens = (usageState.cacheCreationInputTokens ?? 0) + normalizedUsage.cacheCreationInputTokens
+            }
             const nextContextWindowOccupancy = resolveRuntimeContextWindowOccupancy({
               provider: runtimeProvider,
               inputTokens: usage.inputTokens,

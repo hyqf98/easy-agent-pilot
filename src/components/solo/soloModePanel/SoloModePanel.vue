@@ -21,8 +21,6 @@ const {
   createForm,
   createRun,
   currentRunDurationLabel,
-  currentRunHistoryMetrics,
-  currentRunHistoryRows,
   currentRunHistorySummary,
   currentRun,
   currentRunCoordinatorLabel,
@@ -166,103 +164,48 @@ const {
           </div>
         </div>
 
-        <div class="solo-summary-card">
-          <div class="solo-summary-card__content">
-            <p class="solo-summary-card__eyebrow">
-              SOLO Timeline
-            </p>
-            <h2>{{ currentRun.name }}</h2>
-            <p class="solo-summary-card__goal">
-              {{ currentRun.goal }}
-            </p>
-            <div class="solo-summary-card__chips">
-              <span class="solo-summary-card__chip">{{ runStatusLabel(currentRun.status) }}</span>
-              <span class="solo-summary-card__chip">深度 {{ currentRun.currentDepth }}/{{ currentRun.maxDispatchDepth }}</span>
-              <span class="solo-summary-card__chip">步骤 {{ currentSteps.length }}</span>
-              <span class="solo-summary-card__chip">专家 {{ currentRunParticipants.length }}</span>
-              <span class="solo-summary-card__chip">{{ currentRunCoordinatorLabel }}</span>
-              <span
-                v-if="currentRun.coordinatorModelId"
-                class="solo-summary-card__chip"
-              >
-                {{ currentRun.coordinatorModelId }}
-              </span>
+        <div class="solo-run-strip">
+          <div class="solo-run-strip__main">
+            <div class="solo-run-strip__title-row">
+              <h2>{{ currentRun.name }}</h2>
+              <span class="solo-run-strip__status">{{ runStatusLabel(currentRun.status) }}</span>
             </div>
+            <p>{{ compactSoloSummary(currentRun.goal || currentRun.requirement, '等待目标') }}</p>
           </div>
 
-          <div class="solo-summary-card__stats">
-            <article class="solo-stat-card">
-              <span>已完成</span>
-              <strong>{{ completedCount }}</strong>
-            </article>
-            <article class="solo-stat-card solo-stat-card--warning">
-              <span>待输入</span>
-              <strong>{{ blockedCount }}</strong>
-            </article>
-            <article class="solo-stat-card solo-stat-card--danger">
-              <span>失败</span>
-              <strong>{{ failedCount }}</strong>
-            </article>
+          <div class="solo-run-strip__metrics">
+            <span>{{ completedCount }} 完成</span>
+            <span>{{ blockedCount }} 待输入</span>
+            <span>{{ failedCount }} 失败</span>
+            <span>深度 {{ currentRun.currentDepth }}/{{ currentRun.maxDispatchDepth }}</span>
+            <span>{{ currentSteps.length }} 步骤</span>
+            <span>{{ currentRunDurationLabel }}</span>
           </div>
         </div>
 
-        <div class="solo-history-grid">
-          <section class="solo-history-card">
-            <header>
-              <span>历史执行信息</span>
-              <small>{{ currentRunDurationLabel }}</small>
-            </header>
-            <div class="solo-history-card__grid">
-              <article
-                v-for="item in currentRunHistoryRows"
-                :key="item.label"
-                class="solo-history-card__item"
-              >
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value }}</strong>
-              </article>
-            </div>
+        <div class="solo-run-context">
+          <section>
+            <span>需求</span>
+            <p>{{ compactSoloSummary(currentRun.requirement, '无需求说明') }}</p>
           </section>
-
-          <section class="solo-history-card solo-history-card--highlight">
-            <header>
-              <span>本轮历史结论</span>
-              <small>{{ runStatusLabel(currentRun.status) }}</small>
-            </header>
-            <p class="solo-history-card__summary">
-              {{ currentRunHistorySummary }}
-            </p>
-            <div class="solo-history-card__metrics">
-              <span
-                v-for="item in currentRunHistoryMetrics"
-                :key="item.label"
-              >
-                {{ item.label }} {{ item.value }}
-              </span>
-            </div>
+          <section>
+            <span>结论</span>
+            <p>{{ compactSoloSummary(currentRunHistorySummary, '等待执行结论') }}</p>
           </section>
-        </div>
-
-        <div class="solo-brief-grid">
-          <section class="solo-brief-card">
-            <header>
-              <span>需求说明</span>
-              <small>{{ formatTime(currentRun.updatedAt) }}</small>
-            </header>
-            <p>{{ currentRun.requirement }}</p>
-          </section>
-          <section class="solo-brief-card solo-brief-card--experts">
-            <header>
-              <span>执行路径与专家</span>
-              <small>{{ currentRun.executionPath }}</small>
-            </header>
-            <div class="solo-brief-card__chips">
+          <section>
+            <span>专家</span>
+            <div class="solo-run-context__chips">
               <span>{{ currentRunCoordinatorLabel }}</span>
               <span
                 v-for="expert in currentRunParticipants"
                 :key="expert.id"
               >
                 {{ expert.name }}
+              </span>
+              <span
+                v-if="currentRun.coordinatorModelId"
+              >
+                {{ currentRun.coordinatorModelId }}
               </span>
             </div>
           </section>
@@ -272,7 +215,6 @@ const {
           <div class="solo-timeline__header">
             <div>
               <h3>任务过程时间线</h3>
-              <p>点击任一步骤卡片，右侧会展开该步骤的执行日志流程。</p>
             </div>
             <div class="solo-timeline__header-side" />
           </div>
@@ -381,11 +323,7 @@ const {
         class="solo-mode-panel__placeholder"
       >
         <div>
-          <p class="solo-mode-panel__placeholder-eyebrow">
-            SOLO Mode
-          </p>
-          <h2>选择一个运行，或者新建一个统一调度任务。</h2>
-          <span>规划智能体会持续协调参与专家，自动推进步骤、回写结果并轮询执行直到达到目标。</span>
+          <h2>选择运行</h2>
         </div>
       </div>
     </div>

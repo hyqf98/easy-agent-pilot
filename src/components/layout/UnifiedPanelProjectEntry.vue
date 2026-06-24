@@ -1,18 +1,17 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { FileTree } from '@/components/fileTree'
 import type { Project } from '@/stores/project'
 import type { Session } from '@/stores/session'
-import type { ProjectTabType } from '@/stores/layout'
 import { EaIcon } from '@/components/common'
 import UnifiedPanelSessionList from './UnifiedPanelSessionList.vue'
+
+const SESSION_PREVIEW_LIMIT = 5
 
 interface Props {
   project: Project
   isActive: boolean
   isExpanded: boolean
-  currentTab: ProjectTabType
   sessionSortBy: 'updatedAt' | 'createdAt'
   sessions: Session[]
   currentSessionId: string | null
@@ -27,7 +26,7 @@ const emit = defineEmits<{
   toggleProject: [project: Project]
   editProject: [project: Project]
   deleteProject: [project: Project]
-  setTab: [projectId: string, tab: ProjectTabType]
+  openProjectFiles: [project: Project]
   toggleSort: []
   addSession: [projectId: string]
   selectSession: [sessionId: string]
@@ -38,19 +37,25 @@ const emit = defineEmits<{
   deleteSession: [session: Session]
   deleteSessions: [sessions: Session[]]
   updateEditingName: [value: string]
-  selectFile: [path: string, project: Project]
 }>()
 
 const { t } = useI18n()
 const projectItemRef = ref<HTMLElement | null>(null)
 const isCompactMenuOpen = ref(false)
-const fileTreeActivated = ref(props.currentTab === 'files')
+const showAllSessions = ref(false)
 const selectedSessionIds = ref<string[]>([])
+const visibleSessions = computed(() => (
+  showAllSessions.value
+    ? props.sessions
+    : props.sessions.slice(0, SESSION_PREVIEW_LIMIT)
+))
+const hiddenSessionCount = computed(() => Math.max(props.sessions.length - SESSION_PREVIEW_LIMIT, 0))
+const hasHiddenSessions = computed(() => hiddenSessionCount.value > 0)
 const selectedSessions = computed(() => props.sessions.filter(session => selectedSessionIds.value.includes(session.id)))
 const selectedSessionCount = computed(() => selectedSessions.value.length)
 const hasSelectedSessions = computed(() => selectedSessionCount.value > 0)
 const allVisibleSessionsSelected = computed(() =>
-  props.sessions.length > 0 && selectedSessionCount.value === props.sessions.length
+  visibleSessions.value.length > 0 && visibleSessions.value.every(session => selectedSessionIds.value.includes(session.id))
 )
 
 function handleStartEditSession(session: Session, event: Event) {
@@ -68,7 +73,9 @@ function clearSelectedSessions() {
 }
 
 function selectAllVisibleSessions() {
-  selectedSessionIds.value = props.sessions.map(session => session.id)
+  const currentIds = new Set(selectedSessionIds.value)
+  visibleSessions.value.forEach(session => currentIds.add(session.id))
+  selectedSessionIds.value = Array.from(currentIds)
 }
 
 function handleBatchDeleteSessions() {
@@ -131,12 +138,17 @@ function handleDocumentKeydown(event: KeyboardEvent) {
   }
 }
 
-function handleProjectCompactAction(action: 'edit' | 'delete', project: Project, event: Event) {
+function handleProjectCompactAction(action: 'edit' | 'delete' | 'files', project: Project, event: Event) {
   event.stopPropagation()
   closeCompactMenu(event)
 
   if (action === 'edit') {
     emit('editProject', project)
+    return
+  }
+
+  if (action === 'files') {
+    emit('openProjectFiles', project)
     return
   }
 
@@ -160,19 +172,13 @@ watch(isCompactMenuOpen, (open) => {
 })
 
 watch(
-  () => props.currentTab,
-  (tab) => {
-    if (tab === 'files') {
-      fileTreeActivated.value = true
-    }
-  }
-)
-
-watch(
   () => props.sessions,
   (sessions) => {
     const visibleIds = new Set(sessions.map(session => session.id))
     selectedSessionIds.value = selectedSessionIds.value.filter(sessionId => visibleIds.has(sessionId))
+    if (sessions.length <= SESSION_PREVIEW_LIMIT) {
+      showAllSessions.value = false
+    }
   },
   { deep: true }
 )
@@ -254,6 +260,18 @@ watch(
       </button>
     </div>
 
+    <button
+      class="project-item__inline-action"
+      title="打开文件管理"
+      aria-label="打开文件管理"
+      @click.stop="emit('openProjectFiles', project)"
+    >
+      <EaIcon
+        name="files"
+        :size="12"
+      />
+    </button>
+
     <details
       class="project-item__menu"
       @click.stop
@@ -269,6 +287,16 @@ watch(
         />
       </summary>
       <div class="project-item__menu-popover">
+        <button
+          class="project-item__menu-action"
+          @click="handleProjectCompactAction('files', project, $event)"
+        >
+          <EaIcon
+            name="files"
+            :size="12"
+          />
+          <span>{{ t('unified.files') }}</span>
+        </button>
         <button
           class="project-item__menu-action"
           @click="handleProjectCompactAction('edit', project, $event)"
@@ -297,69 +325,15 @@ watch(
     v-if="isExpanded"
     class="project-content"
   >
-    <div class="project-tabs">
-      <button
-        :class="['tab-btn', { 'tab-btn--active': currentTab === 'sessions' }]"
-        @click="emit('setTab', project.id, 'sessions')"
-      >
-        <EaIcon
-          name="message-square"
-          :size="12"
-        />
-        {{ t('unified.sessions') }}
-      </button>
-      <button
-        :class="['tab-btn', { 'tab-btn--active': currentTab === 'files' }]"
-        @click="emit('setTab', project.id, 'files')"
-      >
-        <EaIcon
-          name="folder-open"
-          :size="12"
-        />
-        {{ t('unified.files') }}
-      </button>
-      <button
-        v-if="currentTab === 'sessions'"
-        class="tab-action-btn"
-        :title="sessionSortBy === 'updatedAt' ? t('unified.sortByUpdated') : t('unified.sortByCreated')"
-        @click="emit('toggleSort')"
-      >
-        <EaIcon
-          :name="sessionSortBy === 'updatedAt' ? 'clock' : 'calendar'"
-          :size="12"
-        />
-      </button>
-      <button
-        v-if="currentTab === 'sessions'"
-        class="tab-action-btn"
-        :title="t('session.createSession')"
-        @click.stop="emit('addSession', project.id)"
-      >
-        <EaIcon
-          name="plus"
-          :size="12"
-        />
-      </button>
-    </div>
-
-    <div
-      v-show="currentTab === 'sessions'"
-      class="tab-content tab-content--sessions"
-    >
+    <div class="tab-content tab-content--sessions">
       <div
-        v-if="sessions.length > 0"
+        v-if="hasSelectedSessions"
         class="session-batch-bar"
       >
-        <span
-          v-if="hasSelectedSessions"
-          class="session-batch-bar__label"
-        >
+        <span class="session-batch-bar__label">
           {{ t('session.selectedCount', { count: selectedSessionCount }) }}
         </span>
-        <div
-          v-if="hasSelectedSessions"
-          class="session-batch-bar__actions"
-        >
+        <div class="session-batch-bar__actions">
           <button
             class="session-batch-bar__button"
             @click="allVisibleSessionsSelected ? clearSelectedSessions() : selectAllVisibleSessions()"
@@ -384,7 +358,7 @@ watch(
       </div>
 
       <UnifiedPanelSessionList
-        :sessions="sessions"
+        :sessions="visibleSessions"
         :current-session-id="currentSessionId"
         :editing-session-id="editingSessionId"
         :editing-session-name="editingSessionName"
@@ -398,19 +372,19 @@ watch(
         @delete="emit('deleteSession', $event)"
         @update-editing-name="emit('updateEditingName', $event)"
       />
-    </div>
 
-    <div
-      v-if="fileTreeActivated"
-      v-show="currentTab === 'files'"
-      class="tab-content tab-content--files"
-    >
-      <FileTree
-        :project-id="project.id"
-        :project-path="project.path"
-        class="file-tree__content"
-        @file-select="emit('selectFile', $event, project)"
-      />
+      <button
+        v-if="hasHiddenSessions"
+        type="button"
+        class="session-more-btn"
+        @click="showAllSessions = !showAllSessions"
+      >
+        <EaIcon
+          :name="showAllSessions ? 'chevron-up' : 'ellipsis'"
+          :size="13"
+        />
+        <span>{{ showAllSessions ? '收起' : `更多 ${hiddenSessionCount}` }}</span>
+      </button>
     </div>
   </div>
 </template>
@@ -521,6 +495,30 @@ watch(
   font-weight: var(--font-weight-medium);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.project-item__inline-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: auto;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary));
+  cursor: pointer;
+  opacity: 1;
+  transition:
+    background-color var(--transition-fast) var(--easing-default),
+    color var(--transition-fast) var(--easing-default);
+}
+
+.project-item__inline-action:hover {
+  background: var(--workspace-control-hover-bg, var(--color-surface-hover));
+  color: var(--workspace-text-primary, var(--color-text-primary));
 }
 
 .project-item__meta {
@@ -672,7 +670,7 @@ watch(
   display: flex;
   flex: 1 1 auto;
   min-width: 0;
-  min-height: 220px;
+  min-height: 0;
   flex-direction: column;
   box-sizing: border-box;
   max-width: calc(100% - var(--spacing-4));
@@ -683,7 +681,7 @@ watch(
   background-color: var(--color-surface);
 }
 
-.project-tabs {
+.project-sessions-toolbar {
   display: flex;
   align-items: center;
   gap: var(--spacing-1);
@@ -694,46 +692,15 @@ watch(
   border-bottom: 1px solid var(--color-border);
 }
 
-.tab-btn {
-  display: flex;
+.project-sessions-toolbar__label {
+  display: inline-flex;
   flex: 1;
   min-width: 0;
   align-items: center;
-  justify-content: center;
-  gap: var(--spacing-1);
-  padding: var(--spacing-1) var(--spacing-2);
-  border: none;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-secondary);
+  padding: 0 var(--spacing-2);
+  color: var(--color-text-tertiary);
   font-size: var(--font-size-xs);
-  background: transparent;
-  cursor: pointer;
-  transition: all var(--transition-fast) var(--easing-default);
-}
-
-.tab-btn:hover {
-  background-color: var(--color-surface-hover);
-  color: var(--color-text-primary);
-}
-
-.tab-btn--active {
-  background-color: var(--color-primary-light);
-  color: var(--color-primary);
-}
-
-.tab-btn--active:hover {
-  background-color: var(--color-primary-light);
-  color: var(--color-primary);
-}
-
-[data-theme='dark'] .tab-btn--active {
-  background-color: var(--color-active-bg);
-  color: var(--color-active-text);
-}
-
-[data-theme='dark'] .tab-btn--active:hover {
-  background-color: var(--color-active-bg-hover);
-  color: var(--color-active-text);
+  font-weight: 600;
 }
 
 .tab-action-btn {
@@ -742,7 +709,6 @@ watch(
   justify-content: center;
   width: 20px;
   height: 20px;
-  margin-left: auto;
   border: none;
   border-radius: var(--radius-sm);
   color: var(--color-text-tertiary);
@@ -760,11 +726,11 @@ watch(
   display: block;
   flex: 1 1 auto;
   width: 100%;
-  height: 0;
+  height: auto;
   min-width: 0;
   min-height: 0;
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: visible;
   box-sizing: border-box;
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb, var(--color-border)) var(--scrollbar-track, transparent);
@@ -773,7 +739,29 @@ watch(
 .tab-content--sessions {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
+}
+
+.session-more-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: calc(100% - var(--spacing-4));
+  min-height: 28px;
+  margin: 0 var(--spacing-2) var(--spacing-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+
+.session-more-btn:hover {
+  border-color: var(--color-border);
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
 }
 
 .tab-content::-webkit-scrollbar {
@@ -1020,5 +1008,156 @@ watch(
 
 .animate-spin {
   animation: spin 1s linear infinite;
+}
+
+.project-item {
+  gap: 7px;
+  padding: 7px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+}
+
+.project-item:hover,
+.project-item--expanded,
+.project-item--active {
+  background: var(--workspace-list-hover-bg);
+  border-color: transparent;
+}
+
+.project-item--active {
+  background: var(--workspace-list-active-bg);
+}
+
+.project-item:focus-visible {
+  outline: 2px solid var(--workspace-border-strong);
+  outline-offset: -2px;
+}
+
+.project-item__arrow {
+  width: 16px;
+  height: 16px;
+  color: var(--workspace-text-tertiary);
+}
+
+.project-item__icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--workspace-text-tertiary);
+}
+
+.project-item--active .project-item__icon,
+.project-item--expanded .project-item__icon {
+  background: transparent;
+  color: var(--workspace-text-secondary);
+}
+
+.project-item__info {
+  gap: 1px;
+}
+
+.project-item__name {
+  color: var(--workspace-text-primary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.project-item__meta {
+  gap: 6px;
+  color: var(--workspace-text-tertiary);
+  font-size: 11px;
+}
+
+.project-item__session-count {
+  padding: 0;
+  background: transparent;
+  color: var(--workspace-text-tertiary);
+}
+
+.project-item__session-count--has {
+  background: transparent;
+  color: var(--workspace-text-tertiary);
+}
+
+.project-item__actions,
+.project-item:hover .project-item__actions {
+  display: none;
+}
+
+.project-item__menu {
+  display: flex;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+}
+
+.project-item__menu-trigger {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: var(--workspace-text-tertiary);
+}
+
+.project-item__menu-trigger:hover {
+  background: var(--workspace-control-hover-bg);
+  color: var(--workspace-text-primary);
+}
+
+.project-item__menu-popover {
+  border-color: var(--workspace-border);
+  background: var(--workspace-panel-bg);
+  box-shadow: var(--workspace-card-shadow);
+}
+
+.project-content {
+  min-height: 0;
+  max-width: none;
+  margin: 0 0 3px 24px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.tab-action-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  color: var(--workspace-text-tertiary);
+}
+
+.tab-action-btn:hover {
+  background: var(--workspace-control-hover-bg);
+  color: var(--workspace-text-primary);
+}
+
+.tab-content--sessions {
+  overflow: visible;
+}
+
+.session-batch-bar {
+  margin: 2px 0 4px;
+  padding: 6px;
+  border: none;
+  border-radius: 8px;
+  background: var(--workspace-control-bg);
+}
+
+.session-batch-bar__button {
+  border-color: var(--workspace-control-border);
+  background-color: var(--workspace-control-bg);
+  color: var(--workspace-text-secondary);
+}
+
+.session-batch-bar__button:hover:not(:disabled) {
+  border-color: var(--workspace-border-strong);
+  background-color: var(--workspace-control-hover-bg);
+  color: var(--workspace-text-primary);
+}
+
+.session-batch-bar__button--danger:hover:not(:disabled) {
+  color: var(--color-error);
 }
 </style>

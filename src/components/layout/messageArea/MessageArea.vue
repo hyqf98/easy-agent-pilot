@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { useI18n } from 'vue-i18n'
 import { EaIcon } from '@/components/common'
 import TokenProgressBar from '@/components/common/TokenProgressBar.vue'
 import CompressionConfirmDialog from '@/components/common/CompressionConfirmDialog.vue'
@@ -8,7 +7,6 @@ import AiEditTracePane from './AiEditTracePane.vue'
 import PanelResizer from '../PanelResizer.vue'
 import ConversationComposer from '../conversationComposer/ConversationComposer.vue'
 import { useMessageArea } from './useMessageArea'
-const { t } = useI18n()
  
 const {
   sessionStore,
@@ -173,17 +171,23 @@ const {
       v-else
       class="message-area__empty"
     >
-      <EaIcon
-        name="message-circle"
-        :size="48"
-        class="message-area__empty-icon"
-      />
-      <p class="message-area__empty-text">
-        {{ t('message.noSessionSelected') }}
-      </p>
-      <p class="message-area__empty-hint">
-        {{ t('message.startConversation') }}
-      </p>
+      <div class="message-area__empty-card">
+        <div class="message-area__empty-orb">
+          <EaIcon
+            name="bot"
+            :size="26"
+          />
+        </div>
+        <p class="message-area__empty-kicker">
+          Agent Workspace
+        </p>
+        <p class="message-area__empty-text">
+          Ready when you are.
+        </p>
+        <p class="message-area__empty-hint">
+          Start from New Agent, pick a repository on the left, or switch to Plan / SOLO above.
+        </p>
+      </div>
     </div>
 
     <!-- 压缩确认对话框 -->

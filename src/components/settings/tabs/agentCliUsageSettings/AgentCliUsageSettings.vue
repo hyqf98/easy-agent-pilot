@@ -13,6 +13,7 @@ const {
   cliTypeOptions,
   dateRangePresets,
   summaryCards,
+  todayCards,
   insightCards,
   hasStats,
   applyDatePreset,
@@ -132,6 +133,17 @@ const {
         version: usageStore.stats.meta.pricingVersion
       }) }}</span>
     </div>
+
+    <section class="usage-today-grid">
+      <article
+        v-for="card in todayCards"
+        :key="card.key"
+        class="usage-today-card"
+      >
+        <span class="usage-today-card__label">{{ card.label }}</span>
+        <strong class="usage-today-card__value">{{ card.value }}</strong>
+      </article>
+    </section>
 
     <section class="usage-summary-grid">
       <article

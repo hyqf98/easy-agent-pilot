@@ -375,7 +375,7 @@ pub fn create_project(input: CreateProjectInput) -> Result<Project, String> {
     let mut conn = open_db_connection().map_err(|e| e.to_string())?;
 
     // 解析并创建项目目录
-    let resolved_path = resolve_path(&input.path)?;
+    let resolved_path = crate::commands::fs_shared::expand_home_path(&input.path)?;
 
     // 如果目录不存在，则创建
     if !resolved_path.exists() {
@@ -752,22 +752,6 @@ fn scan_directory_recursive(
     Ok(nodes)
 }
 
-/// 解析路径（处理 ~ 开头的路径）
-fn resolve_path(path_str: &str) -> Result<PathBuf, String> {
-    let path = PathBuf::from(path_str);
-
-    // 处理 ~ 开头的路径
-    let resolved_path = if let Some(rest) = path_str.strip_prefix('~') {
-        let home = dirs::home_dir().ok_or_else(|| "无法获取用户主目录".to_string())?;
-        let rest = rest.strip_prefix('/').unwrap_or(rest);
-        home.join(rest)
-    } else {
-        path
-    };
-
-    Ok(resolved_path)
-}
-
 /// 扫描单层目录（用于懒加载）
 fn scan_single_directory(dir_path: &PathBuf) -> Result<Vec<FileTreeNode>, String> {
     let mut nodes = Vec::new();
@@ -843,7 +827,7 @@ fn scan_single_directory(dir_path: &PathBuf) -> Result<Vec<FileTreeNode>, String
 /// 列出项目目录的文件树（懒加载模式，只加载第一层）
 #[tauri::command]
 pub fn list_project_files(project_path: String) -> Result<Vec<FileTreeNode>, String> {
-    let resolved_path = resolve_path(&project_path)?;
+    let resolved_path = crate::commands::fs_shared::expand_home_path(&project_path)?;
 
     if !resolved_path.exists() {
         return Err(format!("项目路径不存在: {}", project_path));
@@ -859,7 +843,7 @@ pub fn list_project_files(project_path: String) -> Result<Vec<FileTreeNode>, Str
 /// 懒加载目录的子节点
 #[tauri::command]
 pub fn load_directory_children(dir_path: String) -> Result<Vec<FileTreeNode>, String> {
-    let resolved_path = resolve_path(&dir_path)?;
+    let resolved_path = crate::commands::fs_shared::expand_home_path(&dir_path)?;
 
     if !resolved_path.exists() {
         return Err(format!("目录不存在: {}", dir_path));
@@ -1444,7 +1428,7 @@ fn search_global_mentions_indexed(
 /// 列出项目所有文件的扁平列表（用于 @ 文件引用）
 #[tauri::command]
 pub fn list_all_project_files_flat(project_path: String) -> Result<Vec<FlatFileInfo>, String> {
-    let resolved_path = resolve_path(&project_path)?;
+    let resolved_path = crate::commands::fs_shared::expand_home_path(&project_path)?;
 
     if !resolved_path.exists() {
         return Err(format!("项目路径不存在: {}", project_path));
@@ -1468,7 +1452,7 @@ pub fn search_file_mentions(
             let project_path = input
                 .project_path
                 .ok_or_else(|| "项目范围搜索缺少 projectPath".to_string())?;
-            let resolved_path = resolve_path(&project_path)?;
+            let resolved_path = crate::commands::fs_shared::expand_home_path(&project_path)?;
 
             if !resolved_path.exists() {
                 return Err(format!("项目路径不存在: {}", project_path));
@@ -1487,7 +1471,7 @@ pub fn search_file_mentions(
 
 #[tauri::command]
 pub fn warm_project_file_index(project_path: String) -> Result<usize, String> {
-    let resolved_path = resolve_path(&project_path)?;
+    let resolved_path = crate::commands::fs_shared::expand_home_path(&project_path)?;
 
     if !resolved_path.exists() {
         return Err(format!("项目路径不存在: {}", project_path));
@@ -1519,7 +1503,7 @@ fn validate_create_entry_name(name: &str) -> Result<&str, String> {
 /// 返回：文件操作结果，成功时附带新路径。
 #[tauri::command]
 pub fn create_entry(input: CreateEntryInput) -> Result<FileOperationResult, String> {
-    let parent_path = resolve_path(&input.parent_path)?;
+    let parent_path = crate::commands::fs_shared::expand_home_path(&input.parent_path)?;
     let name = validate_create_entry_name(&input.name)?;
 
     if !parent_path.exists() {
@@ -1572,7 +1556,7 @@ pub fn create_entry(input: CreateEntryInput) -> Result<FileOperationResult, Stri
 /// 重命名文件/文件夹
 #[tauri::command]
 pub fn rename_file(input: RenameFileInput) -> Result<FileOperationResult, String> {
-    let old_path = resolve_path(&input.old_path)?;
+    let old_path = crate::commands::fs_shared::expand_home_path(&input.old_path)?;
 
     if !old_path.exists() {
         return Ok(FileOperationResult {
@@ -1620,7 +1604,7 @@ pub fn rename_file(input: RenameFileInput) -> Result<FileOperationResult, String
 /// 删除单个文件/文件夹
 #[tauri::command]
 pub fn delete_file(path: String) -> Result<FileOperationResult, String> {
-    let resolved_path = resolve_path(&path)?;
+    let resolved_path = crate::commands::fs_shared::expand_home_path(&path)?;
 
     if !resolved_path.exists() {
         return Ok(FileOperationResult {
@@ -1660,7 +1644,7 @@ pub fn batch_delete_files(input: BatchDeleteInput) -> Result<FileOperationResult
     let mut touched_paths: Vec<PathBuf> = Vec::new();
 
     for path_str in input.paths {
-        let resolved_path = resolve_path(&path_str)?;
+        let resolved_path = crate::commands::fs_shared::expand_home_path(&path_str)?;
         let parent_path = resolved_path.parent().map(Path::to_path_buf);
 
         if !resolved_path.exists() {
@@ -1724,8 +1708,8 @@ pub fn batch_delete_files(input: BatchDeleteInput) -> Result<FileOperationResult
 /// 移动文件/文件夹
 #[tauri::command]
 pub fn move_file(input: MoveFileInput) -> Result<FileOperationResult, String> {
-    let source_path = resolve_path(&input.source_path)?;
-    let target_path = resolve_path(&input.target_path)?;
+    let source_path = crate::commands::fs_shared::expand_home_path(&input.source_path)?;
+    let target_path = crate::commands::fs_shared::expand_home_path(&input.target_path)?;
 
     if !source_path.exists() {
         return Ok(FileOperationResult {

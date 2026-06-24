@@ -198,16 +198,16 @@ const headerMetaLabel = computed(() => {
 })
 const panelSubtitle = computed(() => {
   if (props.forceCoordinatorScope) {
-    return '展示规划智能体的调度决策、专家选择、异常与状态回写。'
+    return '调度决策、专家选择、异常与状态回写'
   }
   if (selectedStep.value) {
     return selectedStep.value.resultSummary
       || selectedStep.value.summary
       || selectedStep.value.description
-      || '等待当前步骤的结构化结果与交付摘要。'
+      || '等待结构化结果与交付摘要'
   }
 
-  return '展示规划智能体的调度决策、异常与状态回写。'
+  return '调度决策、异常与状态回写'
 })
 
 const activeCliRetryState = computed<SoloCliRetryState | null>(() => {
@@ -616,7 +616,7 @@ onMounted(async () => {
         class="empty-state"
       >
         <span v-if="isScopeRunning">{{ selectedStep ? '当前步骤执行中...' : '协调 AI 正在调度...' }}</span>
-        <span v-else>{{ selectedStep ? '选中步骤开始执行后，这里会出现完整日志流程。' : '协调 AI 开始派发步骤后，这里会出现调度日志。' }}</span>
+        <span v-else>{{ selectedStep ? '暂无步骤日志' : '暂无调度日志' }}</span>
       </div>
 
       <div
@@ -677,21 +677,16 @@ onMounted(async () => {
   gap: 0.625rem;
   padding: 0.875rem 1rem;
   border-bottom: 1px solid var(--color-border, #e2e8f0);
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-primary-light, #eff6ff) 44%, #ffffff),
-      color-mix(in srgb, var(--color-surface, #ffffff) 92%, var(--color-bg-secondary, #f8fafc))
-    );
+  background: var(--workspace-control-bg, color-mix(in srgb, var(--color-surface, #ffffff) 92%, var(--color-bg-secondary, #f8fafc)));
 }
 
 .solo-execution-log__summary-eyebrow {
   margin: 0;
   font-size: 0.6875rem;
   font-weight: 600;
-  letter-spacing: 0.14em;
+  letter-spacing: 0;
   text-transform: uppercase;
-  color: var(--color-primary, #2563eb);
+  color: var(--workspace-text-tertiary, var(--color-text-secondary, #64748b));
 }
 
 .solo-execution-log__summary-text {
@@ -736,12 +731,7 @@ onMounted(async () => {
 
 [data-theme='dark'] .solo-execution-log__summary {
   border-bottom-color: rgba(148, 163, 184, 0.14);
-  background:
-    linear-gradient(
-      180deg,
-      rgba(30, 41, 59, 0.92),
-      rgba(15, 23, 42, 0.88)
-    );
+  background: var(--workspace-control-bg, rgba(255, 255, 255, 0.04));
 }
 
 [data-theme='dark'] .solo-execution-log__summary-text {

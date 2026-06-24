@@ -57,21 +57,20 @@ const hasHeader = computed(() => Boolean(props.title || props.description || slo
 .settings-section-card {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-4);
-  padding: var(--spacing-5);
-  border: 1px solid color-mix(in srgb, var(--color-border) 84%, white 16%);
-  border-radius: calc(var(--radius-lg) + 2px);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--color-bg-secondary) 94%, white 6%) 0%, var(--color-bg-secondary) 100%);
-  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.06);
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--workspace-border, color-mix(in srgb, var(--color-border) 84%, white 16%));
+  border-radius: 8px;
+  background: var(--workspace-panel-bg, var(--color-bg-secondary));
+  box-shadow: none;
 }
 
 .settings-section-card__header {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-2);
-  padding-bottom: var(--spacing-3);
-  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 88%, white 12%);
+  gap: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--workspace-border, color-mix(in srgb, var(--color-border) 88%, white 12%));
 }
 
 .settings-section-card__header--split {
@@ -90,16 +89,16 @@ const hasHeader = computed(() => Boolean(props.title || props.description || slo
 
 .settings-section-card__title {
   margin: 0;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-base);
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  font-size: 13px;
   font-weight: var(--font-weight-semibold);
 }
 
 .settings-section-card__description {
   margin: 0;
-  color: var(--color-text-tertiary);
-  font-size: var(--font-size-xs);
-  line-height: 1.6;
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary));
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .settings-section-card__actions {
@@ -112,7 +111,7 @@ const hasHeader = computed(() => Boolean(props.title || props.description || slo
 .settings-section-card__body {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-4);
+  gap: 12px;
 }
 
 @media (max-width: 768px) {

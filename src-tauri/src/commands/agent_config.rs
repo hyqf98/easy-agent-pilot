@@ -161,8 +161,6 @@ fn collect_model_aliases(model_id: &str) -> Vec<String> {
     aliases
 }
 
-fn _unused_legacy_builtin_models() {}
-
 fn is_legacy_codex_builtin_model(model_id: &str) -> bool {
     matches!(
         model_id,
@@ -1100,35 +1098,6 @@ pub fn delete_agent_model(id: String) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     Ok(())
-}
-
-#[allow(dead_code)]
-#[tauri::command]
-pub fn reset_builtin_models(
-    input: CreateBuiltinModelsInput,
-) -> Result<Vec<AgentModelConfig>, String> {
-    let mut conn = open_conn()?;
-
-    let now = now_rfc3339();
-
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
-
-    tx.execute(
-        "DELETE FROM agent_models WHERE agent_id = ?1",
-        [&input.agent_id],
-    )
-    .map_err(|e| e.to_string())?;
-
-    let configs = insert_builtin_models(
-        &tx,
-        &input.agent_id,
-        &now,
-        &build_builtin_models_for_provider(&input.provider),
-    )?;
-
-    tx.commit().map_err(|e| e.to_string())?;
-
-    Ok(configs)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

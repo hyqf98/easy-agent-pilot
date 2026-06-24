@@ -642,13 +642,6 @@ fn get_install_source(plugin_name: &str) -> Option<String> {
     })
 }
 
-fn write_json_file_pretty(path: &Path, value: &JsonValue) -> Result<(), String> {
-    let content = serde_json::to_string_pretty(value)
-        .map_err(|error| format!("Failed to serialize JSON file: {}", error))?;
-    fs::write(path, format!("{}\n", content))
-        .map_err(|error| format!("Failed to write JSON file: {}", error))
-}
-
 fn prune_cli_installed_plugins_file(plugin_dir: &Path) -> Result<(), String> {
     let Some(plugins_dir) = plugin_dir.parent() else {
         return Ok(());
@@ -696,7 +689,7 @@ fn prune_cli_installed_plugins_file(plugin_dir: &Path) -> Result<(), String> {
         }
     }
 
-    write_json_file_pretty(&installed_plugins_path, &json)
+    crate::commands::mcp_shared::write_json_config_pretty(&installed_plugins_path, &json)
 }
 
 fn prune_app_installed_plugins_file(plugin_dir: &Path) -> Result<(), String> {
@@ -736,7 +729,7 @@ fn prune_app_installed_plugins_file(plugin_dir: &Path) -> Result<(), String> {
         !matches_component
     });
 
-    write_json_file_pretty(&installed_plugins_path, &json)
+    crate::commands::mcp_shared::write_json_config_pretty(&installed_plugins_path, &json)
 }
 
 /// 获取 Plugin 详细信息

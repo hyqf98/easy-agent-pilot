@@ -1,92 +1,124 @@
 <script setup lang="ts">
-import { invoke } from '@tauri-apps/api/core'
-import { useThemeStore } from '@/stores/theme'
-import { useUIStore } from '@/stores/ui'
+import { computed } from 'vue'
+import { useUIStore, type AppMode } from '@/stores/ui'
 import { useProjectStore } from '@/stores/project'
 import { useSessionStore } from '@/stores/session'
+import { useAgentStore } from '@/stores/agent'
+import { useAgentTeamsStore } from '@/stores/agentTeams'
+import { resolveExpertRuntime } from '@/services/agentTeams/runtime'
 import { EaIcon } from '@/components/common'
 
-const themeStore = useThemeStore()
 const uiStore = useUIStore()
 const projectStore = useProjectStore()
 const sessionStore = useSessionStore()
+const agentStore = useAgentStore()
+const agentTeamsStore = useAgentTeamsStore()
 
-/**
- * Logo 点击处理：返回欢迎页面
- * - 关闭所有模态框
- * - 清除当前项目选中状态，显示欢迎页面
- */
-function handleLogoClick() {
-  // 关闭所有模态框
-  uiStore.closeSettings()
+const currentProjectName = computed(() => projectStore.currentProject?.name || 'No Repository')
+const currentSessionName = computed(() => sessionStore.currentSession?.name || 'New Agent')
 
-  // 清除当前项目，显示欢迎页面
-  projectStore.setCurrentProject(null)
-  sessionStore.setCurrentSession(null)
-}
+const modeItems: Array<{ mode: AppMode; label: string; icon: string }> = [
+  { mode: 'chat', label: 'Agent', icon: 'bot' },
+  { mode: 'plan', label: 'Plan', icon: 'clipboard-list' },
+  { mode: 'solo', label: 'SOLO', icon: 'sparkles' },
+  { mode: 'memory', label: 'Memory', icon: 'database' }
+]
 
-/**
- * 切换迷你面板显示状态
- * - 复用 Tauri 侧现有的 mini panel 显示/隐藏命令
- * - 后端负责在打开迷你面板时最小化主窗口，关闭时恢复主窗口
- */
-async function handleToggleMiniPanel() {
-  try {
-    await invoke('toggle_mini_panel')
-  } catch (error) {
-    console.error('Failed to toggle mini panel:', error)
+function setMode(mode: AppMode) {
+  uiStore.setAppMode(mode)
+  if (mode === 'chat') {
+    uiStore.setMainContentMode('chat')
   }
 }
+
+async function handleCreateAgent() {
+  const projectId = projectStore.currentProjectId || projectStore.projects[0]?.id
+  if (!projectId) {
+    uiStore.openProjectCreateModal()
+    return
+  }
+
+  projectStore.setCurrentProject(projectId)
+  await Promise.all([
+    agentStore.loadAgents(),
+    agentTeamsStore.loadExperts(true)
+  ])
+
+  const expert = agentTeamsStore.builtinGeneralExpert || agentTeamsStore.enabledExperts[0] || null
+  const runtime = resolveExpertRuntime(expert, agentStore.agents)
+  const session = await sessionStore.createSession({
+    projectId,
+    name: '',
+    expertId: expert?.id,
+    agentId: runtime?.agent.id,
+    agentType: runtime?.agent.provider || runtime?.agent.type || 'claude',
+    status: 'idle'
+  })
+
+  projectStore.incrementSessionCount(projectId)
+  setMode('chat')
+  await sessionStore.openSession(session.id)
+}
+
 </script>
 
 <template>
-  <header class="app-header">
-    <div class="app-header__left">
-      <div
-        class="app-logo"
-        title="返回欢迎页面"
-        @click="handleLogoClick"
+  <header class="workspace-topbar">
+    <div class="workspace-topbar__left">
+      <button
+        class="workspace-topbar__new-agent"
+        type="button"
+        @click="handleCreateAgent"
       >
         <EaIcon
-          name="bot"
-          :size="24"
+          name="plus"
+          :size="14"
         />
+        <span>New Agent</span>
+      </button>
+
+      <div class="workspace-topbar__crumbs">
+        <span class="workspace-topbar__project">{{ currentProjectName }}</span>
+        <EaIcon
+          name="chevron-right"
+          :size="12"
+        />
+        <span class="workspace-topbar__session">{{ currentSessionName }}</span>
       </div>
     </div>
 
-    <div class="app-header__right">
+    <nav
+      class="workspace-topbar__modes"
+      aria-label="Workspace modes"
+    >
       <button
-        class="header-btn"
-        title="切换迷你面板"
-        @click="handleToggleMiniPanel"
+        v-for="item in modeItems"
+        :key="item.mode"
+        type="button"
+        class="workspace-topbar__mode"
+        :class="{ 'workspace-topbar__mode--active': uiStore.appMode === item.mode }"
+        :title="item.label"
+        :aria-label="item.label"
+        @click="setMode(item.mode)"
       >
         <EaIcon
-          name="panel-left-open"
-          :size="18"
+          :name="item.icon"
+          :size="14"
         />
+        <span class="workspace-topbar__mode-label">{{ item.label }}</span>
       </button>
+    </nav>
 
-      <!-- 主题切换 -->
+    <div class="workspace-topbar__right">
       <button
-        class="header-btn"
-        title="切换主题"
-        @click="themeStore.toggleTheme()"
-      >
-        <EaIcon
-          :name="themeStore.isDark ? 'sun' : 'moon'"
-          :size="18"
-        />
-      </button>
-
-      <!-- 设置按钮 -->
-      <button
-        class="header-btn"
+        class="workspace-topbar__icon"
+        type="button"
         title="设置"
         @click="uiStore.openSettings()"
       >
         <EaIcon
           name="settings"
-          :size="18"
+          :size="16"
         />
       </button>
     </div>
@@ -94,57 +126,133 @@ async function handleToggleMiniPanel() {
 </template>
 
 <style scoped>
-.app-header {
-  display: flex;
+.workspace-topbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto minmax(160px, 1fr);
   align-items: center;
-  justify-content: space-between;
-  height: var(--header-height);
-  padding: 0 var(--spacing-4);
-  background-color: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
+  gap: 10px;
+  height: var(--workspace-topbar-height);
+  padding: 0 10px;
+  background: var(--workspace-topbar-bg);
+  border-bottom: 1px solid var(--workspace-border);
   flex-shrink: 0;
 }
 
-.app-header__left,
-.app-header__right {
-  display: flex;
+.workspace-topbar__left,
+.workspace-topbar__right,
+.workspace-topbar__modes,
+.workspace-topbar__crumbs,
+.workspace-topbar__new-agent,
+.workspace-topbar__mode,
+.workspace-topbar__icon {
+  display: inline-flex;
   align-items: center;
-  gap: var(--spacing-2);
 }
 
-.app-logo {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-2);
-  color: var(--color-primary);
-  font-weight: var(--font-weight-semibold);
-  cursor: pointer;
-  padding: var(--spacing-1) var(--spacing-2);
-  border-radius: var(--radius-md);
-  transition: background-color var(--transition-fast) var(--easing-default);
+.workspace-topbar__left {
+  justify-content: flex-start;
+  min-width: 0;
+  gap: 8px;
 }
 
-.app-logo:hover {
-  background-color: var(--color-surface-hover);
+.workspace-topbar__right {
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
 }
 
-.header-btn {
-  display: flex;
-  align-items: center;
+.workspace-topbar__new-agent {
+  gap: 7px;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--workspace-control-border);
+  border-radius: 8px;
+  background: var(--workspace-control-bg);
+  color: var(--workspace-text-primary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.workspace-topbar__new-agent:hover,
+.workspace-topbar__mode:hover,
+.workspace-topbar__icon:hover {
+  background: var(--workspace-control-hover-bg);
+  color: var(--workspace-text-primary);
+}
+
+.workspace-topbar__crumbs {
+  min-width: 0;
+  gap: 6px;
+  color: var(--workspace-text-tertiary);
+  font-size: 12px;
+}
+
+.workspace-topbar__project,
+.workspace-topbar__session {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-topbar__project {
+  max-width: 160px;
+}
+
+.workspace-topbar__session {
+  max-width: 220px;
+  color: var(--workspace-text-secondary);
+}
+
+.workspace-topbar__modes {
+  justify-self: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--workspace-control-border);
+  border-radius: 8px;
+  background: var(--workspace-segment-bg);
+}
+
+.workspace-topbar__mode {
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-md);
-  color: var(--color-text-secondary);
-  transition: all var(--transition-fast) var(--easing-default);
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 6px;
+  color: var(--workspace-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
 }
 
-.header-btn:hover {
-  background-color: var(--color-surface-hover);
-  color: var(--color-text-primary);
+.workspace-topbar__mode-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
-.header-btn:active {
-  background-color: var(--color-surface-active);
+.workspace-topbar__mode--active {
+  background: var(--workspace-control-active-bg);
+  color: var(--workspace-text-primary);
+  box-shadow: var(--workspace-control-active-shadow);
+}
+
+.workspace-topbar__icon {
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  color: var(--workspace-text-secondary);
+}
+
+@media (max-width: 1080px) {
+  .workspace-topbar {
+    grid-template-columns: minmax(180px, 1fr) auto auto;
+  }
+
+  .workspace-topbar__crumbs {
+    display: none;
+  }
 }
 </style>

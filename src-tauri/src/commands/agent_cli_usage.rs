@@ -24,6 +24,8 @@ pub struct RecordAgentCliUsageInput {
     pub message_id: Option<String>,
     pub input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
+    pub cache_read_input_tokens: Option<i64>,
+    pub cache_creation_input_tokens: Option<i64>,
     pub occurred_at: Option<String>,
 }
 
@@ -78,6 +80,8 @@ pub struct AgentCliUsageSummary {
     pub input_tokens: i64,
     pub output_tokens: i64,
     pub total_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_creation_tokens: i64,
     pub estimated_total_cost_usd: f64,
     pub unpriced_calls: i64,
 }
@@ -92,6 +96,8 @@ pub struct AgentCliUsageTimelinePoint {
     pub input_tokens: i64,
     pub output_tokens: i64,
     pub total_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_creation_tokens: i64,
     pub estimated_total_cost_usd: f64,
 }
 
@@ -597,6 +603,8 @@ pub fn record_agent_cli_usage(
         message_id,
         input_tokens,
         output_tokens,
+        cache_read_input_tokens,
+        cache_creation_input_tokens,
         occurred_at,
     } = input;
     let occurred_at = normalize_optional_text(occurred_at).unwrap_or_else(|| now.clone());
@@ -604,6 +612,8 @@ pub fn record_agent_cli_usage(
     let input_tokens = input_tokens.unwrap_or(0).max(0);
     let output_tokens = output_tokens.unwrap_or(0).max(0);
     let total_tokens = input_tokens + output_tokens;
+    let cache_read_input_tokens = cache_read_input_tokens.unwrap_or(0).max(0);
+    let cache_creation_input_tokens = cache_creation_input_tokens.unwrap_or(0).max(0);
     let model_id = normalize_optional_text(model_id);
     let agent_id = normalize_reference_id(&conn, "agents", agent_id)?;
     let project_id = normalize_reference_id(&conn, "projects", project_id)?;
@@ -618,13 +628,15 @@ pub fn record_agent_cli_usage(
         INSERT INTO agent_cli_usage_records (
             execution_id, execution_mode, provider, agent_id, agent_name_snapshot, model_id,
             project_id, session_id, task_id, message_id, input_tokens, output_tokens, total_tokens,
+            cache_read_input_tokens, cache_creation_input_tokens,
             call_count, estimated_input_cost_usd, estimated_output_cost_usd, estimated_total_cost_usd,
             pricing_status, pricing_version, occurred_at, created_at
         ) VALUES (
             ?1, ?2, ?3, ?4, ?5, ?6,
             ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-            1, ?14, ?15, ?16,
-            ?17, ?18, ?19, ?20
+            ?14, ?15,
+            1, ?16, ?17, ?18,
+            ?19, ?20, ?21, ?22
         )
         ON CONFLICT(execution_id) DO UPDATE SET
             execution_mode = excluded.execution_mode,
@@ -639,6 +651,8 @@ pub fn record_agent_cli_usage(
             input_tokens = excluded.input_tokens,
             output_tokens = excluded.output_tokens,
             total_tokens = excluded.total_tokens,
+            cache_read_input_tokens = excluded.cache_read_input_tokens,
+            cache_creation_input_tokens = excluded.cache_creation_input_tokens,
             call_count = excluded.call_count,
             estimated_input_cost_usd = excluded.estimated_input_cost_usd,
             estimated_output_cost_usd = excluded.estimated_output_cost_usd,
@@ -661,6 +675,8 @@ pub fn record_agent_cli_usage(
             input_tokens,
             output_tokens,
             total_tokens,
+            cache_read_input_tokens,
+            cache_creation_input_tokens,
             pricing.estimated_input_cost_usd,
             pricing.estimated_output_cost_usd,
             pricing.estimated_total_cost_usd,
@@ -738,6 +754,8 @@ pub fn query_agent_cli_usage_stats(
             COALESCE(SUM(input_tokens), 0),
             COALESCE(SUM(output_tokens), 0),
             COALESCE(SUM(total_tokens), 0),
+            COALESCE(SUM(cache_read_input_tokens), 0),
+            COALESCE(SUM(cache_creation_input_tokens), 0),
             COALESCE(SUM(estimated_total_cost_usd), 0),
             COALESCE(SUM(CASE WHEN pricing_status != 'estimated' THEN call_count ELSE 0 END), 0)
         FROM agent_cli_usage_records
@@ -753,8 +771,10 @@ pub fn query_agent_cli_usage_stats(
                 input_tokens: row.get(1)?,
                 output_tokens: row.get(2)?,
                 total_tokens: row.get(3)?,
-                estimated_total_cost_usd: row.get(4)?,
-                unpriced_calls: row.get(5)?,
+                cache_read_tokens: row.get(4)?,
+                cache_creation_tokens: row.get(5)?,
+                estimated_total_cost_usd: row.get(6)?,
+                unpriced_calls: row.get(7)?,
             })
         })
         .map_err(|error| error.to_string())?;
@@ -767,6 +787,8 @@ pub fn query_agent_cli_usage_stats(
             COALESCE(SUM(input_tokens), 0),
             COALESCE(SUM(output_tokens), 0),
             COALESCE(SUM(total_tokens), 0),
+            COALESCE(SUM(cache_read_input_tokens), 0),
+            COALESCE(SUM(cache_creation_input_tokens), 0),
             COALESCE(SUM(estimated_total_cost_usd), 0)
         FROM agent_cli_usage_records
         WHERE {where_clause}
@@ -788,7 +810,9 @@ pub fn query_agent_cli_usage_stats(
                 input_tokens: row.get(2)?,
                 output_tokens: row.get(3)?,
                 total_tokens: row.get(4)?,
-                estimated_total_cost_usd: row.get(5)?,
+                cache_read_tokens: row.get(5)?,
+                cache_creation_tokens: row.get(6)?,
+                estimated_total_cost_usd: row.get(7)?,
             })
         })
         .map_err(|error| error.to_string())?

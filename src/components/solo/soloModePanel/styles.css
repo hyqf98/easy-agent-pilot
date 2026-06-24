@@ -3,7 +3,7 @@
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
   height: 100%;
-  background: var(--color-bg-secondary);
+  background: var(--workspace-stage-bg, var(--color-bg-secondary));
   overflow: hidden;
 }
 
@@ -19,7 +19,8 @@
 }
 
 .solo-mode-panel__list {
-  border-right: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
+  border-right: 1px solid var(--workspace-border, color-mix(in srgb, var(--color-border) 82%, transparent));
+  background: var(--workspace-sidebar-bg, var(--color-bg-secondary));
 }
 
 .solo-mode-panel__list,
@@ -32,12 +33,12 @@
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  padding: 14px;
-  gap: 10px;
+  padding: 10px;
+  gap: 8px;
 }
 
 .solo-mode-panel__main--with-log {
-  border-right: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
+  border-right: 1px solid var(--workspace-border, color-mix(in srgb, var(--color-border) 82%, transparent));
 }
 
 .solo-mode-panel__log {
@@ -48,13 +49,8 @@
   position: relative;
   min-width: 280px;
   max-width: 620px;
-  border-left: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-surface) 96%, white 4%) 0%,
-      color-mix(in srgb, var(--color-surface) 92%, var(--color-bg-secondary) 8%) 100%
-    );
+  border-left: 1px solid var(--workspace-border, color-mix(in srgb, var(--color-border) 82%, transparent));
+  background: var(--workspace-panel-bg, var(--color-surface));
 }
 
 .solo-mode-panel__log-resizer {
@@ -115,7 +111,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 40px;
+  padding: 28px;
   text-align: center;
 }
 
@@ -139,10 +135,12 @@
 .solo-run-header,
 .solo-summary-card,
 .solo-brief-card,
-.solo-timeline {
-  border: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
-  background: color-mix(in srgb, var(--color-surface) 96%, transparent);
-  border-radius: 26px;
+.solo-timeline,
+.solo-run-strip,
+.solo-run-context {
+  border: 1px solid var(--workspace-border, color-mix(in srgb, var(--color-border) 82%, transparent));
+  background: var(--workspace-panel-bg, color-mix(in srgb, var(--color-surface) 96%, transparent));
+  border-radius: 8px;
 }
 
 .solo-run-header {
@@ -150,7 +148,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 10px 14px;
+  padding: 8px 10px;
 }
 
 .solo-run-header__meta {
@@ -182,9 +180,9 @@
 }
 
 .solo-run-header__button {
-  padding: 9px 14px;
+  padding: 6px 9px;
   border: none;
-  border-radius: 999px;
+  border-radius: 6px;
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;
@@ -192,7 +190,7 @@
 
 .solo-run-header__button--primary {
   color: white;
-  background: linear-gradient(135deg, color-mix(in srgb, var(--color-primary) 82%, white) 0%, var(--color-primary) 100%);
+  background: var(--workspace-text-primary, var(--color-primary));
 }
 
 .solo-run-header__button--secondary {
@@ -206,8 +204,109 @@
 }
 
 .solo-run-header__button--ghost {
-  background: color-mix(in srgb, var(--color-surface-hover) 82%, transparent);
-  color: var(--color-text-primary);
+  background: var(--workspace-control-bg, color-mix(in srgb, var(--color-surface-hover) 82%, transparent));
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  border: 1px solid var(--workspace-control-border, transparent);
+}
+
+.solo-run-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 10px;
+  align-items: center;
+}
+
+.solo-run-strip__main {
+  min-width: 0;
+}
+
+.solo-run-strip__title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.solo-run-strip__title-row h2 {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.solo-run-strip__status,
+.solo-run-strip__metrics span,
+.solo-run-context__chips span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: var(--workspace-control-bg, color-mix(in srgb, var(--color-surface-hover) 82%, transparent));
+  border: 1px solid var(--workspace-control-border, transparent);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.solo-run-strip__status {
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+.solo-run-strip__main p {
+  margin: 4px 0 0;
+  overflow: hidden;
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+  font-size: 12px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.solo-run-strip__metrics,
+.solo-run-context__chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.solo-run-context {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(220px, 0.7fr);
+  gap: 0;
+  overflow: hidden;
+}
+
+.solo-run-context section {
+  min-width: 0;
+  padding: 9px 10px;
+  border-right: 1px solid var(--workspace-border, var(--color-border));
+}
+
+.solo-run-context section:last-child {
+  border-right: 0;
+}
+
+.solo-run-context section > span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary));
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.solo-run-context p {
+  margin: 0;
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .solo-run-header__button:disabled {
@@ -425,7 +524,7 @@
 }
 
 .solo-timeline {
-  padding: 12px;
+  padding: 10px;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -448,8 +547,8 @@
 
 .solo-timeline__header h3 {
   margin: 0;
-  font-size: 18px;
-  color: var(--color-text-primary);
+  font-size: 13px;
+  color: var(--workspace-text-primary, var(--color-text-primary));
 }
 
 .solo-timeline__header p {
@@ -528,10 +627,10 @@
 }
 
 .solo-step-card__surface {
-  padding: 16px 16px 14px;
-  border-radius: 20px;
-  border: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
-  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--workspace-border, color-mix(in srgb, var(--color-border) 82%, transparent));
+  background: var(--workspace-control-bg, color-mix(in srgb, var(--color-surface) 92%, transparent));
   transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
 
@@ -540,8 +639,8 @@
 }
 
 .solo-step-card--active .solo-step-card__surface {
-  border-color: color-mix(in srgb, var(--color-primary) 52%, var(--color-border) 48%);
-  box-shadow: 0 18px 30px color-mix(in srgb, var(--color-primary) 12%, transparent);
+  border-color: var(--workspace-border-strong, color-mix(in srgb, var(--color-primary) 52%, var(--color-border) 48%));
+  box-shadow: none;
 }
 
 .solo-step-card--completed .solo-step-card__marker {
@@ -553,11 +652,7 @@
 }
 
 .solo-step-card--coordinator .solo-step-card__surface {
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--color-primary-light, #eff6ff) 48%, var(--color-surface)),
-    color-mix(in srgb, var(--color-surface) 92%, transparent)
-  );
+  background: var(--workspace-list-active-bg, color-mix(in srgb, var(--color-primary-light, #eff6ff) 48%, var(--color-surface)));
 }
 
 .solo-step-card__marker--coordinator {
@@ -619,7 +714,7 @@
 
 .solo-step-card__top h4 {
   margin: 4px 0 0;
-  font-size: 16px;
+  font-size: 13px;
   color: var(--color-text-primary);
   line-height: 1.4;
   word-break: break-word;
@@ -637,9 +732,9 @@
 }
 
 .solo-step-card__summary {
-  margin: 10px 0 12px;
-  font-size: 13px;
-  line-height: 1.62;
+  margin: 7px 0 8px;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--color-text-secondary);
 }
 

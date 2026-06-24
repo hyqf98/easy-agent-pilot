@@ -120,33 +120,6 @@ fn set_process_env_var(key: &str, value: Option<&str>) {
     }
 }
 
-fn copy_directory_recursive(source: &Path, target: &Path) -> Result<(), String> {
-    if !source.exists() {
-        return Ok(());
-    }
-
-    fs::create_dir_all(target).map_err(|e| e.to_string())?;
-
-    for entry in fs::read_dir(source).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let source_path = entry.path();
-        let target_path = target.join(entry.file_name());
-
-        if source_path.is_dir() {
-            copy_directory_recursive(&source_path, &target_path)?;
-            continue;
-        }
-
-        if let Some(parent) = target_path.parent() {
-            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-
-        fs::copy(&source_path, &target_path).map_err(|e| e.to_string())?;
-    }
-
-    Ok(())
-}
-
 fn copy_file_if_exists(source_root: &Path, target_root: &Path, relative_path: &str) -> Result<(), String> {
     let source_path = source_root.join(relative_path);
     if !source_path.exists() {
@@ -188,7 +161,10 @@ fn sync_codex_runtime_home_from_user_home() -> Result<(), String> {
             continue;
         }
 
-        copy_directory_recursive(&source_path, &runtime_home.join(relative_path))?;
+        let _ = crate::commands::fs_shared::copy_dir_recursive(
+            &source_path,
+            &runtime_home.join(relative_path),
+        )?;
     }
 
     Ok(())
@@ -1810,14 +1786,6 @@ fn format_provider_display_name(id: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[allow(dead_code)]
-pub struct ConfiguredOpenCodeModelInfo {
-    pub model_name: String,
-    pub context_window: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
