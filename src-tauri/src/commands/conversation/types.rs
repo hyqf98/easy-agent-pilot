@@ -19,6 +19,7 @@ pub struct McpServerConfig {
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionRequest {
     pub session_id: String,
+    pub request_id: String,
     pub plan_id: Option<String>,
     pub acp_command: String,
     pub messages: Vec<MessageInput>,
@@ -44,6 +45,8 @@ pub struct StreamEvent {
     #[serde(rename = "type")]
     pub event_type: String,
     pub session_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -133,6 +133,7 @@ fn resolve_permission_outcome(
 
 fn build_permission_event(
     session_id: &str,
+    request_id: &str,
     tool_title: &str,
     options: &[agent_client_protocol::schema::PermissionOption],
     outcome: &RequestPermissionOutcome,
@@ -152,6 +153,7 @@ fn build_permission_event(
     AcpStreamEvent {
         event_type: "permission_request".to_string(),
         session_id: session_id.to_string(),
+        request_id: Some(request_id.to_string()),
         content: Some(format!(
             "Permission: {} -> {}",
             tool_title, outcome_str
@@ -204,10 +206,11 @@ fn build_prompt_from_messages(messages: &[super::super::types::MessageInput]) ->
     parts.join("\n\n")
 }
 
-fn build_done_event(session_id: &str) -> AcpStreamEvent {
+fn build_done_event(session_id: &str, request_id: &str) -> AcpStreamEvent {
     AcpStreamEvent {
         event_type: "done".to_string(),
         session_id: session_id.to_string(),
+        request_id: Some(request_id.to_string()),
         content: None,
         tool_name: None,
         tool_call_id: None,
@@ -225,10 +228,11 @@ fn build_done_event(session_id: &str) -> AcpStreamEvent {
     }
 }
 
-fn build_thinking_event(session_id: &str, content: String) -> AcpStreamEvent {
+fn build_thinking_event(session_id: &str, request_id: &str, content: String) -> AcpStreamEvent {
     AcpStreamEvent {
         event_type: "thinking".to_string(),
         session_id: session_id.to_string(),
+        request_id: Some(request_id.to_string()),
         content: Some(content),
         tool_name: None,
         tool_call_id: None,
@@ -248,6 +252,7 @@ fn build_thinking_event(session_id: &str, content: String) -> AcpStreamEvent {
 
 fn build_tool_use_event(
     session_id: &str,
+    request_id: &str,
     tool_call_id: String,
     title: String,
     tool_input: String,
@@ -255,6 +260,7 @@ fn build_tool_use_event(
     AcpStreamEvent {
         event_type: "tool_use".to_string(),
         session_id: session_id.to_string(),
+        request_id: Some(request_id.to_string()),
         content: None,
         tool_name: Some(title),
         tool_call_id: Some(tool_call_id),
@@ -274,12 +280,14 @@ fn build_tool_use_event(
 
 fn build_tool_result_event(
     session_id: &str,
+    request_id: &str,
     tool_call_id: String,
     tool_result: Option<String>,
 ) -> AcpStreamEvent {
     AcpStreamEvent {
         event_type: "tool_result".to_string(),
         session_id: session_id.to_string(),
+        request_id: Some(request_id.to_string()),
         content: None,
         tool_name: None,
         tool_call_id: Some(tool_call_id),
@@ -297,10 +305,11 @@ fn build_tool_result_event(
     }
 }
 
-fn build_session_started_event(session_id: &str, external_sid: String) -> AcpStreamEvent {
+fn build_session_started_event(session_id: &str, request_id: &str, external_sid: String) -> AcpStreamEvent {
     AcpStreamEvent {
         event_type: "session_started".to_string(),
         session_id: session_id.to_string(),
+        request_id: Some(request_id.to_string()),
         content: None,
         tool_name: None,
         tool_call_id: None,
@@ -318,10 +327,11 @@ fn build_session_started_event(session_id: &str, external_sid: String) -> AcpStr
     }
 }
 
-fn build_plan_event(session_id: &str, plan_json: String) -> AcpStreamEvent {
+fn build_plan_event(session_id: &str, request_id: &str, plan_json: String) -> AcpStreamEvent {
     AcpStreamEvent {
         event_type: "plan".to_string(),
         session_id: session_id.to_string(),
+        request_id: Some(request_id.to_string()),
         content: Some(plan_json),
         tool_name: None,
         tool_call_id: None,
@@ -362,6 +372,7 @@ fn extract_prompt_usage(response: &PromptResponse) -> PromptUsageSnapshot {
 
 fn build_usage_event(
     session_id: &str,
+    request_id: &str,
     input_tokens: Option<u32>,
     output_tokens: Option<u32>,
     cache_read_input_tokens: Option<u32>,
@@ -371,6 +382,7 @@ fn build_usage_event(
     AcpStreamEvent {
         event_type: "usage".to_string(),
         session_id: session_id.to_string(),
+        request_id: Some(request_id.to_string()),
         content: cost,
         tool_name: None,
         tool_call_id: None,
@@ -433,6 +445,7 @@ impl AgentExecutionStrategy for AcpStrategy {
 
     async fn execute(&self, app: AppHandle, request: ExecutionRequest) -> Result<()> {
         let session_id = request.session_id.clone();
+        let request_id = request.request_id.clone();
         let event_name = AgentRuntimeKind::Acp.event_name(&session_id);
         let _plan_id = request.plan_id.clone();
         let acp_command = resolve_acp_command(&request.acp_command.clone());
@@ -450,7 +463,7 @@ impl AgentExecutionStrategy for AcpStrategy {
 
         let _ = app.emit(
             &event_name,
-            &build_system_event(&session_id, "Connecting to agent via ACP...".to_string()),
+            &build_system_event(&session_id, &request_id, "Connecting to agent via ACP...".to_string()),
         );
 
         let agent = match AcpAgent::from_str(&acp_command) {
@@ -458,7 +471,7 @@ impl AgentExecutionStrategy for AcpStrategy {
             Err(e) => {
                 let error_msg = format!("Failed to parse ACP command '{}': {}", acp_command, e);
                 log_error!("{}", error_msg);
-                let _ = app.emit(&event_name, &build_error_event(&session_id, error_msg.clone()));
+                let _ = app.emit(&event_name, &build_error_event(&session_id, &request_id, error_msg.clone()));
                 return Err(anyhow::anyhow!(error_msg));
             }
         };
@@ -473,12 +486,13 @@ impl AgentExecutionStrategy for AcpStrategy {
         if prompt_text.trim().is_empty() {
             let error_msg = "No prompt content provided".to_string();
             log_error!("{}", error_msg);
-            let _ = app.emit(&event_name, &build_error_event(&session_id, error_msg.clone()));
+            let _ = app.emit(&event_name, &build_error_event(&session_id, &request_id, error_msg.clone()));
             return Err(anyhow::anyhow!(error_msg));
         }
 
         let app_for_handler = app.clone();
         let session_id_for_handler = session_id.clone();
+        let request_id_for_handler = request_id.clone();
         let event_name_for_handler = event_name.clone();
 
         #[allow(unused_assignments)]
@@ -501,6 +515,7 @@ impl AgentExecutionStrategy for AcpStrategy {
                         &event_name_for_handler,
                         &build_permission_event(
                             &session_id_for_handler,
+                            &request_id_for_handler,
                             &tool_title,
                             &request.options,
                             &outcome,
@@ -554,7 +569,7 @@ impl AgentExecutionStrategy for AcpStrategy {
                 log_info!("ACP session started | session_id={}", session_id);
 
                 let external_sid = session.session_id().to_string();
-                let _ = app.emit(&event_name, &build_session_started_event(&session_id, external_sid));
+                let _ = app.emit(&event_name, &build_session_started_event(&session_id, &request_id, external_sid));
 
                 // Bypass session.send_prompt() to retain PromptResponse.usage
                 // (send_prompt discards it via `let PromptResponse { stop_reason, .. }`).
@@ -588,7 +603,7 @@ impl AgentExecutionStrategy for AcpStrategy {
                         log_info!("ACP abort requested | session_id={}", session_id);
                         let _ = app.emit(
                             &event_name,
-                            &build_system_event(&session_id, "Execution cancelled by user.".to_string()),
+                            &build_system_event(&session_id, &request_id, "Execution cancelled by user.".to_string()),
                         );
                         break;
                     }
@@ -607,7 +622,7 @@ impl AgentExecutionStrategy for AcpStrategy {
                             now,
                         );
                         log_error!("{}", error_msg);
-                        let _ = app.emit(&event_name, &build_error_event(&session_id, error_msg.clone()));
+                        let _ = app.emit(&event_name, &build_error_event(&session_id, &request_id, error_msg.clone()));
                         break;
                     }
 
@@ -629,7 +644,7 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                             };
                                                             let _ = app.emit(
                                                                 &event_name,
-                                                                &build_content_event(&session_id, text),
+                                                                &build_content_event(&session_id, &request_id, text),
                                                             );
                                                         }
                                                         SessionUpdate::AgentThoughtChunk(chunk) => {
@@ -639,7 +654,7 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                             };
                                                             let _ = app.emit(
                                                                 &event_name,
-                                                                &build_thinking_event(&session_id, text),
+                                                                &build_thinking_event(&session_id, &request_id, text),
                                                             );
                                                         }
                                                         SessionUpdate::ToolCall(tool_call) => {
@@ -651,6 +666,7 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                                 &event_name,
                                                                 &build_tool_use_event(
                                                                     &session_id,
+                                                                    &request_id,
                                                                     tool_call.tool_call_id.to_string(),
                                                                     tool_call.title,
                                                                     tool_input_str,
@@ -665,6 +681,7 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                                 &event_name,
                                                                 &build_tool_result_event(
                                                                     &session_id,
+                                                                    &request_id,
                                                                     tool_update.tool_call_id.to_string(),
                                                                     result_text,
                                                                 ),
@@ -675,7 +692,7 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                                 .unwrap_or_default();
                                                             let _ = app.emit(
                                                                 &event_name,
-                                                                &build_plan_event(&session_id, plan_json),
+                                                                &build_plan_event(&session_id, &request_id, plan_json),
                                                             );
                                                         }
                                                         SessionUpdate::UsageUpdate(usage) => {
@@ -687,6 +704,7 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                                 &AcpStreamEvent {
                                                                     event_type: "context_window".to_string(),
                                                                     session_id: session_id.clone(),
+                                                                    request_id: Some(request_id.clone()),
                                                                     content: cost_str,
                                                                     tool_name: None,
                                                                     tool_call_id: None,
@@ -765,7 +783,7 @@ impl AgentExecutionStrategy for AcpStrategy {
                                         log_error!("ACP read error | session_id={} | error={}", session_id, error_str);
                                         let _ = app.emit(
                                             &event_name,
-                                            &build_error_event(&session_id, format!("ACP session error: {}", error_str)),
+                                            &build_error_event(&session_id, &request_id, format!("ACP session error: {}", error_str)),
                                         );
                                     }
                                     break;
@@ -786,6 +804,7 @@ impl AgentExecutionStrategy for AcpStrategy {
                                 &event_name,
                                 &build_usage_event(
                                     &session_id,
+                                    &request_id,
                                     snapshot.input_tokens,
                                     snapshot.output_tokens,
                                     snapshot.cache_read_input_tokens,
@@ -808,7 +827,7 @@ impl AgentExecutionStrategy for AcpStrategy {
         unregister_session_pid(&session_id).await;
         clear_abort_flag(&session_id).await;
 
-        let _ = app.emit(&event_name, &build_done_event(&session_id));
+        let _ = app.emit(&event_name, &build_done_event(&session_id, &request_id));
         log_info!("ACP execution completed | session_id={}", session_id);
 
         result.map_err(|e| anyhow::anyhow!("ACP execution failed: {}", e))
@@ -1067,7 +1086,7 @@ mod tests {
     fn build_permission_event_selected_contains_tool_and_outcome() {
         let opts = standard_options();
         let outcome = resolve_permission_outcome("allow_always", &opts);
-        let ev = build_permission_event("sess-1", "Bash(exec)", &opts, &outcome);
+        let ev = build_permission_event("sess-1", "req-1", "Bash(exec)", &opts, &outcome);
         assert_eq!(ev.event_type, "permission_request");
         assert_eq!(ev.session_id, "sess-1");
         assert_eq!(ev.tool_name.as_deref(), Some("Bash(exec)"));
@@ -1078,7 +1097,7 @@ mod tests {
 
     #[test]
     fn build_permission_event_cancelled_contains_cancelled() {
-        let ev = build_permission_event("sess-1", "Bash(exec)", &[], &RequestPermissionOutcome::Cancelled);
+        let ev = build_permission_event("sess-1", "req-1", "Bash(exec)", &[], &RequestPermissionOutcome::Cancelled);
         let content = ev.content.as_deref().unwrap_or("");
         assert!(content.contains("cancelled"), "content={}", content);
     }
@@ -1186,7 +1205,7 @@ mod tests {
 
     #[test]
     fn build_usage_event_carries_token_fields() {
-        let ev = build_usage_event("s1", Some(10), Some(20), Some(5), Some(2), Some("0.01".to_string()));
+        let ev = build_usage_event("s1", "req-1", Some(10), Some(20), Some(5), Some(2), Some("0.01".to_string()));
         assert_eq!(ev.event_type, "usage");
         assert_eq!(ev.input_tokens, Some(10));
         assert_eq!(ev.output_tokens, Some(20));
@@ -1197,7 +1216,7 @@ mod tests {
 
     #[test]
     fn build_tool_use_event_fields() {
-        let ev = build_tool_use_event("s1", "call-1".to_string(), "Bash".to_string(), "{}".to_string());
+        let ev = build_tool_use_event("s1", "req-1", "call-1".to_string(), "Bash".to_string(), "{}".to_string());
         assert_eq!(ev.event_type, "tool_use");
         assert_eq!(ev.tool_name.as_deref(), Some("Bash"));
         assert_eq!(ev.tool_call_id.as_deref(), Some("call-1"));
@@ -1207,7 +1226,7 @@ mod tests {
 
     #[test]
     fn build_tool_result_event_fields() {
-        let ev = build_tool_result_event("s1", "call-1".to_string(), Some("ok".to_string()));
+        let ev = build_tool_result_event("s1", "req-1", "call-1".to_string(), Some("ok".to_string()));
         assert_eq!(ev.event_type, "tool_result");
         assert_eq!(ev.tool_call_id.as_deref(), Some("call-1"));
         assert_eq!(ev.tool_result.as_deref(), Some("ok"));
@@ -1216,14 +1235,14 @@ mod tests {
 
     #[test]
     fn build_session_started_event_carries_external_id() {
-        let ev = build_session_started_event("s1", "ext-abc".to_string());
+        let ev = build_session_started_event("s1", "req-1", "ext-abc".to_string());
         assert_eq!(ev.event_type, "session_started");
         assert_eq!(ev.external_session_id.as_deref(), Some("ext-abc"));
     }
 
     #[test]
     fn build_done_event_is_terminal() {
-        let ev = build_done_event("s1");
+        let ev = build_done_event("s1", "req-1");
         assert_eq!(ev.event_type, "done");
         assert_eq!(ev.session_id, "s1");
         assert!(ev.content.is_none());

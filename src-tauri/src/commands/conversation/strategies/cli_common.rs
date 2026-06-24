@@ -5,10 +5,11 @@ use std::time::{Duration, Instant};
 use crate::commands::conversation::types::AcpStreamEvent;
 use crate::commands::support::open_db_connection;
 
-pub fn build_content_event(session_id: &str, content: String) -> AcpStreamEvent {
+pub fn build_content_event(session_id: &str, request_id: &str, content: String) -> AcpStreamEvent {
     AcpStreamEvent {
         event_type: "content".to_string(),
         session_id: session_id.to_string(),
+        request_id: Some(request_id.to_string()),
         content: Some(content),
         tool_name: None,
         tool_call_id: None,
@@ -26,10 +27,11 @@ pub fn build_content_event(session_id: &str, content: String) -> AcpStreamEvent 
     }
 }
 
-pub fn build_error_event(session_id: &str, error: String) -> AcpStreamEvent {
+pub fn build_error_event(session_id: &str, request_id: &str, error: String) -> AcpStreamEvent {
     AcpStreamEvent {
         event_type: "error".to_string(),
         session_id: session_id.to_string(),
+        request_id: Some(request_id.to_string()),
         content: None,
         tool_name: None,
         tool_call_id: None,
@@ -47,10 +49,11 @@ pub fn build_error_event(session_id: &str, error: String) -> AcpStreamEvent {
     }
 }
 
-pub fn build_system_event(session_id: &str, content: String) -> AcpStreamEvent {
+pub fn build_system_event(session_id: &str, request_id: &str, content: String) -> AcpStreamEvent {
     AcpStreamEvent {
         event_type: "system".to_string(),
         session_id: session_id.to_string(),
+        request_id: Some(request_id.to_string()),
         content: Some(content),
         tool_name: None,
         tool_call_id: None,
