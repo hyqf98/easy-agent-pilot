@@ -763,6 +763,54 @@ const INIT_SQL: &str = r#"
     CREATE INDEX IF NOT EXISTS idx_memory_compressions_memory ON memory_compressions(memory_id);
 "#;
 
+/// 若 messages 表为旧结构（缺少 request_id 列），DROP 后按新结构重建。
+///
+/// 旧结构是"一行一回合"，把 thinking/tool_calls/content 折叠进同一行；
+/// 新结构是"一行一事件"，每种事件（思考/工具/文本/用量/压缩…）各自独立成行。
+/// 历史消息不保留（已确认抛弃旧数据）。
+fn rebuild_messages_if_legacy(conn: &Connection) -> Result<()> {
+    // 新库 messages 表已由 INIT_SQL 按新结构创建，直接跳过
+    if table_has_column(conn, "messages", "request_id")? {
+        return Ok(());
+    }
+    println!("Detected legacy messages schema, rebuilding messages table...");
+    conn.execute_batch(
+        r#"
+        DROP TABLE IF EXISTS messages;
+        CREATE TABLE IF NOT EXISTS messages (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            request_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            message_type TEXT NOT NULL,
+            content TEXT,
+            status TEXT NOT NULL DEFAULT 'completed',
+            tool_call_id TEXT,
+            tool_name TEXT,
+            tool_input TEXT,
+            tool_result TEXT,
+            input_tokens INTEGER,
+            output_tokens INTEGER,
+            cache_read_tokens INTEGER,
+            cache_creation_tokens INTEGER,
+            model TEXT,
+            cost_usd REAL,
+            attachments TEXT,
+            error_message TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            seq INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_messages_session_created ON messages(session_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_messages_request ON messages(request_id);
+        CREATE INDEX IF NOT EXISTS idx_messages_session_type ON messages(session_id, message_type);
+        "#,
+    )?;
+    println!("Messages table rebuilt to one-row-per-event schema.");
+    Ok(())
+}
+
 fn table_has_column(conn: &Connection, table_name: &str, column_name: &str) -> Result<bool> {
     let pragma_sql = format!("PRAGMA table_info({})", table_name);
     let mut stmt = conn.prepare(&pragma_sql)?;
@@ -800,6 +848,10 @@ pub fn init_database() -> Result<()> {
 
     // 执行初始�?SQL
     conn.execute_batch(INIT_SQL)?;
+
+    // messages 表结构升级：旧库为"一行一回合"折叠结构，新结构为"一行一事件"。
+    // 检测旧结构（缺少 request_id 列）时 DROP 重建，历史消息不保留（已确认抛弃旧数据）。
+    rebuild_messages_if_legacy(&conn)?;
 
     // 执行迁移（忽略列已存在的错误�?
     // SQLite 不支�?IF NOT EXISTS 用于 ALTER TABLE ADD COLUMN
