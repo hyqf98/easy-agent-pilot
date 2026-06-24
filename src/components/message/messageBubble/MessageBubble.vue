@@ -120,7 +120,7 @@ const {
       <Transition name="slide-fade">
         <div
           v-if="isAssistant && (message.thinkingActive || message.thinking)"
-          class="message-bubble__thinking"
+          class="message-bubble__thinking message-bubble__stream-segment"
         >
           <ThinkingDisplay
             :thinking="message.thinking || ''"
@@ -131,7 +131,7 @@ const {
       </Transition>
 
       <div
-        class="message-bubble__content"
+        class="message-bubble__content message-bubble__stream-segment"
         :class="{ 'message-bubble__content--form-only': isAssistantFormOnly }"
       >
         <StructuredContentRenderer
@@ -202,7 +202,7 @@ const {
 
       <div
         v-if="shouldShowRuntimeNotices"
-        class="message-bubble__runtime"
+        class="message-bubble__runtime message-bubble__stream-segment"
       >
         <RuntimeNoticeList
           :notices="displayRuntimeNotices"
@@ -219,8 +219,11 @@ const {
           <span class="message-bubble__tool-model-value">{{ toolCallModelLabel }}</span>
         </div>
         <div
-          class="message-bubble__tool-calls-shell"
-          :class="{ 'message-bubble__tool-calls-shell--scrollable': shouldClampToolCalls }"
+          :class="[
+            'message-bubble__tool-calls-shell',
+            'message-bubble__stream-segment',
+            { 'message-bubble__tool-calls-shell--scrollable': shouldClampToolCalls }
+          ]"
         >
           <button
             type="button"

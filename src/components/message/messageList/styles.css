@@ -3,9 +3,15 @@
   --message-list-bottom-safe-space: clamp(72px, 9vh, 112px);
   --message-list-scroll-btn-gap: clamp(10px, 1.8vh, 18px);
   --message-list-scroll-btn-size: clamp(28px, 2.8vw, 34px);
+  --conversation-stream-width: min(100%, 980px);
+  --conversation-stream-align-offset: 6px;
   flex: 1;
   overflow-y: auto;
-  padding: var(--spacing-3);
+  padding:
+    var(--spacing-3)
+    max(var(--spacing-3), calc((100% - var(--conversation-stream-width)) / 2 - var(--conversation-stream-align-offset)))
+    var(--spacing-3)
+    max(var(--spacing-3), calc((100% - var(--conversation-stream-width)) / 2 + var(--conversation-stream-align-offset)));
   padding-top: calc(var(--spacing-3) + var(--message-list-top-safe-space));
   padding-bottom: calc(var(--message-list-bottom-safe-space) + env(safe-area-inset-bottom, 0px));
   scroll-padding-top: calc(var(--message-list-top-safe-space) + var(--spacing-3));
@@ -22,12 +28,16 @@
   flex-direction: column;
   min-height: 0;
   width: 100%;
+  max-width: var(--conversation-stream-width);
+  margin: 0 auto;
   min-width: 0;
 }
 
 .message-list__virtual-item {
   contain: layout style paint;
   width: 100%;
+  max-width: var(--conversation-stream-width);
+  margin: 0 auto;
   min-width: 0;
 }
 

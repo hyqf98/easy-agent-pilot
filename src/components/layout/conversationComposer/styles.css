@@ -230,8 +230,9 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-width: 68px;
-  padding: 0 10px;
+  min-width: 30px;
+  width: 30px;
+  padding: 0;
   font-size: 12px;
   line-height: 1;
   white-space: nowrap;
@@ -1446,8 +1447,8 @@
 
 :global([data-theme='dark']) .conversation-composer--main .conversation-composer__editor-shell:focus-within,
 :global(.dark) .conversation-composer--main .conversation-composer__editor-shell:focus-within {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(30, 58, 95, 0.5);
+  border-color: var(--color-border);
+  box-shadow: none;
 }
 
 :global([data-theme='dark']) .conversation-composer--main .composer-chip,
@@ -1880,9 +1881,8 @@
 }
 
 .conversation-composer--main .conversation-composer__editor-shell:focus-within {
-  border-color: color-mix(in srgb, var(--color-primary, #2563eb) 22%, var(--workspace-border, rgba(38, 38, 38, 0.1)));
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--color-primary, #2563eb) 12%, transparent);
+  border-color: var(--workspace-border, rgba(38, 38, 38, 0.1));
+  box-shadow: none;
 }
 
 .conversation-composer--plan-mode.conversation-composer--main .conversation-composer__editor-shell,
@@ -1894,37 +1894,30 @@
 }
 
 .conversation-composer__context-slot {
-  flex: 0 1 210px;
-  width: min(100%, 210px);
-  min-width: 160px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 32px;
+  width: 32px;
+  min-width: 32px;
 }
 
 .conversation-composer--main .token-progress {
-  --token-progress-width: 100%;
-  --token-progress-gap: 6px;
-  --token-progress-padding: 8px 10px;
-  --token-progress-radius: 12px;
-  --token-progress-bg: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 96%, transparent);
-  --token-progress-shadow: none;
-  --token-progress-hover-shadow: 0 8px 18px rgba(24, 24, 22, 0.08);
-  --token-progress-label-size: 10px;
-  --token-progress-summary-size: 10px;
-  --token-progress-percent-size: 11px;
-  --token-progress-bar-height: 4px;
+  --token-progress-size: 32px;
   --token-progress-popover-shadow: 0 18px 36px rgba(24, 24, 22, 0.12);
   --token-progress-action-height: 36px;
 }
 
 .conversation-composer--main .conversation-composer__editor-field {
-  min-height: calc(var(--font-size-sm) * var(--conversation-composer-main-line-height) * var(--conversation-composer-main-max-lines) + (var(--conversation-composer-main-padding-y) * 2));
+  min-height: calc(var(--font-size-sm) * var(--conversation-composer-main-line-height) * 3 + (var(--conversation-composer-main-padding-y) * 2));
 }
 
 .conversation-composer--main .conversation-composer__render,
 .conversation-composer--main .conversation-composer__textarea {
   height: auto;
-  min-height: calc(var(--font-size-sm) * var(--conversation-composer-main-line-height) * var(--conversation-composer-main-max-lines) + (var(--conversation-composer-main-padding-y) * 2));
+  min-height: calc(var(--font-size-sm) * var(--conversation-composer-main-line-height) * 3 + (var(--conversation-composer-main-padding-y) * 2));
   max-height: 220px;
-  padding: 16px 16px 14px;
+  padding: 16px 16px 8px;
   color: var(--workspace-text-primary, var(--color-text-primary)) !important;
   -webkit-text-fill-color: currentColor;
   caret-color: var(--workspace-text-primary, var(--color-text-primary));
@@ -1958,8 +1951,8 @@
   align-items: flex-end;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 12px 12px;
-  border-top: 1px solid var(--workspace-border, rgba(38, 38, 38, 0.1));
+  padding: 6px 12px 12px;
+  border-top: 0;
   background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 34%, transparent);
   border-radius: 0 0 18px 18px;
 }
@@ -2040,7 +2033,7 @@
 }
 
 .conversation-composer--main .composer-chip--image-main {
-  min-width: 0;
+  min-width: 30px;
 }
 
 .conversation-composer__send--main {
@@ -2050,17 +2043,27 @@
   justify-content: center;
   width: 36px;
   min-width: 36px;
+  height: 30px;
   min-height: 30px;
   padding: 0;
-  border: 1px solid transparent !important;
+  border: 1px solid var(--workspace-border, rgba(255, 255, 255, 0.14)) !important;
   border-radius: 10px !important;
-  background: var(--color-primary, #2563eb) !important;
-  color: #ffffff !important;
-  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.18) !important;
+  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.08)) 88%, transparent) !important;
+  color: var(--workspace-text-secondary, var(--color-text-secondary)) !important;
+  box-shadow: none !important;
+}
+
+.conversation-composer__send--main::before {
+  content: '';
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: currentColor;
 }
 
 .conversation-composer__send--main:hover {
-  background: var(--color-primary-hover, #1d4ed8) !important;
+  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.12)) 96%, transparent) !important;
+  color: var(--workspace-text-primary, var(--color-text-primary)) !important;
 }
 
 .conversation-composer__send--main:disabled {
@@ -2110,9 +2113,9 @@
   }
 
   .conversation-composer__context-slot {
-    width: 100%;
+    width: 32px;
     max-width: none;
-    flex-basis: 100%;
+    flex-basis: 32px;
   }
 
   .conversation-composer--main .conversation-composer__render,

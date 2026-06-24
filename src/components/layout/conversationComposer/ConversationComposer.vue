@@ -100,7 +100,6 @@ const {
   isModelDropdownOpen,
   isPlanMode,
   isReasoningDropdownOpen,
-  isSending,
   isQueueCollapsed,
   isUploadingImages,
   mentionSearchText,
@@ -578,10 +577,9 @@ const sendButtonTitle = computed(() => {
                 @click="openAttachmentPicker"
               >
                 <EaIcon
-                  name="paperclip"
-                  :size="12"
+                  name="plus"
+                  :size="14"
                 />
-                <span class="composer-chip__text">{{ isUploadingImages ? t('message.uploadingAttachments') : t('message.selectAttachments') }}</span>
               </button>
 
               <div
@@ -624,54 +622,6 @@ const sendButtonTitle = computed(() => {
                       />
                       <span>{{ option.label }}</span>
                       <span class="composer-chip__tag">{{ option.provider ? option.provider.toUpperCase() : 'ACP' }}</span>
-                    </div>
-                  </div>
-                </Transition>
-              </div>
-
-              <div
-                v-if="currentAgent && reasoningEffortOptions.length > 0"
-                ref="reasoningDropdownRef"
-                class="composer-chip composer-chip--dropdown"
-                :class="{
-                  'composer-chip--main': isMainPanel,
-                  'composer-chip--open': isReasoningDropdownOpen
-                }"
-              >
-                <button
-                  class="composer-chip__button"
-                  @click="toggleReasoningDropdown"
-                >
-                  <EaIcon
-                    name="brain"
-                    :size="11"
-                  />
-                  <span>{{ getReasoningEffortLabel(selectedReasoningEffort) }}</span>
-                  <EaIcon
-                    :name="isReasoningDropdownOpen ? 'chevron-up' : 'chevron-down'"
-                    :size="9"
-                  />
-                </button>
-                <Transition name="dropdown">
-                  <div
-                    v-if="isReasoningDropdownOpen"
-                    class="composer-chip__menu"
-                  >
-                    <div
-                      class="composer-chip__option composer-chip__option--reset"
-                      :class="{ 'composer-chip__option--selected': !selectedReasoningEffort }"
-                      @click="selectReasoningEffort('')"
-                    >
-                      {{ t('reasoning.default') }}
-                    </div>
-                    <div
-                      v-for="option in reasoningEffortOptions"
-                      :key="option.value"
-                      class="composer-chip__option"
-                      :class="{ 'composer-chip__option--selected': option.value === selectedReasoningEffort }"
-                      @click="selectReasoningEffort(option.value)"
-                    >
-                      {{ option.label }}
                     </div>
                   </div>
                 </Transition>
@@ -727,6 +677,54 @@ const sendButtonTitle = computed(() => {
                 </Transition>
               </div>
 
+              <div
+                v-if="currentAgent && reasoningEffortOptions.length > 0"
+                ref="reasoningDropdownRef"
+                class="composer-chip composer-chip--dropdown"
+                :class="{
+                  'composer-chip--main': isMainPanel,
+                  'composer-chip--open': isReasoningDropdownOpen
+                }"
+              >
+                <button
+                  class="composer-chip__button"
+                  @click="toggleReasoningDropdown"
+                >
+                  <EaIcon
+                    name="brain"
+                    :size="11"
+                  />
+                  <span>{{ getReasoningEffortLabel(selectedReasoningEffort) }}</span>
+                  <EaIcon
+                    :name="isReasoningDropdownOpen ? 'chevron-up' : 'chevron-down'"
+                    :size="9"
+                  />
+                </button>
+                <Transition name="dropdown">
+                  <div
+                    v-if="isReasoningDropdownOpen"
+                    class="composer-chip__menu composer-chip__menu--right"
+                  >
+                    <div
+                      class="composer-chip__option composer-chip__option--reset"
+                      :class="{ 'composer-chip__option--selected': !selectedReasoningEffort }"
+                      @click="selectReasoningEffort('')"
+                    >
+                      {{ t('reasoning.default') }}
+                    </div>
+                    <div
+                      v-for="option in reasoningEffortOptions"
+                      :key="option.value"
+                      class="composer-chip__option"
+                      :class="{ 'composer-chip__option--selected': option.value === selectedReasoningEffort }"
+                      @click="selectReasoningEffort(option.value)"
+                    >
+                      {{ option.label }}
+                    </div>
+                  </div>
+                </Transition>
+              </div>
+
               <button
                 type="button"
                 class="conversation-composer__send conversation-composer__send--main"
@@ -741,10 +739,6 @@ const sendButtonTitle = computed(() => {
                 >
                   {{ queuedMessages.length }}
                 </span>
-                <EaIcon
-                  :name="isSending ? 'clock-3' : 'send'"
-                  :size="14"
-                />
               </button>
             </div>
           </div>
@@ -762,10 +756,9 @@ const sendButtonTitle = computed(() => {
             @click="openAttachmentPicker"
           >
             <EaIcon
-              name="paperclip"
-              :size="12"
+              name="plus"
+              :size="14"
             />
-            <span class="composer-chip__text">{{ isUploadingImages ? t('message.uploadingAttachments') : t('message.selectAttachments') }}</span>
           </button>
 
           <div

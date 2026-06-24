@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { EaIcon } from '@/components/common'
 import { formatTokenCount, useTokenStore, type TokenLevel } from '@/stores/token'
 import { useSessionStore } from '@/stores/session'
 
@@ -10,7 +9,7 @@ const props = withDefaults(defineProps<{
   sessionId: null
 })
 
-const emit = defineEmits<{
+defineEmits<{
   (e: 'compress'): void
 }>()
 
@@ -62,58 +61,57 @@ const progressStyle = computed(() => ({
     : `${Math.min(100, tokenUsage.value.percentage)}%`
 }))
 
+const ringProgressStyle = computed(() => ({
+  '--token-progress-ring-value': `${Math.min(100, Math.max(0, tokenUsage.value.percentage)) * 3.6}deg`
+}))
+
 const levelClass = computed(() => `token-progress--${tokenUsage.value.level}`)
 
 const summaryText = computed(() => `${formatTokenCount(tokenUsage.value.used)} / ${formatTokenCount(tokenUsage.value.limit)}`)
 
-const segmentPalette = ['input', 'output', 'cache-read', 'cache-write', 'context'] as const
-
 const usageSegments = computed(() => {
+  const knownToolTokens = (tokenUsage.value.cacheReadInputTokens ?? 0) + (tokenUsage.value.cacheCreationInputTokens ?? 0)
+  const knownMessageTokens = (tokenUsage.value.inputTokens ?? 0) + (tokenUsage.value.outputTokens ?? 0)
+  const otherTokens = Math.max(0, usageBasis.value - knownMessageTokens - knownToolTokens)
   const rawSegments = [
     {
       key: 'input',
-      label: '输入',
-      value: tokenUsage.value.inputTokens
+      label: '消息',
+      value: knownMessageTokens
     },
     {
       key: 'output',
-      label: '输出',
-      value: tokenUsage.value.outputTokens
-    },
-    {
-      key: 'cache-read',
-      label: '缓存读取',
+      label: 'MCP 工具',
       value: tokenUsage.value.cacheReadInputTokens
     },
     {
-      key: 'cache-write',
-      label: '缓存写入',
+      key: 'cache-read',
+      label: '系统工具',
       value: tokenUsage.value.cacheCreationInputTokens
+    },
+    {
+      key: 'cache-write',
+      label: '其他',
+      value: otherTokens
+    },
+    {
+      key: 'context',
+      label: '系统提示词',
+      value: 0
+    },
+    {
+      key: 'skill',
+      label: '技能',
+      value: 0
     }
   ]
 
-  const knownTotal = rawSegments.reduce((total, segment) => (
-    total + (typeof segment.value === 'number' && segment.value > 0 ? segment.value : 0)
-  ), 0)
-  const remainder = Math.max(0, usageBasis.value - knownTotal)
-  const segments = rawSegments
-    .filter((segment): segment is { key: typeof segmentPalette[number], label: string, value: number } => (
-      typeof segment.value === 'number' && segment.value > 0
-    ))
-
-  if (remainder > 0) {
-    segments.push({
-      key: 'context',
-      label: '上下文其他占用',
-      value: remainder
-    })
-  }
-
-  return segments.map(segment => ({
+  return rawSegments.map(segment => ({
     ...segment,
-    valueLabel: formatTokenCount(segment.value),
-    percent: usageBasis.value > 0 ? Math.min(100, Math.max(0, (segment.value / usageBasis.value) * 100)) : 0,
-    width: usageBasis.value > 0 ? `${Math.max(1, (segment.value / usageBasis.value) * 100)}%` : '0%'
+    value: segment.value ?? 0,
+    valueLabel: formatTokenCount(segment.value ?? 0),
+    percent: usageBasis.value > 0 ? Math.min(100, Math.max(0, ((segment.value ?? 0) / usageBasis.value) * 100)) : 0,
+    width: usageBasis.value > 0 && (segment.value ?? 0) > 0 ? `${Math.max(1, ((segment.value ?? 0) / usageBasis.value) * 100)}%` : '0%'
   }))
 })
 
@@ -167,7 +165,7 @@ const detailRows = computed(() => {
 const popoverStyle = computed(() => ({
   top: `${popoverPosition.value.top}px`,
   left: `${popoverPosition.value.left}px`,
-  transform: 'translateX(-100%)'
+  transform: 'translate(-50%, -100%)'
 }))
 
 function updatePopoverPosition() {
@@ -176,9 +174,12 @@ function updatePopoverPosition() {
   }
 
   const rect = triggerRef.value.getBoundingClientRect()
+  const popoverWidth = Math.min(340, Math.max(0, window.innerWidth - 24))
+  const halfWidth = popoverWidth / 2
+  const center = rect.left + rect.width / 2
   popoverPosition.value = {
-    top: rect.bottom + 10,
-    left: rect.right
+    top: Math.max(12 + 1, rect.top - 10),
+    left: Math.min(window.innerWidth - halfWidth - 12, Math.max(halfWidth + 12, center))
   }
 }
 
@@ -236,12 +237,6 @@ function handleWindowChange() {
   closePopover(true)
 }
 
-function handleCompress(event: MouseEvent) {
-  event.stopPropagation()
-  closePopover(true)
-  emit('compress')
-}
-
 watch(targetSessionId, () => {
   closePopover(true)
 })
@@ -269,25 +264,14 @@ onBeforeUnmount(() => {
     @mouseleave="handleMouseLeave"
     @click="handleTriggerClick"
   >
-    <div class="token-progress__header">
-      <div class="token-progress__copy">
-        <span class="token-progress__label">上下文容量</span>
-        <span class="token-progress__summary">{{ summaryText }}</span>
-      </div>
-      <div class="token-progress__meta">
-        <span class="token-progress__percent">{{ displayPercentage }}</span>
-        <EaIcon
-          :name="showPopover ? 'chevron-up' : 'chevron-down'"
-          :size="12"
-        />
-      </div>
-    </div>
-
-    <div class="token-progress__bar">
-      <div
-        class="token-progress__fill"
-        :style="progressStyle"
-      />
+    <div
+      class="token-progress__ring"
+      :style="ringProgressStyle"
+      aria-hidden="true"
+    >
+      <span class="token-progress__ring-core">
+        <span class="token-progress__ring-value">{{ displayPercentage }}</span>
+      </span>
     </div>
 
     <Teleport to="body">
@@ -345,7 +329,7 @@ onBeforeUnmount(() => {
                   :class="`token-progress__segment-dot--${segment.key}`"
                 />
                 <span class="token-progress__segment-label">{{ segment.label }}</span>
-                <span class="token-progress__segment-value">{{ segment.valueLabel }} · {{ Math.round(segment.percent) }}%</span>
+                <span class="token-progress__segment-value">{{ segment.percent < 1 && segment.percent > 0 ? segment.percent.toFixed(1) : Math.round(segment.percent) }}%</span>
               </div>
             </div>
           </div>
@@ -365,18 +349,6 @@ onBeforeUnmount(() => {
               </span>
             </div>
           </div>
-
-          <button
-            type="button"
-            class="token-progress__action"
-            @click="handleCompress"
-          >
-            <EaIcon
-              name="archive"
-              :size="13"
-            />
-            <span>压缩上下文</span>
-          </button>
         </div>
       </Transition>
     </Teleport>
@@ -385,14 +357,18 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .token-progress {
-  --token-progress-width: min(100%, 240px);
-  --token-progress-gap: 8px;
-  --token-progress-padding: 10px 12px;
-  --token-progress-radius: 14px;
+  --token-progress-size: 32px;
+  --token-progress-ring-value: 0deg;
+  --token-progress-ring-track: color-mix(in srgb, var(--workspace-border, rgba(38, 38, 38, 0.1)) 62%, transparent);
+  --token-progress-ring-color: #60a5fa;
+  --token-progress-width: var(--token-progress-size);
+  --token-progress-gap: 0;
+  --token-progress-padding: 0;
+  --token-progress-radius: 999px;
   --token-progress-border-color: var(--workspace-border, rgba(38, 38, 38, 0.1));
-  --token-progress-bg: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 92%, var(--workspace-panel-bg, #ffffff));
-  --token-progress-shadow: 0 8px 18px rgba(24, 24, 22, 0.05);
-  --token-progress-hover-shadow: 0 12px 24px rgba(24, 24, 22, 0.08);
+  --token-progress-bg: transparent;
+  --token-progress-shadow: none;
+  --token-progress-hover-shadow: none;
   --token-progress-label-size: 11px;
   --token-progress-summary-size: 11px;
   --token-progress-percent-size: 12px;
@@ -401,43 +377,94 @@ onBeforeUnmount(() => {
   --token-progress-popover-radius: 18px;
   --token-progress-popover-shadow: 0 24px 48px rgba(15, 23, 42, 0.16);
   --token-progress-action-height: 38px;
-  display: flex;
-  flex-direction: column;
-  gap: var(--token-progress-gap);
-  width: var(--token-progress-width);
-  padding: var(--token-progress-padding);
-  border-radius: var(--token-progress-radius);
-  border: 1px solid var(--token-progress-border-color);
-  background: var(--token-progress-bg);
-  box-shadow: var(--token-progress-shadow);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: var(--token-progress-size);
+  height: var(--token-progress-size);
+  min-width: var(--token-progress-size);
+  min-height: var(--token-progress-size);
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
   color: var(--workspace-text-primary, var(--color-text-primary, #20201e));
+  gap: var(--token-progress-gap);
   cursor: pointer;
   user-select: none;
   appearance: none;
-  text-align: inherit;
-  transition: border-color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+  text-align: center;
+  transition: transform 0.16s ease;
 }
 
 .token-progress:hover,
 .token-progress--open {
-  border-color: color-mix(in srgb, var(--color-primary, #2563eb) 22%, var(--workspace-border, rgba(38, 38, 38, 0.1)));
-  box-shadow: var(--token-progress-hover-shadow);
   transform: translateY(-1px);
 }
 
 .token-progress:focus-visible {
   outline: none;
-  border-color: color-mix(in srgb, var(--color-primary, #2563eb) 34%, var(--workspace-border, rgba(38, 38, 38, 0.1)));
-  box-shadow:
-    0 0 0 2px color-mix(in srgb, var(--color-primary, #2563eb) 12%, transparent),
-    0 18px 32px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary, #2563eb) 18%, transparent);
+}
+
+.token-progress--safe {
+  --token-progress-ring-color: #38bdf8;
+}
+
+.token-progress--warning {
+  --token-progress-ring-color: #f59e0b;
+}
+
+.token-progress--danger {
+  --token-progress-ring-color: #fb7185;
+}
+
+.token-progress--critical {
+  --token-progress-ring-color: #ef4444;
+}
+
+.token-progress__ring {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--token-progress-size);
+  height: var(--token-progress-size);
+  border-radius: 999px;
+  background:
+    conic-gradient(
+      var(--token-progress-ring-color) 0deg,
+      var(--token-progress-ring-color) var(--token-progress-ring-value),
+      var(--token-progress-ring-track) var(--token-progress-ring-value),
+      var(--token-progress-ring-track) 360deg
+    );
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--workspace-border, rgba(38, 38, 38, 0.1)) 74%, transparent);
+}
+
+.token-progress__ring-core {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--token-progress-size) - 8px);
+  height: calc(var(--token-progress-size) - 8px);
+  border-radius: 999px;
+  background: var(--workspace-panel-bg, #ffffff);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--workspace-border, rgba(38, 38, 38, 0.1)) 62%, transparent);
+}
+
+.token-progress__ring-value {
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--workspace-text-primary, var(--color-text-primary, #20201e));
 }
 
 .token-progress__header,
 .token-progress__meta,
 .token-progress__popover-header,
-.token-progress__row,
-.token-progress__action {
+.token-progress__row {
   display: flex;
   align-items: center;
 }
@@ -483,10 +510,10 @@ onBeforeUnmount(() => {
 .token-progress__bar,
 .token-progress__popover-bar {
   width: 100%;
-  height: var(--token-progress-bar-height);
+  height: 7px;
   border-radius: 999px;
   overflow: hidden;
-  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 72%, var(--workspace-border, rgba(38, 38, 38, 0.1)));
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .token-progress__fill {
@@ -514,20 +541,15 @@ onBeforeUnmount(() => {
 .token-progress__segments {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 10px;
-  border-radius: 14px;
-  border: 1px solid color-mix(in srgb, var(--workspace-border, rgba(38, 38, 38, 0.1)) 84%, transparent);
-  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 72%, transparent);
+  gap: 0;
+  padding: 0;
+  border-radius: 0;
+  border: 0;
+  background: transparent;
 }
 
 .token-progress__segment-bar {
-  display: flex;
-  width: 100%;
-  height: 8px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--workspace-border, rgba(38, 38, 38, 0.1)) 45%, transparent);
+  display: none;
 }
 
 .token-progress__segment-fill {
@@ -560,6 +582,11 @@ onBeforeUnmount(() => {
   background: #94a3b8;
 }
 
+.token-progress__segment-fill--skill,
+.token-progress__segment-dot--skill {
+  background: #64748b;
+}
+
 .token-progress__segment-list {
   display: flex;
   flex-direction: column;
@@ -587,14 +614,14 @@ onBeforeUnmount(() => {
 }
 
 .token-progress__segment-label {
-  color: var(--color-text-secondary, rgba(100, 116, 139, 0.86));
+  color: var(--workspace-text-secondary, #b8b8b8);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .token-progress__segment-value {
-  color: var(--workspace-text-primary, var(--color-text-primary, #20201e));
+  color: var(--workspace-text-primary, #f3f4f6);
   font-variant-numeric: tabular-nums;
   text-align: right;
   white-space: nowrap;
@@ -602,18 +629,16 @@ onBeforeUnmount(() => {
 
 .token-progress__popover {
   position: fixed;
-  width: var(--token-progress-popover-width);
+  width: var(--token-progress-popover-width, min(340px, calc(100vw - 24px)));
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 16px;
-  border-radius: var(--token-progress-popover-radius);
-  border: 1px solid var(--workspace-border, rgba(38, 38, 38, 0.1));
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--color-primary, #2563eb) 12%, transparent), transparent 36%),
-    color-mix(in srgb, var(--workspace-panel-bg, #ffffff) 98%, transparent);
-  box-shadow: var(--token-progress-popover-shadow);
-  color: var(--workspace-text-primary, var(--color-text-primary, #20201e));
+  gap: 12px;
+  padding: 12px;
+  border-radius: var(--token-progress-popover-radius, 10px);
+  border: 1px solid color-mix(in srgb, var(--workspace-border, rgba(255, 255, 255, 0.16)) 88%, transparent);
+  background: color-mix(in srgb, var(--workspace-panel-bg, #2b2b2b) 92%, #1f1f1f);
+  box-shadow: var(--token-progress-popover-shadow, 0 24px 48px rgba(15, 23, 42, 0.16));
+  color: var(--workspace-text-primary, #f3f4f6);
   z-index: 9999;
 }
 
@@ -624,20 +649,21 @@ onBeforeUnmount(() => {
 }
 
 .token-progress__popover-title {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
 }
 
 .token-progress__popover-summary {
   font-size: 12px;
-  color: var(--color-text-secondary, rgba(100, 116, 139, 0.86));
+  color: var(--workspace-text-secondary, #b8b8b8);
+  font-weight: 600;
 }
 
 .token-progress__popover-percent {
   flex-shrink: 0;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 92%, transparent);
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
   font-size: 12px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -647,6 +673,8 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding-top: 11px;
+  border-top: 1px solid color-mix(in srgb, var(--workspace-border, rgba(255, 255, 255, 0.16)) 82%, transparent);
 }
 
 .token-progress__row {
@@ -655,39 +683,24 @@ onBeforeUnmount(() => {
 
 .token-progress__row-label {
   font-size: 12px;
-  color: var(--color-text-secondary, rgba(100, 116, 139, 0.86));
+  color: var(--workspace-text-secondary, #b8b8b8);
 }
 
 .token-progress__row-value {
   min-width: 0;
   text-align: right;
   font-size: 12px;
-  color: var(--workspace-text-primary, var(--color-text-primary, #20201e));
+  color: var(--workspace-text-primary, #f3f4f6);
+  font-weight: 700;
 }
 
 .token-progress__row-value--mono {
   font-variant-numeric: tabular-nums;
 }
 
-.token-progress__action {
-  justify-content: center;
-  gap: 8px;
-  min-height: var(--token-progress-action-height);
-  border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--color-primary, #2563eb) 18%, var(--workspace-border, rgba(38, 38, 38, 0.1)));
-  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 92%, var(--color-primary, #2563eb));
-  color: var(--workspace-text-primary, var(--color-text-primary, #20201e));
-  transition: background-color 0.16s ease, border-color 0.16s ease;
-}
-
-.token-progress__action:hover {
-  border-color: color-mix(in srgb, var(--color-primary, #2563eb) 30%, var(--workspace-border, rgba(38, 38, 38, 0.1)));
-  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 84%, var(--color-primary, #2563eb));
-}
-
 @media (max-width: 720px) {
   .token-progress {
-    width: 100%;
+    width: var(--token-progress-size);
   }
 
   .token-progress__popover {

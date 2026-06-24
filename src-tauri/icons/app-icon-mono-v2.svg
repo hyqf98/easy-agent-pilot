@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="168" y1="112" x2="846" y2="916" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F4F6F8"/>
+      <stop offset="0.24" stop-color="#B8C0CA"/>
+      <stop offset="0.62" stop-color="#4B5563"/>
+      <stop offset="1" stop-color="#14171D"/>
+    </linearGradient>
+    <radialGradient id="topLight" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(314 198) rotate(52) scale(550 420)">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.72"/>
+      <stop offset="0.44" stop-color="#FFFFFF" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="glyph" x1="328" y1="282" x2="700" y2="748" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.52" stop-color="#E7EBF0"/>
+      <stop offset="1" stop-color="#9CA3AF"/>
+    </linearGradient>
+    <linearGradient id="glyphEdge" x1="388" y1="318" x2="650" y2="712" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.72"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.1"/>
+    </linearGradient>
+    <filter id="drop" x="170" y="178" width="684" height="684" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="34" stdDeviation="34" flood-color="#020617" flood-opacity="0.38"/>
+    </filter>
+  </defs>
+
+  <rect x="96" y="96" width="832" height="832" rx="196" fill="url(#bg)"/>
+  <rect x="96" y="96" width="832" height="832" rx="196" fill="url(#topLight)"/>
+  <rect x="119" y="119" width="786" height="786" rx="174" stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="4"/>
+
+  <g filter="url(#drop)">
+    <path
+      d="M512 214L758 512L512 810L266 512L512 214Z"
+      fill="#0B0F16"
+      fill-opacity="0.24"
+    />
+    <path
+      d="M512 264L712 512L512 760L312 512L512 264Z"
+      stroke="url(#glyphEdge)"
+      stroke-width="18"
+      stroke-linejoin="round"
+    />
+
+    <path
+      d="M390 622L512 316L634 622"
+      stroke="url(#glyph)"
+      stroke-width="48"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <path
+      d="M448 514H576"
+      stroke="url(#glyph)"
+      stroke-width="42"
+      stroke-linecap="round"
+    />
+    <path
+      d="M374 690H650"
+      stroke="url(#glyph)"
+      stroke-width="44"
+      stroke-linecap="round"
+    />
+
+    <path
+      d="M676 356L748 428L676 500"
+      stroke="#F8FAFC"
+      stroke-opacity="0.74"
+      stroke-width="36"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <path
+      d="M276 646H340"
+      stroke="#F8FAFC"
+      stroke-opacity="0.64"
+      stroke-width="34"
+      stroke-linecap="round"
+    />
+  </g>
+
+  <circle cx="512" cy="514" r="13" fill="#FFFFFF"/>
+  <circle cx="676" cy="356" r="9" fill="#FFFFFF" fill-opacity="0.9"/>
+  <circle cx="748" cy="428" r="9" fill="#FFFFFF" fill-opacity="0.7"/>
+</svg>

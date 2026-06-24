@@ -1,7 +1,7 @@
 .message-bubble {
-  --message-fixed-width: clamp(24rem, 54vw, 46rem);
+  --message-fixed-width: min(100%, 46rem);
   --message-min-width: var(--message-fixed-width);
-  --message-max-width: 54rem;
+  --message-max-width: 100%;
   --message-compact-max-width: var(--message-fixed-width);
   --message-compact-max-height: 20rem;
   --message-trace-max-width: 46rem;
@@ -52,16 +52,21 @@
 .message-bubble__body {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
   min-width: 0;
   width: fit-content;
   max-width: min(100%, var(--message-max-width));
   box-sizing: border-box;
 }
 
+.message-bubble__stream-segment + .message-bubble__stream-segment {
+  margin-top: 10px;
+}
+
 .message-bubble--assistant .message-bubble__body {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   align-items: flex-start;
+  width: 100%;
 }
 
 .message-bubble--assistant.message-bubble--form-only .message-bubble__body {
@@ -100,7 +105,9 @@
 }
 
 .message-bubble--assistant .message-bubble__content {
-  min-width: min(100%, var(--message-fixed-width));
+  width: 100%;
+  min-width: 0;
+  max-width: min(100%, var(--message-fixed-width));
   padding: 2px 0;
   background-color: transparent;
   border: 0;
