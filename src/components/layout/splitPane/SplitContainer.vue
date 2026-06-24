@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onUnmounted } from 'vue'
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EaIcon } from '@/components/common'
 import PaneWrapper from './PaneWrapper.vue'
@@ -44,7 +44,6 @@ const dropTarget = ref<DropTarget | null>(null)
 
 // tab 跨分屏拖拽的放置目标
 const tabDropTarget = ref<PaneDropTarget | null>(null)
-const isTabDragging = computed(() => dragState.active)
 
 let onMouseMove: ((e: MouseEvent) => void) | null = null
 let onMouseUp: (() => void) | null = null
@@ -262,7 +261,7 @@ function finishDrag() {
   onMouseUp = null
 }
 
-// ========== tab 跨分屏拖拽（HTML5 DnD）==========
+// ========== tab 跨分屏拖拽（document 级坐标命中，绕开子组件 stopPropagation）==========
 function computeZone(rect: DOMRect, clientX: number, clientY: number): DropZone {
   const xRatio = (clientX - rect.left) / rect.width
   const yRatio = (clientY - rect.top) / rect.height
@@ -284,53 +283,100 @@ function computeZone(rect: DOMRect, clientX: number, clientY: number): DropZone 
   return 'center'
 }
 
-function onPaneDragOver(event: DragEvent) {
-  if (!isTabDragging.value) return
-  const target = event.currentTarget as HTMLElement
-  const paneId = target.dataset.paneId
-  if (!paneId || paneId === dragState.fromPaneId) {
-    tabDropTarget.value = null
-    return
-  }
-
-  event.preventDefault()
-  if (event.dataTransfer) {
-    event.dataTransfer.dropEffect = 'move'
-  }
-
-  const rect = target.getBoundingClientRect()
-  const zone = computeZone(rect, event.clientX, event.clientY)
-  tabDropTarget.value = { paneId, zone }
-}
-
-function onPaneDragLeave(event: DragEvent) {
-  const related = event.relatedTarget as HTMLElement | null
-  const target = event.currentTarget as HTMLElement
-  if (!related || !target.contains(related)) {
-    if (tabDropTarget.value && tabDropTarget.value.paneId === target.dataset.paneId) {
-      tabDropTarget.value = null
+// 用坐标命中找到光标下的 .split-pane-wrapper（跳过被吞事件的子组件）
+function hitPaneAt(clientX: number, clientY: number): { el: HTMLElement; paneId: string } | null {
+  const container = containerRef.value
+  if (!container) return null
+  // 在 split 容器范围内用 elementsFromPoint 找最近的 pane 包装元素
+  const els = document.elementsFromPoint(clientX, clientY) as HTMLElement[]
+  for (const el of els) {
+    if (!container.contains(el)) continue
+    const paneEl = el.closest('.split-pane-wrapper') as HTMLElement | null
+    if (paneEl && paneEl.dataset.paneId) {
+      return { el: paneEl, paneId: paneEl.dataset.paneId }
     }
   }
+  return null
 }
 
-function onPaneDrop(event: DragEvent) {
-  const target = event.currentTarget as HTMLElement
-  const toPaneId = target.dataset.paneId
-  event.preventDefault()
-  event.stopPropagation()
+let onDocDragOver: ((e: DragEvent) => void) | null = null
+let onDocDrop: ((e: DragEvent) => void) | null = null
+let onDocDragEnd: (() => void) | null = null
 
-  const fromPaneId = dragState.fromPaneId
-  const sessionId = dragState.sessionId
-  const zone = tabDropTarget.value?.zone ?? 'center'
+function attachTabDragListeners() {
+  if (onDocDragOver) return
+  onDocDragOver = (e: DragEvent) => {
+    if (!dragState.active) return
+    const hit = hitPaneAt(e.clientX, e.clientY)
+    if (!hit || hit.paneId === dragState.fromPaneId) {
+      tabDropTarget.value = null
+      return
+    }
+    // 必须 preventDefault 才能触发 drop
+    e.preventDefault()
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'move'
+    }
+    const rect = hit.el.getBoundingClientRect()
+    const zone = computeZone(rect, e.clientX, e.clientY)
+    tabDropTarget.value = { paneId: hit.paneId, zone }
+  }
 
+  onDocDrop = (e: DragEvent) => {
+    if (!dragState.active) return
+    e.preventDefault()
+    e.stopPropagation()
+
+    const fromPaneId = dragState.fromPaneId
+    const sessionId = dragState.sessionId
+    const hit = hitPaneAt(e.clientX, e.clientY)
+    const toPaneId = hit?.paneId
+    const zone = tabDropTarget.value?.zone ?? 'center'
+
+    tabDropTarget.value = null
+    endTabDrag()
+
+    if (!fromPaneId || !sessionId || !toPaneId) return
+    if (fromPaneId === toPaneId) return
+
+    splitPaneStore.moveSessionToPane(fromPaneId, toPaneId, sessionId, zone)
+  }
+
+  // 兜底清理：拖拽取消/离开窗口时 dragend 仍会触发
+  onDocDragEnd = () => {
+    tabDropTarget.value = null
+    endTabDrag()
+  }
+
+  document.addEventListener('dragover', onDocDragOver)
+  document.addEventListener('drop', onDocDrop)
+  document.addEventListener('dragend', onDocDragEnd)
+}
+
+function detachTabDragListeners() {
+  if (onDocDragOver) document.removeEventListener('dragover', onDocDragOver)
+  if (onDocDrop) document.removeEventListener('drop', onDocDrop)
+  if (onDocDragEnd) document.removeEventListener('dragend', onDocDragEnd)
+  onDocDragOver = null
+  onDocDrop = null
+  onDocDragEnd = null
   tabDropTarget.value = null
-  endTabDrag()
-
-  if (!fromPaneId || !sessionId || !toPaneId) return
-  if (fromPaneId === toPaneId) return
-
-  splitPaneStore.moveSessionToPane(fromPaneId, toPaneId, sessionId, zone)
 }
+
+// 拖拽态激活/结束同步挂载/卸载 document 监听
+watch(() => dragState.active, (active) => {
+  if (active) {
+    attachTabDragListeners()
+  } else {
+    detachTabDragListeners()
+  }
+})
+
+onMounted(() => {
+  if (dragState.active) {
+    attachTabDragListeners()
+  }
+})
 
 // tab 栏请求新增分屏组
 function getTabDropZone(paneId: string): DropZone | null {
@@ -342,6 +388,7 @@ onUnmounted(() => {
   cancelAnimationFrame(rafId)
   if (onMouseMove) document.removeEventListener('mousemove', onMouseMove)
   if (onMouseUp) document.removeEventListener('mouseup', onMouseUp)
+  detachTabDragListeners()
 })
 </script>
 
@@ -378,9 +425,6 @@ onUnmounted(() => {
           :data-pane-id="cell.paneId"
           :data-row="rowIdx"
           :data-col="colIdx"
-          @dragover="onPaneDragOver"
-          @dragleave="onPaneDragLeave"
-          @drop="onPaneDrop"
         >
           <PaneWrapper
             :pane-id="cell.paneId!"
@@ -389,7 +433,7 @@ onUnmounted(() => {
           />
           <!-- tab 拖拽时的绿色虚线幽灵吸附提示 -->
           <div
-            v-if="isTabDragging && getTabDropZone(cell.paneId!)"
+            v-if="dragState.active && getTabDropZone(cell.paneId!)"
             class="tab-drop-ghost"
             :class="`tab-drop-ghost--${getTabDropZone(cell.paneId!)}`"
           />
