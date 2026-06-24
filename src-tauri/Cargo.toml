@@ -36,6 +36,7 @@ async-trait = "0.1"
 
 # 数据库
 rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite_migration = "1"
 
 # Git 操作
 git2 = { version = "0.19", features = ["vendored-openssl"] }
