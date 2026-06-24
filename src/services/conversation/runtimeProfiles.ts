@@ -136,6 +136,8 @@ export function validateAgentRuntime(
 
 interface BuildAgentExecutionRequestOptions {
   sessionId: string
+  /** 回合 ID：user 消息与其触发的所有 assistant 事件共享 */
+  requestId?: string
   planId?: string
   agent: AgentConfig
   messages: ExecutionRequest['messages']
@@ -164,6 +166,7 @@ export function buildAgentExecutionRequest(
 
   return {
     sessionId: options.sessionId,
+    requestId: options.requestId ?? crypto.randomUUID(),
     planId: options.planId,
     agentType: profile.agentType,
     provider: profile.provider,

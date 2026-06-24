@@ -141,6 +141,8 @@ export interface AgentStrategy {
  */
 export interface ExecutionRequest {
   sessionId: string
+  /** 回合 ID：user 消息与其触发的所有 assistant 事件共享 */
+  requestId: string
   planId?: string
   agentType: 'acp'
   provider: string
@@ -175,9 +177,11 @@ export interface MessageInput {
  */
 export interface BackendStreamEvent {
   /** 事件类型 */
-  type: 'content' | 'tool_use' | 'tool_input_delta' | 'tool_result' | 'error' | 'done' | 'thinking' | 'thinking_start' | 'reasoning' | 'reasoning_start' | 'file_edit' | 'usage' | 'message_start' | 'system' | 'plan' | 'session_started' | 'permission_request'
+  type: 'content' | 'tool_use' | 'tool_input_delta' | 'tool_result' | 'error' | 'done' | 'thinking' | 'thinking_start' | 'reasoning' | 'reasoning_start' | 'file_edit' | 'usage' | 'message_start' | 'system' | 'plan' | 'session_started' | 'permission_request' | 'context_window'
   /** 会话 ID */
   sessionId: string
+  /** 回合 ID（与触发它的 user 消息共享） */
+  requestId?: string
   /** 内容 */
   content?: string
   /** 工具名称 */
