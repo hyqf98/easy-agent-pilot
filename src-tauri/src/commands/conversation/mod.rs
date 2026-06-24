@@ -4,6 +4,7 @@
 
 pub mod abort;
 pub mod executor;
+pub mod message_recorder;
 pub mod strategies;
 pub mod strategy;
 pub mod types;
