@@ -24,6 +24,7 @@ use crate::commands::conversation::abort::{
     clear_abort_flag, should_abort,
     unregister_session_pid,
 };
+use crate::commands::conversation::message_recorder::{MessageRecorder, RecordableEvent};
 use crate::commands::conversation::strategy::{AgentExecutionStrategy, AgentRuntimeKind};
 use crate::commands::conversation::types::{AcpStreamEvent, ExecutionRequest, McpServerConfig};
 use crate::commands::mcp_shared::parse_args_string;
@@ -447,6 +448,13 @@ impl AgentExecutionStrategy for AcpStrategy {
         let session_id = request.session_id.clone();
         let request_id = request.request_id.clone();
         let event_name = AgentRuntimeKind::Acp.event_name(&session_id);
+        // 后端成为消息 DB 的唯一写入方：每个事件先落库再 emit 给前端实时渲染
+        let recorder = std::sync::Arc::new(
+            crate::commands::conversation::message_recorder::MessageRecorder::new(
+                session_id.clone(),
+                request_id.clone(),
+            ),
+        );
         let _plan_id = request.plan_id.clone();
         let acp_command = resolve_acp_command(&request.acp_command.clone());
         let working_directory = request.working_directory.clone();
@@ -461,6 +469,9 @@ impl AgentExecutionStrategy for AcpStrategy {
             working_directory.as_deref().unwrap_or("-")
         );
 
+        let _ = recorder.record(&RecordableEvent::System(
+            "Connecting to agent via ACP...".to_string(),
+        ));
         let _ = app.emit(
             &event_name,
             &build_system_event(&session_id, &request_id, "Connecting to agent via ACP...".to_string()),
@@ -495,6 +506,9 @@ impl AgentExecutionStrategy for AcpStrategy {
         let request_id_for_handler = request_id.clone();
         let event_name_for_handler = event_name.clone();
 
+        // done/清理阶段在闭包外仍需 session_id，提前克隆（闭包会 move 原值）
+        let session_id_cleanup = session_id.clone();
+
         #[allow(unused_assignments)]
         let result = Client
             .builder()
@@ -527,7 +541,8 @@ impl AgentExecutionStrategy for AcpStrategy {
                 },
                 on_receive_request!(),
             )
-            .connect_with(agent, async |connection| {
+            .connect_with(agent, async move |connection| {
+                let recorder_inner = recorder.clone();
                 let mut session_request = if let Some(ref cwd) = working_directory {
                     NewSessionRequest::new(cwd)
                 } else {
@@ -601,10 +616,13 @@ impl AgentExecutionStrategy for AcpStrategy {
                 loop {
                     if should_abort(&session_id).await {
                         log_info!("ACP abort requested | session_id={}", session_id);
-                        let _ = app.emit(
-                            &event_name,
-                            &build_system_event(&session_id, &request_id, "Execution cancelled by user.".to_string()),
-                        );
+                            let _ = recorder_inner.record(&RecordableEvent::System(
+                                "Execution cancelled by user.".to_string(),
+                            ));
+                            let _ = app.emit(
+                                &event_name,
+                                &build_system_event(&session_id, &request_id, "Execution cancelled by user.".to_string()),
+                            );
                         break;
                     }
 
@@ -622,6 +640,7 @@ impl AgentExecutionStrategy for AcpStrategy {
                             now,
                         );
                         log_error!("{}", error_msg);
+                        let _ = recorder_inner.record(&RecordableEvent::Error(error_msg.clone()));
                         let _ = app.emit(&event_name, &build_error_event(&session_id, &request_id, error_msg.clone()));
                         break;
                     }
@@ -642,6 +661,7 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                                 ContentBlock::Text(t) => t.text.clone(),
                                                                 other => format!("{:?}", other),
                                                             };
+                                                            let _ = recorder_inner.record(&RecordableEvent::TextChunk(text.clone()));
                                                             let _ = app.emit(
                                                                 &event_name,
                                                                 &build_content_event(&session_id, &request_id, text),
@@ -652,6 +672,7 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                                 ContentBlock::Text(t) => t.text.clone(),
                                                                 other => format!("{:?}", other),
                                                             };
+                                                            let _ = recorder_inner.record(&RecordableEvent::ThinkingChunk(text.clone()));
                                                             let _ = app.emit(
                                                                 &event_name,
                                                                 &build_thinking_event(&session_id, &request_id, text),
@@ -662,6 +683,11 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                                 .as_ref()
                                                                 .map(|v| serde_json::to_string(v).unwrap_or_default())
                                                                 .unwrap_or_default();
+                                                            let _ = recorder_inner.record(&RecordableEvent::ToolUse {
+                                                                tool_call_id: tool_call.tool_call_id.to_string(),
+                                                                name: tool_call.title.clone(),
+                                                                input: tool_input_str.clone(),
+                                                            });
                                                             let _ = app.emit(
                                                                 &event_name,
                                                                 &build_tool_use_event(
@@ -677,6 +703,10 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                             let result_text = tool_update.fields.content
                                                                 .as_ref()
                                                                 .map(|blocks| extract_text_from_tool_call_content(blocks));
+                                                            let _ = recorder_inner.record(&RecordableEvent::ToolResult {
+                                                                tool_call_id: tool_update.tool_call_id.to_string(),
+                                                                result: result_text.clone(),
+                                                            });
                                                             let _ = app.emit(
                                                                 &event_name,
                                                                 &build_tool_result_event(
@@ -699,6 +729,10 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                             monitor.note_activity(false);
                                                             let cost_str = usage.cost.as_ref()
                                                                 .map(|c| serde_json::to_string(c).unwrap_or_default());
+                                                            let _ = recorder_inner.record(&RecordableEvent::ContextWindow {
+                                                                used: Some(usage.used as u32),
+                                                                size: Some(usage.size as u32),
+                                                            });
                                                             let _ = app.emit(
                                                                 &event_name,
                                                                 &AcpStreamEvent {
@@ -781,6 +815,7 @@ impl AgentExecutionStrategy for AcpStrategy {
                                         log_info!("ACP session ended normally | session_id={}", session_id);
                                     } else {
                                         log_error!("ACP read error | session_id={} | error={}", session_id, error_str);
+                                        let _ = recorder_inner.record(&RecordableEvent::Error(format!("ACP session error: {}", error_str)));
                                         let _ = app.emit(
                                             &event_name,
                                             &build_error_event(&session_id, &request_id, format!("ACP session error: {}", error_str)),
@@ -800,6 +835,14 @@ impl AgentExecutionStrategy for AcpStrategy {
                                 snapshot.cache_read_input_tokens.unwrap_or(0),
                                 snapshot.cache_creation_input_tokens.unwrap_or(0),
                             );
+                            let _ = recorder_inner.record(&RecordableEvent::Usage {
+                                input_tokens: snapshot.input_tokens,
+                                output_tokens: snapshot.output_tokens,
+                                cache_read_tokens: snapshot.cache_read_input_tokens,
+                                cache_creation_tokens: snapshot.cache_creation_input_tokens,
+                                model: None,
+                                cost: None,
+                            });
                             let _ = app.emit(
                                 &event_name,
                                 &build_usage_event(
@@ -820,15 +863,17 @@ impl AgentExecutionStrategy for AcpStrategy {
                     }
                 }
 
+                // done 阶段：收尾累积行 + 发送 done 事件（闭包内自包含，避免 move 后借用）
+                let _ = recorder_inner.finalize();
+                let _ = app.emit(&event_name, &build_done_event(&session_id, &request_id));
+                log_info!("ACP execution completed | session_id={}", session_id);
+
                 Ok(())
             })
             .await;
 
-        unregister_session_pid(&session_id).await;
-        clear_abort_flag(&session_id).await;
-
-        let _ = app.emit(&event_name, &build_done_event(&session_id, &request_id));
-        log_info!("ACP execution completed | session_id={}", session_id);
+        unregister_session_pid(&session_id_cleanup).await;
+        clear_abort_flag(&session_id_cleanup).await;
 
         result.map_err(|e| anyhow::anyhow!("ACP execution failed: {}", e))
     }
