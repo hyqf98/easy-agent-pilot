@@ -482,6 +482,7 @@ impl AgentExecutionStrategy for AcpStrategy {
             Err(e) => {
                 let error_msg = format!("Failed to parse ACP command '{}': {}", acp_command, e);
                 log_error!("{}", error_msg);
+                let _ = recorder.record(&RecordableEvent::Error(error_msg.clone()));
                 let _ = app.emit(&event_name, &build_error_event(&session_id, &request_id, error_msg.clone()));
                 return Err(anyhow::anyhow!(error_msg));
             }
@@ -497,6 +498,7 @@ impl AgentExecutionStrategy for AcpStrategy {
         if prompt_text.trim().is_empty() {
             let error_msg = "No prompt content provided".to_string();
             log_error!("{}", error_msg);
+            let _ = recorder.record(&RecordableEvent::Error(error_msg.clone()));
             let _ = app.emit(&event_name, &build_error_event(&session_id, &request_id, error_msg.clone()));
             return Err(anyhow::anyhow!(error_msg));
         }

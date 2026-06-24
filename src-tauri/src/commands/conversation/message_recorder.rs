@@ -122,13 +122,17 @@ impl MessageRecorder {
                 )
             }
             RecordableEvent::ContextWindow { used, size } => {
+                self.finalize_open_segments()?;
                 self.insert_context_window(*used, *size)
             }
             RecordableEvent::Compression(summary) => {
                 self.finalize_open_segments()?;
                 self.insert_compression(summary)
             }
-            RecordableEvent::System(text) => self.insert_system(text),
+            RecordableEvent::System(text) => {
+                self.finalize_open_segments()?;
+                self.insert_system(text)
+            }
             RecordableEvent::Error(msg) => {
                 self.finalize_open_segments()?;
                 self.insert_error(msg)
