@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import AttachmentThumbnail from '@/components/common/AttachmentThumbnail.vue'
 import StructuredContentRenderer from '../StructuredContentRenderer.vue'
-import ToolCallDisplay from '../ToolCallDisplay.vue'
 import ThinkingDisplay from '../ThinkingDisplay.vue'
 import CompressionMessageBubble from '../CompressionMessageBubble.vue'
 import RuntimeNoticeList from '../RuntimeNoticeList.vue'
+import ToolCallDisplay from '../ToolCallDisplay.vue'
 import {
   useMessageBubble,
   type MessageBubbleEmits,
@@ -35,7 +35,6 @@ const messageAttachmentImageStyle = {
 const {
   t,
   EaIcon,
-  areToolCallsExpanded,
   isUser,
   isAssistant,
   isCompression,
@@ -55,24 +54,17 @@ const {
   assistantElapsedLabel,
   shouldShowRuntimeNotices,
   displayRuntimeNotices,
-  assistantVisibleEditTraces,
   errorMessage,
-  toolCallCount,
-  toolCallModelLabel,
-  shouldClampToolCalls,
-  sortedToolCalls,
   isAssistantFormOnly,
   resolvedFormResponsesById,
+  shouldRenderAsToolCall,
+  toolCallForDisplay,
+  isUsage,
+  isContextWindow,
+  usageSummary,
   handleStop,
   handleRetry,
-  handleFormSubmit,
-  handleOpenEditTrace,
-  formatTraceChangeType,
-  getTraceDisplayName,
-  getTraceParentPath,
-  getToolCallRenderKey,
-  getTraceChangeIcon,
-  toggleToolCallsExpanded
+  handleFormSubmit
 } = useMessageBubble(props, emit)
 </script>
 
@@ -90,6 +82,61 @@ const {
         name="user"
         :size="15"
       />
+    </div>
+  </div>
+
+  <!-- 工具调用（tool_use / tool_result）：独立行，使用 ToolCallDisplay 渲染 -->
+  <div
+    v-else-if="shouldRenderAsToolCall && toolCallForDisplay"
+    class="message-bubble message-bubble--assistant message-bubble--tool"
+  >
+    <div class="message-bubble__avatar">
+      <EaIcon
+        name="bot"
+        :size="15"
+      />
+    </div>
+    <div class="message-bubble__body message-bubble__body--tool">
+      <ToolCallDisplay
+        :tool-call="toolCallForDisplay"
+        :live="isStreaming"
+        :compact="true"
+      />
+      <div class="message-bubble__meta">
+        <span class="message-bubble__time">{{ formattedTime }}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 用量信息（usage / context_window）：独立行，紧凑展示 token 统计 -->
+  <div
+    v-else-if="(isUsage || isContextWindow) && usageSummary"
+    class="message-bubble message-bubble--assistant message-bubble--usage"
+  >
+    <div class="message-bubble__avatar">
+      <EaIcon
+        name="bot"
+        :size="15"
+      />
+    </div>
+    <div class="message-bubble__body message-bubble__body--usage">
+      <div class="message-bubble__usage">
+        <EaIcon
+          name="cpu"
+          :size="13"
+          class="message-bubble__usage-icon"
+        />
+        <span class="message-bubble__usage-text">
+          {{ usageSummary.input + usageSummary.output }} tokens
+          <template v-if="usageSummary.cacheRead > 0">
+            · 缓存命中 {{ usageSummary.cacheRead }}
+          </template>
+          <template v-if="usageSummary.model"> · {{ usageSummary.model }} </template>
+        </span>
+      </div>
+      <div class="message-bubble__meta">
+        <span class="message-bubble__time">{{ formattedTime }}</span>
+      </div>
     </div>
   </div>
 
@@ -116,19 +163,17 @@ const {
       />
     </div>
     <div class="message-bubble__body">
-      <!-- 思考过程显示 -->
-      <Transition name="slide-fade">
-        <div
-          v-if="isAssistant && (message.thinkingActive || message.thinking)"
-          class="message-bubble__thinking message-bubble__stream-segment"
-        >
-          <ThinkingDisplay
-            :thinking="message.thinking || ''"
-            :live="isStreaming"
-            :default-expanded="false"
-          />
-        </div>
-      </Transition>
+      <!-- 思考过程：新结构下 thinking 是独立消息行，单条 message 不再内嵌 thinking -->
+      <div
+        v-if="isAssistant && message.messageType === 'thinking' && message.content"
+        class="message-bubble__thinking message-bubble__stream-segment"
+      >
+        <ThinkingDisplay
+          :thinking="message.content || ''"
+          :live="isStreaming"
+          :default-expanded="false"
+        />
+      </div>
 
       <div
         class="message-bubble__content message-bubble__stream-segment"
@@ -136,7 +181,7 @@ const {
       >
         <StructuredContentRenderer
           v-if="!isUser"
-          :content="message.content"
+          :content="message.content || ''"
           :interactive-forms="isAssistant"
           :form-disabled="false"
           :animate="isAssistant && isStreaming"
@@ -209,123 +254,9 @@ const {
         />
       </div>
 
-      <!-- 工具调用显示 -->
-      <template v-if="isAssistant && message.toolCalls && message.toolCalls.length > 0">
-        <div
-          v-if="toolCallModelLabel"
-          class="message-bubble__tool-model-bubble"
-        >
-          <span class="message-bubble__tool-model-label">{{ t('message.runtimeNotice.model') }}</span>
-          <span class="message-bubble__tool-model-value">{{ toolCallModelLabel }}</span>
-        </div>
-        <div
-          :class="[
-            'message-bubble__tool-calls-shell',
-            'message-bubble__stream-segment',
-            { 'message-bubble__tool-calls-shell--scrollable': shouldClampToolCalls }
-          ]"
-        >
-          <button
-            type="button"
-            class="message-bubble__tool-calls-head"
-            :aria-expanded="areToolCallsExpanded"
-            @click="toggleToolCallsExpanded"
-          >
-            <span class="message-bubble__tool-calls-title">工具调用</span>
-            <span class="message-bubble__tool-calls-head-right">
-              <span class="message-bubble__tool-calls-count">{{ toolCallCount }}</span>
-              <span class="message-bubble__tool-calls-toggle">
-                {{ areToolCallsExpanded ? t('message.collapse') : t('message.expand') }}
-              </span>
-            </span>
-          </button>
-          <TransitionGroup
-            v-if="areToolCallsExpanded"
-            name="tool-call"
-            tag="div"
-            class="message-bubble__tool-calls"
-          >
-            <ToolCallDisplay
-              v-for="toolCall in sortedToolCalls"
-              :key="getToolCallRenderKey(toolCall)"
-              :tool-call="toolCall"
-              :live="isStreaming || toolCall.status === 'running'"
-              :default-expanded="false"
-              :default-result-expanded="false"
-            />
-          </TransitionGroup>
-          <button
-            v-if="areToolCallsExpanded"
-            type="button"
-            class="message-bubble__tool-calls-footer"
-            @click="toggleToolCallsExpanded"
-          >
-            <span class="message-bubble__tool-calls-toggle">
-              {{ t('message.collapse') }}
-            </span>
-          </button>
-        </div>
-      </template>
+      <!-- 工具调用：新结构下 tool_use / tool_result 是独立消息行，此处不再内嵌渲染 -->
 
-      <div
-        v-if="assistantVisibleEditTraces.length > 0"
-        class="message-bubble__trace-rail"
-      >
-        <div class="message-bubble__trace-rail-head">
-          <div class="message-bubble__trace-rail-title">
-            <EaIcon
-              name="files"
-              :size="14"
-            />
-            <span>文件变更</span>
-          </div>
-          <span class="message-bubble__trace-rail-count">{{ assistantVisibleEditTraces.length }}</span>
-        </div>
-
-        <div class="message-bubble__trace-strip-wrap">
-          <div class="message-bubble__trace-strip">
-            <button
-              v-for="trace in assistantVisibleEditTraces"
-              :key="trace.id"
-              class="message-bubble__trace-tile"
-              :class="`message-bubble__trace-tile--${trace.changeType}`"
-              @click="handleOpenEditTrace(trace.id)"
-            >
-              <div class="message-bubble__trace-tile-top">
-                <span class="message-bubble__trace-tile-icon">
-                  <EaIcon
-                    name="file-code"
-                    :size="16"
-                  />
-                </span>
-                <span
-                  class="message-bubble__trace-tile-tag"
-                  :class="`message-bubble__trace-tile-tag--${trace.changeType}`"
-                >
-                  <EaIcon
-                    :name="getTraceChangeIcon(trace.changeType)"
-                    :size="10"
-                  />
-                  <span>{{ formatTraceChangeType(trace.changeType) }}</span>
-                </span>
-              </div>
-              <div class="message-bubble__trace-tile-name">
-                {{ getTraceDisplayName(trace.relativePath) }}
-              </div>
-              <div class="message-bubble__trace-tile-path">
-                {{ getTraceParentPath(trace.relativePath) }}
-              </div>
-              <div class="message-bubble__trace-tile-meta">
-                <span>L{{ trace.range.startLine }}-{{ trace.range.endLine }}</span>
-                <EaIcon
-                  name="arrow-up-right"
-                  :size="12"
-                />
-              </div>
-            </button>
-          </div>
-        </div>
-      </div>
+      <!-- 文件变更追踪：新结构下 editTraces 不再折叠进 message，后续按需重建 -->
 
       <!-- 时间戳和状态信息 -->
       <div class="message-bubble__meta">

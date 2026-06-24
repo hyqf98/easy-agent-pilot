@@ -4,18 +4,11 @@ import { EaIcon } from '@/components/common'
 import { conversationService } from '@/services/conversation'
 import { resolveRecordedModelId } from '@/services/usage/agentCliUsageRecorder'
 import { useAgentStore } from '@/stores/agent'
-import { MANUAL_STOP_ERROR_MARKER, type Message } from '@/stores/message'
+import { MANUAL_STOP_ERROR_MARKER, type Message, type ToolCall } from '@/stores/message'
 import { useMessageStore } from '@/stores/message'
 import { useSessionStore } from '@/stores/session'
 import { useSessionExecutionStore } from '@/stores/sessionExecution'
 import { FILE_MENTION_PATTERN, getMentionDisplayText } from '@/utils/fileMention'
-import {
-  isEnvironmentRuntimeNotice,
-  getProcessingTimeNoticeSummary,
-  isContextRuntimeNotice,
-  isProcessingTimeRuntimeNotice,
-  resolveRuntimeNoticeModel
-} from '@/utils/runtimeNotice'
 import { extractFormResponse, parseStructuredContent } from '@/utils/structuredContent'
 import { resolveSessionAgent } from '@/utils/sessionAgent'
 
@@ -55,7 +48,7 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
 
   const isUser = computed(() => props.message.role === 'user')
   const isAssistant = computed(() => props.message.role === 'assistant')
-  const isCompression = computed(() => !!props.message.compressionMetadata)
+  const isCompression = computed(() => props.message.messageType === 'compression')
   const isStreaming = computed(() => props.message.status === 'streaming')
   const resolvedSessionMessages = computed(() => {
     if (props.sessionMessages) {
@@ -131,7 +124,6 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
     if (!props.sessionId || !isAssistant.value || isStreaming.value) return false
     const executionState = sessionExecutionStore.getExecutionState(props.sessionId)
     return executionState.isAwaitingRetry
-      && props.message.runtimeNotices?.some(notice => notice.id === 'conversation-auto-retry')
   })
 
   watch(
@@ -173,7 +165,7 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
 
   const userFormResponse = computed(() => {
     if (!isUser.value) return null
-    return extractFormResponse(props.message.content)
+    return extractFormResponse(props.message.content ?? '')
   })
 
   const userFormResponseDisplay = computed(() => {
@@ -191,7 +183,7 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
       const candidate = sessionMessages[index]
       if (candidate.role !== 'assistant') continue
 
-      const blocks = parseStructuredContent(candidate.content)
+      const blocks = parseStructuredContent(candidate.content ?? ''  )
       for (const block of blocks) {
         if (block.type !== 'form' || block.formSchema.formId !== formResponse.formId) continue
         for (const field of block.formSchema.fields) {
@@ -229,7 +221,7 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
       return []
     }
 
-    const content = props.message.content
+    const content = props.message.content ?? ''
     const parts: MessagePart[] = []
     let lastIndex = 0
     let match: RegExpExecArray | null
@@ -325,11 +317,8 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
     }
 
     if (!isStreaming.value) {
-      const processingTimeNotice = (props.message.runtimeNotices ?? [])
-        .find(notice => isProcessingTimeRuntimeNotice(notice))
-      return processingTimeNotice
-        ? (getProcessingTimeNoticeSummary(processingTimeNotice)?.label || '')
-        : ''
+      // 处理时长提示在新结构下不再从 runtimeNotices 读取
+      return ''
     }
 
     const startedAt = new Date(props.message.createdAt).getTime()
@@ -344,13 +333,8 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
   })
 
   const visibleRuntimeNotices = computed(() => {
-    const notices = props.message.runtimeNotices ?? []
-    return notices.filter(notice =>
-      notice.id !== 'usage'
-      && !isContextRuntimeNotice(notice)
-      && !isProcessingTimeRuntimeNotice(notice)
-      && !isEnvironmentRuntimeNotice(notice)
-    )
+    // 新结构下 runtimeNotices 不再折叠进 message
+    return []
   })
 
   const displayRuntimeNotices = computed(() => visibleRuntimeNotices.value)
@@ -364,23 +348,22 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
       return []
     }
 
-    if (!isAssistant.value || !props.message.editTraces?.length) {
-      return []
-    }
+    // editTraces 在新结构下不折叠进 message
+    return []
 
     return messageStore.getVisibleAssistantEditTracesForMessage(props.message.sessionId, props.message.id)
   })
 
   const errorMessage = computed(() => props.message.errorMessage || t('message.failed'))
 
-  const toolCallCount = computed(() => props.message.toolCalls?.length ?? 0)
+  // 新结构下工具调用是独立行，单条 message 上不再有 toolCalls
+  const toolCallCount = computed(() => 0)
   const shouldClampToolCalls = computed(() => toolCallCount.value > 10)
   const toolCallModelLabel = computed(() => {
     if (!isAssistant.value || toolCallCount.value === 0) {
       return ''
     }
 
-    const runtimeModel = resolveRuntimeNoticeModel(props.message.runtimeNotices)
     const sessionId = props.sessionId || props.message.sessionId
     const session = sessionId
       ? sessionStore.sessions.find(item => item.id === sessionId)
@@ -388,38 +371,96 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
     const fallbackModel = resolveSessionAgent(session, agentStore.agents)?.modelId?.trim() || ''
 
     return resolveRecordedModelId({
-      reportedModelId: runtimeModel,
+      reportedModelId: props.message.model,
       requestedModelId: fallbackModel
-    }) || fallbackModel || runtimeModel || ''
+    }) || fallbackModel || props.message.model || ''
   })
 
-  const sortedToolCalls = computed(() => {
-    const toolCalls = props.message.toolCalls ?? []
-    return [...toolCalls].sort((left, right) => {
-      const leftRunning = left.status === 'running' ? 0 : 1
-      const rightRunning = right.status === 'running' ? 0 : 1
-      if (leftRunning !== rightRunning) {
-        return leftRunning - rightRunning
-      }
+  const sortedToolCalls = computed(() => [])
 
-      if (left.status !== right.status) {
-        const weight = (status: string) => {
-          switch (status) {
-            case 'pending':
-              return 0
-            case 'running':
-              return 1
-            case 'error':
-              return 2
-            default:
-              return 3
-          }
-        }
-        return weight(left.status) - weight(right.status)
-      }
+  // ── 工具调用独立行渲染（tool_use / tool_result） ─────────────────────────
+  // 新结构下 tool_use 与 tool_result 各自独立成行，按 toolCallId 关联。
+  const isToolUse = computed(() => props.message.messageType === 'tool_use')
+  const isToolResult = computed(() => props.message.messageType === 'tool_result')
 
-      return 0
-    })
+  // tool_use 行解析入参，构造 ToolCall 供 ToolCallDisplay 渲染
+  const toolUseParsed = computed<ToolCall | null>(() => {
+    if (!isToolUse.value) return null
+    let parsedArguments: Record<string, unknown> = {}
+    if (props.message.toolInput) {
+      try {
+        parsedArguments = JSON.parse(props.message.toolInput)
+      } catch {
+        parsedArguments = { raw: props.message.toolInput }
+      }
+    }
+    const status = isStreaming.value ? 'running' : 'success'
+    return {
+      id: props.message.toolCallId || props.message.id,
+      name: props.message.toolName || 'tool',
+      arguments: parsedArguments,
+      status,
+      result: props.message.toolResult
+    }
+  })
+
+  // tool_result 行：尝试在会话消息中找到同 toolCallId 的 tool_use 获取 name，
+  // 组装成带结果的 ToolCall
+  const toolResultParsed = computed<ToolCall | null>(() => {
+    if (!isToolResult.value) return null
+    const sessionMessages = resolvedSessionMessages.value
+    const toolCallId = props.message.toolCallId
+    const useMessage = toolCallId
+      ? sessionMessages.find(m => m.messageType === 'tool_use' && m.toolCallId === toolCallId)
+      : null
+    const name = useMessage?.toolName || props.message.toolName || 'tool'
+    let parsedArguments: Record<string, unknown> = {}
+    if (useMessage?.toolInput) {
+      try {
+        parsedArguments = JSON.parse(useMessage.toolInput)
+      } catch {
+        parsedArguments = { raw: useMessage.toolInput }
+      }
+    }
+    const hasError = props.message.status === 'error'
+    return {
+      id: toolCallId || props.message.id,
+      name,
+      arguments: parsedArguments,
+      status: hasError ? 'error' : 'success',
+      result: props.message.toolResult,
+      errorMessage: hasError ? props.message.errorMessage : undefined
+    }
+  })
+
+  const toolCallForDisplay = computed<ToolCall | null>(() =>
+    toolUseParsed.value || toolResultParsed.value
+  )
+
+  const shouldRenderAsToolCall = computed(() =>
+    (isToolUse.value || isToolResult.value) && toolCallForDisplay.value !== null
+  )
+
+  // ── 用量独立行渲染（usage / context_window） ───────────────────────────
+  const isUsage = computed(() => props.message.messageType === 'usage')
+  const isContextWindow = computed(() => props.message.messageType === 'context_window')
+
+  const usageSummary = computed(() => {
+    if (!isUsage.value && !isContextWindow.value) return null
+    const input = props.message.inputTokens ?? 0
+    const output = props.message.outputTokens ?? 0
+    const cacheRead = props.message.cacheReadTokens ?? 0
+    const cacheCreation = props.message.cacheCreationTokens ?? 0
+    const total = input + output + cacheRead + cacheCreation
+    return {
+      input,
+      output,
+      cacheRead,
+      cacheCreation,
+      total,
+      model: props.message.model || '',
+      costUsd: props.message.costUsd ?? null
+    }
   })
 
   const assistantStructuredBlocks = computed(() => {
@@ -427,7 +468,7 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
       return []
     }
 
-    return parseStructuredContent(props.message.content)
+    return parseStructuredContent(props.message.content ?? ''  )
   })
 
   const assistantFormBlocks = computed(() =>
@@ -466,7 +507,7 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
         continue
       }
 
-      const formResponse = extractFormResponse(candidate.content)
+      const formResponse = extractFormResponse(candidate.content ?? '' )
       if (formResponse && assistantFormIds.value.includes(formResponse.formId)) {
         resolvedById[formResponse.formId] = formResponse.values
       }
@@ -526,7 +567,17 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
     return segments.slice(0, -1).join('/')
   }
 
-  function getToolCallRenderKey(toolCall: NonNullable<Message['toolCalls']>[number]) {
+  // 新结构下工具调用是独立行，单条 message 上不再有 toolCalls。
+  // 保留占位类型，便于后续按 tool_use 行单独渲染。
+  interface LegacyToolCallShape {
+    id: string
+    status: string
+    arguments?: Record<string, unknown> | null
+    result?: string | null
+    errorMessage?: string | null
+  }
+
+  function getToolCallRenderKey(toolCall: LegacyToolCallShape) {
     return [
       toolCall.id,
       toolCall.status,
@@ -584,6 +635,13 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
     sortedToolCalls,
     isAssistantFormOnly,
     resolvedFormResponsesById,
+    isToolUse,
+    isToolResult,
+    toolCallForDisplay,
+    shouldRenderAsToolCall,
+    isUsage,
+    isContextWindow,
+    usageSummary,
     handleStop,
     handleRetry,
     handleFormSubmit,

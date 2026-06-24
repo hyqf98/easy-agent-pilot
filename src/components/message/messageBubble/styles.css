@@ -934,3 +934,51 @@
     height: 28px;
   }
 }
+
+/* ── 工具调用独立行（tool_use / tool_result） ──────────────────────────── */
+.message-bubble--tool .message-bubble__body--tool {
+  background: transparent;
+  box-shadow: none;
+  border: none;
+  padding: 0;
+  max-width: var(--message-max-width, 100%);
+}
+
+.message-bubble--tool .message-bubble__meta {
+  margin-top: var(--spacing-1);
+}
+
+/* ── 用量独立行（usage / context_window） ──────────────────────────────── */
+.message-bubble--usage .message-bubble__body--usage {
+  background: transparent;
+  box-shadow: none;
+  border: none;
+  padding: 0;
+  max-width: var(--message-max-width, 100%);
+}
+
+.message-bubble__usage {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  padding: var(--spacing-1) var(--spacing-2);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-border) 40%, transparent);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.message-bubble__usage-icon {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.message-bubble__usage-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.message-bubble--usage .message-bubble__meta {
+  margin-top: var(--spacing-1);
+}
