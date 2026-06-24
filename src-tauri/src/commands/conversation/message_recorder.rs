@@ -178,7 +178,7 @@ impl MessageRecorder {
     }
 
     fn finalize_text(&self) -> Result<()> {
-        let guard = self.current_text_id.lock().unwrap();
+        let mut guard = self.current_text_id.lock().unwrap();
         if let Some(id) = guard.take() {
             drop(guard);
             self.set_status(&id, "completed")?;
@@ -187,7 +187,7 @@ impl MessageRecorder {
     }
 
     fn finalize_thinking(&self) -> Result<()> {
-        let guard = self.current_thinking_id.lock().unwrap();
+        let mut guard = self.current_thinking_id.lock().unwrap();
         if let Some(id) = guard.take() {
             drop(guard);
             self.set_status(&id, "completed")?;
