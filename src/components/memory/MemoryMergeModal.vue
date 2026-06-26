@@ -117,7 +117,7 @@ function handleConfirm() {
 .memory-dialog__title {
   margin: 0;
   font-size: 22px;
-  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  font-family: var(--font-family-sans);
 }
 
 .memory-dialog__body {
@@ -143,7 +143,7 @@ function handleConfirm() {
   margin: 0;
   padding: 14px 16px;
   border-radius: 16px;
-  background: linear-gradient(135deg, rgba(15, 118, 110, 0.12), rgba(15, 23, 42, 0.04));
+  background: color-mix(in srgb, var(--color-primary, #3b82f6) 8%, var(--workspace-control-bg, transparent));
   color: var(--color-text-secondary);
   line-height: 1.7;
 }

@@ -713,7 +713,7 @@ onUnmounted(() => {
 .memory-markdown-editor :deep(h5),
 .memory-markdown-editor :deep(h6) {
   margin: 0.45em 0 0.2em;
-  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  font-family: var(--font-family-sans);
   color: var(--memory-heading-color);
   line-height: 1.25;
 }

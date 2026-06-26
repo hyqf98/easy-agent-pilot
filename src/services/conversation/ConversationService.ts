@@ -10,6 +10,7 @@ import { useTokenStore } from '@/stores/token'
 import { useMemoryStore } from '@/stores/memory'
 import { usePermissionStore } from '@/stores/permission'
 import { useSubAgentStore } from '@/stores/subAgent'
+import { useFileChangeStore } from '@/stores/fileChange'
 import { agentExecutor } from './AgentExecutor'
 import type { ConversationContext, McpServerConfig, StreamEvent } from './strategies/types'
 import type { ReasoningEffortLevel } from '@/types/reasoning'
@@ -249,8 +250,6 @@ export class ConversationService {
   private readonly conversationRetryCount = new Map<string, number>()
   private readonly conversationRetryTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly sendEpochs = new Map<string, number>()
-  /** 当前发送回合 ID（一次 sendMessage 对应一个，user 与其触发的 assistant 事件共享） */
-  private currentRequestId = crypto.randomUUID()
 
   private constructor() {}
 
@@ -343,8 +342,9 @@ export class ConversationService {
       throw new Error('当前会话正在处理中，请等待当前消息完成后再发送')
     }
 
-    // 生成本次发送的回合 ID（user 消息与其触发的所有 assistant 事件共享）
-    this.currentRequestId = crypto.randomUUID()
+    // 生成本次发送的回合 ID（user 消息与其触发的所有 assistant 事件共享）。
+    // 使用局部常量而非实例字段，避免多面板并发发送时相互覆盖（单例竞态）。
+    const requestId = crypto.randomUUID()
 
     // 检查策略支持
     if (!agentExecutor.isSupported(agent)) {
@@ -373,7 +373,7 @@ export class ConversationService {
         : undefined
       const targetUserMessage = userMessage ?? await messageStore.addMessage({
         sessionId,
-        requestId: this.currentRequestId,
+        requestId,
         role: 'user',
         messageType: 'text',
         content,
@@ -385,11 +385,18 @@ export class ConversationService {
       if (!userMessage) {
         const rawMemoryContent = extractRawMemoryCaptureContent(content)
         if (rawMemoryContent) {
-          await memoryStore.captureUserMessage({
-            sessionId,
-            messageId: targetUserMessage.id,
-            content: rawMemoryContent
-          })
+          // 记忆记录为 best-effort：失败不阻断消息发送，但给出可见提示（不再静默吞掉）
+          try {
+            await memoryStore.captureUserMessage({
+              sessionId,
+              messageId: targetUserMessage.id,
+              content: rawMemoryContent
+            })
+          } catch (captureError) {
+            const notificationStore = useNotificationStore()
+            console.warn('Failed to capture raw memory:', captureError)
+            notificationStore.warning('记忆记录失败', captureError instanceof Error ? captureError.message : '该消息未写入记忆')
+          }
         }
         await memoryStore.recordSessionMemoryReferences({
           sessionId,
@@ -425,7 +432,7 @@ export class ConversationService {
 
       const aiMessage = reusableAssistantMessage ?? await messageStore.addMessage({
         sessionId,
-        requestId: this.currentRequestId,
+        requestId,
         role: 'assistant',
         messageType: 'text',
         content: '',
@@ -559,7 +566,7 @@ export class ConversationService {
 
       const context: ConversationContext = {
         sessionId,
-        requestId: this.currentRequestId,
+        requestId,
         agent: executionAgent,
         messages,
         workingDirectory,
@@ -1465,7 +1472,12 @@ export class ConversationService {
             }
 
             editTraces.push(trace)
-            // 编辑追踪在新结构下不塞进 message
+            // 接入文件变更追踪 store，驱动消息底部汇总条与右侧审查
+            try {
+              useFileChangeStore().ingestStreamEdit(sessionId, trace)
+            } catch (err) {
+              console.error('[fileChange] ingest stream edit failed', err)
+            }
           },
           onUsage: (usage) => {
             clearRetryPresentationOnRecoveredStream()
@@ -1571,7 +1583,7 @@ export class ConversationService {
             if (content && content.trim()) {
               void messageStore.addMessage({
                 sessionId,
-                requestId: this.currentRequestId,
+                requestId: context.requestId,
                 role: 'assistant',
                 messageType: 'system',
                 content,
@@ -1593,7 +1605,7 @@ export class ConversationService {
             // ask 模式下后端已挂起等待；写入权限 store 驱动询问弹窗
             usePermissionStore().setPending({
               sessionId,
-              requestId: this.currentRequestId,
+              requestId: context.requestId,
               toolName: permission.toolName,
               toolInput: permission.toolInput,
               options: permission.options

@@ -250,7 +250,7 @@ function handleInstructionKeydown(event: KeyboardEvent) {
 .memory-authoring-dialog__title {
   margin: 0;
   font-size: 24px;
-  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  font-family: var(--font-family-sans);
   color: var(--workspace-text-primary, var(--color-text-primary));
 }
 

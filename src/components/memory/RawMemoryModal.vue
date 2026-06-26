@@ -83,7 +83,7 @@ function handleSubmit() {
 .memory-dialog__title {
   margin: 0;
   font-size: 22px;
-  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  font-family: var(--font-family-sans);
 }
 
 .memory-dialog__body {
@@ -120,6 +120,6 @@ function handleSubmit() {
 
 .memory-dialog__textarea:focus {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px var(--color-primary-alpha-20);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary, #3b82f6) 16%, transparent);
 }
 </style>

@@ -289,17 +289,17 @@ export const useMemoryStore = defineStore('memory', () => {
     }
   }
 
-  async function captureUserMessage(input: CaptureUserMessageInput) {
-    try {
-      const record = await invoke<RawMemoryRecord>('capture_user_message', { input })
-      if (matchesCurrentQuery(record)) {
-        upsertRawRecord(record)
-      }
-      return record
-    } catch (error) {
-      console.error('Failed to capture raw memory:', error)
-      return null
+  /**
+   * 记录一条用户消息到原始记忆。
+   *
+   * 失败时向上抛出而非静默吞掉，便于调用方做可见提示；仅在命中当前查询时更新列表。
+   */
+  async function captureUserMessage(input: CaptureUserMessageInput): Promise<RawMemoryRecord> {
+    const record = await invoke<RawMemoryRecord>('capture_user_message', { input })
+    if (matchesCurrentQuery(record)) {
+      upsertRawRecord(record)
     }
+    return record
   }
 
   /**

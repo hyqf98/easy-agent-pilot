@@ -1,34 +1,28 @@
 .memory-mode {
-  --memory-bg-top: rgba(191, 219, 254, 0.18);
-  --memory-bg-bottom: rgba(251, 191, 36, 0.12);
-  --memory-bg-surface-start: rgba(255, 255, 255, 0.94);
-  --memory-bg-surface-end: rgba(248, 250, 252, 0.92);
-  --memory-panel-border: rgba(148, 163, 184, 0.18);
-  --memory-panel-border-strong: rgba(148, 163, 184, 0.45);
-  --memory-card-bg: rgba(255, 255, 255, 0.9);
-  --memory-card-hover-border: rgba(14, 116, 144, 0.28);
-  --memory-card-hover-shadow: rgba(14, 116, 144, 0.08);
-  --memory-card-active-border: rgba(15, 118, 110, 0.38);
-  --memory-card-active-shadow: rgba(15, 118, 110, 0.12);
-  --memory-card-shadow: rgba(15, 23, 42, 0.04);
-  --memory-heading-color: var(--color-text-primary);
-  --memory-muted-color: var(--color-text-secondary);
-  --memory-accent-color: #0f766e;
-  --memory-danger-color: #b91c1c;
-  --memory-textarea-bg-start: rgba(255, 255, 255, 0.94);
-  --memory-textarea-bg-end: rgba(248, 250, 252, 0.96);
-  --memory-textarea-focus-border: rgba(15, 118, 110, 0.42);
-  --memory-textarea-focus-shadow: rgba(15, 118, 110, 0.12);
-  --memory-textarea-inner-shadow: rgba(255, 255, 255, 0.6);
+  /* 全部映射到「智能体会话」工作台 token，与 Plan/SOLO 视觉一致 */
+  --memory-panel-border: var(--workspace-border, rgba(38, 38, 38, 0.1));
+  --memory-panel-border-strong: var(--workspace-border-strong, rgba(38, 38, 38, 0.16));
+  --memory-card-bg: var(--workspace-control-bg, rgba(255, 255, 255, 0.68));
+  --memory-card-hover-border: var(--workspace-border-strong, rgba(38, 38, 38, 0.16));
+  --memory-card-hover-shadow: transparent;
+  --memory-card-active-border: var(--workspace-border-strong, rgba(38, 38, 38, 0.16));
+  --memory-card-active-shadow: transparent;
+  --memory-card-shadow: transparent;
+  --memory-heading-color: var(--workspace-text-primary, #20201e);
+  --memory-muted-color: var(--workspace-text-secondary, #5f5f5a);
+  --memory-accent-color: var(--color-primary, #3b82f6);
+  --memory-danger-color: var(--color-error, #ef4444);
+  --memory-textarea-bg-start: var(--workspace-control-bg, rgba(255, 255, 255, 0.68));
+  --memory-textarea-bg-end: var(--workspace-control-bg, rgba(255, 255, 255, 0.68));
+  --memory-textarea-focus-border: var(--color-primary, #3b82f6);
+  --memory-textarea-focus-shadow: color-mix(in srgb, var(--color-primary, #3b82f6) 14%, transparent);
+  --memory-textarea-inner-shadow: transparent;
   /* CSS 变量容器（sidebar 与 content 共享主题变量），需 flex 撑满 main-layout__body 宽度并让内嵌 WorkspaceShell 填满 */
   display: flex;
   flex: 1;
   min-width: 0;
   height: 100%;
-  background:
-    radial-gradient(circle at top left, var(--memory-bg-top), transparent 28%),
-    radial-gradient(circle at bottom right, var(--memory-bg-bottom), transparent 24%),
-    linear-gradient(180deg, var(--memory-bg-surface-start), var(--memory-bg-surface-end));
+  background: var(--workspace-stage-bg, #fbfbfa);
 }
 
 .memory-content {
@@ -41,25 +35,10 @@
 
 [data-theme='dark'] .memory-mode,
 .dark .memory-mode {
-  --memory-bg-top: rgba(59, 130, 246, 0.14);
-  --memory-bg-bottom: rgba(245, 158, 11, 0.08);
-  --memory-bg-surface-start: rgba(15, 23, 42, 0.98);
-  --memory-bg-surface-end: rgba(17, 24, 39, 0.96);
-  --memory-panel-border: rgba(71, 85, 105, 0.5);
-  --memory-panel-border-strong: rgba(71, 85, 105, 0.72);
-  --memory-card-bg: rgba(15, 23, 42, 0.82);
-  --memory-card-hover-border: rgba(56, 189, 248, 0.4);
-  --memory-card-hover-shadow: rgba(8, 145, 178, 0.18);
-  --memory-card-active-border: rgba(45, 212, 191, 0.42);
-  --memory-card-active-shadow: rgba(20, 184, 166, 0.22);
-  --memory-card-shadow: rgba(2, 6, 23, 0.3);
-  --memory-accent-color: #5eead4;
-  --memory-danger-color: #fca5a5;
-  --memory-textarea-bg-start: rgba(15, 23, 42, 0.96);
-  --memory-textarea-bg-end: rgba(30, 41, 59, 0.98);
-  --memory-textarea-focus-border: rgba(45, 212, 191, 0.46);
-  --memory-textarea-focus-shadow: rgba(45, 212, 191, 0.18);
-  --memory-textarea-inner-shadow: rgba(255, 255, 255, 0.04);
+  --memory-heading-color: var(--workspace-text-primary, #f4f4f0);
+  --memory-muted-color: var(--workspace-text-secondary, #b7b7af);
+  --memory-textarea-bg-start: var(--workspace-control-bg, rgba(255, 255, 255, 0.06));
+  --memory-textarea-bg-end: var(--workspace-control-bg, rgba(255, 255, 255, 0.06));
 }
 
 .memory-mode__libraries,
@@ -80,7 +59,7 @@
   padding-top: calc(var(--workspace-topbar-height, 44px) + 2px + 24px);
 }
 
-.memory-mode__libraries,
+/* 左栏 border 由 WorkspaceShell 提供，中栏用 workspace 分割线 */
 .memory-mode__records {
   border-right: 1px solid var(--memory-panel-border);
 }
@@ -104,29 +83,26 @@
 }
 
 .memory-create-button {
-  width: 38px;
-  height: 38px;
+  width: 28px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid color-mix(in srgb, var(--memory-panel-border-strong) 82%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--memory-card-bg) 92%, transparent);
-  color: var(--memory-accent-color);
+  border: none;
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-primary, #3b82f6);
+  color: var(--color-text-inverse, #fff);
   cursor: pointer;
-  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+  transition: background-color var(--transition-fast, 150ms);
 }
 
 .memory-create-button:hover {
-  transform: translateY(-1px);
-  border-color: var(--memory-card-hover-border);
-  box-shadow: 0 14px 28px var(--memory-card-hover-shadow);
+  background: var(--color-primary-hover, #2563eb);
 }
 
 .memory-create-button:focus-visible {
   outline: none;
-  border-color: var(--memory-card-active-border);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--memory-accent-color) 14%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary, #3b82f6) 14%, transparent);
 }
 
 .memory-create-menu__dropdown {
@@ -163,9 +139,10 @@
 .memory-panel-heading h2 {
   margin: 2px 0 0;
   color: var(--memory-heading-color);
-  line-height: 1.08;
-  font-size: 28px;
-  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  line-height: 1.2;
+  font-size: var(--font-size-base, 14px);
+  font-weight: var(--font-weight-semibold, 600);
+  font-family: var(--font-family-sans);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -180,10 +157,10 @@
 }
 
 .memory-empty {
-  padding: 18px;
+  padding: 16px;
   border: 1px dashed var(--memory-panel-border-strong);
-  border-radius: 20px;
-  background: color-mix(in srgb, var(--memory-card-bg) 92%, transparent);
+  border-radius: var(--radius-md, 8px);
+  background: transparent;
   color: var(--memory-muted-color);
   line-height: 1.7;
 }
@@ -193,7 +170,7 @@
 .memory-merge-history__list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 3px;
   min-height: 0;
   overflow: auto;
 }
@@ -202,30 +179,31 @@
 .memory-record-card,
 .memory-record-preview,
 .memory-merge-history__item {
-  border: 1px solid var(--memory-panel-border);
-  border-radius: 22px;
-  background: var(--memory-card-bg);
-  box-shadow: 0 20px 50px var(--memory-card-shadow);
+  border: none;
+  border-radius: var(--radius-md, 8px);
+  background: transparent;
+  box-shadow: none;
+  transition: background-color var(--transition-fast, 150ms) var(--easing-default);
 }
 
 .memory-library-card {
-  padding: 16px;
+  padding: 7px 8px;
   text-align: left;
   cursor: pointer;
-  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
 
 .memory-library-card:hover,
 .memory-record-card:hover {
-  transform: translateY(-1px);
-  border-color: var(--memory-card-hover-border);
-  box-shadow: 0 24px 50px var(--memory-card-hover-shadow);
+  background: var(--workspace-list-hover-bg, rgba(229, 229, 225, 0.72));
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .memory-library-card--active,
 .memory-record-card--active {
-  border-color: var(--memory-card-active-border);
-  box-shadow: 0 24px 50px var(--memory-card-active-shadow);
+  background: var(--workspace-list-active-bg, #e9e9e5);
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .memory-library-card__head {
@@ -237,7 +215,8 @@
 .memory-library-card__head strong {
   display: block;
   color: var(--memory-heading-color);
-  font-size: 16px;
+  font-size: var(--font-size-sm, 13px);
+  font-weight: var(--font-weight-medium, 500);
 }
 
 .memory-library-card__head p,
@@ -305,7 +284,7 @@
 }
 
 .memory-record-card {
-  padding: 16px;
+  padding: 7px 8px;
   cursor: pointer;
 }
 
@@ -320,11 +299,12 @@
 }
 
 .memory-record-card__content p {
-  margin: 12px 0;
+  margin: 4px 0;
   color: var(--memory-heading-color);
-  line-height: 1.7;
+  line-height: 1.6;
+  font-size: var(--font-size-xs, 12px);
   display: -webkit-box;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -336,7 +316,7 @@
 }
 
 .memory-record-preview {
-  padding: 16px;
+  padding: 7px 8px;
 }
 
 .memory-record-preview__head strong {
@@ -384,7 +364,7 @@
 }
 
 .memory-merge-history__item {
-  padding: 14px 16px;
+  padding: 7px 8px;
 }
 
 .memory-merge-history__meta {
