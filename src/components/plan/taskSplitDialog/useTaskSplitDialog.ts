@@ -43,6 +43,7 @@ import {
   normalizeTaskInstructionInput,
   parseTaskInstruction
 } from '@/utils/taskInstructionParser'
+import { parseMentionAtCaret, applyMentionToText } from '@/utils/messageInput'
 import { resolveSubAgentById, resolveSubAgentExecutionWithFallback } from '@/services/subAgent/runtime'
 
 type PendingPlanAttachment = MessageAttachment & { previewUrl: string }
@@ -596,7 +597,8 @@ export function useTaskSplitDialog() {
       const plan = planStore.plans.find(item => item.id === planId)
       return {
         planId,
-        label: plan?.name || planId.slice(0, 8)
+        label: plan?.name || planId.slice(0, 8),
+        status: taskSplitStore.getPlanRuntimeStatus(planId)
       }
     })
   )
@@ -652,41 +654,12 @@ export function useTaskSplitDialog() {
       return null
     }
 
-    const caret = instructionSelectionStart.value
-    const beforeCaret = userInstruction.value.slice(0, caret)
-    const mentionStart = beforeCaret.lastIndexOf('@')
-    if (mentionStart < 0) {
-      return null
-    }
-
-    const prefixChar = mentionStart > 0 ? beforeCaret[mentionStart - 1] : ''
-    if (prefixChar && !/[\s([{：:，,]/.test(prefixChar)) {
-      return null
-    }
-
-    const mentionText = beforeCaret.slice(mentionStart + 1)
-    if (/\s/.test(mentionText) || mentionText.includes(']')) {
-      return null
-    }
-
-    const query = mentionText.trim().toLowerCase()
-    const options = tasks
-      .map((task, index) => ({
-        index,
-        title: task.title || t('taskBoard.emptyNoTasks')
-      }))
-      .filter(option => !query
-        || `${option.index + 1}`.includes(query)
-        || option.title.toLowerCase().includes(query))
-      .slice(0, 8)
-
-    return {
-      query,
-      rangeStart: mentionStart,
-      rangeEnd: caret,
-      options,
-      key: `${mentionStart}:${query}`
-    }
+    // 复用共享 @提及解析逻辑（与主会话输入框一致）
+    const candidates = tasks.map((task, index) => ({
+      index,
+      title: task.title || t('taskBoard.emptyNoTasks')
+    }))
+    return parseMentionAtCaret(userInstruction.value, instructionSelectionStart.value, candidates)
   })
 
   const mentionSuggestions = computed(() => mentionState.value?.options ?? [])
@@ -1545,6 +1518,14 @@ export function useTaskSplitDialog() {
       taskSplitStore.clearPlanStateCache(planId)
       planStore.closeSplitDialogTab(planId)
     }
+
+    // 关闭的是最后一个 tab（对话框即将整体隐藏）时，释放全部后台监听器；
+    // 否则仅释放被关闭 tab 的监听器，保留其余 tab 的后台运行态跟踪
+    if (planStore.splitDialogPlanIds.length === 0) {
+      taskSplitStore.reset()
+    } else if (planId) {
+      taskSplitStore.releaseBackgroundListener(planId)
+    }
   }
 
   async function handleCloseClick() {
@@ -1597,12 +1578,13 @@ export function useTaskSplitDialog() {
       return
     }
 
-    const replacement = `@[${option.index + 1}:${option.title}] `
-    userInstruction.value = [
-      userInstruction.value.slice(0, mention.rangeStart),
-      replacement,
-      userInstruction.value.slice(mention.rangeEnd)
-    ].join('')
+    // 复用共享提及替换逻辑（与主会话输入框一致）
+    const result = applyMentionToText(userInstruction.value, mention, option)
+    if (!result) {
+      return
+    }
+
+    userInstruction.value = result.text
     mentionDismissKey.value = ''
 
     nextTick(() => {
@@ -1611,10 +1593,9 @@ export function useTaskSplitDialog() {
         return
       }
 
-      const nextCaret = mention.rangeStart + replacement.length
       input.focus()
-      input.setSelectionRange(nextCaret, nextCaret)
-      instructionSelectionStart.value = nextCaret
+      input.setSelectionRange(result.caret, result.caret)
+      instructionSelectionStart.value = result.caret
       autoResizeInput()
     })
   }
