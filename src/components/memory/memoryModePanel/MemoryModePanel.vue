@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EaButton, EaIcon, EaInput } from '@/components/common'
 import { useSafeOutsideClick } from '@/composables/useSafeOutsideClick'
+import WorkspaceShell from '@/components/layout/WorkspaceShell.vue'
 import MemoryMarkdownEditor from '../MemoryMarkdownEditor.vue'
 import MemoryLibraryModal from '../MemoryLibraryModal.vue'
 import RawMemoryModal from '../RawMemoryModal.vue'
@@ -76,7 +77,9 @@ useSafeOutsideClick(
 
 <template>
   <div class="memory-mode">
-    <aside class="memory-mode__libraries">
+  <WorkspaceShell :sidebar-width="300" :sidebar-min="240" :sidebar-max="420">
+    <template #sidebar>
+      <aside class="memory-mode__libraries">
       <div class="memory-panel-heading">
         <div class="memory-panel-heading__content">
           <p class="memory-panel-heading__eyebrow">
@@ -175,8 +178,10 @@ useSafeOutsideClick(
         </button>
       </div>
     </aside>
+    </template>
 
-    <section class="memory-mode__records">
+    <div class="memory-content">
+      <section class="memory-mode__records">
       <div class="memory-panel-heading">
         <div>
           <p class="memory-panel-heading__eyebrow">
@@ -418,6 +423,7 @@ useSafeOutsideClick(
         </section>
       </template>
     </aside>
+    </div>
 
     <MemoryLibraryModal
       v-model:visible="libraryModalVisible"
@@ -451,6 +457,7 @@ useSafeOutsideClick(
     />
 
     <MemoryAuthoringDialog :dialog="memoryAuthoringDialog" />
+  </WorkspaceShell>
   </div>
 </template>
 <style scoped src="./styles.css"></style>

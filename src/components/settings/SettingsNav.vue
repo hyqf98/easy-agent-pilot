@@ -67,10 +67,7 @@ const groupedTabs = computed(() => (
 .settings-nav {
   display: flex;
   flex-direction: column;
-  width: 232px;
-  flex-shrink: 0;
-  background-color: var(--workspace-sidebar-bg, var(--color-bg-secondary));
-  border-right: 1px solid var(--workspace-border, var(--color-border));
+  flex: 1;
   overflow: hidden;
 }
 

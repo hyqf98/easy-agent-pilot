@@ -2,6 +2,7 @@
 import SoloExecutionLogPanel from '../SoloExecutionLogPanel.vue'
 import SoloRunCreateDialog from '../soloRunCreateDialog/SoloRunCreateDialog.vue'
 import SoloRunList from '../SoloRunList.vue'
+import WorkspaceShell from '@/components/layout/WorkspaceShell.vue'
 import { useSoloModePanel } from './useSoloModePanel'
 
 const {
@@ -66,24 +67,21 @@ const {
 </script>
 
 <template>
-  <div
-    class="solo-mode-panel"
-    :class="{ 'solo-mode-panel--with-log': currentRun && isLogPanelOpen }"
-    :style="currentRun && isLogPanelOpen ? { '--solo-log-panel-width': `${logPanelWidth}px` } : undefined"
-  >
-    <div class="solo-mode-panel__list">
+  <WorkspaceShell :sidebar-width="300" :sidebar-min="240" :sidebar-max="420">
+    <template #sidebar>
       <SoloRunList
         :runs="runs"
         :current-run-id="soloRunStore.currentRunId"
         @select="selectRun"
         @create="openCreateDialog"
       />
-    </div>
+    </template>
 
-    <div
-      class="solo-mode-panel__main"
-      :class="{ 'solo-mode-panel__main--with-log': currentRun && isLogPanelOpen }"
-    >
+    <div class="solo-content">
+      <div
+        class="solo-mode-panel__main"
+        :class="{ 'solo-mode-panel__main--with-log': currentRun && isLogPanelOpen }"
+      >
       <template v-if="currentRun">
         <div class="solo-run-header">
           <div class="solo-run-header__meta">
@@ -362,6 +360,7 @@ const {
         :force-coordinator-scope="isCoordinatorSelected"
       />
     </div>
+    </div>
 
     <SoloRunCreateDialog
       :visible="showCreateDialog"
@@ -377,7 +376,7 @@ const {
       @save="saveRunEdits"
       @update:form="updateCreateForm"
     />
-  </div>
+  </WorkspaceShell>
 </template>
 
 <style scoped src="./styles.css"></style>

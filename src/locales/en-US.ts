@@ -277,6 +277,7 @@ export default {
     repositories: 'Repositories',
     projectEmptyTitle: 'No repositories yet',
     projectEmptyHint: 'Click "Import Project" on the welcome screen to get started',
+    showSidebar: 'Show sidebar',
     sessions: 'Sessions',
     files: 'Files',
     all: 'All',

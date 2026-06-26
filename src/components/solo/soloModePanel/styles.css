@@ -1,40 +1,29 @@
-.solo-mode-panel {
+.solo-content {
   --solo-log-panel-width: 380px;
-  display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
+  display: flex;
   height: 100%;
   background: var(--workspace-stage-bg, var(--color-bg-secondary));
   overflow: hidden;
 }
 
-.solo-mode-panel--with-log {
-  grid-template-columns: 300px minmax(0, 1fr) minmax(280px, var(--solo-log-panel-width));
-}
-
-.solo-mode-panel__list,
 .solo-mode-panel__main,
 .solo-mode-panel__log {
   min-width: 0;
   min-height: 0;
 }
 
-.solo-mode-panel__list {
-  border-right: 1px solid var(--workspace-border, color-mix(in srgb, var(--color-border) 82%, transparent));
-  background: var(--workspace-sidebar-bg, var(--color-bg-secondary));
-}
-
-.solo-mode-panel__list,
 .solo-mode-panel__log {
   overflow: hidden;
 }
 
 .solo-mode-panel__main {
+  flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
   padding: 10px;
-  /* 顶部为浮动导航让出空间（左栏列表已满铺至顶，仅主区避让） */
+  /* 顶部为浮动导航让出空间 */
   padding-top: calc(var(--workspace-topbar-height, 44px) + 2px + 10px);
   gap: 8px;
 }
@@ -769,14 +758,6 @@
 }
 
 @media (max-width: 1380px) {
-  .solo-mode-panel {
-    grid-template-columns: 270px minmax(0, 1fr);
-  }
-
-  .solo-mode-panel--with-log {
-    grid-template-columns: 270px minmax(0, 1fr) minmax(280px, min(var(--solo-log-panel-width), 360px));
-  }
-
   .solo-summary-card,
   .solo-brief-grid,
   .solo-history-grid {
@@ -785,18 +766,7 @@
 }
 
 @media (max-width: 1180px) {
-  .solo-mode-panel {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(280px, 34vh) minmax(0, 1fr);
-  }
-
-  .solo-mode-panel--with-log {
-    grid-template-rows: minmax(280px, 34vh) minmax(0, 1fr) minmax(300px, 38vh);
-  }
-
-  .solo-mode-panel__list,
   .solo-mode-panel__main {
-    border-right: none;
     border-bottom: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
   }
 
@@ -848,7 +818,7 @@
   background: transparent;
 }
 
-[data-theme='dark'] .solo-mode-panel {
+[data-theme='dark'] .solo-content {
   background: color-mix(in srgb, var(--color-bg-secondary) 92%, #020617 8%);
 }
 

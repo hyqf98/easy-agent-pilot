@@ -12,6 +12,7 @@ import TaskDetail from './TaskDetail.vue'
 import PlanProgressDetail from './PlanProgressDetail.vue'
 import AgentRoleBadge from './AgentRoleBadge.vue'
 import { EaIcon } from '@/components/common'
+import WorkspaceShell from '@/components/layout/WorkspaceShell.vue'
 import type { Plan, Task } from '@/types/plan'
 
 const planStore = usePlanStore()
@@ -113,7 +114,7 @@ function startResize(e: MouseEvent) {
 function handleResize(e: MouseEvent) {
   if (!isResizing.value) return
 
-  const containerRect = document.querySelector('.plan-mode-panel')?.getBoundingClientRect()
+  const containerRect = document.querySelector('.plan-content')?.getBoundingClientRect()
   if (!containerRect) return
 
   // 计算新的宽度（从右边缘到鼠标位置）
@@ -144,94 +145,89 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="plan-mode-panel">
-    <!-- 左侧：计划列表 -->
-    <div class="plan-list-container">
+  <WorkspaceShell :sidebar-width="292" :sidebar-min="240" :sidebar-max="420">
+    <template #sidebar>
       <PlanList @plan-click="handlePlanClick" />
-    </div>
+    </template>
 
-    <!-- 中间：任务看板 -->
-    <div
-      class="task-board-container"
-      :class="{ 'task-board-container--with-right': rightPanelOpen }"
-    >
-      <TaskBoard @task-click="handleTaskClick" />
-    </div>
-
-    <!-- 右侧：按需展开 -->
-    <div
-      v-if="rightPanelOpen"
-      class="task-detail-container"
-      :style="{
-        width: rightPanelWidth + 'px',
-        '--detail-panel-width': rightPanelWidth + 'px'
-      }"
-    >
-      <!-- 拖拽调整宽度手柄 -->
+    <div class="plan-content">
+      <!-- 中间：任务看板 -->
       <div
-        class="resize-handle"
-        :class="{ 'resize-handle--active': isResizing }"
-        @mousedown="startResize"
-      />
-
-      <!-- 收起按钮 - 放在拖拽手柄上 -->
-      <button
-        class="collapse-button"
-        title="收起详情面板"
-        @click="closeRightPanel"
+        class="task-board-container"
+        :class="{ 'task-board-container--with-right': rightPanelOpen }"
       >
-        <EaIcon
-          name="chevron-right"
-          :size="15"
-        />
-      </button>
-      <PlanProgressDetail
-        v-if="rightPanelView === 'plan_progress' && selectedPlanId"
-        :plan-id="selectedPlanId"
-        @task-select="handlePlanTaskSelect"
-      />
-      <TaskDetail
-        v-else-if="rightPanelView === 'task_detail' && selectedTaskId"
-      />
-      <TaskExecutionLog
-        v-else-if="rightPanelView === 'task_log' && selectedTaskId"
-        :task-id="selectedTaskId"
-      />
-    </div>
+        <TaskBoard @task-click="handleTaskClick" />
+      </div>
 
-    <!-- 活动角色指示器 -->
-    <div
-      v-if="activeRole"
-      class="active-role-indicator"
-    >
-      <AgentRoleBadge
-        :role="activeRole"
-        size="lg"
-      />
+      <!-- 右侧：按需展开 -->
+      <div
+        v-if="rightPanelOpen"
+        class="task-detail-container"
+        :style="{
+          width: rightPanelWidth + 'px',
+          '--detail-panel-width': rightPanelWidth + 'px'
+        }"
+      >
+        <!-- 拖拽调整宽度手柄 -->
+        <div
+          class="resize-handle"
+          :class="{ 'resize-handle--active': isResizing }"
+          @mousedown="startResize"
+        />
+
+        <!-- 收起按钮 - 放在拖拽手柄上 -->
+        <button
+          class="collapse-button"
+          title="收起详情面板"
+          @click="closeRightPanel"
+        >
+          <EaIcon
+            name="chevron-right"
+            :size="15"
+          />
+        </button>
+        <PlanProgressDetail
+          v-if="rightPanelView === 'plan_progress' && selectedPlanId"
+          :plan-id="selectedPlanId"
+          @task-select="handlePlanTaskSelect"
+        />
+        <TaskDetail
+          v-else-if="rightPanelView === 'task_detail' && selectedTaskId"
+        />
+        <TaskExecutionLog
+          v-else-if="rightPanelView === 'task_log' && selectedTaskId"
+          :task-id="selectedTaskId"
+        />
+      </div>
+
+      <!-- 活动角色指示器 -->
+      <div
+        v-if="activeRole"
+        class="active-role-indicator"
+      >
+        <AgentRoleBadge
+          :role="activeRole"
+          size="lg"
+        />
+      </div>
     </div>
-  </div>
+  </WorkspaceShell>
 </template>
 
 <style scoped>
-.plan-mode-panel {
+/* 内容区：任务看板 + 按需展开的详情面板（左栏已由 WorkspaceShell 提供） */
+.plan-content {
   display: flex;
   height: 100%;
   background-color: var(--workspace-stage-bg, var(--bg-primary, #fff));
   position: relative;
 }
 
-.plan-list-container {
-  width: 292px;
-  flex-shrink: 0;
-  border-right: 1px solid var(--workspace-border, var(--border-color, #e5e7eb));
-  background: var(--workspace-sidebar-bg, var(--color-bg-secondary));
-}
-
 .task-board-container {
   flex: 1;
   min-width: 0;
   background: var(--workspace-stage-bg, var(--color-bg-secondary));
-  /* 顶部为浮动导航让出空间（左栏列表已满铺至顶，仅任务区避让） */
+  /* 顶部为浮动导航让出空间 */
   padding-top: calc(var(--workspace-topbar-height, 44px) + 2px);
 }
 

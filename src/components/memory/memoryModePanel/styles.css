@@ -20,14 +20,23 @@
   --memory-textarea-focus-border: rgba(15, 118, 110, 0.42);
   --memory-textarea-focus-shadow: rgba(15, 118, 110, 0.12);
   --memory-textarea-inner-shadow: rgba(255, 255, 255, 0.6);
-  display: grid;
-  grid-template-columns: 300px minmax(0, 1.1fr) minmax(380px, 0.9fr);
-  height: 100%;
+  /* CSS 变量容器（sidebar 与 content 共享主题变量），需 flex 撑满 main-layout__body 宽度并让内嵌 WorkspaceShell 填满 */
+  display: flex;
+  flex: 1;
   min-width: 0;
+  height: 100%;
   background:
     radial-gradient(circle at top left, var(--memory-bg-top), transparent 28%),
     radial-gradient(circle at bottom right, var(--memory-bg-bottom), transparent 24%),
     linear-gradient(180deg, var(--memory-bg-surface-start), var(--memory-bg-surface-end));
+}
+
+.memory-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(380px, 0.9fr);
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 [data-theme='dark'] .memory-mode,
@@ -58,6 +67,7 @@
 .memory-mode__library-editor {
   min-width: 0;
   min-height: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -384,13 +394,13 @@
 }
 
 @media (max-width: 1440px) {
-  .memory-mode {
-    grid-template-columns: 280px minmax(0, 1fr) minmax(320px, 0.9fr);
+  .memory-content {
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
   }
 }
 
 @media (max-width: 1180px) {
-  .memory-mode {
+  .memory-content {
     grid-template-columns: 1fr;
     overflow: auto;
   }

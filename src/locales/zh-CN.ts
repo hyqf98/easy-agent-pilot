@@ -203,6 +203,7 @@ const zhCN = {
     repositories: '项目仓库',
     projectEmptyTitle: '暂无项目仓库',
     projectEmptyHint: '在中间欢迎页点击「导入项目」即可开始',
+    showSidebar: '显示侧栏',
     sessions: '会话',
     files: '文件',
     all: '全部',

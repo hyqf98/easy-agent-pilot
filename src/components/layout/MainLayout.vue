@@ -4,7 +4,7 @@ import { useLayoutStore } from '@/stores/layout'
 import { useUIStore } from '@/stores/ui'
 import { useProjectStore, type Project } from '@/stores/project'
 import { useSplitPaneStore } from '@/stores/splitPane'
-import AppHeader from './AppHeader.vue'
+import WorkspaceShell from './WorkspaceShell.vue'
 import BottomTerminalPanel from './BottomTerminalPanel.vue'
 import PanelContainer from './PanelContainer.vue'
 import SessionTabs from './SessionTabs.vue'
@@ -20,8 +20,6 @@ import { FileEditorWorkspace, openProjectFileInWorkspace } from '@/modules/fileE
 import { OfficeViewerWorkspace } from '@/modules/officeViewer'
 import { useTerminalStore } from '@/stores/terminal'
 
-const LEFT_SIDEBAR_MIN_WIDTH = 220
-const LEFT_SIDEBAR_MAX_WIDTH = 420
 const RIGHT_DOCK_MIN_WIDTH = 440
 const RIGHT_DOCK_MAX_WIDTH = 980
 const RIGHT_TREE_MIN_WIDTH = 160
@@ -36,11 +34,9 @@ const terminalStore = useTerminalStore()
 const rightFileProjectId = ref<string | null>(null)
 const isRightFilePanelOpen = ref(false)
 const isRightTerminalVisible = ref(false)
-const isLeftSidebarVisible = ref(true)
-const leftSidebarWidth = ref(280)
 const rightDockWidth = ref(720)
 const rightTreeWidth = ref(220)
-const resizeTarget = ref<'left' | 'rightDock' | 'rightTree' | null>(null)
+const resizeTarget = ref<'rightDock' | 'rightTree' | null>(null)
 
 let resizeStartX = 0
 let resizeStartWidth = 0
@@ -53,9 +49,6 @@ const rightFileProject = computed(() => (
 const isFileWorkspaceActive = computed(() => (
   uiStore.mainContentMode === 'fileEditor' || uiStore.mainContentMode === 'officeViewer'
 ))
-
-// 仅主会话保留左侧项目管理侧边栏；计划 / SOLO / 记忆模式靠各自列表顶部的项目切换器选项目
-const isSidebarMode = computed(() => uiStore.appMode === 'chat')
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
@@ -114,29 +107,12 @@ async function toggleRightTerminal() {
   terminalStore.setCollapsed(false)
 }
 
-function showLeftSidebar() {
-  isLeftSidebarVisible.value = true
-}
-
-function hideLeftSidebar() {
-  isLeftSidebarVisible.value = false
-}
-
 function handleResizeMove(event: MouseEvent) {
   if (!resizeTarget.value) {
     return
   }
 
   const deltaX = event.clientX - resizeStartX
-  if (resizeTarget.value === 'left') {
-    leftSidebarWidth.value = clamp(
-      resizeStartWidth + deltaX,
-      LEFT_SIDEBAR_MIN_WIDTH,
-      LEFT_SIDEBAR_MAX_WIDTH
-    )
-    return
-  }
-
   if (resizeTarget.value === 'rightDock') {
     rightDockWidth.value = clamp(
       resizeStartWidth - deltaX,
@@ -165,14 +141,10 @@ function stopResize() {
   document.removeEventListener('mouseup', stopResize)
 }
 
-function startResize(target: 'left' | 'rightDock' | 'rightTree', event: MouseEvent) {
+function startResize(target: 'rightDock' | 'rightTree', event: MouseEvent) {
   resizeTarget.value = target
   resizeStartX = event.clientX
-  resizeStartWidth = target === 'left'
-    ? leftSidebarWidth.value
-    : target === 'rightDock'
-      ? rightDockWidth.value
-      : rightTreeWidth.value
+  resizeStartWidth = target === 'rightDock' ? rightDockWidth.value : rightTreeWidth.value
   document.body.style.cursor = 'col-resize'
   document.body.style.userSelect = 'none'
   document.addEventListener('mousemove', handleResizeMove, { passive: true })
@@ -201,207 +173,151 @@ watch(
     }
   }
 )
-
-watch(rightFileProject, (project) => {
-  if (!project) {
-    isRightFilePanelOpen.value = false
-  }
-})
 </script>
 
 <template>
   <div class="main-layout main-layout--agent-workspace">
     <div class="main-layout__body">
-      <div class="main-layout__workspace">
-        <button
-          v-if="!isLeftSidebarVisible && isSidebarMode"
-          type="button"
-          class="main-layout__sidebar-restore"
-          title="显示项目管理"
-          aria-label="显示项目管理"
-          @click="showLeftSidebar"
-        >
-          <EaIcon
-            name="panel-left-open"
-            :size="15"
-          />
-        </button>
-
-        <aside
-          v-if="isLeftSidebarVisible && isSidebarMode"
-          class="main-layout__sidebar"
-          :style="{ width: `${leftSidebarWidth}px`, flexBasis: `${leftSidebarWidth}px` }"
-        >
+      <!-- 智能体会话：WorkspaceShell 内联（左栏=项目管理，内容=会话+文件管理 dock） -->
+      <WorkspaceShell
+        v-show="uiStore.appMode === 'chat'"
+        :sidebar-width="280"
+      >
+        <template #sidebar="{ hide }">
           <PanelContainer
             @open-project-files="handleOpenProjectFiles"
-            @request-hide="hideLeftSidebar"
+            @request-hide="hide"
           />
-        </aside>
+        </template>
 
-        <div
-          v-if="isLeftSidebarVisible && isSidebarMode"
-          class="main-layout__resizer main-layout__resizer--left"
-          :class="{ 'main-layout__resizer--active': resizeTarget === 'left' }"
-          @mousedown.prevent="startResize('left', $event)"
-        />
-
-        <main class="main-layout__stage">
-          <!-- 顶部导航栏：悬浮在主会话面板上方（不独占一行），水平居中于右侧内容面板 -->
-          <AppHeader class="main-layout__floating-header" />
-          <section
-            v-show="uiStore.appMode === 'plan'"
-            class="main-layout__mode-panel main-layout__mode-panel--plan"
-          >
-            <PlanModePanel />
-          </section>
-
-          <section
-            v-show="uiStore.appMode === 'solo'"
-            class="main-layout__mode-panel main-layout__mode-panel--solo"
-          >
-            <SoloModePanel />
-          </section>
-
-          <section
-            v-show="uiStore.appMode === 'memory'"
-            class="main-layout__mode-panel main-layout__mode-panel--memory"
-          >
-            <MemoryModePanel />
-          </section>
-
-          <section
-            v-show="uiStore.appMode === 'settings'"
-            class="main-layout__mode-panel main-layout__mode-panel--settings"
-          >
-            <SettingsShell />
-          </section>
-
-          <section
-            v-show="uiStore.appMode === 'chat'"
-            class="main-layout__chat-shell"
-          >
-            <div class="main-layout__main">
-              <div class="main-layout__chat-content">
-                <SessionTabs v-show="!splitPaneStore.isSplitActive" />
-                <SplitContainer v-if="splitPaneStore.isSplitActive" />
-                <MessageArea v-else />
-              </div>
+        <div class="main-layout__chat-shell">
+          <div class="main-layout__main">
+            <div class="main-layout__chat-content">
+              <SessionTabs v-show="!splitPaneStore.isSplitActive" />
+              <SplitContainer v-if="splitPaneStore.isSplitActive" />
+              <MessageArea v-else />
             </div>
+          </div>
 
-            <aside
-              v-if="isRightFilePanelOpen && rightFileProject"
-              class="main-layout__right-dock"
-              :style="{ width: `${rightDockWidth}px` }"
-            >
-              <div
-                class="main-layout__resizer main-layout__resizer--right-dock"
-                :class="{ 'main-layout__resizer--active': resizeTarget === 'rightDock' }"
-                @mousedown.prevent="startResize('rightDock', $event)"
-              />
-              <section class="main-layout__file-manager">
-                <header class="main-layout__file-manager-header">
-                  <div class="main-layout__file-manager-title">
+          <aside
+            v-if="isRightFilePanelOpen && rightFileProject"
+            class="main-layout__right-dock"
+            :style="{ width: `${rightDockWidth}px` }"
+          >
+            <div
+              class="main-layout__resizer main-layout__resizer--right-dock"
+              :class="{ 'main-layout__resizer--active': resizeTarget === 'rightDock' }"
+              @mousedown.prevent="startResize('rightDock', $event)"
+            />
+            <section class="main-layout__file-manager">
+              <header class="main-layout__file-manager-header">
+                <div class="main-layout__file-manager-title">
+                  <EaIcon
+                    name="files"
+                    :size="14"
+                  />
+                  <span>{{ rightFileProject.name }}</span>
+                </div>
+                <span class="main-layout__file-manager-path">{{ rightFileProject.path }}</span>
+                <div class="main-layout__file-manager-actions">
+                  <button
+                    type="button"
+                    class="main-layout__file-manager-action main-layout__file-manager-action--active"
+                    title="文件管理"
+                    aria-label="文件管理"
+                  >
                     <EaIcon
                       name="files"
                       :size="14"
                     />
-                    <span>{{ rightFileProject.name }}</span>
-                  </div>
-                  <span class="main-layout__file-manager-path">{{ rightFileProject.path }}</span>
-                  <div class="main-layout__file-manager-actions">
-                    <button
-                      type="button"
-                      class="main-layout__file-manager-action main-layout__file-manager-action--active"
-                      title="文件管理"
-                      aria-label="文件管理"
-                    >
-                      <EaIcon
-                        name="files"
-                        :size="14"
-                      />
-                    </button>
-                    <button
-                      type="button"
-                      class="main-layout__file-manager-action"
-                      :class="{ 'main-layout__file-manager-action--active': isRightTerminalVisible }"
-                      title="终端"
-                      aria-label="终端"
-                      @click="toggleRightTerminal"
-                    >
-                      <EaIcon
-                        name="terminal"
-                        :size="14"
-                      />
-                    </button>
-                    <button
-                      type="button"
-                      class="main-layout__file-manager-action"
-                      title="关闭文件管理"
-                      aria-label="关闭文件管理"
-                      @click="closeRightFilePanel"
-                    >
-                      <EaIcon
-                        name="x"
-                        :size="14"
-                      />
-                    </button>
-                  </div>
-                </header>
-
-                <div class="main-layout__file-manager-body">
-                  <div
-                    class="main-layout__file-tree-pane"
-                    :style="{ width: `${rightTreeWidth}px` }"
+                  </button>
+                  <button
+                    type="button"
+                    class="main-layout__file-manager-action"
+                    :class="{ 'main-layout__file-manager-action--active': isRightTerminalVisible }"
+                    title="终端"
+                    aria-label="终端"
+                    @click="toggleRightTerminal"
                   >
-                    <FileTree
-                      :project-id="rightFileProject.id"
-                      :project-path="rightFileProject.path"
-                      class="main-layout__file-tree"
-                      @file-select="handleRightFileSelect"
+                    <EaIcon
+                      name="terminal"
+                      :size="14"
                     />
-                  </div>
-                  <div
-                    class="main-layout__resizer main-layout__resizer--right-tree"
-                    :class="{ 'main-layout__resizer--active': resizeTarget === 'rightTree' }"
-                    @mousedown.prevent="startResize('rightTree', $event)"
-                  />
+                  </button>
+                  <button
+                    type="button"
+                    class="main-layout__file-manager-action"
+                    title="关闭文件管理"
+                    aria-label="关闭文件管理"
+                    @click="closeRightFilePanel"
+                  >
+                    <EaIcon
+                      name="x"
+                      :size="14"
+                    />
+                  </button>
+                </div>
+              </header>
 
-                  <div class="main-layout__file-viewer-pane">
-                    <FileEditorWorkspace
-                      v-show="uiStore.mainContentMode === 'fileEditor'"
-                      class="main-layout__file-editor"
-                      compact
+              <div class="main-layout__file-manager-body">
+                <div
+                  class="main-layout__file-tree-pane"
+                  :style="{ width: `${rightTreeWidth}px` }"
+                >
+                  <FileTree
+                    :project-id="rightFileProject.id"
+                    :project-path="rightFileProject.path"
+                    class="main-layout__file-tree"
+                    @file-select="handleRightFileSelect"
+                  />
+                </div>
+                <div
+                  class="main-layout__resizer main-layout__resizer--right-tree"
+                  :class="{ 'main-layout__resizer--active': resizeTarget === 'rightTree' }"
+                  @mousedown.prevent="startResize('rightTree', $event)"
+                />
+
+                <div class="main-layout__file-viewer-pane">
+                  <FileEditorWorkspace
+                    v-show="uiStore.mainContentMode === 'fileEditor'"
+                    class="main-layout__file-editor"
+                    compact
+                  />
+                  <OfficeViewerWorkspace
+                    v-show="uiStore.mainContentMode === 'officeViewer'"
+                    class="main-layout__file-editor"
+                    compact
+                  />
+                  <div
+                    v-if="!isFileWorkspaceActive"
+                    class="main-layout__file-viewer-empty"
+                  >
+                    <EaIcon
+                      name="file-text"
+                      :size="22"
                     />
-                    <OfficeViewerWorkspace
-                      v-show="uiStore.mainContentMode === 'officeViewer'"
-                      class="main-layout__file-editor"
-                      compact
-                    />
-                    <div
-                      v-if="!isFileWorkspaceActive"
-                      class="main-layout__file-viewer-empty"
-                    >
-                      <EaIcon
-                        name="file-text"
-                        :size="22"
-                      />
-                      <span>选择文件查看</span>
-                    </div>
+                    <span>选择文件查看</span>
                   </div>
                 </div>
+              </div>
 
-                <BottomTerminalPanel
-                  v-if="isRightTerminalVisible"
-                  variant="workspace"
-                  :force-expanded="true"
-                  :show-collapse-control="false"
-                  class="main-layout__right-terminal"
-                />
-              </section>
-            </aside>
-          </section>
-        </main>
-      </div>
+              <BottomTerminalPanel
+                v-if="isRightTerminalVisible"
+                variant="workspace"
+                :force-expanded="true"
+                :show-collapse-control="false"
+                class="main-layout__right-terminal"
+              />
+            </section>
+          </aside>
+        </div>
+      </WorkspaceShell>
+
+      <!-- 其余模式各自内嵌 WorkspaceShell，按模式 v-show 切换 -->
+      <PlanModePanel v-show="uiStore.appMode === 'plan'" />
+      <SoloModePanel v-show="uiStore.appMode === 'solo'" />
+      <MemoryModePanel v-show="uiStore.appMode === 'memory'" />
+      <SettingsShell v-show="uiStore.appMode === 'settings'" />
     </div>
   </div>
 </template>
@@ -424,122 +340,15 @@ watch(rightFileProject, (project) => {
   overflow: hidden;
 }
 
-.main-layout__workspace {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.main-layout__sidebar {
-  position: relative;
-  width: var(--workspace-sidebar-width);
-  min-width: 0;
-  max-width: none;
-  flex: 0 0 var(--workspace-sidebar-width);
-  min-height: 0;
-  overflow: hidden;
-  background: var(--workspace-sidebar-bg);
-  border-right: 1px solid var(--workspace-border);
-}
-
-.main-layout__sidebar-restore {
-  position: absolute;
-  z-index: 12;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: 1px solid var(--workspace-control-border);
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--workspace-control-bg) 94%, transparent);
-  color: var(--workspace-text-tertiary);
-  cursor: pointer;
-}
-
-.main-layout__sidebar-restore {
-  top: 8px;
-  left: 8px;
-}
-
-.main-layout__sidebar-restore:hover {
-  background: var(--workspace-control-hover-bg);
-  color: var(--workspace-text-primary);
-}
-
-.main-layout__resizer {
-  flex: 0 0 4px;
-  width: 4px;
-  min-width: 4px;
-  cursor: col-resize;
-  background: transparent;
-  z-index: 9;
-  transition: background-color var(--transition-fast) var(--easing-default);
-}
-
-.main-layout__resizer:hover,
-.main-layout__resizer--active {
-  background: color-mix(in srgb, var(--color-primary) 28%, transparent);
-}
-
-.main-layout__resizer--right-dock {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -2px;
-}
-
-.main-layout__resizer--right-tree {
-  height: 100%;
-  align-self: stretch;
-}
-
-.main-layout__floating-header {
-  position: absolute;
-  top: 6px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 20;
-  border-radius: 12px;
-  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.08);
-}
-
-.main-layout__stage {
-  position: relative;
+.main-layout__chat-shell {
   flex: 1;
   min-width: 0;
   min-height: 0;
   display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--workspace-stage-bg);
-}
-
-.main-layout__chat-shell,
-.main-layout__mode-panel {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
+  flex-direction: row;
   /* 为悬浮导航栏让出顶部空间 */
   padding-top: calc(var(--workspace-topbar-height) + 2px);
   overflow: hidden;
-}
-
-.main-layout__chat-shell {
-  flex-direction: row;
-}
-
-/* 设置页：左栏(SettingsNav)从顶部满铺至窗口顶，仅右侧内容避让浮动导航，
-   与主会话(sidebar 满铺 + 内容下移 + 导航悬浮)结构一致，避免导航独占一行 */
-.main-layout__mode-panel--settings,
-.main-layout__mode-panel--plan,
-.main-layout__mode-panel--solo,
-.main-layout__mode-panel--memory {
-  padding-top: 0;
 }
 
 .main-layout__main {
@@ -734,10 +543,31 @@ watch(rightFileProject, (project) => {
   opacity: 1;
 }
 
-@media (max-width: 920px) {
-  .main-layout__sidebar {
-    min-width: 0;
-  }
+.main-layout__resizer {
+  flex: 0 0 4px;
+  width: 4px;
+  min-width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 9;
+  transition: background-color var(--transition-fast) var(--easing-default);
+}
+
+.main-layout__resizer:hover,
+.main-layout__resizer--active {
+  background: color-mix(in srgb, var(--color-primary) 28%, transparent);
+}
+
+.main-layout__resizer--right-dock {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -2px;
+}
+
+.main-layout__resizer--right-tree {
+  height: 100%;
+  align-self: stretch;
 }
 
 @media (max-width: 1240px) {
