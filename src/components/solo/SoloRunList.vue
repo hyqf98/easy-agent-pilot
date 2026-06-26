@@ -107,12 +107,12 @@ function formatTime(value: string): string {
 </template>
 
 <style scoped>
+/* 对齐「智能体会话」工作台左列表样式：透明行 + 8px 圆角 + workspace 选中态 */
 .solo-run-list {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--color-surface) 92%, white 8%) 0%, var(--color-surface) 100%);
+  background: transparent;
 }
 
 .solo-run-list__header {
@@ -120,8 +120,8 @@ function formatTime(value: string): string {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 20px 18px 16px;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent);
+  padding: 16px 14px 12px;
+  border-bottom: 1px solid var(--workspace-border, var(--color-border, #e2e8f0));
 }
 
 .solo-run-list__eyebrow {
@@ -129,96 +129,105 @@ function formatTime(value: string): string {
   font-size: 11px;
   letter-spacing: 0.24em;
   text-transform: uppercase;
-  color: var(--color-primary);
+  color: var(--workspace-text-tertiary, var(--color-text-secondary, #94a3b8));
 }
 
 .solo-run-list__header h3 {
   margin: 6px 0 0;
-  font-size: 19px;
-  color: var(--color-text-primary);
+  font-size: var(--font-size-base, 14px);
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--workspace-text-primary, var(--color-text-primary, #1e293b));
 }
 
 .solo-run-list__create {
-  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
   border: none;
-  border-radius: 999px;
+  border-radius: var(--radius-md, 8px);
   color: white;
-  background: linear-gradient(135deg, color-mix(in srgb, var(--color-primary) 82%, white) 0%, var(--color-primary) 100%);
+  background: var(--color-primary, #3b82f6);
   cursor: pointer;
+  font-size: var(--font-size-xs, 12px);
+  font-weight: var(--font-weight-medium, 500);
+  transition: background-color var(--transition-fast, 150ms);
+}
+
+.solo-run-list__create:hover {
+  background: var(--color-primary-hover, #2563eb);
 }
 
 .solo-run-list__groups {
   flex: 1;
   overflow: auto;
-  padding: 12px 12px 18px;
+  padding: 8px 8px 10px;
 }
 
 .solo-run-list__group + .solo-run-list__group {
-  margin-top: 18px;
+  margin-top: 14px;
 }
 
 .solo-run-list__group-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 8px 10px;
-  font-size: 12px;
+  padding: 4px 8px 6px;
+  font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--color-text-secondary);
+  color: var(--workspace-text-tertiary, var(--color-text-secondary, #94a3b8));
 }
 
 .solo-run-card {
   width: 100%;
   text-align: left;
-  border: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
-  border-radius: 20px;
-  padding: 14px 14px 12px;
-  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
+  border: none;
+  border-radius: var(--radius-md, 8px);
+  padding: 7px 8px;
+  background: transparent;
   cursor: pointer;
-  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+  transition: background-color var(--transition-fast, 150ms) var(--easing-default);
 }
 
 .solo-run-card + .solo-run-card {
-  margin-top: 10px;
+  margin-top: 2px;
 }
 
 .solo-run-card:hover {
-  transform: translateY(-1px);
-  border-color: color-mix(in srgb, var(--color-primary) 36%, var(--color-border) 64%);
+  background: var(--workspace-list-hover-bg, rgba(229, 229, 225, 0.72));
 }
 
 .solo-run-card--active {
-  border-color: color-mix(in srgb, var(--color-primary) 52%, var(--color-border) 48%);
-  box-shadow: 0 16px 28px color-mix(in srgb, var(--color-primary) 12%, transparent);
+  background: var(--workspace-list-active-bg, #e9e9e5);
 }
 
 .solo-run-card__title-row {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 10px;
-  color: var(--color-text-primary);
+  gap: 8px;
+  color: var(--workspace-text-primary, var(--color-text-primary, #1e293b));
 }
 
 .solo-run-card__status {
   display: inline-flex;
   align-items: center;
-  padding: 4px 8px;
+  padding: 2px 7px;
   border-radius: 999px;
   font-size: 11px;
   white-space: nowrap;
-  background: color-mix(in srgb, var(--color-surface-hover) 78%, transparent);
-  color: var(--color-text-secondary);
+  background: var(--workspace-control-bg, rgba(38, 38, 38, 0.06));
+  color: var(--workspace-text-secondary, var(--color-text-secondary, #64748b));
 }
 
 .solo-run-card__goal {
-  margin: 10px 0 12px;
-  font-size: 13px;
+  margin: 4px 0 6px;
+  font-size: var(--font-size-xs, 12px);
   line-height: 1.5;
-  color: var(--color-text-secondary);
+  color: var(--workspace-text-secondary, var(--color-text-secondary, #64748b));
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -226,44 +235,28 @@ function formatTime(value: string): string {
 .solo-run-card__meta {
   display: flex;
   justify-content: space-between;
-  gap: 10px;
-  font-size: 12px;
-  color: var(--color-text-tertiary);
+  gap: 8px;
+  font-size: 11px;
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary, #94a3b8));
 }
 
 .solo-run-card--running .solo-run-card__status {
-  background: color-mix(in srgb, #14b8a6 20%, transparent);
-  color: #0f766e;
+  background: color-mix(in srgb, var(--color-info, #14b8a6) 18%, transparent);
+  color: var(--color-info-dark, #0f766e);
 }
 
 .solo-run-card--blocked .solo-run-card__status {
-  background: color-mix(in srgb, #f59e0b 18%, transparent);
-  color: #b45309;
+  background: var(--color-warning-light, #fef3c7);
+  color: var(--color-warning-dark, #b45309);
 }
 
 .solo-run-card--completed .solo-run-card__status {
-  background: color-mix(in srgb, #22c55e 16%, transparent);
-  color: #15803d;
+  background: var(--color-success-light, #dcfce7);
+  color: var(--color-success-dark, #15803d);
 }
 
 .solo-run-card--failed .solo-run-card__status {
-  background: color-mix(in srgb, #ef4444 14%, transparent);
-  color: #b91c1c;
-}
-
-[data-theme='dark'] .solo-run-card--running .solo-run-card__status {
-  color: #5eead4;
-}
-
-[data-theme='dark'] .solo-run-card--blocked .solo-run-card__status {
-  color: #fcd34d;
-}
-
-[data-theme='dark'] .solo-run-card--completed .solo-run-card__status {
-  color: #86efac;
-}
-
-[data-theme='dark'] .solo-run-card--failed .solo-run-card__status {
-  color: #fca5a5;
+  background: var(--color-error-light, #fee2e2);
+  color: var(--color-error-dark, #b91c1c);
 }
 </style>

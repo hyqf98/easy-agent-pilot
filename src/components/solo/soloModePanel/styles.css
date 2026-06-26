@@ -83,19 +83,19 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: var(--color-surface, #fff);
-  border: 1px solid color-mix(in srgb, var(--color-border) 84%, transparent);
+  background-color: var(--workspace-panel-bg, var(--color-surface, #fff));
+  border: 1px solid var(--workspace-border, var(--color-border, #e2e8f0));
   border-left: none;
   border-radius: 0 6px 6px 0;
   cursor: pointer;
   z-index: 25;
-  color: var(--color-text-secondary, #64748b);
+  color: var(--workspace-text-secondary, var(--color-text-secondary, #64748b));
   transition: all 0.15s ease;
 }
 
 .solo-mode-panel__log-collapse:hover {
-  background-color: color-mix(in srgb, var(--color-bg-secondary, #f8fafc) 96%, white 4%);
-  color: var(--color-text-primary, #1e293b);
+  background-color: var(--workspace-control-hover-bg, var(--color-bg-secondary, #f8fafc));
+  color: var(--workspace-text-primary, var(--color-text-primary, #1e293b));
   width: 24px;
 }
 
@@ -321,9 +321,7 @@
   grid-template-columns: minmax(0, 1.5fr) minmax(260px, 0.9fr);
   gap: 12px;
   padding: 12px 14px;
-  background:
-    radial-gradient(circle at top left, color-mix(in srgb, var(--color-primary) 14%, transparent) 0%, transparent 46%),
-    linear-gradient(180deg, color-mix(in srgb, var(--color-surface) 92%, white 8%) 0%, var(--color-surface) 100%);
+  background: var(--workspace-control-bg, var(--color-surface, #fff));
 }
 
 .solo-summary-card__eyebrow {
@@ -331,21 +329,21 @@
   font-size: 11px;
   letter-spacing: 0.24em;
   text-transform: uppercase;
-  color: var(--color-primary);
+  color: var(--workspace-text-tertiary, var(--color-text-secondary, #94a3b8));
 }
 
 .solo-summary-card__content h2 {
   margin: 4px 0 6px;
-  font-size: 20px;
+  font-size: var(--font-size-xl, 20px);
   line-height: 1.12;
-  color: var(--color-text-primary);
+  color: var(--workspace-text-primary, var(--color-text-primary, #1e293b));
 }
 
 .solo-summary-card__goal {
   margin: 0;
   font-size: 11px;
   line-height: 1.45;
-  color: var(--color-text-secondary);
+  color: var(--workspace-text-secondary, var(--color-text-secondary, #64748b));
 }
 
 .solo-summary-card__chips,
@@ -367,8 +365,8 @@
   align-items: center;
   padding: 5px 9px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-surface-hover) 82%, transparent);
-  color: var(--color-text-secondary);
+  background: var(--workspace-control-bg, rgba(38, 38, 38, 0.06));
+  color: var(--workspace-text-secondary, var(--color-text-secondary, #64748b));
   font-size: 11px;
 }
 
@@ -383,29 +381,29 @@
   flex-direction: column;
   gap: 4px;
   padding: 10px 12px;
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--color-surface) 88%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
+  border-radius: var(--radius-md, 8px);
+  background: var(--workspace-control-bg, var(--color-surface, #fff));
+  border: 1px solid var(--workspace-border, var(--color-border, #e2e8f0));
 }
 
 .solo-stat-card span {
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--color-text-secondary);
+  color: var(--workspace-text-secondary, var(--color-text-secondary, #64748b));
 }
 
 .solo-stat-card strong {
   font-size: 20px;
-  color: var(--color-text-primary);
+  color: var(--workspace-text-primary, var(--color-text-primary, #1e293b));
 }
 
 .solo-stat-card--warning {
-  background: color-mix(in srgb, #f59e0b 8%, var(--color-surface) 92%);
+  background: color-mix(in srgb, var(--color-warning, #f59e0b) 8%, var(--workspace-control-bg, transparent));
 }
 
 .solo-stat-card--danger {
-  background: color-mix(in srgb, #ef4444 8%, var(--color-surface) 92%);
+  background: color-mix(in srgb, var(--color-error, #ef4444) 8%, var(--workspace-control-bg, transparent));
 }
 
 .solo-brief-grid {
@@ -646,11 +644,11 @@
 }
 
 .solo-step-card--completed .solo-step-card__marker {
-  background: color-mix(in srgb, #22c55e 70%, white 30%);
+  background: color-mix(in srgb, var(--color-success, #22c55e) 70%, white 30%);
 }
 
 .solo-step-card--failed .solo-step-card__marker {
-  background: color-mix(in srgb, #ef4444 70%, white 30%);
+  background: color-mix(in srgb, var(--color-error, #ef4444) 70%, white 30%);
 }
 
 .solo-step-card--coordinator .solo-step-card__surface {
@@ -672,18 +670,18 @@
 }
 
 .solo-step-card__status--success {
-  background: color-mix(in srgb, #22c55e 14%, transparent);
-  color: #16a34a;
+  background: color-mix(in srgb, var(--color-success, #22c55e) 14%, transparent);
+  color: var(--color-success-dark, #16a34a);
 }
 
 .solo-step-card__status--error {
-  background: color-mix(in srgb, #ef4444 14%, transparent);
-  color: #dc2626;
+  background: color-mix(in srgb, var(--color-error, #ef4444) 14%, transparent);
+  color: var(--color-error, #dc2626);
 }
 
 .solo-step-card__status--warning {
-  background: color-mix(in srgb, #f59e0b 14%, transparent);
-  color: #d97706;
+  background: color-mix(in srgb, var(--color-warning, #f59e0b) 14%, transparent);
+  color: var(--color-warning, #d97706);
 }
 
 .solo-step-card__status--gray {
@@ -697,7 +695,7 @@
 }
 
 .solo-step-card--blocked .solo-step-card__marker {
-  background: color-mix(in srgb, #f59e0b 70%, white 30%);
+  background: color-mix(in srgb, var(--color-warning, #f59e0b) 70%, white 30%);
 }
 
 .solo-step-card__top {
@@ -752,9 +750,9 @@
 .solo-timeline__error {
   margin-top: 16px;
   padding: 14px 16px;
-  border-radius: 18px;
-  background: color-mix(in srgb, #ef4444 10%, transparent);
-  color: color-mix(in srgb, #b91c1c 90%, white 10%);
+  border-radius: var(--radius-md, 8px);
+  background: color-mix(in srgb, var(--color-error, #ef4444) 10%, transparent);
+  color: var(--color-error-dark, #b91c1c);
 }
 
 @media (max-width: 1380px) {
@@ -818,95 +816,3 @@
   background: transparent;
 }
 
-[data-theme='dark'] .solo-content {
-  background: color-mix(in srgb, var(--color-bg-secondary) 92%, #020617 8%);
-}
-
-[data-theme='dark'] .solo-mode-panel__log,
-.dark .solo-mode-panel__log {
-  border-color: color-mix(in srgb, var(--color-border) 58%, rgba(148, 163, 184, 0.24) 42%);
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-surface) 84%, #020617 16%) 0%,
-      color-mix(in srgb, var(--color-surface) 90%, #020617 10%) 100%
-    );
-}
-
-[data-theme='dark'] .solo-run-header,
-[data-theme='dark'] .solo-summary-card,
-.dark .solo-run-header,
-.dark .solo-summary-card,
-[data-theme='dark'] .solo-brief-card,
-.dark .solo-brief-card,
-[data-theme='dark'] .solo-timeline,
-.dark .solo-timeline,
-[data-theme='dark'] .solo-history-card,
-.dark .solo-history-card {
-  border-color: color-mix(in srgb, var(--color-border) 58%, rgba(148, 163, 184, 0.24) 42%);
-  background: color-mix(in srgb, var(--color-surface) 86%, #020617 14%);
-}
-
-[data-theme='dark'] .solo-summary-card {
-  background:
-    radial-gradient(circle at top left, color-mix(in srgb, var(--color-primary) 20%, transparent) 0%, transparent 44%),
-    linear-gradient(180deg, color-mix(in srgb, var(--color-surface) 82%, #020617 18%) 0%, color-mix(in srgb, var(--color-surface) 90%, #020617 10%) 100%);
-}
-
-[data-theme='dark'] .solo-brief-card--experts {
-  background: linear-gradient(135deg, color-mix(in srgb, var(--color-primary) 14%, #020617 16%) 0%, color-mix(in srgb, var(--color-surface) 88%, #020617 12%) 100%);
-}
-
-[data-theme='dark'] .solo-history-card--highlight,
-.dark .solo-history-card--highlight {
-  background: linear-gradient(135deg, color-mix(in srgb, var(--color-primary) 16%, #020617 14%) 0%, color-mix(in srgb, var(--color-surface) 88%, #020617 12%) 100%);
-}
-
-[data-theme='dark'] .solo-run-header__button--ghost,
-[data-theme='dark'] .solo-summary-card__chip,
-[data-theme='dark'] .solo-brief-card__chips span,
-[data-theme='dark'] .solo-step-card__files span,
-[data-theme='dark'] .solo-step-card__status,
-[data-theme='dark'] .solo-stat-card {
-  background: color-mix(in srgb, var(--color-surface) 76%, #020617 24%);
-  border-color: color-mix(in srgb, var(--color-border) 54%, rgba(148, 163, 184, 0.2) 46%);
-}
-
-[data-theme='dark'] .solo-stat-card--warning {
-  background: color-mix(in srgb, #f59e0b 14%, color-mix(in srgb, var(--color-surface) 78%, #020617 22%));
-}
-
-[data-theme='dark'] .solo-stat-card--danger {
-  background: color-mix(in srgb, #ef4444 14%, color-mix(in srgb, var(--color-surface) 78%, #020617 22%));
-}
-
-[data-theme='dark'] .solo-timeline__empty,
-[data-theme='dark'] .solo-step-card__surface {
-  background: color-mix(in srgb, var(--color-surface) 78%, #020617 22%);
-  border-color: color-mix(in srgb, var(--color-border) 54%, rgba(148, 163, 184, 0.18) 46%);
-}
-
-[data-theme='dark'] .solo-step-card--active .solo-step-card__surface {
-  border-color: color-mix(in srgb, var(--color-primary) 48%, rgba(59, 130, 246, 0.26) 52%);
-  box-shadow: 0 18px 30px rgba(15, 23, 42, 0.42);
-}
-
-[data-theme='dark'] .solo-timeline__track::before {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--color-primary) 54%, transparent) 0%, color-mix(in srgb, rgba(148, 163, 184, 0.24) 76%, transparent) 100%);
-}
-
-[data-theme='dark'] .solo-mode-panel__log-collapse {
-  background-color: rgba(15, 23, 42, 0.96);
-  border-color: rgba(148, 163, 184, 0.18);
-  color: rgba(226, 232, 240, 0.78);
-}
-
-[data-theme='dark'] .solo-mode-panel__log-collapse:hover {
-  background-color: rgba(30, 41, 59, 0.96);
-  color: #f8fafc;
-}
-
-[data-theme='dark'] .solo-mode-panel__log-resizer::before,
-.dark .solo-mode-panel__log-resizer::before {
-  background: color-mix(in srgb, var(--color-border) 58%, rgba(148, 163, 184, 0.24) 42%);
-}

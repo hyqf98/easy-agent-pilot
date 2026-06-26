@@ -618,7 +618,6 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
     const agent = (run.coordinatorAgentId ? agentStore.agents.find((item) => item.id === run.coordinatorAgentId) : null)
       || runtime?.agent
       || agentStore.agents[0]
-      || agentStore.agents[0]
 
     if (!agent) {
       throw new Error('未找到可用的 SOLO 协调运行时')

@@ -663,9 +663,8 @@ onMounted(async () => {
   align-items: center;
   padding: 0.125rem 0.5rem;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-bg-tertiary, #f1f5f9) 92%, #ffffff);
-  border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
-  color: var(--color-text-secondary, #64748b);
+  background: var(--workspace-control-bg, rgba(38, 38, 38, 0.06));
+  color: var(--workspace-text-secondary, var(--color-text-secondary, #64748b));
   font-size: 0.6875rem;
   font-weight: 500;
   white-space: nowrap;
@@ -676,8 +675,8 @@ onMounted(async () => {
   flex-direction: column;
   gap: 0.625rem;
   padding: 0.875rem 1rem;
-  border-bottom: 1px solid var(--color-border, #e2e8f0);
-  background: var(--workspace-control-bg, color-mix(in srgb, var(--color-surface, #ffffff) 92%, var(--color-bg-secondary, #f8fafc)));
+  border-bottom: 1px solid var(--workspace-border, var(--color-border, #e2e8f0));
+  background: var(--workspace-control-bg, transparent);
 }
 
 .solo-execution-log__summary-eyebrow {
@@ -691,7 +690,7 @@ onMounted(async () => {
 
 .solo-execution-log__summary-text {
   margin: 0;
-  color: var(--color-text-primary, #1e293b);
+  color: var(--workspace-text-primary, var(--color-text-primary, #1e293b));
   font-size: 0.8125rem;
   line-height: 1.55;
   white-space: pre-wrap;
@@ -702,7 +701,7 @@ onMounted(async () => {
   flex-wrap: wrap;
   gap: 0.5rem 0.75rem;
   font-size: 0.6875rem;
-  color: var(--color-text-secondary, #64748b);
+  color: var(--workspace-text-secondary, var(--color-text-secondary, #64748b));
 }
 
 .solo-execution-log__summary-files {
@@ -716,35 +715,9 @@ onMounted(async () => {
   align-items: center;
   padding: 0.25rem 0.5rem;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-bg-tertiary, #f1f5f9) 92%, #ffffff);
-  border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
-  color: var(--color-text-secondary, #64748b);
+  background: var(--workspace-control-bg, rgba(38, 38, 38, 0.06));
+  color: var(--workspace-text-secondary, var(--color-text-secondary, #64748b));
   font-size: 0.6875rem;
   line-height: 1;
-}
-
-[data-theme='dark'] .solo-execution-log__meta-chip {
-  background: rgba(51, 65, 85, 0.9);
-  border-color: rgba(148, 163, 184, 0.18);
-  color: rgba(226, 232, 240, 0.78);
-}
-
-[data-theme='dark'] .solo-execution-log__summary {
-  border-bottom-color: rgba(148, 163, 184, 0.14);
-  background: var(--workspace-control-bg, rgba(255, 255, 255, 0.04));
-}
-
-[data-theme='dark'] .solo-execution-log__summary-text {
-  color: #e2e8f0;
-}
-
-[data-theme='dark'] .solo-execution-log__summary-meta,
-[data-theme='dark'] .solo-execution-log__summary-files span {
-  color: rgba(226, 232, 240, 0.72);
-}
-
-[data-theme='dark'] .solo-execution-log__summary-files span {
-  background: rgba(30, 41, 59, 0.9);
-  border-color: rgba(148, 163, 184, 0.18);
 }
 </style>
