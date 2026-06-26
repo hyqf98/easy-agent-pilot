@@ -13,6 +13,7 @@
     "tauri:clean:debug": "cargo clean --manifest-path src-tauri/Cargo.toml --profile dev",
     "typecheck": "vue-tsc --noEmit",
     "lint": "eslint src --fix",
+    "test": "vitest run",
     "test:update": "vitest run src/stores/__tests__/appUpdate.test.ts",
     "test:claude-json": "node scripts/test-claude-program-json-output.mjs",
     "build:mac": "pnpm tauri build --target universal-apple-darwin",

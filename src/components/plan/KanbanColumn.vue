@@ -82,7 +82,7 @@ function onDragChange(evt: any) {
     const { element } = evt.added
     emit('taskDrop', element.id, props.status)
   } else if (evt.moved) {
-    // 鍚屽垪鍐呯Щ鍔?
+    // 同列内移动
     const { element, newIndex } = evt.moved
     emit('taskReorder', element.id, newIndex)
   }
@@ -293,16 +293,11 @@ function handleAddTask() {
   max-width: 400px;
   display: flex;
   flex-direction: column;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-surface) 96%, #ffffff) 0%,
-      color-mix(in srgb, var(--color-bg-secondary) 92%, #f8fbff) 100%
-    );
-  border-radius: var(--radius-lg, 12px);
+  background: var(--workspace-panel-bg, var(--color-surface, #ffffff));
   transition: background-color var(--transition-fast, 150ms), border-color var(--transition-fast, 150ms);
-  border: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+  border: 1px solid var(--workspace-border, var(--color-border, #e2e8f0));
+  border-radius: var(--radius-md, 8px);
+  box-shadow: none;
 }
 
 .column-header {
@@ -326,15 +321,15 @@ function handleAddTask() {
   flex-shrink: 0;
 }
 
-.column-dot.gray { background-color: #94a3b8; }
-.column-dot.blue { background-color: #3b82f6; }
-.column-dot.green { background-color: #10b981; }
-.column-dot.yellow { background-color: #f59e0b; }
-.column-dot.red { background-color: #ef4444; }
+.column-dot.gray { background-color: var(--workspace-text-tertiary, #94a3b8); }
+.column-dot.blue { background-color: var(--color-primary, #3b82f6); }
+.column-dot.green { background-color: var(--color-success, #10b981); }
+.column-dot.yellow { background-color: var(--color-warning, #f59e0b); }
+.column-dot.red { background-color: var(--color-error, #ef4444); }
 
 .column-label {
   font-size: var(--font-size-sm, 13px);
-  color: var(--color-text-primary, #1e293b);
+  color: var(--workspace-text-primary, var(--color-text-primary, #1e293b));
 }
 
 .header-right {
@@ -364,19 +359,19 @@ function handleAddTask() {
 }
 
 .btn-stop-flow {
-  background-color: #dc2626;
+  background-color: var(--color-error, #dc2626);
 }
 
 .btn-stop-flow:hover {
-  background-color: #b91c1c;
+  background-color: var(--color-error-dark, #b91c1c);
 }
 
 .btn-resume-flow {
-  background-color: #16a34a;
+  background-color: var(--color-success, #16a34a);
 }
 
 .btn-resume-flow:hover {
-  background-color: #15803d;
+  background-color: var(--color-success-dark, #15803d);
 }
 
 .btn-header:active {
@@ -389,13 +384,12 @@ function handleAddTask() {
 
 .column-count {
   padding: 0.125rem 0.5rem;
-  background-color: color-mix(in srgb, var(--color-surface) 88%, var(--color-bg-secondary));
-  border: 1px solid color-mix(in srgb, var(--color-border) 56%, transparent);
+  background-color: var(--workspace-control-bg, rgba(38, 38, 38, 0.06));
+  border: none;
   border-radius: var(--radius-full, 9999px);
   font-size: var(--font-size-xs, 12px);
   font-weight: var(--font-weight-medium, 500);
-  color: var(--color-text-secondary, #64748b);
-  box-shadow: var(--shadow-xs, 0 1px 2px 0 rgb(0 0 0 / 0.05));
+  color: var(--workspace-text-secondary, var(--color-text-secondary, #64748b));
 }
 
 .column-body {
@@ -427,14 +421,9 @@ function handleAddTask() {
 
 .drag-item {
   padding: 0.375rem;
-  border: 1px dashed color-mix(in srgb, var(--color-border-dark) 72%, transparent);
+  border: 1px dashed var(--workspace-border, var(--color-border-dark, #cbd5e1));
   border-radius: calc(var(--radius-md, 8px) + 2px);
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-surface) 78%, transparent),
-      color-mix(in srgb, var(--color-bg-secondary) 62%, transparent)
-    );
+  background: var(--workspace-control-bg, rgba(255, 255, 255, 0.68));
   cursor: grab;
   touch-action: none;
 }
@@ -459,22 +448,17 @@ function handleAddTask() {
   justify-content: center;
   padding: var(--spacing-4, 1rem);
   font-size: var(--font-size-xs, 12px);
-  color: var(--color-text-tertiary, #94a3b8);
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary, #94a3b8));
   min-height: 80px;
-  border: 2px dashed color-mix(in srgb, var(--color-border-dark) 72%, transparent);
+  border: 2px dashed var(--workspace-border, var(--color-border-dark, #cbd5e1));
   border-radius: var(--radius-md, 8px);
   margin: var(--spacing-2, 0.5rem);
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-surface) 82%, transparent),
-      color-mix(in srgb, var(--color-bg-secondary) 76%, transparent)
-    );
+  background: transparent;
 }
 
 .ghost-card {
   opacity: 0.5;
-  background: #c8ebfb !important;
+  background: var(--color-primary-light, #c8ebfb) !important;
   border: 2px dashed var(--color-primary, #3b82f6) !important;
   border-radius: var(--radius-md, 8px);
 }
@@ -486,48 +470,7 @@ function handleAddTask() {
 
 .dragging-card {
   opacity: 0.8;
-  background: #e0f2fe !important;
+  background: var(--color-primary-light, #e0f2fe) !important;
   cursor: grabbing !important;
-}
-
-[data-theme='dark'] .kanban-column {
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-surface) 94%, #0f172a) 0%,
-      color-mix(in srgb, var(--color-bg-secondary) 90%, #020617) 100%
-    );
-  border-color: rgba(96, 165, 250, 0.12);
-  box-shadow: 0 16px 34px rgba(2, 6, 23, 0.34);
-}
-
-[data-theme='dark'] .column-label {
-  color: var(--color-text-primary, #e2e8f0);
-}
-
-[data-theme='dark'] .column-count {
-  background-color: rgba(15, 23, 42, 0.56);
-  border-color: rgba(148, 163, 184, 0.18);
-}
-
-[data-theme='dark'] .empty-column {
-  color: rgba(203, 213, 225, 0.72);
-  border-color: rgba(148, 163, 184, 0.28);
-  background:
-    linear-gradient(
-      180deg,
-      rgba(15, 23, 42, 0.28),
-      rgba(30, 41, 59, 0.4)
-    );
-}
-
-[data-theme='dark'] .drag-item {
-  border-color: rgba(148, 163, 184, 0.26);
-  background:
-    linear-gradient(
-      180deg,
-      rgba(15, 23, 42, 0.18),
-      rgba(30, 41, 59, 0.34)
-    );
 }
 </style>

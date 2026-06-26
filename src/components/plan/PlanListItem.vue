@@ -19,12 +19,12 @@ const emit = defineEmits<{
     :class="{ active: item.isActive }"
     @click="emit('select')"
   >
-    <div
-      class="plan-status-bar"
-      :class="item.statusColor"
-    />
     <div class="plan-info">
       <div class="plan-name-row">
+        <span
+          class="plan-status-dot"
+          :class="item.statusColor"
+        />
         <span class="plan-name">{{ item.plan.name }}</span>
         <span
           class="plan-status-chip"
@@ -152,44 +152,45 @@ const emit = defineEmits<{
 </template>
 
 <style scoped>
+/* 对齐「智能体会话」工作台左列表样式：透明行 + 8px 圆角 + workspace 选中态 */
 .plan-item {
   display: flex;
-  align-items: stretch;
-  padding: 0;
+  align-items: flex-start;
+  gap: var(--spacing-1, 0.25rem);
+  padding: var(--spacing-2, 0.5rem) var(--spacing-2, 0.5rem);
+  border: none;
   border-radius: var(--radius-md, 8px);
   cursor: pointer;
-  transition: all var(--transition-fast, 150ms) var(--easing-default);
-  background-color: var(--color-surface, #fff);
-  border: 1px solid var(--color-border-light, #f1f5f9);
-  overflow: hidden;
+  transition: background-color var(--transition-fast, 150ms) var(--easing-default);
+  background: transparent;
 }
 
 .plan-item:hover {
-  border-color: var(--color-border, #e2e8f0);
-  box-shadow: var(--shadow-sm, 0 1px 3px 0 rgb(0 0 0 / 0.1));
+  background: var(--workspace-list-hover-bg, rgba(229, 229, 225, 0.72));
 }
 
 .plan-item.active {
-  border-color: var(--color-primary, #60a5fa);
-  box-shadow: 0 0 0 3px var(--color-primary-light, #dbeafe);
+  background: var(--workspace-list-active-bg, #e9e9e5);
 }
 
-.plan-status-bar {
-  width: 4px;
+.plan-status-dot {
+  width: 8px;
+  height: 8px;
   flex-shrink: 0;
+  margin-top: 6px;
+  border-radius: 50%;
 }
 
-.plan-status-bar.gray { background-color: #94a3b8; }
-.plan-status-bar.blue { background-color: #60a5fa; }
-.plan-status-bar.green { background-color: #10b981; }
-.plan-status-bar.purple { background-color: #8b5cf6; }
-.plan-status-bar.orange { background-color: #f59e0b; }
-.plan-status-bar.yellow { background-color: #fbbf24; }
+.plan-status-dot.gray { background-color: var(--color-text-tertiary, #94a3b8); }
+.plan-status-dot.blue { background-color: var(--color-primary, #60a5fa); }
+.plan-status-dot.green { background-color: var(--color-success, #22c55e); }
+.plan-status-dot.purple { background-color: var(--color-accent, #8b5cf6); }
+.plan-status-dot.orange { background-color: var(--color-warning, #f59e0b); }
+.plan-status-dot.yellow { background-color: var(--color-warning, #f59e0b); }
 
 .plan-info {
   flex: 1;
   min-width: 0;
-  padding: var(--spacing-2, 0.5rem) var(--spacing-3, 0.75rem);
   display: flex;
   flex-direction: column;
   gap: 0.125rem;
@@ -198,7 +199,7 @@ const emit = defineEmits<{
 .plan-name-row {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.375rem;
 }
 
 .plan-name {
@@ -206,7 +207,7 @@ const emit = defineEmits<{
   min-width: 0;
   font-size: var(--font-size-sm, 13px);
   font-weight: var(--font-weight-medium, 500);
-  color: var(--color-text-primary, #1e293b);
+  color: var(--workspace-text-primary, var(--color-text-primary, #1e293b));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -215,39 +216,35 @@ const emit = defineEmits<{
 .plan-status-chip {
   flex-shrink: 0;
   border-radius: var(--radius-full, 9999px);
-  padding: 0.125rem 0.4rem;
+  padding: 0.0625rem 0.4rem;
   font-size: 0.625rem;
   font-weight: var(--font-weight-medium, 500);
 }
 
 .plan-status-chip.gray {
-  color: #64748b;
-  background-color: #f1f5f9;
+  color: var(--workspace-text-secondary, var(--color-text-secondary, #64748b));
+  background-color: var(--workspace-control-bg, rgba(38, 38, 38, 0.05));
 }
 
 .plan-status-chip.blue {
-  color: #1d4ed8;
-  background-color: #dbeafe;
+  color: var(--color-primary, #2563eb);
+  background-color: var(--color-primary-light, #dbeafe);
 }
 
 .plan-status-chip.green {
-  color: #166534;
-  background-color: #dcfce7;
+  color: var(--color-success-dark, #166534);
+  background-color: var(--color-success-light, #dcfce7);
 }
 
 .plan-status-chip.purple {
-  color: #7c3aed;
-  background-color: #f3e8ff;
+  color: var(--color-accent, #7c3aed);
+  background-color: var(--color-accent-light, #f3e8ff);
 }
 
-.plan-status-chip.orange {
-  color: #b45309;
-  background-color: #fef3c7;
-}
-
+.plan-status-chip.orange,
 .plan-status-chip.yellow {
-  color: #92400e;
-  background-color: #fef3c7;
+  color: var(--color-warning-dark, #b45309);
+  background-color: var(--color-warning-light, #fef3c7);
 }
 
 .plan-schedule-chip {
@@ -256,16 +253,16 @@ const emit = defineEmits<{
   align-items: center;
   gap: 0.25rem;
   border-radius: var(--radius-full, 9999px);
-  padding: 0.125rem 0.4rem;
+  padding: 0.0625rem 0.4rem;
   font-size: 0.625rem;
   font-weight: var(--font-weight-medium, 500);
-  color: #1d4ed8;
-  background-color: #dbeafe;
+  color: var(--color-primary, #1d4ed8);
+  background-color: var(--color-primary-light, #dbeafe);
 }
 
 .plan-desc {
   font-size: var(--font-size-xs, 12px);
-  color: var(--color-text-secondary, #64748b);
+  color: var(--workspace-text-secondary, var(--color-text-secondary, #64748b));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -273,52 +270,54 @@ const emit = defineEmits<{
 
 .plan-time {
   font-size: 0.6875rem;
-  color: var(--color-text-tertiary, #94a3b8);
-  margin-top: 0.125rem;
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary, #94a3b8));
+  margin-top: 0.0625rem;
 }
 
 .plan-metrics {
   display: flex;
   flex-wrap: wrap;
   gap: 0.25rem;
-  margin-top: 0.375rem;
+  margin-top: 0.25rem;
 }
 
 .plan-metric {
   display: inline-flex;
   align-items: center;
-  padding: 0.125rem 0.375rem;
+  padding: 0.0625rem 0.375rem;
   border-radius: var(--radius-sm, 4px);
   font-size: 0.6875rem;
   font-weight: var(--font-weight-medium, 500);
   line-height: 1.2;
+  background: var(--workspace-control-bg, rgba(38, 38, 38, 0.05));
 }
 
 .plan-metric.split {
-  color: #0f766e;
-  background-color: #ccfbf1;
+  color: var(--workspace-text-secondary, var(--color-text-secondary, #64748b));
 }
 
 .plan-metric.queue {
-  color: #1d4ed8;
-  background-color: #dbeafe;
+  color: var(--color-primary, #1d4ed8);
 }
 
 .plan-metric.done {
-  color: #166534;
-  background-color: #dcfce7;
+  color: var(--color-success-dark, #166534);
 }
 
 .plan-metric.failed {
-  color: #b91c1c;
-  background-color: #fee2e2;
+  color: var(--color-error-dark, #b91c1c);
 }
 
 .plan-actions {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 0 var(--spacing-1, 0.25rem);
+  opacity: 0;
+  transition: opacity var(--transition-fast, 150ms);
+}
+
+.plan-item:hover .plan-actions,
+.plan-item.active .plan-actions {
   opacity: 1;
 }
 
@@ -326,56 +325,34 @@ const emit = defineEmits<{
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border: none;
-  border-radius: var(--radius-sm, 4px);
+  border-radius: var(--radius-sm, 6px);
   background: transparent;
-  color: var(--color-text-tertiary, #94a3b8);
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary, #94a3b8));
   cursor: pointer;
   transition: all var(--transition-fast, 150ms);
 }
 
 .btn-action:hover {
-  background-color: var(--color-bg-secondary, #f1f5f9);
+  background-color: var(--workspace-control-hover-bg, rgba(232, 232, 228, 0.86));
+  color: var(--workspace-text-primary, var(--color-text-primary, #1e293b));
 }
 
 .btn-split:hover {
   color: var(--color-primary, #3b82f6);
-  background-color: var(--color-primary-light, #dbeafe);
 }
 
 .btn-resume-split:hover {
-  color: #b45309;
-  background-color: #fef3c7;
-}
-
-[data-theme='dark'] .plan-item {
-  background-color: color-mix(in srgb, var(--color-surface) 92%, #0f172a);
-  border-color: color-mix(in srgb, var(--color-border) 70%, transparent);
-}
-
-[data-theme='dark'] .plan-item:hover {
-  border-color: color-mix(in srgb, var(--color-primary) 32%, var(--color-border));
-  box-shadow: 0 10px 24px rgba(2, 6, 23, 0.24);
-}
-
-[data-theme='dark'] .plan-item.active {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 34%, transparent);
-}
-
-[data-theme='dark'] .plan-schedule-chip {
-  color: #bfdbfe;
-  background-color: rgba(30, 64, 175, 0.28);
+  color: var(--color-warning, #b45309);
 }
 
 .btn-edit:hover {
   color: var(--color-success, #10b981);
-  background-color: var(--color-success-light, #d1fae5);
 }
 
 .btn-delete:hover {
   color: var(--color-error, #ef4444);
-  background-color: var(--color-error-light, #fee2e2);
 }
 </style>

@@ -28,76 +28,60 @@ const emit = defineEmits<{
 </template>
 
 <style scoped>
+/* 对齐「智能体会话」工作台分段控件样式 */
 .status-tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.375rem;
-  margin-bottom: 0.625rem;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+  padding: 2px;
+  border-radius: var(--radius-md, 8px);
+  background: var(--workspace-segment-bg, rgba(232, 232, 228, 0.7));
 }
 
 .status-tab {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.375rem 0.5rem;
-  border: 1px solid var(--color-border, #e2e8f0);
-  border-radius: var(--radius-md, 8px);
-  background-color: color-mix(in srgb, var(--color-surface) 94%, #fff);
+  padding: 0.25rem 0.5rem;
+  border: none;
+  border-radius: calc(var(--radius-md, 8px) - 2px);
+  background: transparent;
   cursor: pointer;
-  transition: all var(--transition-fast, 150ms);
+  transition: background-color var(--transition-fast, 150ms) var(--easing-default),
+              color var(--transition-fast, 150ms) var(--easing-default);
 }
 
 .status-tab:hover {
-  border-color: color-mix(in srgb, var(--color-primary) 28%, var(--color-border));
-  background-color: color-mix(in srgb, var(--color-primary-light) 35%, var(--color-surface));
+  background: var(--workspace-control-hover-bg, rgba(232, 232, 228, 0.86));
 }
 
 .status-tab.active {
-  border-color: var(--color-primary);
-  background-color: color-mix(in srgb, var(--color-primary-light) 72%, var(--color-surface));
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 16%, transparent);
+  background: var(--workspace-control-active-bg, #ffffff);
+  box-shadow: var(--workspace-control-active-shadow, 0 1px 2px rgba(0, 0, 0, 0.08));
 }
 
 .status-tab-label {
-  color: var(--color-text-primary, #1e293b);
+  color: var(--workspace-text-secondary, var(--color-text-secondary, #64748b));
   font-size: var(--font-size-xs, 12px);
   font-weight: var(--font-weight-medium, 500);
+}
+
+.status-tab.active .status-tab-label {
+  color: var(--workspace-text-primary, var(--color-text-primary, #1e293b));
 }
 
 .status-tab-count {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 1.25rem;
-  height: 1.125rem;
-  padding: 0 0.375rem;
+  min-width: 1.125rem;
+  height: 1rem;
+  padding: 0 0.3rem;
   border-radius: var(--radius-full, 9999px);
-  background-color: color-mix(in srgb, var(--color-bg-tertiary) 88%, var(--color-surface));
-  color: var(--color-text-secondary);
-  font-size: 0.6875rem;
-}
-
-.status-tab.active .status-tab-count {
-  background-color: color-mix(in srgb, var(--color-primary) 16%, var(--color-surface));
-  color: var(--color-primary);
-}
-
-[data-theme='dark'] .status-tab {
-  border-color: rgba(148, 163, 184, 0.18);
-  background-color: rgba(15, 23, 42, 0.42);
-}
-
-[data-theme='dark'] .status-tab:hover {
-  background-color: rgba(30, 64, 175, 0.18);
-}
-
-[data-theme='dark'] .status-tab.active {
-  background-color: rgba(30, 64, 175, 0.3);
-  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.16);
-}
-
-[data-theme='dark'] .status-tab-count {
-  background-color: rgba(15, 23, 42, 0.62);
-  color: rgba(226, 232, 240, 0.82);
+  background-color: var(--workspace-control-bg, rgba(38, 38, 38, 0.06));
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary, #94a3b8));
+  font-size: 0.625rem;
+  font-weight: var(--font-weight-medium, 500);
 }
 </style>

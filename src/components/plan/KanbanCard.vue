@@ -357,18 +357,16 @@ function handleDelete(event: Event) {
 <style scoped>
 .kanban-card {
   padding: var(--spacing-3, 0.75rem);
-  background-color: var(--color-surface, #fff);
+  background-color: var(--workspace-control-bg, var(--color-surface, #fff));
   border-radius: var(--radius-md, 8px);
-  border: 1px solid var(--color-border-light, #f1f5f9);
+  border: 1px solid var(--workspace-border, var(--color-border-light, #f1f5f9));
   /* 移除 cursor: pointer，让父元素 .drag-item 的 cursor: grab 生效 */
-  transition: all var(--transition-fast, 150ms) var(--easing-default);
+  transition: border-color var(--transition-fast, 150ms) var(--easing-default);
   user-select: none;
 }
 
 .kanban-card:hover {
-  border-color: var(--color-border, #e2e8f0);
-  box-shadow: var(--shadow-sm, 0 1px 3px 0 rgb(0 0 0 / 0.1));
-  transform: translateY(-1px);
+  border-color: var(--workspace-border-strong, var(--color-border, #e2e8f0));
 }
 
 .kanban-card.active {
@@ -378,23 +376,23 @@ function handleDelete(event: Event) {
 
 .kanban-card.is-blocked {
   border-color: var(--color-error-light, #fecaca);
-  background-color: #fef2f2;
+  background-color: var(--color-error-light, #fef2f2);
 }
 
 .kanban-card.is-failed {
-  border-color: #fca5a5;
-  background-color: #fef2f2;
+  border-color: var(--color-error-light, #fca5a5);
+  background-color: var(--color-error-light, #fef2f2);
 }
 
 .kanban-card.is-waiting-input {
-  border-color: #fcd34d;
-  background-color: #fffbeb;
+  border-color: var(--color-warning-light, #fcd34d);
+  background-color: var(--color-warning-light, #fffbeb);
 }
 
 .kanban-card.is-running {
   position: relative;
-  border-color: #86efac;
-  background-color: #f0fdf4;
+  border-color: var(--color-success-light, #86efac);
+  background-color: var(--color-success-light, #f0fdf4);
   overflow: hidden;
 }
 
@@ -409,9 +407,9 @@ function handleDelete(event: Event) {
   background: linear-gradient(
     90deg,
     transparent 0%,
-    rgba(134, 239, 172, 0.3) 25%,
-    rgba(134, 239, 172, 0.5) 50%,
-    rgba(134, 239, 172, 0.3) 75%,
+    color-mix(in srgb, var(--color-success, #22c55e) 30%, transparent) 25%,
+    color-mix(in srgb, var(--color-success, #22c55e) 50%, transparent) 50%,
+    color-mix(in srgb, var(--color-success, #22c55e) 30%, transparent) 75%,
     transparent 100%
   );
   background-size: 200% 100%;
@@ -429,13 +427,13 @@ function handleDelete(event: Event) {
 }
 
 .kanban-card.is-queued {
-  border-color: #fde68a;
-  background-color: #fffbeb;
+  border-color: var(--color-warning-light, #fde68a);
+  background-color: var(--color-warning-light, #fffbeb);
 }
 
 .kanban-card.is-stopped {
-  border-color: #cbd5e1;
-  background-color: #f8fafc;
+  border-color: var(--workspace-border, #cbd5e1);
+  background-color: var(--workspace-control-bg, #f8fafc);
 }
 
 .execution-status {
@@ -448,11 +446,11 @@ function handleDelete(event: Event) {
 }
 
 .execution-status.is-running {
-  color: #15803d;
+  color: var(--color-success-dark, #15803d);
 }
 
 .execution-status.is-queued {
-  color: #b45309;
+  color: var(--color-warning-dark, #b45309);
 }
 
 .status-indicator {
@@ -485,7 +483,7 @@ function handleDelete(event: Event) {
   flex: 1;
   font-size: var(--font-size-sm, 13px);
   font-weight: var(--font-weight-medium, 500);
-  color: var(--color-text-primary, #1e293b);
+  color: var(--workspace-text-primary, var(--color-text-primary, #1e293b));
   line-height: 1.4;
 }
 
@@ -500,24 +498,24 @@ function handleDelete(event: Event) {
 }
 
 .priority-badge.gray {
-  background-color: #f1f5f9;
-  color: #64748b;
+  background-color: var(--workspace-control-bg, #f1f5f9);
+  color: var(--workspace-text-secondary, #64748b);
 }
 
 .priority-badge.yellow {
-  background-color: #fef3c7;
-  color: #b45309;
+  background-color: var(--color-warning-light, #fef3c7);
+  color: var(--color-warning-dark, #b45309);
 }
 
 .priority-badge.red {
-  background-color: #fee2e2;
-  color: #b91c1c;
+  background-color: var(--color-error-light, #fee2e2);
+  color: var(--color-error-dark, #b91c1c);
 }
 
 .task-desc {
   margin: var(--spacing-2, 0.5rem) 0 0;
   font-size: var(--font-size-xs, 12px);
-  color: var(--color-text-secondary, #64748b);
+  color: var(--workspace-text-secondary, var(--color-text-secondary, #64748b));
   line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -555,12 +553,12 @@ function handleDelete(event: Event) {
   align-items: center;
   gap: var(--spacing-2, 0.5rem);
   font-size: 0.6875rem;
-  color: var(--color-text-tertiary, #94a3b8);
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary, #94a3b8));
 }
 
 .assignee {
   padding: 0.125rem 0.375rem;
-  background-color: var(--color-bg-tertiary, #f1f5f9);
+  background-color: var(--workspace-control-bg, #f1f5f9);
   border-radius: var(--radius-sm, 4px);
   font-weight: var(--font-weight-medium, 500);
 }
@@ -599,17 +597,17 @@ function handleDelete(event: Event) {
 }
 
 .btn-start {
-  color: #2563eb;
+  color: var(--color-primary, #2563eb);
 }
 
 .btn-start:hover {
-  background-color: rgba(37, 99, 235, 0.12);
-  color: #1d4ed8;
+  background-color: var(--color-primary-light, #dbeafe);
+  color: var(--color-primary-dark, #1d4ed8);
 }
 
 .btn-action:hover {
-  background-color: var(--color-bg-secondary, #f1f5f9);
-  color: var(--color-text-primary, #1e293b);
+  background-color: var(--workspace-control-hover-bg, #f1f5f9);
+  color: var(--workspace-text-primary, var(--color-text-primary, #1e293b));
 }
 
 .btn-stop:hover {
@@ -623,8 +621,8 @@ function handleDelete(event: Event) {
 }
 
 .btn-resume:hover {
-  background-color: #dcfce7;
-  color: #15803d;
+  background-color: var(--color-success-light, #dcfce7);
+  color: var(--color-success-dark, #15803d);
 }
 
 .btn-edit:hover {
