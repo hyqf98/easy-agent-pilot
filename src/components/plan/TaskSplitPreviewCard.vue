@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useAgentTeamsStore } from '@/stores/agentTeams'
+import { useSubAgentStore } from '@/stores/subAgent'
 import type { AITaskItem, TaskPriority } from '@/types/plan'
 
 defineProps<{
@@ -17,11 +17,11 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-const agentTeamsStore = useAgentTeamsStore()
+const agentTeamsStore = useSubAgentStore()
 
 onMounted(() => {
-  if (agentTeamsStore.experts.length === 0) {
-    void agentTeamsStore.loadExperts()
+  if (agentTeamsStore.subAgents.length === 0) {
+    void agentTeamsStore.loadSubAgents()
   }
 })
 
@@ -33,7 +33,7 @@ function getExpertLabel(expertId?: string): string {
   if (!expertId) {
     return t('taskSplit.noExpertAssigned')
   }
-  return agentTeamsStore.getExpertById(expertId)?.name || expertId
+  return agentTeamsStore.getSubAgentById(expertId)?.name || expertId
 }
 
 function onCardClick() {

@@ -1,21 +1,19 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useMessageStore, type CompressionMetadata, type Message } from '@/stores/message'
+import { type Message } from '@/stores/message'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import { EaIcon } from '@/components/common'
-import { formatTokenCount } from '@/stores/token'
 
 const { t, locale } = useI18n()
 const props = defineProps<{ message: Message }>()
-const messageStore = useMessageStore()
 const bubbleRef = ref<HTMLElement | null>(null)
 const lockedWidth = ref<number | null>(null)
 let resizeObserver: ResizeObserver | null = null
 
-// 压缩消息元数据
-const metadata = computed(() => props.message.compressionMetadata)
-const isExpanded = computed(() => Boolean(metadata.value?.panelExpanded))
+// 新结构下压缩元数据（原始消息数/token/策略等）不再折叠进 message.compressionMetadata。
+// 当前仅依赖消息自身的 content 与时间戳；展开状态由组件本地维护。
+const isExpanded = ref(false)
 const bubbleStyle = computed(() => {
   if (!lockedWidth.value) {
     return undefined
@@ -26,15 +24,11 @@ const bubbleStyle = computed(() => {
   }
 })
 
-// 是否有工具调用摘要
-const hasToolCalls = computed(() =>
-  metadata.value?.toolCallsSummary && metadata.value.toolCallsSummary.length > 0
-)
-
 // 格式化时间
 const formattedTime = computed(() => {
-  if (!metadata.value?.compressedAt) return ''
-  const date = new Date(metadata.value.compressedAt)
+  const stamp = props.message.createdAt
+  if (!stamp) return ''
+  const date = new Date(stamp)
   return date.toLocaleString(locale.value === 'zh-CN' ? 'zh-CN' : 'en-US', {
     year: 'numeric',
     month: '2-digit',
@@ -43,31 +37,6 @@ const formattedTime = computed(() => {
     minute: '2-digit',
     hour12: false
   })
-})
-
-// 压缩策略文本
-const strategyText = computed(() => {
-  if (!metadata.value?.strategy) return ''
-  switch (metadata.value.strategy) {
-    case 'simple':
-      return t('compression.strategySimple')
-    case 'summary':
-      return t('compression.strategySummary')
-    default:
-      return ''
-  }
-})
-
-const triggerSourceText = computed(() => {
-  if (metadata.value?.triggerSource === 'auto') {
-    return `${t('compression.cliCompactionTrigger')}: ${t('compression.cliCompactionAuto')}`
-  }
-
-  if (metadata.value?.triggerSource === 'manual') {
-    return `${t('compression.cliCompactionTrigger')}: ${t('compression.cliCompactionManual')}`
-  }
-
-  return ''
 })
 
 const syncCollapsedWidth = () => {
@@ -84,21 +53,7 @@ const syncCollapsedWidth = () => {
 
 // 切换展开状态
 const toggleExpand = () => {
-  const nextMetadata: CompressionMetadata = {
-    compressedAt: metadata.value?.compressedAt || props.message.createdAt,
-    originalMessageCount: metadata.value?.originalMessageCount || 0,
-    originalTokenCount: metadata.value?.originalTokenCount || 0,
-    strategy: metadata.value?.strategy || 'simple',
-    summaryContent: metadata.value?.summaryContent,
-    triggerPrompt: metadata.value?.triggerPrompt,
-    triggerSource: metadata.value?.triggerSource,
-    toolCallsSummary: metadata.value?.toolCallsSummary,
-    panelExpanded: !isExpanded.value
-  }
-
-  messageStore.updateMessageBuffered(props.message.id, {
-    compressionMetadata: nextMetadata
-  }, { immediate: true })
+  isExpanded.value = !isExpanded.value
 }
 
 onMounted(async () => {
@@ -170,26 +125,12 @@ onBeforeUnmount(() => {
       v-show="isExpanded"
       class="compression-bubble__content"
     >
-      <MarkdownRenderer :content="message.content" />
+      <MarkdownRenderer :content="message.content || ''" />
     </div>
 
     <!-- 压缩信息 -->
     <div class="compression-bubble__meta">
       <div class="compression-bubble__info">
-        <span class="compression-bubble__info-item">
-          <EaIcon
-            name="message-square"
-            :size="12"
-          />
-          {{ t('compression.originalMessages') }}: {{ metadata?.originalMessageCount || 0 }}
-        </span>
-        <span class="compression-bubble__info-item">
-          <EaIcon
-            name="cpu"
-            :size="12"
-          />
-          {{ t('compression.originalTokens') }}: {{ formatTokenCount(metadata?.originalTokenCount || 0) }}
-        </span>
         <span class="compression-bubble__info-item">
           <EaIcon
             name="clock"
@@ -198,56 +139,6 @@ onBeforeUnmount(() => {
           {{ formattedTime }}
         </span>
       </div>
-      <div
-        v-if="strategyText"
-        class="compression-bubble__strategy"
-      >
-        {{ strategyText }}
-      </div>
-      <div
-        v-if="triggerSourceText"
-        class="compression-bubble__strategy compression-bubble__strategy--trigger"
-      >
-        {{ triggerSourceText }}
-      </div>
-    </div>
-
-    <!-- 工具调用记录 -->
-    <div
-      v-if="hasToolCalls && isExpanded"
-      class="compression-bubble__tools"
-    >
-      <div class="compression-bubble__tools-header">
-        <EaIcon
-          name="wrench"
-          :size="14"
-        />
-        {{ t('compression.toolCallsSummary') }}
-      </div>
-      <div class="compression-bubble__tools-list">
-        <div
-          v-for="tool in metadata?.toolCallsSummary"
-          :key="tool.name"
-          class="compression-bubble__tool-item"
-        >
-          <span class="compression-bubble__tool-status">
-            <EaIcon
-              :name="tool.status === 'success' ? 'check-circle' : tool.status === 'error' ? 'x-circle' : 'alert-triangle'"
-              :size="14"
-            />
-          </span>
-          <span class="compression-bubble__tool-name">{{ tool.name }}</span>
-          <span class="compression-bubble__tool-count">{{ t('compression.toolCount', { count: tool.count }) }}</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- 无工具调用提示 -->
-    <div
-      v-if="!hasToolCalls && isExpanded"
-      class="compression-bubble__no-tools"
-    >
-      {{ t('compression.noToolCalls') }}
     </div>
   </div>
 </template>

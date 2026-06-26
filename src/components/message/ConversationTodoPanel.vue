@@ -181,18 +181,19 @@ const toggleCollapsed = () => {
 
 <style scoped>
 .conversation-todo-panel {
-  margin: 10px 16px 0;
-  padding: 12px 14px;
-  border: 1px solid color-mix(in srgb, var(--color-border-primary) 72%, transparent);
+  max-width: min(100%, 900px);
+  margin: 8px auto 0;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--workspace-border, var(--color-border)) 74%, transparent);
   border-radius: 14px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--color-bg-secondary) 92%, white 8%), var(--color-bg-primary));
+  background: color-mix(in srgb, var(--workspace-panel-bg, var(--color-surface)) 94%, transparent);
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.06);
   transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
 .conversation-todo-panel--expanded {
   border-color: color-mix(in srgb, var(--color-primary) 24%, var(--color-border-primary));
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
 }
 
 .conversation-todo-panel__head {
@@ -210,7 +211,7 @@ const toggleCollapsed = () => {
 }
 
 .conversation-todo-panel--expanded .conversation-todo-panel__head {
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .conversation-todo-panel__head-main {
@@ -244,8 +245,8 @@ const toggleCollapsed = () => {
   gap: 6px;
   min-width: 0;
   max-width: min(100%, 26rem);
-  padding: 4px 9px;
-  border-radius: 999px;
+  padding: 3px 8px;
+  border-radius: 8px;
   border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
   background: color-mix(in srgb, var(--color-bg-secondary) 92%, white 8%);
   color: var(--color-text-secondary);
@@ -255,7 +256,7 @@ const toggleCollapsed = () => {
 
 .conversation-todo-panel__active-chip--in_progress {
   border-color: color-mix(in srgb, #22c55e 28%, var(--color-border));
-  background: linear-gradient(90deg, rgba(34, 197, 94, 0.14), rgba(255, 255, 255, 0.92));
+  background: color-mix(in srgb, #22c55e 10%, var(--color-surface));
   color: #166534;
 }
 
@@ -310,7 +311,7 @@ const toggleCollapsed = () => {
 .conversation-todo-panel__items {
   display: flex;
   flex-direction: column;
-  max-height: min(32vh, 280px);
+  max-height: min(30vh, 240px);
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: 4px;
@@ -320,7 +321,7 @@ const toggleCollapsed = () => {
 .conversation-todo-panel__items-inner {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .conversation-todo-panel__items::-webkit-scrollbar {
@@ -338,18 +339,18 @@ const toggleCollapsed = () => {
   isolation: isolate;
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 12px;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
   border: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
   background: color-mix(in srgb, var(--color-bg-secondary) 84%, transparent);
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+  box-shadow: none;
   transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
 }
 
 .conversation-todo-panel__item:hover {
   transform: translateY(-1px);
-  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
 }
 
 .conversation-todo-panel__item--in_progress {
@@ -371,23 +372,12 @@ const toggleCollapsed = () => {
       transparent 100%
     );
   transform: translateX(-100%);
-  animation: todo-progress-sweep 2.8s ease-in-out infinite;
+  animation: todo-progress-sweep 3.6s ease-in-out infinite;
   pointer-events: none;
 }
 
 .conversation-todo-panel__item--in_progress::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(circle at 8% 50%, rgba(34, 197, 94, 0.36) 0 2px, transparent 3px),
-    radial-gradient(circle at 14% 52%, rgba(74, 222, 128, 0.26) 0 1.5px, transparent 2.5px),
-    radial-gradient(circle at 22% 48%, rgba(16, 185, 129, 0.18) 0 1px, transparent 2px);
-  background-repeat: no-repeat;
-  transform: translateX(-12%);
-  animation: todo-progress-particles 3.4s linear infinite;
-  opacity: 0.8;
-  pointer-events: none;
+  content: none;
 }
 
 .conversation-todo-panel__item--pending {
@@ -470,23 +460,6 @@ const toggleCollapsed = () => {
   }
   100% {
     transform: translateX(120%);
-  }
-}
-
-@keyframes todo-progress-particles {
-  0% {
-    transform: translateX(-18%);
-    opacity: 0;
-  }
-  15% {
-    opacity: 0.72;
-  }
-  85% {
-    opacity: 0.72;
-  }
-  100% {
-    transform: translateX(118%);
-    opacity: 0;
   }
 }
 

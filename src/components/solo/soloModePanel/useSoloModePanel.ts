@@ -2,9 +2,9 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { open } from '@tauri-apps/plugin-dialog'
 import { useConfirmDialog } from '@/composables'
 import { compactSoloSummary } from '@/services/solo/prompts'
-import { resolveExpertById, resolveExpertRuntime } from '@/services/agentTeams/runtime'
+import { resolveSubAgentById, resolveSubAgentExecutionWithFallback } from '@/services/subAgent/runtime'
 import { useAgentStore } from '@/stores/agent'
-import { useAgentTeamsStore } from '@/stores/agentTeams'
+import { useSubAgentStore } from '@/stores/subAgent'
 import { useProjectStore } from '@/stores/project'
 import { useSoloExecutionStore } from '@/stores/soloExecution'
 import { useSoloRunStore } from '@/stores/soloRun'
@@ -19,7 +19,7 @@ export function useSoloModePanel() {
   const soloRunStore = useSoloRunStore()
   const soloExecutionStore = useSoloExecutionStore()
   const agentStore = useAgentStore()
-  const agentTeamsStore = useAgentTeamsStore()
+  const agentTeamsStore = useSubAgentStore()
   const confirmDialog = useConfirmDialog()
 
   const showCreateDialog = ref(false)
@@ -68,8 +68,8 @@ export function useSoloModePanel() {
   const coordinatorModelLabel = computed(() => {
     const state = currentExecutionState.value
     if (state?.tokenUsage.model) return state.tokenUsage.model
-    const runtime = resolveExpertRuntime(
-      resolveExpertById(currentRun.value?.coordinatorExpertId, agentTeamsStore.experts),
+    const runtime = resolveSubAgentExecutionWithFallback(
+      resolveSubAgentById(currentRun.value?.coordinatorExpertId, agentTeamsStore.subAgents),
       agentStore.agents,
       currentRun.value?.coordinatorModelId
     )
@@ -128,7 +128,7 @@ export function useSoloModePanel() {
       case 'running': {
         const currentStep = currentSteps.value.find((step) => step.status === 'running')
         if (currentStep) {
-          const expert = agentTeamsStore.experts.find((item) => item.id === currentStep.selectedExpertId)
+          const expert = agentTeamsStore.subAgents.find((item) => item.id === currentStep.selectedExpertId)
           const expertLabel = expert?.name || currentStep.selectedExpertId || '专家'
           return `${expertLabel} 执行中`
         }
@@ -144,16 +144,16 @@ export function useSoloModePanel() {
   })
 
   const builtinExpertPool = computed(() => {
-    const enabledBuiltins = agentTeamsStore.enabledExperts.filter((expert) => expert.isBuiltin)
-    return enabledBuiltins.length > 0 ? enabledBuiltins : agentTeamsStore.enabledExperts
+    const enabledBuiltins = agentTeamsStore.enabledSubAgents.filter((expert) => expert.isBuiltin)
+    return enabledBuiltins.length > 0 ? enabledBuiltins : agentTeamsStore.enabledSubAgents
   })
 
   const participantExpertOptions = computed<SoloAgentOption[]>(() => {
     const selectedIds = new Set((createForm.participantExpertIds ?? []).filter(Boolean))
-    const selectableExperts = agentTeamsStore.enabledExperts.filter((expert) =>
+    const selectableExperts = agentTeamsStore.enabledSubAgents.filter((expert) =>
       expert.builtinCode !== 'builtin-solo-coordinator'
     )
-    const selectedExperts = agentTeamsStore.experts.filter((expert) =>
+    const selectedExperts = agentTeamsStore.subAgents.filter((expert) =>
       selectedIds.has(expert.id) && expert.builtinCode !== 'builtin-solo-coordinator'
     )
 
@@ -172,7 +172,7 @@ export function useSoloModePanel() {
   })
 
   const coordinatorExpertOptions = computed<SoloAgentOption[]>(() => {
-    const selectedCoordinator = agentTeamsStore.getExpertById(createForm.coordinatorExpertId)
+    const selectedCoordinator = agentTeamsStore.getSubAgentById(createForm.coordinatorExpertId)
     const coordinatorExperts = builtinExpertPool.value.filter((expert) =>
       expert.builtinCode === 'builtin-solo-coordinator'
     )
@@ -199,7 +199,7 @@ export function useSoloModePanel() {
   const currentRunParticipants = computed(() => {
     if (!currentRun.value) return []
     const idSet = new Set(currentRun.value.participantExpertIds)
-    const availableParticipants = agentTeamsStore.enabledExperts.filter((expert) => expert.builtinCode !== 'builtin-solo-coordinator')
+    const availableParticipants = agentTeamsStore.enabledSubAgents.filter((expert) => expert.builtinCode !== 'builtin-solo-coordinator')
     const matched = availableParticipants.filter((expert) => idSet.has(expert.id))
     return matched.length > 0 ? matched : availableParticipants
   })
@@ -350,7 +350,7 @@ export function useSoloModePanel() {
   }
 
   function getDefaultCoordinatorExpertId(): string | null {
-    return agentTeamsStore.builtinSoloCoordinatorExpert?.id
+    return agentTeamsStore.builtinSoloCoordinatorSubAgent?.id
       || coordinatorExpertOptions.value[0]?.value
       || null
   }
@@ -384,7 +384,7 @@ export function useSoloModePanel() {
     await Promise.all([
       projectStore.loadProjects(),
       agentStore.loadAgents(),
-      agentTeamsStore.loadExperts()
+      agentTeamsStore.loadSubAgents()
     ])
     createForm.projectId = projectStore.currentProjectId || projectStore.projects[0]?.id || ''
     createForm.executionPath = projectStore.currentProject?.path || projectStore.projects.find((project) => project.id === createForm.projectId)?.path || ''
@@ -402,7 +402,7 @@ export function useSoloModePanel() {
     await Promise.all([
       projectStore.loadProjects(),
       agentStore.loadAgents(),
-      agentTeamsStore.loadExperts()
+      agentTeamsStore.loadSubAgents()
     ])
 
     const run = currentRun.value
@@ -559,7 +559,7 @@ export function useSoloModePanel() {
   }
 
   function getStepExpertLabel(step: SoloStep): string {
-    const expert = agentTeamsStore.experts.find((item) => item.id === step.selectedExpertId)
+    const expert = agentTeamsStore.subAgents.find((item) => item.id === step.selectedExpertId)
     return expert?.name || step.selectedExpertId || '未指定专家'
   }
 
@@ -704,7 +704,7 @@ export function useSoloModePanel() {
     await Promise.all([
       projectStore.loadProjects(),
       agentStore.loadAgents(),
-      agentTeamsStore.loadExperts()
+      agentTeamsStore.loadSubAgents()
     ])
     if (projectStore.currentProjectId) {
       await soloRunStore.loadRuns(projectStore.currentProjectId)

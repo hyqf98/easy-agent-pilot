@@ -84,6 +84,7 @@ export class MemoryMergeService {
 
     const context: ConversationContext = {
       sessionId: `memory-merge-${Date.now()}`,
+      requestId: `memory-merge-${Date.now()}`,
       agent,
       messages,
       executionMode: 'chat',

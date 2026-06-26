@@ -36,6 +36,8 @@ export interface AgentCliUsageSummary {
   totalTokens: number
   cacheReadTokens: number
   cacheCreationTokens: number
+  estimatedInputCostUsd: number
+  estimatedOutputCostUsd: number
   estimatedTotalCostUsd: number
   unpricedCalls: number
 }
@@ -49,6 +51,8 @@ export interface AgentCliUsageTimelinePoint {
   totalTokens: number
   cacheReadTokens: number
   cacheCreationTokens: number
+  estimatedInputCostUsd: number
+  estimatedOutputCostUsd: number
   estimatedTotalCostUsd: number
 }
 

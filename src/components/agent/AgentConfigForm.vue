@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { AgentConfig, AgentType, AgentProvider } from '@/stores/agent'
+import type { AgentConfig, AgentProvider } from '@/stores/agent'
 import { EaButton, EaSelect } from '@/components/common'
 import { validateUrl } from '@/utils/validation'
 
@@ -21,7 +21,6 @@ const { t } = useI18n()
 function createDefaultForm() {
   return {
     name: '',
-    type: 'cli' as AgentType,
     provider: 'claude' as AgentProvider,
     apiKey: '',
     baseUrl: ''
@@ -62,7 +61,6 @@ watch(() => props.agent, (agent) => {
   if (agent) {
     form.value = {
       name: agent.name,
-      type: agent.type,
       provider: agent.provider || 'claude',
       apiKey: agent.apiKey || '',
       baseUrl: agent.baseUrl || ''
@@ -93,10 +91,6 @@ watch(() => form.value.baseUrl, () => {
     errorMessage.value = ''
   }
 })
-
-const typeOptions = computed(() => [
-  { value: 'acp', label: 'ACP' }
-])
 
 const providerOptions = computed(() => [
   { value: 'claude', label: t('settings.agent.providerClaudeCli') },
@@ -225,29 +219,14 @@ const handleBaseUrlBlur = () => {
         </span>
       </div>
 
-      <div class="form-row">
-        <div
-          v-if="isEditing"
-          class="form-group"
-        >
-          <label class="form-label">
-            {{ t('settings.agent.type') }} <span class="form-label__required">*</span>
-          </label>
-          <EaSelect
-            v-model="form.type"
-            :options="typeOptions"
-          />
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">
-            {{ t('settings.agent.provider') }} <span class="form-label__required">*</span>
-          </label>
-          <EaSelect
-            v-model="form.provider"
-            :options="providerOptions"
-          />
-        </div>
+      <div class="form-group">
+        <label class="form-label">
+          {{ t('settings.agent.provider') }} <span class="form-label__required">*</span>
+        </label>
+        <EaSelect
+          v-model="form.provider"
+          :options="providerOptions"
+        />
       </div>
 
       <!-- SDK 模式字段 -->
@@ -325,15 +304,6 @@ const handleBaseUrlBlur = () => {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-4);
-}
-
-.form-row {
-  display: flex;
-  gap: var(--spacing-4);
-}
-
-.form-row .form-group {
-  flex: 1;
 }
 
 .form-group {

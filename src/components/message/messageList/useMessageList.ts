@@ -138,22 +138,16 @@ export function useMessageList(props: MessageListProps, emit: MessageListEmits) 
   const latestMessageActivity = computed(() => {
     const messages = currentMessages.value
     const latestMessage = messages[messages.length - 1]
-    const latestToolCall = latestMessage?.toolCalls?.[latestMessage.toolCalls.length - 1]
 
+    // 新结构下工具调用/思考/编辑追踪/运行时通知都是独立行，
+    // 活动签名只需要关注消息数量、最后一条消息的基本字段与附件。
     return [
       messages.length,
       latestMessage?.id ?? '',
       latestMessage?.status ?? '',
-      latestMessage?.content.length ?? 0,
-      latestMessage?.thinking?.length ?? 0,
-      latestMessage?.thinkingActive ? 1 : 0,
-      latestMessage?.editTraces?.length ?? 0,
-      latestMessage?.attachments?.length ?? 0,
-      latestMessage?.runtimeNotices?.length ?? 0,
-      latestToolCall?.id ?? '',
-      latestToolCall?.status ?? '',
-      latestToolCall?.result?.length ?? 0,
-      latestToolCall?.errorMessage?.length ?? 0
+      (latestMessage?.content ?? '').length,
+      latestMessage?.messageType ?? '',
+      latestMessage?.attachments?.length ?? 0
     ].join(':')
   })
 

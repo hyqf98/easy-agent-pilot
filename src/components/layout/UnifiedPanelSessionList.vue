@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Session } from '@/stores/session'
+import { useSessionExecutionStore } from '@/stores/sessionExecution'
 import { useSessionView } from '@/composables'
 import { EaIcon } from '@/components/common'
 
@@ -11,9 +12,10 @@ interface Props {
   editingSessionId: string | null
   editingSessionName: string
   selectedSessionIds: string[]
+  selectionMode?: boolean
 }
 
-defineProps<Props>()
+const props = defineProps<Props>()
 
 const emit = defineEmits<{
   select: [id: string]
@@ -27,8 +29,8 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const sessionExecutionStore = useSessionExecutionStore()
 const {
-  getStatusText,
   formatRelativeTime,
   formatSessionCreatedAt
 } = useSessionView()
@@ -133,6 +135,24 @@ function getStatusBadgeClass(status: Session['status']) {
   return `session-item__status-text--${status}`
 }
 
+function shouldShowSessionStatusIcon(session: Session) {
+  return session.status === 'running' || session.status === 'error' || isSessionExecuting(session.id)
+}
+
+// 实时执行状态：AI 正在响应时左侧显示加载动画
+function isSessionExecuting(sessionId: string) {
+  return sessionExecutionStore.getIsBusy(sessionId) || sessionExecutionStore.getIsStreaming(sessionId)
+}
+
+function handleSessionClick(session: Session) {
+  if (props.selectionMode) {
+    emit('toggleSelect', session.id)
+    return
+  }
+
+  emit('select', session.id)
+}
+
 onMounted(() => {
   document.addEventListener('mousedown', handleDocumentMouseDown)
   document.addEventListener('keydown', handleDocumentKeydown)
@@ -161,28 +181,42 @@ onBeforeUnmount(() => {
           'session-item--menu-open': openMenuSessionId === session.id
         }
       ]"
-      @click="emit('select', session.id)"
+      @click="handleSessionClick(session)"
     >
+      <div class="session-item__lead">
+        <button
+          v-if="selectionMode"
+          class="session-item__selector"
+          :class="{ 'session-item__selector--selected': selectedSessionIds.includes(session.id) }"
+          :title="selectedSessionIds.includes(session.id) ? t('session.unselectSession') : t('session.selectSession')"
+          :aria-label="selectedSessionIds.includes(session.id) ? t('session.unselectSession') : t('session.selectSession')"
+          :aria-pressed="selectedSessionIds.includes(session.id)"
+          @click.stop="emit('toggleSelect', session.id)"
+        >
+          <span
+            class="session-item__selector-indicator"
+            :class="{ 'session-item__selector-indicator--selected': selectedSessionIds.includes(session.id) }"
+          >
+            <EaIcon
+              name="check"
+              :size="10"
+            />
+          </span>
+        </button>
+        <span
+          v-else-if="shouldShowSessionStatusIcon(session)"
+          :class="['session-item__status-icon', `session-item__status-icon--${session.status === 'error' ? 'error' : 'running'}`]"
+          :title="session.status === 'error' ? (session.errorMessage || t('session.executionError')) : t('session.aiProcessing')"
+          aria-hidden="true"
+        >
+          <EaIcon
+            :name="session.status === 'error' ? 'circle-alert' : 'loader-2'"
+            :size="13"
+          />
+        </span>
+      </div>
       <div class="session-item__content">
         <div class="session-item__main">
-          <button
-            class="session-item__selector"
-            :class="{ 'session-item__selector--selected': selectedSessionIds.includes(session.id) }"
-            :title="selectedSessionIds.includes(session.id) ? t('session.unselectSession') : t('session.selectSession')"
-            :aria-label="selectedSessionIds.includes(session.id) ? t('session.unselectSession') : t('session.selectSession')"
-            :aria-pressed="selectedSessionIds.includes(session.id)"
-            @click.stop="emit('toggleSelect', session.id)"
-          >
-            <span
-              class="session-item__selector-indicator"
-              :class="{ 'session-item__selector-indicator--selected': selectedSessionIds.includes(session.id) }"
-            >
-              <EaIcon
-                name="check"
-                :size="10"
-              />
-            </span>
-          </button>
           <div
             v-if="editingSessionId === session.id"
             class="session-item__name-edit"
@@ -224,14 +258,14 @@ onBeforeUnmount(() => {
             </span>
             <span class="session-item__time">{{ formatRelativeTime(session.updatedAt) }}</span>
             <span
-              v-if="session.status !== 'idle'"
+              v-if="session.status === 'paused'"
               :class="['session-item__status-text', getStatusBadgeClass(session.status)]"
             >
               <span
                 class="session-item__status-dot"
                 :class="getStatusBadgeClass(session.status)"
               />
-              {{ getStatusText(session.status) }}
+              已暂停
             </span>
           </template>
         </div>
@@ -444,6 +478,17 @@ onBeforeUnmount(() => {
   gap: var(--spacing-2);
 }
 
+.session-item__lead {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  flex-shrink: 0;
+}
+
 .session-item__main {
   display: flex;
   align-items: center;
@@ -473,6 +518,34 @@ onBeforeUnmount(() => {
     border-color var(--transition-fast) var(--easing-default),
     background-color var(--transition-fast) var(--easing-default),
     box-shadow var(--transition-fast) var(--easing-default);
+}
+
+.session-item__status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary));
+}
+
+.session-item__status-icon--running {
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+  animation: session-status-spin 1s linear infinite;
+}
+
+.session-item__status-icon--error {
+  color: var(--color-error);
+}
+
+@keyframes session-status-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .session-item__selector:not(.session-item__selector--selected):hover {
@@ -583,7 +656,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: var(--spacing-3);
-  padding-left: calc(18px + var(--spacing-2));
+  padding-left: 0;
   min-width: 0;
   flex-wrap: nowrap;
   overflow: hidden;
@@ -611,7 +684,7 @@ onBeforeUnmount(() => {
 }
 
 .session-item__preview {
-  padding-left: calc(18px + var(--spacing-2));
+  padding-left: 0;
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
   overflow: hidden;
@@ -844,15 +917,13 @@ onBeforeUnmount(() => {
 }
 
 .session-item__selector {
-  width: 12px;
-  height: 12px;
+  width: 15px;
+  height: 15px;
   border-width: 1px;
-  opacity: 0;
-}
-
-.session-item:hover .session-item__selector,
-.session-item--selected .session-item__selector {
   opacity: 1;
+  border-radius: 4px;
+  background: var(--workspace-panel-bg, var(--color-surface));
+  border-color: var(--workspace-border-strong, var(--color-border));
 }
 
 .session-item__name {
@@ -879,7 +950,7 @@ onBeforeUnmount(() => {
 
 .session-item__meta,
 .session-item__preview {
-  padding-left: 19px;
+  padding-left: 0;
 }
 
 .session-item__meta {

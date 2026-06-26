@@ -4,42 +4,36 @@ import { useI18n } from 'vue-i18n'
 import type { SelectOption } from '@/components/common'
 import { useAgentCliUsageStore } from '@/stores/agentCliUsage'
 import {
-  applyAgentChart,
-  applyModelChart,
-  applyProviderChart,
+  applyModelTrendChart,
   applyTrendChart,
   formatCurrency,
-  formatDateTime,
   formatInteger,
-  formatPercentage
+  formatPercentage,
+  type UsageMetric
 } from './chartUtils'
-
-interface ProviderBreakdownEntry {
-  provider: string
-  label: string
-  callCount: number
-  totalTokens: number
-  estimatedTotalCostUsd: number
-}
 
 /**
  * Agent CLI 用量页面逻辑。
- * 负责筛选条件、统计摘要、ECharts 生命周期以及图表重绘。
+ * 负责筛选条件、今日统计卡片、ECharts 生命周期以及图表重绘。
  */
 export function useAgentCliUsageSettings() {
   const { t } = useI18n()
   const usageStore = useAgentCliUsageStore()
 
   const trendChartRef = ref<HTMLDivElement | null>(null)
-  const providerChartRef = ref<HTMLDivElement | null>(null)
-  const agentChartRef = ref<HTMLDivElement | null>(null)
-  const modelChartRef = ref<HTMLDivElement | null>(null)
+  const modelTrendChartRef = ref<HTMLDivElement | null>(null)
 
   let trendChart: echarts.ECharts | null = null
-  let providerChart: echarts.ECharts | null = null
-  let agentChart: echarts.ECharts | null = null
-  let modelChart: echarts.ECharts | null = null
+  let modelTrendChart: echarts.ECharts | null = null
   let resizeObserver: ResizeObserver | null = null
+
+  // 每模型折线图指标切换：Token 用量 / 费用
+  const usageMetric = ref<UsageMetric>('tokens')
+
+  const usageMetricOptions = computed<SelectOption[]>(() => [
+    { value: 'tokens', label: t('settings.usageStats.metricTokens') },
+    { value: 'cost', label: t('settings.usageStats.metricCost') }
+  ])
 
   const cliTypeOptions = computed<SelectOption[]>(() => [
     { value: 'all', label: t('settings.usageStats.providerAll') },
@@ -55,34 +49,8 @@ export function useAgentCliUsageSettings() {
     { key: 'last90', label: t('settings.usageStats.presetLast90Days'), days: 89 }
   ])
 
-  const summaryCards = computed(() => [
-    {
-      key: 'calls',
-      label: t('settings.usageStats.summaryCalls'),
-      value: formatInteger(usageStore.stats.summary.totalCalls)
-    },
-    {
-      key: 'input',
-      label: t('settings.usageStats.summaryInputTokens'),
-      value: formatInteger(usageStore.stats.summary.inputTokens)
-    },
-    {
-      key: 'output',
-      label: t('settings.usageStats.summaryOutputTokens'),
-      value: formatInteger(usageStore.stats.summary.outputTokens)
-    },
-    {
-      key: 'total',
-      label: t('settings.usageStats.summaryTotalTokens'),
-      value: formatInteger(usageStore.stats.summary.totalTokens)
-    },
-    {
-      key: 'cost',
-      label: t('settings.usageStats.summaryEstimatedCost'),
-      value: formatCurrency(usageStore.stats.summary.estimatedTotalCostUsd)
-    }
-  ])
-
+  // 今日统计卡片：总 Token（输入+输出）、折合价格、缓存命中率
+  // details 用于 hover 明细弹框（输入/输出 token、输入/输出费用）
   const todayCards = computed(() => {
     const summary = usageStore.todaySummary
     const totalInput = summary.inputTokens + summary.cacheReadTokens + summary.cacheCreationTokens
@@ -90,120 +58,30 @@ export function useAgentCliUsageSettings() {
 
     return [
       {
-        key: 'today-input',
-        label: t('settings.usageStats.todayInputTokens'),
-        value: formatInteger(summary.inputTokens)
+        key: 'today-total-tokens',
+        label: t('settings.usageStats.todayTotalTokens'),
+        value: formatInteger(summary.totalTokens),
+        details: [
+          { label: t('settings.usageStats.summaryInputTokens'), value: formatInteger(summary.inputTokens) },
+          { label: t('settings.usageStats.summaryOutputTokens'), value: formatInteger(summary.outputTokens) }
+        ]
       },
       {
-        key: 'today-output',
-        label: t('settings.usageStats.todayOutputTokens'),
-        value: formatInteger(summary.outputTokens)
+        key: 'today-cost',
+        label: t('settings.usageStats.todayCost'),
+        value: formatCurrency(summary.estimatedTotalCostUsd),
+        details: [
+          { label: t('settings.usageStats.todayInputCost'), value: formatCurrency(summary.estimatedInputCostUsd) },
+          { label: t('settings.usageStats.todayOutputCost'), value: formatCurrency(summary.estimatedOutputCostUsd) }
+        ]
       },
       {
         key: 'today-cache-hit',
         label: t('settings.usageStats.todayCacheHitRate'),
-        value: totalInput > 0 ? formatPercentage(cacheHitRate) : '-'
+        value: formatPercentage(totalInput > 0 ? cacheHitRate : 0)
       }
     ]
   })
-
-  const providerBreakdown = computed<ProviderBreakdownEntry[]>(() => {
-    const grouped = new Map<string, ProviderBreakdownEntry>()
-
-    for (const row of usageStore.stats.breakdown) {
-      const provider = (row.provider || 'unknown').toLowerCase()
-      const label = provider === 'claude'
-        ? 'Claude CLI'
-        : provider === 'codex'
-          ? 'Codex CLI'
-          : provider
-
-      const existing = grouped.get(provider)
-      if (existing) {
-        existing.callCount += row.callCount
-        existing.totalTokens += row.totalTokens
-        existing.estimatedTotalCostUsd += row.estimatedTotalCostUsd
-        continue
-      }
-
-      grouped.set(provider, {
-        provider,
-        label,
-        callCount: row.callCount,
-        totalTokens: row.totalTokens,
-        estimatedTotalCostUsd: row.estimatedTotalCostUsd
-      })
-    }
-
-    return [...grouped.values()].sort((left, right) => (
-      right.estimatedTotalCostUsd - left.estimatedTotalCostUsd
-      || right.totalTokens - left.totalTokens
-    ))
-  })
-
-  const topAgentRows = computed(() => usageStore.stats.breakdown.slice(0, 8))
-  const topModelRows = computed(() => usageStore.modelStats.breakdown.slice(0, 10))
-
-  const averageTokensPerCall = computed(() => {
-    if (usageStore.stats.summary.totalCalls <= 0) {
-      return 0
-    }
-
-    return usageStore.stats.summary.totalTokens / usageStore.stats.summary.totalCalls
-  })
-
-  const averageCostPerCall = computed(() => {
-    if (usageStore.stats.summary.totalCalls <= 0) {
-      return 0
-    }
-
-    return usageStore.stats.summary.estimatedTotalCostUsd / usageStore.stats.summary.totalCalls
-  })
-
-  const topModel = computed(() => usageStore.modelStats.breakdown[0] ?? null)
-
-  const dominantProvider = computed(() => {
-    const firstProvider = providerBreakdown.value[0]
-    if (!firstProvider || usageStore.stats.summary.totalCalls <= 0) {
-      return null
-    }
-
-    return {
-      ...firstProvider,
-      callShare: firstProvider.callCount / usageStore.stats.summary.totalCalls
-    }
-  })
-
-  const insightCards = computed(() => [
-    {
-      key: 'provider',
-      label: t('settings.usageStats.insightDominantProvider'),
-      value: dominantProvider.value?.label ?? '-',
-      detail: dominantProvider.value
-        ? `${formatPercentage(dominantProvider.value.callShare)} ${t('settings.usageStats.summaryCalls')}`
-        : '-'
-    },
-    {
-      key: 'avgTokens',
-      label: t('settings.usageStats.insightAverageTokens'),
-      value: formatInteger(Math.round(averageTokensPerCall.value)),
-      detail: t('settings.usageStats.summaryTotalTokens')
-    },
-    {
-      key: 'avgCost',
-      label: t('settings.usageStats.insightAverageCost'),
-      value: formatCurrency(averageCostPerCall.value),
-      detail: t('settings.usageStats.summaryEstimatedCost')
-    },
-    {
-      key: 'topModel',
-      label: t('settings.usageStats.insightTopModel'),
-      value: topModel.value?.label ?? '-',
-      detail: topModel.value
-        ? `${formatInteger(topModel.value.totalTokens)} ${t('settings.usageStats.summaryTotalTokens')}`
-        : '-'
-    }
-  ])
 
   const hasStats = computed(() => (
     usageStore.stats.timeline.length > 0
@@ -228,33 +106,21 @@ export function useAgentCliUsageSettings() {
     if (trendChartRef.value && !trendChart) {
       trendChart = echarts.init(trendChartRef.value)
     }
-    if (providerChartRef.value && !providerChart) {
-      providerChart = echarts.init(providerChartRef.value)
-    }
-    if (agentChartRef.value && !agentChart) {
-      agentChart = echarts.init(agentChartRef.value)
-    }
-    if (modelChartRef.value && !modelChart) {
-      modelChart = echarts.init(modelChartRef.value)
+    if (modelTrendChartRef.value && !modelTrendChart) {
+      modelTrendChart = echarts.init(modelTrendChartRef.value)
     }
   }
 
   function disposeCharts() {
     trendChart?.dispose()
-    providerChart?.dispose()
-    agentChart?.dispose()
-    modelChart?.dispose()
+    modelTrendChart?.dispose()
     trendChart = null
-    providerChart = null
-    agentChart = null
-    modelChart = null
+    modelTrendChart = null
   }
 
   function resizeCharts() {
     trendChart?.resize()
-    providerChart?.resize()
-    agentChart?.resize()
-    modelChart?.resize()
+    modelTrendChart?.resize()
   }
 
   function applyCharts() {
@@ -263,21 +129,10 @@ export function useAgentCliUsageSettings() {
       timeline: usageStore.stats.timeline,
       t
     })
-    applyProviderChart({
-      chart: providerChart,
-      rows: providerBreakdown.value,
-      t
-    })
-    applyAgentChart({
-      chart: agentChart,
-      rows: topAgentRows.value,
-      chartWidth: agentChartRef.value?.clientWidth ?? 0,
-      t
-    })
-    applyModelChart({
-      chart: modelChart,
-      rows: topModelRows.value,
-      chartWidth: modelChartRef.value?.clientWidth ?? 0,
+    applyModelTrendChart({
+      chart: modelTrendChart,
+      stackedTimeline: usageStore.modelStats.stackedTimeline,
+      metric: usageMetric.value,
       t
     })
   }
@@ -296,12 +151,22 @@ export function useAgentCliUsageSettings() {
   }
 
   watch(
-    () => [usageStore.stats, usageStore.modelStats],
+    () => [usageStore.stats, usageStore.modelStats] as const,
     () => {
       applyCharts()
     },
     { deep: true }
   )
+
+  // 指标切换时仅重绘每模型折线图
+  watch(usageMetric, () => {
+    applyModelTrendChart({
+      chart: modelTrendChart,
+      stackedTimeline: usageStore.modelStats.stackedTimeline,
+      metric: usageMetric.value,
+      t
+    })
+  })
 
   onMounted(async () => {
     await nextTick()
@@ -310,9 +175,7 @@ export function useAgentCliUsageSettings() {
     if (typeof ResizeObserver !== 'undefined') {
       resizeObserver = new ResizeObserver(() => resizeCharts())
       if (trendChartRef.value) resizeObserver.observe(trendChartRef.value)
-      if (providerChartRef.value) resizeObserver.observe(providerChartRef.value)
-      if (agentChartRef.value) resizeObserver.observe(agentChartRef.value)
-      if (modelChartRef.value) resizeObserver.observe(modelChartRef.value)
+      if (modelTrendChartRef.value) resizeObserver.observe(modelTrendChartRef.value)
     } else {
       window.addEventListener('resize', resizeCharts)
     }
@@ -335,18 +198,15 @@ export function useAgentCliUsageSettings() {
     t,
     usageStore,
     trendChartRef,
-    providerChartRef,
-    agentChartRef,
-    modelChartRef,
+    modelTrendChartRef,
     cliTypeOptions,
     dateRangePresets,
-    summaryCards,
+    usageMetric,
+    usageMetricOptions,
     todayCards,
-    insightCards,
     hasStats,
     applyDatePreset,
     refreshStats,
-    resetFilters,
-    formatDateTime
+    resetFilters
   }
 }

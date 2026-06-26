@@ -2,12 +2,12 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAgentStore, useAgentConfigStore } from '@/stores'
-import { useAgentTeamsStore } from '@/stores/agentTeams'
+import { useSubAgentStore } from '@/stores/subAgent'
 import { inferAgentProvider } from '@/stores/agent'
 import type { AgentModelConfig } from '@/stores/agentConfig'
 import type { TaskListOptimizeConfig } from '@/types/plan'
 import { useOverlayDismiss } from '@/composables/useOverlayDismiss'
-import { resolveExpertById, resolveExpertRuntime } from '@/services/agentTeams/runtime'
+import { resolveSubAgentById, resolveSubAgentExecutionWithFallback } from '@/services/subAgent/runtime'
 
 const props = defineProps<{
   visible: boolean
@@ -24,14 +24,14 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const agentStore = useAgentStore()
 const agentConfigStore = useAgentConfigStore()
-const agentTeamsStore = useAgentTeamsStore()
+const agentTeamsStore = useSubAgentStore()
 
 const customPrompt = ref('')
 const selectedExpertId = ref<string | undefined>(undefined)
 const selectedAgentId = ref<string | undefined>(undefined)
 const selectedModelId = ref<string | undefined>(undefined)
 
-const availableExperts = computed(() => agentTeamsStore.enabledExperts)
+const availableExperts = computed(() => agentTeamsStore.enabledSubAgents)
 const availableModels = computed(() => {
   if (!selectedAgentId.value) return []
   return agentConfigStore.getModelsConfigs(selectedAgentId.value)
@@ -67,15 +67,15 @@ watch(() => props.visible, (visible) => {
   resetForm()
   void Promise.all([
     agentStore.loadAgents(),
-    agentTeamsStore.loadExperts(true)
+    agentTeamsStore.loadSubAgents(true)
   ]).then(() => {
     selectedExpertId.value = props.defaultExpertId
   })
 })
 
 watch(selectedExpertId, async (newExpertId) => {
-  const expert = resolveExpertById(newExpertId, agentTeamsStore.experts)
-  const runtime = resolveExpertRuntime(expert, agentStore.agents, selectedModelId.value)
+  const expert = resolveSubAgentById(newExpertId, agentTeamsStore.subAgents)
+  const runtime = resolveSubAgentExecutionWithFallback(expert, agentStore.agents, selectedModelId.value)
   selectedAgentId.value = runtime?.agent.id
 
   if (!runtime?.agent.id) {

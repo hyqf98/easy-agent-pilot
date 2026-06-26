@@ -4,7 +4,7 @@ import { useConfirmDialog } from '@/composables'
 import { DEFAULT_SPLIT_GRANULARITY } from '@/constants/plan'
 import { useAgentConfigStore } from '@/stores/agentConfig'
 import { useAgentStore } from '@/stores/agent'
-import { useAgentTeamsStore } from '@/stores/agentTeams'
+import { useSubAgentStore } from '@/stores/subAgent'
 import { usePlanStore } from '@/stores/plan'
 import { useProjectStore } from '@/stores/project'
 import { useTaskStore } from '@/stores/task'
@@ -20,7 +20,7 @@ import type {
   PlanTaskStats,
   ProjectOption
 } from '../planListShared'
-import { resolveExpertById, resolveExpertRuntime } from '@/services/agentTeams/runtime'
+import { resolveSubAgentById, resolveSubAgentExecutionWithFallback } from '@/services/subAgent/runtime'
 
 interface TaskStatusItem {
   status: TaskStatus
@@ -43,7 +43,7 @@ export function usePlanListView(emit: PlanListEmit) {
   const planStore = usePlanStore()
   const projectStore = useProjectStore()
   const agentStore = useAgentStore()
-  const agentTeamsStore = useAgentTeamsStore()
+  const agentTeamsStore = useSubAgentStore()
   const agentConfigStore = useAgentConfigStore()
   const taskStore = useTaskStore()
   const confirmDialog = useConfirmDialog()
@@ -139,8 +139,8 @@ export function usePlanListView(emit: PlanListEmit) {
   })
 
   const agentOptions = computed<AgentOption[]>(() =>
-    agentTeamsStore.enabledExperts.map(expert => {
-      const runtime = resolveExpertRuntime(expert, agentStore.agents)
+    agentTeamsStore.enabledSubAgents.map(expert => {
+      const runtime = resolveSubAgentExecutionWithFallback(expert, agentStore.agents)
       const runtimeLabel = runtime?.agent.provider
         ? `${runtime.agent.provider.toUpperCase()} CLI`
         : runtime?.agent.name || '未绑定运行时'
@@ -153,7 +153,7 @@ export function usePlanListView(emit: PlanListEmit) {
   )
 
   function getDefaultSplitExpertId(): string | null {
-    return agentTeamsStore.builtinPlannerExpert?.id
+    return agentTeamsStore.builtinPlannerSubAgent?.id
       || agentOptions.value[0]?.value
       || null
   }
@@ -218,8 +218,8 @@ export function usePlanListView(emit: PlanListEmit) {
   )
 
   async function loadEnabledModels(agentId: string): Promise<ModelOption[]> {
-    const expert = resolveExpertById(agentId, agentTeamsStore.experts)
-    const runtime = resolveExpertRuntime(expert, agentStore.agents)
+    const expert = resolveSubAgentById(agentId, agentTeamsStore.subAgents)
+    const runtime = resolveSubAgentExecutionWithFallback(expert, agentStore.agents)
     if (!runtime) {
       return []
     }
@@ -242,8 +242,8 @@ export function usePlanListView(emit: PlanListEmit) {
 
   function isModelSelectionValid(agentId: string | null, modelId: string): boolean {
     if (!agentId) return false
-    const expert = resolveExpertById(agentId, agentTeamsStore.experts)
-    return Boolean(resolveExpertRuntime(expert, agentStore.agents, modelId))
+    const expert = resolveSubAgentById(agentId, agentTeamsStore.subAgents)
+    return Boolean(resolveSubAgentExecutionWithFallback(expert, agentStore.agents, modelId))
   }
 
   function buildPlanTaskStats(tasks: TaskStatusItem[]): PlanTaskStats {
@@ -333,10 +333,10 @@ export function usePlanListView(emit: PlanListEmit) {
 
     try {
       const selectedExpert = createForm.splitMode === 'ai'
-        ? resolveExpertById(createForm.splitAgentId, agentTeamsStore.experts)
+        ? resolveSubAgentById(createForm.splitAgentId, agentTeamsStore.subAgents)
         : null
       const runtime = createForm.splitMode === 'ai'
-        ? resolveExpertRuntime(selectedExpert, agentStore.agents, createForm.splitModelId)
+        ? resolveSubAgentExecutionWithFallback(selectedExpert, agentStore.agents, createForm.splitModelId)
         : null
       const plan = await planStore.createPlan({
         projectId: projectStore.currentProjectId,
@@ -407,7 +407,7 @@ export function usePlanListView(emit: PlanListEmit) {
   async function openCreateDialog() {
     await Promise.all([
       agentStore.loadAgents(),
-      agentTeamsStore.loadExperts(true)
+      agentTeamsStore.loadSubAgents(true)
     ])
     updateCreateForm({
       splitAgentId: getDefaultSplitExpertId(),
@@ -464,10 +464,10 @@ export function usePlanListView(emit: PlanListEmit) {
 
     try {
       const selectedExpert = editForm.splitMode === 'ai'
-        ? resolveExpertById(editForm.splitAgentId, agentTeamsStore.experts)
+        ? resolveSubAgentById(editForm.splitAgentId, agentTeamsStore.subAgents)
         : null
       const runtime = editForm.splitMode === 'ai'
-        ? resolveExpertRuntime(selectedExpert, agentStore.agents, editForm.splitModelId)
+        ? resolveSubAgentExecutionWithFallback(selectedExpert, agentStore.agents, editForm.splitModelId)
         : null
       const updates: UpdatePlanInput = {
         name: editForm.name.trim(),
@@ -550,13 +550,13 @@ export function usePlanListView(emit: PlanListEmit) {
 
     await Promise.all([
       agentStore.loadAgents(),
-      agentTeamsStore.loadExperts(true)
+      agentTeamsStore.loadSubAgents(true)
     ])
 
     const configuredExpert = plan.splitExpertId
-      ? resolveExpertById(plan.splitExpertId, agentTeamsStore.experts)
+      ? resolveSubAgentById(plan.splitExpertId, agentTeamsStore.subAgents)
       : null
-    const configuredRuntime = resolveExpertRuntime(configuredExpert, agentStore.agents, plan.splitModelId)
+    const configuredRuntime = resolveSubAgentExecutionWithFallback(configuredExpert, agentStore.agents, plan.splitModelId)
 
     const hasSplitConfig = Boolean(
       plan.splitExpertId !== undefined &&
@@ -592,8 +592,8 @@ export function usePlanListView(emit: PlanListEmit) {
     if (splitConfigModelOptions.value.length === 0) return
 
     try {
-      const selectedExpert = resolveExpertById(splitConfigForm.agentId, agentTeamsStore.experts)
-      const runtime = resolveExpertRuntime(selectedExpert, agentStore.agents, splitConfigForm.modelId)
+      const selectedExpert = resolveSubAgentById(splitConfigForm.agentId, agentTeamsStore.subAgents)
+      const runtime = resolveSubAgentExecutionWithFallback(selectedExpert, agentStore.agents, splitConfigForm.modelId)
       if (!runtime) {
         throw new Error('未找到可用拆分专家运行时')
       }
@@ -701,7 +701,7 @@ export function usePlanListView(emit: PlanListEmit) {
   onMounted(() => {
     void Promise.all([
       agentStore.loadAgents(),
-      agentTeamsStore.loadExperts(true)
+      agentTeamsStore.loadSubAgents(true)
     ])
   })
 

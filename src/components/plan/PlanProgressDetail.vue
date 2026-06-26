@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfirmDialog } from '@/composables'
 import { useAgentStore } from '@/stores/agent'
-import { useAgentTeamsStore } from '@/stores/agentTeams'
+import { useSubAgentStore } from '@/stores/subAgent'
 import { usePlanStore } from '@/stores/plan'
 import { useTaskExecutionStore } from '@/stores/taskExecution'
 import { useTaskStore } from '@/stores/task'
@@ -25,7 +25,7 @@ const taskExecutionStore = useTaskExecutionStore()
 const taskStore = useTaskStore()
 const planStore = usePlanStore()
 const agentStore = useAgentStore()
-const agentTeamsStore = useAgentTeamsStore()
+const agentTeamsStore = useSubAgentStore()
 const confirmDialog = useConfirmDialog()
 const { t, locale } = useI18n()
 
@@ -136,7 +136,7 @@ function compactText(content: string | null | undefined, fallback: string = ''):
 function resolveAgentLabel(task: PlanExecutionTaskProgress): string {
   const selection = resolvePlanTaskAgentSelection(task, plan.value)
   const expert = selection.expertId
-    ? agentTeamsStore.getExpertById(selection.expertId)
+    ? agentTeamsStore.getSubAgentById(selection.expertId)
     : null
   if (expert) {
     return selection.modelId ? `${expert.name} / ${selection.modelId}` : expert.name
@@ -221,8 +221,8 @@ onMounted(async () => {
   if (agentStore.agents.length === 0) {
     await agentStore.loadAgents()
   }
-  if (agentTeamsStore.experts.length === 0) {
-    await agentTeamsStore.loadExperts()
+  if (agentTeamsStore.subAgents.length === 0) {
+    await agentTeamsStore.loadSubAgents()
   }
   await loadProgress()
 })

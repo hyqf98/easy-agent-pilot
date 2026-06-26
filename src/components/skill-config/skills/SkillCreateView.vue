@@ -470,8 +470,8 @@ watch(referencePreviewItems, (items) => {
 .skill-create-view {
   display: flex;
   flex: 1;
-  height: 100%;
-  min-height: 0;
+  /* 嵌入可滚动容器内，用视口相对最小高度撑开内容区 */
+  min-height: min(70vh, 560px);
   flex-direction: column;
   gap: var(--spacing-3);
   overflow: hidden;

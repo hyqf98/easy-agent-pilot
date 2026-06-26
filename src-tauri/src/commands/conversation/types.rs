@@ -28,6 +28,8 @@ pub struct ExecutionRequest {
     pub mcp_servers: Option<Vec<McpServerConfig>>,
     pub execution_mode: Option<String>,
     pub reasoning_effort: Option<String>,
+    /// 子代理/会话选定的模型 ID，经 ACP config option 回填给执行器。
+    pub model_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,6 +77,18 @@ pub struct StreamEvent {
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external_session_id: Option<String>,
+    /// ACP 权限询问时携带的可选项（仅 permission_request 事件使用）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permission_options: Option<Vec<PermissionOptionView>>,
+}
+
+/// ACP 权限选项的前端视图（option_id / 名称 / 类型）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionOptionView {
+    pub option_id: String,
+    pub name: String,
+    pub kind: String,
 }
 
 pub type AcpStreamEvent = StreamEvent;

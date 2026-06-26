@@ -11,6 +11,7 @@ import ConversationComposerAttachments from './ConversationComposerAttachments.v
 import ConversationComposerMemoryAssist from './ConversationComposerMemoryAssist.vue'
 import ConversationComposerRichTextOverlay from './ConversationComposerRichTextOverlay.vue'
 import ActiveFormPopup from './ActiveFormPopup.vue'
+import PermissionPromptPopup from './PermissionPromptPopup.vue'
 import FileMentionDropdown from './FileMentionDropdown.vue'
 import SlashCommandDropdown from './SlashCommandDropdown.vue'
 
@@ -483,6 +484,11 @@ const sendButtonTitle = computed(() => {
         @cancel="handleActiveFormCancel"
       />
 
+      <PermissionPromptPopup
+        v-if="isMainPanel && sessionId"
+        :session-id="sessionId"
+      />
+
       <div class="conversation-composer__editor-stack">
         <div
           class="conversation-composer__editor-shell"
@@ -708,7 +714,7 @@ const sendButtonTitle = computed(() => {
                     <div
                       class="composer-chip__option composer-chip__option--reset"
                       :class="{ 'composer-chip__option--selected': !selectedReasoningEffort }"
-                      @click="selectReasoningEffort('')"
+                      @click.stop="selectReasoningEffort('')"
                     >
                       {{ t('reasoning.default') }}
                     </div>
@@ -717,7 +723,7 @@ const sendButtonTitle = computed(() => {
                       :key="option.value"
                       class="composer-chip__option"
                       :class="{ 'composer-chip__option--selected': option.value === selectedReasoningEffort }"
-                      @click="selectReasoningEffort(option.value)"
+                      @click.stop="selectReasoningEffort(option.value)"
                     >
                       {{ option.label }}
                     </div>

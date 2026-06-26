@@ -64,6 +64,12 @@
   padding: 24px 20px;
 }
 
+/* 中/右栏顶部为浮动导航让出空间（左栏已满铺至顶，仅内容栏避让） */
+.memory-mode__records,
+.memory-mode__library-editor {
+  padding-top: calc(var(--workspace-topbar-height, 44px) + 2px + 24px);
+}
+
 .memory-mode__libraries,
 .memory-mode__records {
   border-right: 1px solid var(--memory-panel-border);

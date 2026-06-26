@@ -8,6 +8,8 @@ import { useLayoutStore } from '@/stores/layout'
 import { useSessionExecutionStore } from '@/stores/sessionExecution'
 import { useTokenStore, type CompressionStrategy } from '@/stores/token'
 import { useNotificationStore } from '@/stores/notification'
+import { useUIStore } from '@/stores/ui'
+import { useProjectStore } from '@/stores/project'
 import { useAgentStore } from '@/stores/agent'
 import { compressionService } from '@/services/compression'
 import { conversationService } from '@/services/conversation'
@@ -38,6 +40,8 @@ export function useMessageArea() {
   const sessionExecutionStore = useSessionExecutionStore()
   const tokenStore = useTokenStore()
   const notificationStore = useNotificationStore()
+  const uiStore = useUIStore()
+  const projectStore = useProjectStore()
 
   // 压缩相关状态
   const showCompressionDialog = ref(false)
@@ -447,6 +451,12 @@ export function useMessageArea() {
     window.removeEventListener('resize', updateViewportMode)
   })
 
+  // 欢迎页：是否已有导入项目，以及触发导入项目弹窗的动作
+  const hasProjects = computed(() => projectStore.projects.length > 0)
+  const handleImportProject = () => {
+    uiStore.openProjectCreateModal()
+  }
+
   return {
     sessionStore,
     messageStore,
@@ -455,6 +465,10 @@ export function useMessageArea() {
     sessionExecutionStore,
     tokenStore,
     notificationStore,
+    uiStore,
+    projectStore,
+    hasProjects,
+    handleImportProject,
     showCompressionDialog,
     isCompressing,
     isMobileViewport,

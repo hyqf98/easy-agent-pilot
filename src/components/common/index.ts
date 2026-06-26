@@ -14,6 +14,8 @@ export { default as EaJsonViewer } from './EaJsonViewer.vue'
 export { default as EaInput } from './EaInput.vue'
 export { default as EaTag } from './EaTag.vue'
 export { default as EaStateBlock } from './EaStateBlock.vue'
+export { default as EaActionMenu } from './EaActionMenu.vue'
+export type { ActionMenuItem } from './EaActionMenu.vue'
 export { default as ImageHoverPreview } from './ImageHoverPreview.vue'
 export { default as AgentIcon } from './AgentIcon.vue'
 

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { AgentExpertCategory } from '@/stores/agentTeams'
+import type { SubAgentCategory } from '@/stores/subAgent'
 
-type AgentIconKind = AgentExpertCategory | 'solo-coordinator'
+type AgentIconKind = SubAgentCategory | 'solo-coordinator'
 
 const props = withDefaults(defineProps<{
   kind?: AgentIconKind

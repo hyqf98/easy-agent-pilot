@@ -665,6 +665,7 @@ function extractXmlWrappedBlocks(content: string): StructuredContentBlock[] | nu
   while ((match = xmlPattern.exec(content)) !== null) {
     const matchStart = match.index
     const matchEnd = matchStart + match[0].length
+    const tag = match[1]
 
     pushMarkdownBlock(blocks, content.slice(lastIndex, matchStart))
 
@@ -673,6 +674,15 @@ function extractXmlWrappedBlocks(content: string): StructuredContentBlock[] | nu
       const parsed = tryParseStructuredBlocks(innerJson)
       if (parsed && parsed.length > 0) {
         blocks.push(...parsed)
+      } else if (tag === 'form-request') {
+        // 兜底：部分模型会用 <field> 子标签而非 JSON 表达表单请求，
+        // 这里把 <field name="x" label="y" type="..." options='[...]'/> 解析成表单块
+        const fieldForm = parseFieldTagForm(innerJson)
+        if (fieldForm) {
+          blocks.push(fieldForm)
+        } else {
+          pushMarkdownBlock(blocks, match[0])
+        }
       } else {
         pushMarkdownBlock(blocks, match[0])
       }
@@ -683,6 +693,69 @@ function extractXmlWrappedBlocks(content: string): StructuredContentBlock[] | nu
 
   pushMarkdownBlock(blocks, content.slice(lastIndex))
   return blocks
+}
+
+/**
+ * 解析 <field name="x" label="y" type="select" options='[...]' required="true" /> 子标签为表单块。
+ * 兼容模型输出的非标准（非 JSON）表单请求格式：
+ *  - 自闭合 <field ... /> 与成对 <field ...></field>
+ *  - 中文全角引号 “” / ‘’ 自动归一化为半角
+ *  - options 接受 JSON 数组字符串或 ["a","b"] 字面量，统一转为 [{label,value}]
+ */
+const FIELD_TAG_PATTERN = /<field\b([^>]*?)(?:\/>|>\s*<\/field>)/gi
+
+function parseFieldTagForm(inner: string): StructuredContentBlock | null {
+  const fields: FormField[] = []
+  let fieldMatch: RegExpExecArray | null
+  FIELD_TAG_PATTERN.lastIndex = 0
+  while ((fieldMatch = FIELD_TAG_PATTERN.exec(inner)) !== null) {
+    const attrs = fieldMatch[1] || ''
+    const get = (key: string): string | undefined => {
+      // 归一化引号后匹配 key="value" 或 key='value'
+      const normalized = attrs.replace(/["“”]/g, '"').replace(/[‘’]/g, "'")
+      const m = new RegExp(`${key}\\s*=\\s*("([^"]*)"|'([^']*)')`, 'i').exec(normalized)
+      return m ? (m[2] ?? m[3] ?? '') : undefined
+    }
+    const name = get('name')
+    if (!name) continue
+    const type = (get('type') || 'text') as FormField['type']
+    const rawOptions = get('options')
+    let options: FormField['options']
+    if (rawOptions) {
+      try {
+        const parsed = JSON.parse(rawOptions.replace(/["“”]/g, '"'))
+        if (Array.isArray(parsed)) {
+          options = parsed.map(item =>
+            typeof item === 'string' ? { label: item, value: item } : { label: String(item?.label ?? item?.value ?? item), value: item?.value ?? item?.label ?? item }
+          )
+        }
+      } catch {
+        // 解析失败则忽略 options
+      }
+    }
+    fields.push({
+      name,
+      label: get('label') || name,
+      type,
+      required: get('required') === 'true',
+      options,
+      suggestion: get('default') ?? get('suggestion')
+    })
+  }
+
+  if (fields.length === 0) {
+    return null
+  }
+
+  return {
+    type: 'form',
+    question: '',
+    formSchema: {
+      formId: `xml-field-${Date.now()}`,
+      title: '',
+      fields
+    }
+  }
 }
 
 function extractBalancedJsonRanges(content: string): Array<{ start: number, end: number }> {

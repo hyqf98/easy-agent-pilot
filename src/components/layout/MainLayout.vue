@@ -54,6 +54,9 @@ const isFileWorkspaceActive = computed(() => (
   uiStore.mainContentMode === 'fileEditor' || uiStore.mainContentMode === 'officeViewer'
 ))
 
+// 仅主会话保留左侧项目管理侧边栏；计划 / SOLO / 记忆模式靠各自列表顶部的项目切换器选项目
+const isSidebarMode = computed(() => uiStore.appMode === 'chat')
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
@@ -208,15 +211,10 @@ watch(rightFileProject, (project) => {
 
 <template>
   <div class="main-layout main-layout--agent-workspace">
-    <AppHeader />
-
     <div class="main-layout__body">
-      <div
-        v-show="uiStore.appMode !== 'settings'"
-        class="main-layout__workspace"
-      >
+      <div class="main-layout__workspace">
         <button
-          v-if="!isLeftSidebarVisible"
+          v-if="!isLeftSidebarVisible && isSidebarMode"
           type="button"
           class="main-layout__sidebar-restore"
           title="显示项目管理"
@@ -230,7 +228,7 @@ watch(rightFileProject, (project) => {
         </button>
 
         <aside
-          v-if="isLeftSidebarVisible"
+          v-if="isLeftSidebarVisible && isSidebarMode"
           class="main-layout__sidebar"
           :style="{ width: `${leftSidebarWidth}px`, flexBasis: `${leftSidebarWidth}px` }"
         >
@@ -241,13 +239,15 @@ watch(rightFileProject, (project) => {
         </aside>
 
         <div
-          v-if="isLeftSidebarVisible"
+          v-if="isLeftSidebarVisible && isSidebarMode"
           class="main-layout__resizer main-layout__resizer--left"
           :class="{ 'main-layout__resizer--active': resizeTarget === 'left' }"
           @mousedown.prevent="startResize('left', $event)"
         />
 
         <main class="main-layout__stage">
+          <!-- 顶部导航栏：悬浮在主会话面板上方（不独占一行），水平居中于右侧内容面板 -->
+          <AppHeader class="main-layout__floating-header" />
           <section
             v-show="uiStore.appMode === 'plan'"
             class="main-layout__mode-panel main-layout__mode-panel--plan"
@@ -270,9 +270,15 @@ watch(rightFileProject, (project) => {
           </section>
 
           <section
+            v-show="uiStore.appMode === 'settings'"
+            class="main-layout__mode-panel main-layout__mode-panel--settings"
+          >
+            <SettingsShell />
+          </section>
+
+          <section
             v-show="uiStore.appMode === 'chat'"
             class="main-layout__chat-shell"
-            :class="{ 'main-layout__chat-shell--with-right-dock': isRightFilePanelOpen && rightFileProject }"
           >
             <div class="main-layout__main">
               <div class="main-layout__chat-content">
@@ -396,19 +402,13 @@ watch(rightFileProject, (project) => {
           </section>
         </main>
       </div>
-
-      <section
-        v-if="uiStore.appMode === 'settings'"
-        class="main-layout__settings-view"
-      >
-        <SettingsShell />
-      </section>
     </div>
   </div>
 </template>
 
 <style scoped>
 .main-layout {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -427,15 +427,6 @@ watch(rightFileProject, (project) => {
 .main-layout__workspace {
   display: flex;
   flex: 1;
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.main-layout__settings-view {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -505,6 +496,16 @@ watch(rightFileProject, (project) => {
   align-self: stretch;
 }
 
+.main-layout__floating-header {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.08);
+}
+
 .main-layout__stage {
   position: relative;
   flex: 1;
@@ -523,11 +524,22 @@ watch(rightFileProject, (project) => {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  /* 为悬浮导航栏让出顶部空间 */
+  padding-top: calc(var(--workspace-topbar-height) + 2px);
   overflow: hidden;
 }
 
 .main-layout__chat-shell {
   flex-direction: row;
+}
+
+/* 设置页：左栏(SettingsNav)从顶部满铺至窗口顶，仅右侧内容避让浮动导航，
+   与主会话(sidebar 满铺 + 内容下移 + 导航悬浮)结构一致，避免导航独占一行 */
+.main-layout__mode-panel--settings,
+.main-layout__mode-panel--plan,
+.main-layout__mode-panel--solo,
+.main-layout__mode-panel--memory {
+  padding-top: 0;
 }
 
 .main-layout__main {
@@ -565,6 +577,7 @@ watch(rightFileProject, (project) => {
   border-left: 1px solid var(--workspace-border);
   background: var(--workspace-sidebar-bg);
   overflow: hidden;
+  box-shadow: none;
 }
 
 .main-layout__right-terminal {
@@ -664,11 +677,11 @@ watch(rightFileProject, (project) => {
   min-height: 0;
   border-right: 1px solid var(--workspace-border);
   background: var(--workspace-sidebar-bg);
-  overflow: hidden;
+  overflow: auto hidden;
 }
 
 .main-layout__file-tree {
-  min-width: 0;
+  min-width: max-content;
   min-height: 0;
 }
 

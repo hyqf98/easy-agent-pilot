@@ -26,7 +26,7 @@ import { useSessionStore } from '@/stores/session'
 import { useSettingsStore } from '@/stores/settings'
 import { useTokenStore, type CompressionStrategy, type TokenLevel } from '@/stores/token'
 import { useMemoryStore } from '@/stores/memory'
-import { useAgentTeamsStore } from '@/stores/agentTeams'
+import { useSubAgentStore } from '@/stores/subAgent'
 import { compressionService } from '@/services/compression'
 import { conversationService } from '@/services/conversation'
 import { clearPluginCommandsCache, loadPluginSlashCommands, toSlashCommandDescriptor } from '@/services/pluginCommands'
@@ -52,11 +52,11 @@ import { formatAgentModelLabel } from '@/utils/agentModelLabel'
 import type { MemorySuggestion, MemorySuggestionSourceType } from '@/types/memory'
 import { getProviderReasoningEfforts, type ReasoningEffortLevel, type ReasoningEffortOption } from '@/types/reasoning'
 import {
-  buildExpertSystemPrompt,
-  resolveExpertById,
-  resolveExpertRuntime,
+  buildSubAgentSystemPrompt,
+  resolveSubAgentById,
+  resolveSubAgentExecutionWithFallback,
   resolveFallbackAgent
-} from '@/services/agentTeams/runtime'
+} from '@/services/subAgent/runtime'
 
 interface TextSegment {
   type: 'text' | 'file' | 'slash' | 'memory' | 'attachment'
@@ -333,7 +333,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
   const sessionExecutionStore = useSessionExecutionStore()
   const tokenStore = useTokenStore()
   const memoryStore = useMemoryStore()
-  const agentTeamsStore = useAgentTeamsStore()
+  const agentTeamsStore = useSubAgentStore()
 
   const showCompressionDialog = ref(false)
   const isCompressing = ref(false)
@@ -393,8 +393,8 @@ export function useConversationComposer(options: UseConversationComposerOptions)
   const currentWorkingDirectory = computed(() => toValue(options.workingDirectory) || currentProjectPath.value)
 
   const agentOptions = computed(() =>
-    agentTeamsStore.enabledExperts.map(expert => {
-      const runtime = resolveExpertRuntime(expert, agentStore.agents)
+    agentTeamsStore.enabledSubAgents.map(expert => {
+      const runtime = resolveSubAgentExecutionWithFallback(expert, agentStore.agents)
       const runtimeAgent = runtime?.agent
       const provider = runtimeAgent?.provider || inferAgentProvider(runtimeAgent)
       return {
@@ -414,13 +414,13 @@ export function useConversationComposer(options: UseConversationComposerOptions)
   })
 
   const currentExpert = computed(() =>
-    resolveExpertById(currentExpertId.value, agentTeamsStore.experts)
+    resolveSubAgentById(currentExpertId.value, agentTeamsStore.subAgents)
   )
 
   const currentAgentId = computed(() => currentExpertId.value || currentAgent.value?.id || null)
 
   const currentAgent = computed(() => {
-    const expertRuntime = resolveExpertRuntime(currentExpert.value, agentStore.agents)
+    const expertRuntime = resolveSubAgentExecutionWithFallback(currentExpert.value, agentStore.agents)
     if (expertRuntime) {
       return expertRuntime.agent
     }
@@ -458,7 +458,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
   const presetModelOptions = computed(() => modelOptions.value)
 
   const reasoningEffortOptions = computed<ReasoningEffortOption[]>(() => {
-    const provider = currentAgent.value?.provider || inferAgentProvider(currentAgent.value)
+    const provider = currentAgent.value?.provider || inferAgentProvider(currentAgent.value) || currentAgent.value?.type || 'acp'
     if (!provider) return []
     const efforts = getProviderReasoningEfforts(provider)
     return efforts.map(effort => ({
@@ -1158,13 +1158,12 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     }
   }, { immediate: true })
 
-  watch([currentExpert, currentAgent], async ([expert, agent]) => {
+  watch([currentExpert, currentAgent], async ([_expert, agent]) => {
     if (agent?.id) {
       await agentConfigStore.ensureModelsConfigs(agent.id, inferAgentProvider(agent))
       const configs = agentConfigStore.getModelsConfigs(agent.id)
-      const preferredModel = expert?.defaultModelId
-      const defaultModel = configs.find(config => config.enabled && config.modelId === preferredModel)
-        || configs.find(config => config.isDefault && config.enabled)
+      // 子代理不再绑定模型，首选模型取执行器自身默认配置
+      const defaultModel = configs.find(config => config.isDefault && config.enabled)
         || configs.find(config => config.enabled)
       selectedModelId.value = defaultModel?.modelId || ''
       selectedReasoningEffort.value = ''
@@ -1264,7 +1263,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     try {
       await Promise.all([
         agentStore.loadAgents(),
-        agentTeamsStore.loadExperts(true)
+        agentTeamsStore.loadSubAgents(true)
       ])
       if (currentAgent.value?.id) {
         const provider = inferAgentProvider(agentStore.agents.find(agent => agent.id === currentAgent.value?.id))
@@ -1313,8 +1312,8 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     }
 
     try {
-      const expert = resolveExpertById(expertId, agentTeamsStore.experts)
-      const runtime = resolveExpertRuntime(expert, agentStore.agents)
+      const expert = resolveSubAgentById(expertId, agentTeamsStore.subAgents)
+      const runtime = resolveSubAgentExecutionWithFallback(expert, agentStore.agents)
       const agent = runtime?.agent
       if (agent?.id) {
         await agentConfigStore.ensureModelsConfigs(agent.id, inferAgentProvider(agent))
@@ -1362,9 +1361,8 @@ export function useConversationComposer(options: UseConversationComposerOptions)
           isDefault: true
         })
       }
-      if (currentExpert.value?.id) {
-        await agentTeamsStore.updateExpert(currentExpert.value.id, { defaultModelId: modelId || undefined })
-      }
+      // 子代理不再持有 defaultModelId（模型跟随 ACP 执行器），模型默认值由上方
+      // agentConfigStore.updateModelConfig 持久化到执行器配置。
     } catch (error) {
       console.error('Failed to update expert model:', error)
     }
@@ -1859,6 +1857,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
 
       const result = await invoke<UploadSessionImagesResponse>('upload_session_images', {
         sessionId,
+        projectPath: currentProjectPath.value,
         files: payload
       })
 
@@ -2054,8 +2053,8 @@ export function useConversationComposer(options: UseConversationComposerOptions)
 
     const sessionStore = useSessionStore()
     const targetSession = sessionStore.sessions.find(session => session.id === sessionId) || null
-    const expert = resolveExpertById(draft.expertId, agentTeamsStore.experts)
-    const runtime = resolveExpertRuntime(expert, agentStore.agents)
+    const expert = resolveSubAgentById(draft.expertId, agentTeamsStore.subAgents)
+    const runtime = resolveSubAgentExecutionWithFallback(expert, agentStore.agents)
     const executionAgent = runtime?.agent
       ? {
           ...runtime.agent,
@@ -2096,7 +2095,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
         {
           workingDirectory: currentWorkingDirectory.value || currentProjectPath.value || undefined,
           modelId: draft.modelId || undefined,
-          injectedSystemMessages: [buildExpertSystemPrompt(expert.prompt)],
+          injectedSystemMessages: [buildSubAgentSystemPrompt(expert.prompt)],
           previewContent: draft.displayContent,
           memoryReferencesToPersist: draft.memoryReferences ?? []
         }
@@ -2241,7 +2240,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
           modelId: selectedModelId.value.trim() || undefined,
           reasoningEffort: selectedReasoningEffort.value || undefined,
           injectedSystemMessages: [
-            buildExpertSystemPrompt(expert.prompt)
+            buildSubAgentSystemPrompt(expert.prompt)
           ],
           previewContent: options?.displayPreviewContent,
           memoryReferencesToPersist: options?.memoryReferences ?? [],
@@ -2291,12 +2290,12 @@ export function useConversationComposer(options: UseConversationComposerOptions)
 
     await Promise.all([
       agentStore.loadAgents(),
-      agentTeamsStore.loadExperts()
+      agentTeamsStore.loadSubAgents()
     ])
 
     const targetSession = sessionStore.sessions.find(session => session.id === sessionId) || null
-    const expert = resolveExpertById(input.expertId, agentTeamsStore.experts)
-    const runtime = resolveExpertRuntime(expert, agentStore.agents)
+    const expert = resolveSubAgentById(input.expertId, agentTeamsStore.subAgents)
+    const runtime = resolveSubAgentExecutionWithFallback(expert, agentStore.agents)
     const executionAgent = runtime?.agent
       ? {
           ...runtime.agent,
@@ -2336,7 +2335,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
           workingDirectory: currentWorkingDirectory.value || currentProjectPath.value || undefined,
           modelId: executionAgent.modelId?.trim() || undefined,
           injectedSystemMessages: [
-            buildExpertSystemPrompt(expert.prompt)
+            buildSubAgentSystemPrompt(expert.prompt)
           ],
           previewContent: input.previewContent
         }
@@ -2391,9 +2390,9 @@ export function useConversationComposer(options: UseConversationComposerOptions)
       return
     }
 
-    await agentTeamsStore.loadExperts()
-    const architectExpert = agentTeamsStore.builtinArchitectExpert
-      || agentTeamsStore.enabledExperts.find(expert => expert.category === 'architect')
+    await agentTeamsStore.loadSubAgents()
+    const architectExpert = agentTeamsStore.builtinArchitectSubAgent
+      || agentTeamsStore.enabledSubAgents.find(expert => expert.category === 'architect')
       || null
 
     if (!architectExpert) {
@@ -2419,10 +2418,10 @@ export function useConversationComposer(options: UseConversationComposerOptions)
 
     await Promise.all([
       agentStore.loadAgents(),
-      agentTeamsStore.loadExperts(true)
+      agentTeamsStore.loadSubAgents(true)
     ])
-    const expert = agentTeamsStore.builtinGeneralExpert || agentTeamsStore.enabledExperts[0] || null
-    const runtime = resolveExpertRuntime(expert, agentStore.agents)
+    const expert = agentTeamsStore.builtinGeneralSubAgent || agentTeamsStore.enabledSubAgents[0] || null
+    const runtime = resolveSubAgentExecutionWithFallback(expert, agentStore.agents)
 
     const titleSource = displayContent ?? message
     const newSession = await sessionStore.createSession({
@@ -2448,7 +2447,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
         {
           workingDirectory: currentWorkingDirectory.value || currentProjectPath.value || undefined,
           modelId: runtime.modelId || runtime.agent.modelId || undefined,
-          injectedSystemMessages: expert ? [buildExpertSystemPrompt(expert.prompt)] : [],
+          injectedSystemMessages: expert ? [buildSubAgentSystemPrompt(expert.prompt)] : [],
         }
       )
     }
@@ -2483,10 +2482,10 @@ export function useConversationComposer(options: UseConversationComposerOptions)
         break
     }
 
-    const expert = resolveExpertById(currentExpert.value?.id, agentTeamsStore.experts)
+    const expert = resolveSubAgentById(currentExpert.value?.id, agentTeamsStore.subAgents)
     const systemMessages: string[] = []
     if (expert) {
-      systemMessages.push(buildExpertSystemPrompt(expert.prompt))
+      systemMessages.push(buildSubAgentSystemPrompt(expert.prompt))
     }
     if (planSystemPrompt) {
       systemMessages.push(planSystemPrompt)
@@ -2753,7 +2752,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
           workingDirectory: currentWorkingDirectory.value || undefined,
           modelId: selectedModelId.value.trim() || undefined,
           injectedSystemMessages: [
-            buildExpertSystemPrompt(expert.prompt)
+            buildSubAgentSystemPrompt(expert.prompt)
           ],
           existingUserMessageId: messageId
         }

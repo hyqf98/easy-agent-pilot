@@ -78,6 +78,28 @@ const isTerminalLikeTool = computed(() => {
     || name.includes('command')
 })
 
+const isAgentExecutionTool = computed(() => {
+  const name = props.toolCall.name.toLowerCase()
+  return name === 'task'
+    || name.includes('agent')
+    || name.includes('subagent')
+    || name.includes('sub_agent')
+    || name.includes('delegate')
+})
+
+const agentExecutionTitle = computed(() => {
+  const agentName = props.toolCall.arguments?.subagent_type
+    ?? props.toolCall.arguments?.agent
+    ?? props.toolCall.arguments?.agentName
+    ?? props.toolCall.arguments?.name
+
+  if (typeof agentName === 'string' && agentName.trim()) {
+    return agentName.trim()
+  }
+
+  return props.toolCall.name
+})
+
 // 格式化参数
 const formattedArguments = computed(() => {
   return JSON.stringify(props.toolCall.arguments, null, 2)
@@ -96,6 +118,14 @@ const { displayedText: animatedResult } = useTypewriterText(
 )
 
 const toolSummary = computed(() => {
+  if (isAgentExecutionTool.value) {
+    const prompt = props.toolCall.arguments?.prompt
+    if (typeof prompt === 'string' && prompt.trim()) {
+      const normalized = prompt.trim().replace(/\s+/g, ' ')
+      return normalized.length > 64 ? `${normalized.slice(0, 64)}...` : normalized
+    }
+  }
+
   const command = props.toolCall.arguments?.command
   if (typeof command === 'string' && command.trim()) {
     const normalized = command.trim().replace(/\s+/g, ' ')
@@ -124,7 +154,7 @@ const toolSummary = computed(() => {
 <template>
   <div
     class="tool-call"
-    :class="[statusClass, { 'tool-call--compact': compact }]"
+    :class="[statusClass, { 'tool-call--compact': compact, 'tool-call--agent-run': isAgentExecutionTool }]"
   >
     <!-- 工具调用头部 -->
     <button
@@ -136,11 +166,15 @@ const toolSummary = computed(() => {
       <div class="tool-call__header-left">
         <span class="tool-call__icon">
           <EaIcon
-            :name="toolIcon"
+            :name="isAgentExecutionTool ? 'workflow' : toolIcon"
             :size="13"
           />
         </span>
-        <span class="tool-call__name">{{ toolCall.name }}</span>
+        <span
+          v-if="isAgentExecutionTool"
+          class="tool-call__agent-label"
+        >子代理执行</span>
+        <span class="tool-call__name">{{ isAgentExecutionTool ? agentExecutionTitle : toolCall.name }}</span>
         <span
           class="tool-call__status"
           :class="`tool-call__status--${toolCall.status}`"
@@ -197,10 +231,10 @@ const toolSummary = computed(() => {
         >
           <div class="tool-call__section-title">
             <EaIcon
-              name="log-out"
+              :name="isAgentExecutionTool ? 'scroll-text' : 'log-out'"
               :size="12"
             />
-            <span>{{ t('message.result') }}</span>
+            <span>{{ isAgentExecutionTool ? '执行日志' : t('message.result') }}</span>
           </div>
           <div class="tool-call__section-toggle">
             <span>{{ isResultExpanded ? t('message.collapse') : t('message.expand') }}</span>
@@ -263,6 +297,15 @@ const toolSummary = computed(() => {
 
 .tool-call--compact {
   width: min(100%, var(--thinking-display-width, var(--timeline-entry-width, clamp(18rem, 40%, 34rem))));
+}
+
+.tool-call--agent-run {
+  width: min(100%, var(--timeline-entry-width, clamp(22rem, 48%, 40rem)));
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--workspace-panel-bg, var(--color-surface)) 92%, transparent), color-mix(in srgb, var(--color-bg-secondary) 78%, transparent));
+  border-color: color-mix(in srgb, var(--color-primary) 18%, var(--tool-call-border));
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.07);
 }
 
 .tool-call:hover {
@@ -335,6 +378,22 @@ const toolSummary = computed(() => {
   color: var(--tool-call-meta);
 }
 
+.tool-call--agent-run .tool-call__icon {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
+}
+
+.tool-call__agent-label {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-primary);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
 .tool-call__name {
   font-size: 12px;
   font-weight: 500;
@@ -343,6 +402,10 @@ const toolSummary = computed(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.tool-call--agent-run .tool-call__name {
+  font-weight: 650;
 }
 
 .tool-call__status {
@@ -414,6 +477,10 @@ const toolSummary = computed(() => {
   border-top: 1px solid var(--tool-call-content-border);
   padding: 8px 9px 9px;
   overflow: hidden;
+}
+
+.tool-call--agent-run .tool-call__content {
+  padding: 9px 10px 10px;
 }
 
 .tool-call--running .tool-call__content {
@@ -493,6 +560,11 @@ const toolSummary = computed(() => {
   word-break: break-word;
   overflow-x: auto;
   color: var(--color-text-primary);
+}
+
+.tool-call--agent-run .tool-call__code {
+  background: color-mix(in srgb, var(--color-bg-primary) 92%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-border) 66%, transparent);
 }
 
 .tool-call__code--terminal {

@@ -4,20 +4,14 @@ import { ref } from 'vue'
 export type SettingsTab =
   | 'general'
   | 'agents'
-  | 'agentTeams'
-  | 'agentConfig'
-  | 'integration'
+  | 'agentManagement'
   | 'appUpdate'
   | 'theme'
-  | 'data'
   | 'logs'
   | 'usageStats'
-  | 'providerSwitch'
-  | 'lsp'
-  | 'sessions'
   | 'unattended'
 
-// 工作区模式：chat/plan/solo/memory 为实际工作区域，settings 为接管整个主区域的「超级模式」
+// 工作区模式：chat/plan/solo/memory/settings 均为主区域内的模式面板（顶部浮动导航在所有模式下常驻）
 export type AppMode = 'chat' | 'plan' | 'solo' | 'memory' | 'settings'
 // 排除 settings 后的纯工作模式，用于记录进入设置前的模式以便退出恢复
 export type WorkspaceMode = Exclude<AppMode, 'settings'>

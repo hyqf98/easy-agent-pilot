@@ -1,10 +1,11 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { UnifiedPluginConfig } from '@/stores/skillConfig'
 import PluginConfigItem from '../items/PluginConfigItem.vue'
-import { EaButton, EaIcon } from '@/components/common'
+import { EaButton, EaIcon, EaStateBlock, EaActionMenu, type ActionMenuItem } from '@/components/common'
 
-defineProps<{
+const props = defineProps<{
   configs: UnifiedPluginConfig[]
   isReadOnly: boolean
   isLoading: boolean
@@ -22,6 +23,23 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+// 次要操作收入溢出菜单（刷新 / CLI 配置），主操作「添加」常驻
+const overflowItems = computed<ActionMenuItem[]>(() => {
+  const items: ActionMenuItem[] = []
+  if (props.canRefresh) {
+    items.push({ key: 'refresh', label: t('common.refresh'), icon: 'refresh-cw' })
+  }
+  if (props.canOpenFile) {
+    items.push({ key: 'open-file', label: t('settings.agentConfig.cliConfigCardTitle'), icon: 'external-link' })
+  }
+  return items
+})
+
+function handleOverflowSelect(key: string) {
+  if (key === 'refresh') emit('refresh')
+  else if (key === 'open-file') emit('open-file')
+}
 </script>
 
 <template>
@@ -30,61 +48,37 @@ const { t } = useI18n()
       <h3 class="plugins-config-tab__title">
         {{ t('settings.sdkConfig.plugins.title') }}
       </h3>
-      <div
-        class="plugins-config-tab__actions"
-      >
+      <div class="plugins-config-tab__actions">
         <EaButton
           v-if="!isReadOnly"
-          size="small"
+          size="medium"
           @click="emit('add')"
         >
-          <EaIcon name="lucide:plus" />
+          <EaIcon
+            name="plus"
+            :size="14"
+          />
           {{ t('settings.sdkConfig.plugins.add') }}
         </EaButton>
-        <template v-if="canRefresh || canOpenFile">
-          <EaButton
-            v-if="canRefresh"
-            size="small"
-            type="secondary"
-            @click="emit('refresh')"
-          >
-            <EaIcon name="lucide:refresh-cw" />
-            {{ t('common.refresh') }}
-          </EaButton>
-          <EaButton
-            v-if="canOpenFile"
-            size="small"
-            type="secondary"
-            @click="emit('open-file')"
-          >
-            <EaIcon name="lucide:external-link" />
-            {{ t('settings.agentConfig.cliConfigCardTitle') }}
-          </EaButton>
-        </template>
+        <EaActionMenu
+          v-if="overflowItems.length"
+          :items="overflowItems"
+          @select="handleOverflowSelect"
+        />
       </div>
     </div>
 
-    <div
+    <EaStateBlock
       v-if="isLoading"
-      class="plugins-config-tab__loading"
-    >
-      <EaIcon
-        name="lucide:loader-2"
-        class="plugins-config-tab__spinner"
-      />
-      {{ t('common.loading') }}
-    </div>
+      variant="loading"
+      :title="t('common.loading')"
+    />
 
-    <div
+    <EaStateBlock
       v-else-if="configs.length === 0"
-      class="plugins-config-tab__empty"
-    >
-      <EaIcon
-        name="lucide:puzzle"
-        class="plugins-config-tab__empty-icon"
-      />
-      <p>{{ t('settings.sdkConfig.plugins.noConfigs') }}</p>
-    </div>
+      icon="puzzle"
+      :description="t('settings.sdkConfig.plugins.noConfigs')"
+    />
 
     <div
       v-else
@@ -128,41 +122,6 @@ const { t } = useI18n()
 .plugins-config-tab__actions {
   display: flex;
   gap: var(--spacing-2);
-}
-
-.plugins-config-tab__loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--spacing-2);
-  padding: var(--spacing-8);
-  color: var(--color-text-tertiary);
-}
-
-.plugins-config-tab__spinner {
-  width: 16px;
-  height: 16px;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-.plugins-config-tab__empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--spacing-2);
-  padding: var(--spacing-8);
-  color: var(--color-text-tertiary);
-}
-
-.plugins-config-tab__empty-icon {
-  width: 32px;
-  height: 32px;
-  opacity: 0.5;
 }
 
 .plugins-config-tab__list {

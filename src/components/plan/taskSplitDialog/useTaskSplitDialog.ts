@@ -4,7 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { useOverlayDismiss } from '@/composables/useOverlayDismiss'
 import { DEFAULT_SPLIT_GRANULARITY } from '@/constants/plan'
 import { inferAgentProvider, useAgentStore } from '@/stores/agent'
-import { useAgentTeamsStore } from '@/stores/agentTeams'
+import { useSubAgentStore } from '@/stores/subAgent'
 import type { Message, MessageAttachment, MessageStatus, ToolCall } from '@/stores/message'
 import { useNotificationStore } from '@/stores/notification'
 import { usePlanStore } from '@/stores/plan'
@@ -43,7 +43,7 @@ import {
   normalizeTaskInstructionInput,
   parseTaskInstruction
 } from '@/utils/taskInstructionParser'
-import { resolveExpertById, resolveExpertRuntime } from '@/services/agentTeams/runtime'
+import { resolveSubAgentById, resolveSubAgentExecutionWithFallback } from '@/services/subAgent/runtime'
 
 type PendingPlanAttachment = MessageAttachment & { previewUrl: string }
 
@@ -584,7 +584,7 @@ export function useTaskSplitDialog() {
   const projectStore = useProjectStore()
   const themeStore = useThemeStore()
   const agentStore = useAgentStore()
-  const agentTeamsStore = useAgentTeamsStore()
+  const agentTeamsStore = useSubAgentStore()
   const notificationStore = useNotificationStore()
   const { t } = useI18n()
 
@@ -703,7 +703,7 @@ export function useTaskSplitDialog() {
   })
 
   const splitAgentLabel = computed(() => {
-    const expert = resolveExpertById(taskSplitStore.context?.expertId, agentTeamsStore.experts)
+    const expert = resolveSubAgentById(taskSplitStore.context?.expertId, agentTeamsStore.subAgents)
     if (expert?.name) {
       return expert.name
     }
@@ -813,6 +813,19 @@ export function useTaskSplitDialog() {
   })
 
   const uploadSessionId = computed(() => `plan-split:${activeSplitPlanId.value || 'dialog'}`)
+  const uploadProjectPath = computed(() => {
+    const planId = activeSplitPlanId.value
+    if (!planId) {
+      return null
+    }
+
+    const plan = planStore.plans.find(item => item.id === planId)
+    if (!plan) {
+      return null
+    }
+
+    return projectStore.projects.find(item => item.id === plan.projectId)?.path ?? null
+  })
   const isSplitHistoryLoading = computed(() =>
     taskSplitStore.isLoadingLogs
     && activePlanLogs.value.length === 0
@@ -943,15 +956,19 @@ export function useTaskSplitDialog() {
       messages.push({
         id: `message-${turn.userMessage.id}`,
         sessionId,
+        requestId: `split-${turn.userMessage.id}`,
         role: 'user',
+        messageType: 'text',
         content: matchedForm
           ? buildFormResponseContent(matchedForm.formId, matchedForm.values)
           : reconstructedForm
             ? buildFormResponseContent(reconstructedForm.formId, reconstructedForm.values)
-          : turn.userMessage.content,
+          : turn.userMessage.content ?? '',
         attachments: turn.userMessage.attachments,
         status: 'completed',
-        createdAt: turn.userMessage.timestamp
+        seq: messages.length,
+        createdAt: turn.userMessage.timestamp,
+        updatedAt: turn.userMessage.timestamp
       })
 
       const thinkingChunks: string[] = []
@@ -1088,17 +1105,18 @@ export function useTaskSplitDialog() {
       const assistantMessage: Message = {
         id: `assistant-${turn.assistantSummary?.id || turn.sessionId || turn.userMessage.id}`,
         sessionId,
+        requestId: `split-${turn.assistantSummary?.id || turn.userMessage.id}`,
         role: 'assistant',
+        messageType: 'text',
         content: finalContent,
         status: assistantStatus,
         errorMessage: assistantErrorMessage || undefined,
-        thinking: finalThinking || undefined,
-        toolCalls: finalizedToolCalls.length > 0 ? finalizedToolCalls : undefined,
-        runtimeNotices: assistantRuntimeNotices.length > 0 ? assistantRuntimeNotices : undefined,
         retryState: isRunningLatestTurn && taskSplitStore.activeRetryState?.current
           ? { ...taskSplitStore.activeRetryState }
           : undefined,
-        createdAt: assistantCreatedAt
+        seq: messages.length,
+        createdAt: assistantCreatedAt,
+        updatedAt: assistantCreatedAt
       }
 
       messages.push(assistantMessage)
@@ -1112,7 +1130,7 @@ export function useTaskSplitDialog() {
     if (
       activeFormSchema.value
       && activeFormId
-      && !messages.some(message => containsFormSchema(message.content, activeFormId))
+      && !messages.some(message => containsFormSchema(message.content ?? '', activeFormId))
     ) {
       const activeFormContent = buildFormRequestContent(activeFormQuestion.value || '需要补充信息', [activeFormSchema.value])
       const activeExecutionSessionId = trimContent(taskSplitStore.session?.executionSessionId)
@@ -1129,23 +1147,18 @@ export function useTaskSplitDialog() {
           }
         }
       } else {
-        const fallbackRuntimeNotices = buildAssistantRuntimeNotices(
-          activeExecutionSessionId
-            ? sortedLogs.filter(log => trimContent(log.sessionId) === activeExecutionSessionId)
-            : sortedLogs,
-          usageModelFallback,
-          runtimeProvider,
-          activeFormContent
-        )
-
+        // 新结构下 runtimeNotices 不再折叠进 message；fallback 表单内容直接作为消息体
         messages.push({
           id: `active-form-${activeFormId}`,
           sessionId,
+          requestId: `split-active-form-${activeFormId}`,
           role: 'assistant',
+          messageType: 'text',
           content: activeFormContent,
           status: 'completed',
-          runtimeNotices: fallbackRuntimeNotices.length > 0 ? fallbackRuntimeNotices : undefined,
-          createdAt: taskSplitStore.session?.updatedAt || new Date().toISOString()
+          seq: messages.length,
+          createdAt: taskSplitStore.session?.updatedAt || new Date().toISOString(),
+          updatedAt: taskSplitStore.session?.updatedAt || new Date().toISOString()
         })
       }
     }
@@ -1156,11 +1169,15 @@ export function useTaskSplitDialog() {
       messages.push({
         id: `session-error-${taskSplitStore.session.id}`,
         sessionId,
+        requestId: `split-error-${taskSplitStore.session.id}`,
         role: 'assistant',
+        messageType: 'error',
         content: splitErrorMessage.value,
         status: 'error',
         errorMessage: splitErrorMessage.value,
-        createdAt: taskSplitStore.session.updatedAt
+        seq: messages.length,
+        createdAt: taskSplitStore.session.updatedAt,
+        updatedAt: taskSplitStore.session.updatedAt
       })
     }
 
@@ -1168,10 +1185,14 @@ export function useTaskSplitDialog() {
       messages.push({
         id: `history-loading-${sessionId}`,
         sessionId,
+        requestId: `split-loading-${sessionId}`,
         role: 'assistant',
+        messageType: 'system',
         content: '正在加载历史拆分日志...',
         status: 'streaming',
-        createdAt: new Date().toISOString()
+        seq: messages.length,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       })
     } else if (isSessionRunning.value) {
       const lastMessage = messages[messages.length - 1]
@@ -1189,13 +1210,17 @@ export function useTaskSplitDialog() {
         messages.push({
           id: `streaming-${taskSplitStore.session?.id || latestUserMessage?.id || sessionId}`,
           sessionId,
+          requestId: `split-streaming-${taskSplitStore.session?.id || latestUserMessage?.id || sessionId}`,
           role: 'assistant',
+          messageType: 'text',
           content: runningStatusText.value || '',
           status: 'streaming',
           retryState: taskSplitStore.activeRetryState?.current
             ? { ...taskSplitStore.activeRetryState }
             : undefined,
-          createdAt: taskSplitStore.session?.updatedAt || latestUserMessage?.createdAt || new Date().toISOString()
+          seq: messages.length,
+          createdAt: taskSplitStore.session?.updatedAt || latestUserMessage?.createdAt || new Date().toISOString(),
+          updatedAt: taskSplitStore.session?.updatedAt || latestUserMessage?.createdAt || new Date().toISOString()
         })
       }
     }
@@ -1256,8 +1281,8 @@ export function useTaskSplitDialog() {
     queuedPlanId.value = null
 
     try {
-      if (agentTeamsStore.experts.length === 0) {
-        void agentTeamsStore.loadExperts().catch(error => {
+      if (agentTeamsStore.subAgents.length === 0) {
+        void agentTeamsStore.loadSubAgents().catch(error => {
           logger.warn('[TaskSplitDialog] Failed to preload experts:', error)
         })
       }
@@ -1350,6 +1375,7 @@ export function useTaskSplitDialog() {
 
       const result = await invoke<UploadAttachmentsResponse>('upload_session_images', {
         sessionId,
+        projectPath: uploadProjectPath.value,
         files: payload
       })
 
@@ -1457,17 +1483,17 @@ export function useTaskSplitDialog() {
     try {
       await Promise.all([
         agentStore.loadAgents(),
-        agentTeamsStore.loadExperts()
+        agentTeamsStore.loadSubAgents()
       ])
 
-      const fallbackExpert = agentTeamsStore.builtinDeveloperExpert
-        || agentTeamsStore.enabledExperts.find(expert => expert.category === 'developer')
-        || agentTeamsStore.enabledExperts[0]
+      const fallbackExpert = agentTeamsStore.builtinDeveloperSubAgent
+        || agentTeamsStore.enabledSubAgents.find(expert => expert.category === 'developer')
+        || agentTeamsStore.enabledSubAgents[0]
         || null
 
       const taskInputs = taskSplitStore.splitResult.map((task, index) => {
-        const selectedExpert = resolveExpertById(task.expertId, agentTeamsStore.experts) || fallbackExpert
-        const runtime = resolveExpertRuntime(selectedExpert, agentStore.agents, task.modelId)
+        const selectedExpert = resolveSubAgentById(task.expertId, agentTeamsStore.subAgents) || fallbackExpert
+        const runtime = resolveSubAgentExecutionWithFallback(selectedExpert, agentStore.agents, task.modelId)
 
         return {
           planId,

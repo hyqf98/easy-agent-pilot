@@ -12,6 +12,55 @@ import {
 import { formatContextWindowCount } from '@/utils/contextWindow'
 import { resolveSessionAgent } from '@/utils/sessionAgent'
 import { getUsageNoticeSummary, type RuntimeNotice } from '@/utils/runtimeNotice'
+import type { Message } from './message'
+
+/**
+ * 新消息结构下，usage 数据存在 messageType === 'usage' 的独立行上，
+ * 直接读取 token 列；这里封装为与旧 runtimeNotice 等价的形状，方便复用既有解析逻辑。
+ */
+function findLatestUsageMessage(messages: Message[]): Message | undefined {
+  return [...messages]
+    .reverse()
+    .find(message => message.role === 'assistant' && message.messageType === 'usage')
+}
+
+function usageMessageToRuntimeNotice(message: Message): RuntimeNotice {
+  const lines: string[] = []
+  if (message.inputTokens !== undefined) {
+    lines.push(`input: ${message.inputTokens}`)
+  }
+  if (message.outputTokens !== undefined) {
+    lines.push(`output: ${message.outputTokens}`)
+  }
+  if (message.cacheReadTokens !== undefined) {
+    lines.push(`cache_read: ${message.cacheReadTokens}`)
+  }
+  if (message.cacheCreationTokens !== undefined) {
+    lines.push(`cache_creation: ${message.cacheCreationTokens}`)
+  }
+  return {
+    id: 'usage',
+    content: lines.join('\n'),
+    model: message.model
+  } as unknown as RuntimeNotice
+}
+
+function extractPersistedUsageFromMessage(
+  message: Message | undefined
+): {
+  counts: ReturnType<typeof extractPersistedUsageCounts>
+  summary: ReturnType<typeof getUsageNoticeSummary>
+} {
+  if (!message) {
+    return { counts: {}, summary: null }
+  }
+
+  const notice = usageMessageToRuntimeNotice(message)
+  return {
+    counts: extractPersistedUsageCounts(notice),
+    summary: getUsageNoticeSummary(notice)
+  }
+}
 
 export type TokenLevel = 'safe' | 'warning' | 'danger' | 'critical'
 
@@ -178,11 +227,7 @@ export const useTokenStore = defineStore('token', () => {
       return null
     }
 
-    const latestUsageNotice = [...messageStore.messagesBySession(sessionId)]
-      .reverse()
-      .find(message => message.role === 'assistant' && message.runtimeNotices?.some(notice => notice.id === 'usage'))
-      ?.runtimeNotices
-      ?.find(notice => notice.id === 'usage')
+    const latestUsageMessage = findLatestUsageMessage(messageStore.messagesBySession(sessionId))
 
     if (session) {
       try {
@@ -200,16 +245,15 @@ export const useTokenStore = defineStore('token', () => {
       }
     }
 
-    if (!latestUsageNotice) {
+    if (!latestUsageMessage) {
       return null
     }
 
-    const summary = getUsageNoticeSummary(latestUsageNotice)
+    const { counts: rawCounts, summary } = extractPersistedUsageFromMessage(latestUsageMessage)
     if (!summary) {
       return null
     }
 
-    const rawCounts = extractPersistedUsageCounts(latestUsageNotice)
     const inputTokens = rawCounts.inputTokens ?? parsePersistedTokenCount(summary.input)
     const outputTokens = rawCounts.outputTokens ?? parsePersistedTokenCount(summary.output)
     const contextWindowOccupancy = rawCounts.contextWindowOccupancy
@@ -254,17 +298,9 @@ export const useTokenStore = defineStore('token', () => {
       })
     }
     const sessionMessages = messageStore.messagesBySession(sessionId)
-    const latestUsageNotice = [...sessionMessages]
-      .reverse()
-      .find(message => message.role === 'assistant' && message.runtimeNotices?.some(notice => notice.id === 'usage'))
-      ?.runtimeNotices
-      ?.find(notice => notice.id === 'usage')
-    const persistedUsageCounts = latestUsageNotice
-      ? extractPersistedUsageCounts(latestUsageNotice)
-      : {}
-    const persistedUsageSummary = latestUsageNotice
-      ? getUsageNoticeSummary(latestUsageNotice)
-      : null
+    const latestUsageMessage = findLatestUsageMessage(sessionMessages)
+    const { counts: persistedUsageCounts, summary: persistedUsageSummary } =
+      extractPersistedUsageFromMessage(latestUsageMessage)
     const persistedOccupancy = persistedUsageCounts.contextWindowOccupancy
       ?? (
         persistedUsageCounts.inputTokens !== undefined || persistedUsageCounts.outputTokens !== undefined
@@ -292,7 +328,7 @@ export const useTokenStore = defineStore('token', () => {
     }
 
     const hasCompressionPlaceholderOnly = sessionMessages.length > 0
-      && sessionMessages.every(message => Boolean(message.compressionMetadata))
+      && sessionMessages.every(message => message.messageType === 'compression')
       && !session.cliSessionId?.trim()
 
     if (hasCompressionPlaceholderOnly) {

@@ -115,6 +115,8 @@ export interface StreamEvent {
   model?: string
   fileEdit?: FileEditTrace
   externalSessionId?: string
+  /** ACP 权限询问时携带的可选项（仅 permission_request 事件使用） */
+  permissionOptions?: PermissionOption[]
 }
 
 /**
@@ -207,8 +209,17 @@ export interface BackendStreamEvent {
   model?: string
   fileEdit?: FileEditTrace
   externalSessionId?: string
+  /** ACP 权限询问时携带的可选项（仅 permission_request 事件使用） */
+  permissionOptions?: PermissionOption[]
 }
 
 export type CliStreamEvent = BackendStreamEvent
 export type SdkStreamEvent = BackendStreamEvent
 export type AcpStreamEvent = BackendStreamEvent
+
+/** ACP 权限选项（对应后端 PermissionOptionView） */
+export interface PermissionOption {
+  optionId: string
+  name: string
+  kind: string
+}

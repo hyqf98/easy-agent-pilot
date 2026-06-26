@@ -1,10 +1,11 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { UnifiedMcpConfig } from '@/stores/skillConfig'
 import McpConfigItem from '../items/McpConfigItem.vue'
-import { EaButton, EaIcon, EaStateBlock } from '@/components/common'
+import { EaButton, EaIcon, EaStateBlock, EaActionMenu, type ActionMenuItem } from '@/components/common'
 
-defineProps<{
+const props = defineProps<{
   configs: UnifiedMcpConfig[]
   isReadOnly: boolean
   isLoading: boolean
@@ -24,6 +25,27 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+// 次要操作收入溢出菜单（同步 / 刷新 / CLI 配置），主操作「添加」常驻
+const overflowItems = computed<ActionMenuItem[]>(() => {
+  const items: ActionMenuItem[] = []
+  if (props.canSync) {
+    items.push({ key: 'sync', label: t('settings.integration.sync.button'), icon: 'arrow-right-left' })
+  }
+  if (props.canRefresh) {
+    items.push({ key: 'refresh', label: t('common.refresh'), icon: 'refresh-cw' })
+  }
+  if (props.canOpenFile) {
+    items.push({ key: 'open-file', label: t('settings.agentConfig.cliConfigCardTitle'), icon: 'external-link' })
+  }
+  return items
+})
+
+function handleOverflowSelect(key: string) {
+  if (key === 'sync') emit('sync')
+  else if (key === 'refresh') emit('refresh')
+  else if (key === 'open-file') emit('open-file')
+}
 </script>
 
 <template>
@@ -34,41 +56,20 @@ const { t } = useI18n()
       </h3>
       <div class="mcp-config-list__actions">
         <EaButton
-          v-if="canSync"
-          size="small"
-          type="secondary"
-          @click="emit('sync')"
-        >
-          <EaIcon name="lucide:arrow-right-left" />
-          {{ t('settings.integration.sync.button') }}
-        </EaButton>
-        <EaButton
-          size="small"
+          size="medium"
           @click="emit('add')"
         >
-          <EaIcon name="lucide:plus" />
+          <EaIcon
+            name="plus"
+            :size="14"
+          />
           {{ t('settings.sdkConfig.mcp.add') }}
         </EaButton>
-        <template v-if="canRefresh || canOpenFile">
-          <EaButton
-            v-if="canRefresh"
-            size="small"
-            type="secondary"
-            @click="emit('refresh')"
-          >
-            <EaIcon name="lucide:refresh-cw" />
-            {{ t('common.refresh') }}
-          </EaButton>
-          <EaButton
-            v-if="canOpenFile"
-            size="small"
-            type="secondary"
-            @click="emit('open-file')"
-          >
-            <EaIcon name="lucide:external-link" />
-            {{ t('settings.agentConfig.cliConfigCardTitle') }}
-          </EaButton>
-        </template>
+        <EaActionMenu
+          v-if="overflowItems.length"
+          :items="overflowItems"
+          @select="handleOverflowSelect"
+        />
       </div>
     </div>
 
@@ -125,8 +126,9 @@ const { t } = useI18n()
 
 .mcp-config-list__actions {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   gap: var(--spacing-2);
+  flex-shrink: 0;
 }
 
 .mcp-config-list__items {

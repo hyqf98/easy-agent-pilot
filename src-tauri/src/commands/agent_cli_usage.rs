@@ -82,6 +82,8 @@ pub struct AgentCliUsageSummary {
     pub total_tokens: i64,
     pub cache_read_tokens: i64,
     pub cache_creation_tokens: i64,
+    pub estimated_input_cost_usd: f64,
+    pub estimated_output_cost_usd: f64,
     pub estimated_total_cost_usd: f64,
     pub unpriced_calls: i64,
 }
@@ -98,6 +100,8 @@ pub struct AgentCliUsageTimelinePoint {
     pub total_tokens: i64,
     pub cache_read_tokens: i64,
     pub cache_creation_tokens: i64,
+    pub estimated_input_cost_usd: f64,
+    pub estimated_output_cost_usd: f64,
     pub estimated_total_cost_usd: f64,
 }
 
@@ -321,11 +325,16 @@ fn resolve_model_pricing(provider: &str, model_id: Option<&str>) -> Option<Model
     None
 }
 
+/// 估算单次调用的费用。
+///
+/// `user_pricing` 为用户在模型管理里自定义的价格（优先使用）；
+/// 为 `None` 时回退到内置价目表 `resolve_model_pricing`。
 fn estimate_pricing(
     provider: &str,
     model_id: Option<&str>,
     input_tokens: i64,
     output_tokens: i64,
+    user_pricing: Option<ModelPricing>,
 ) -> PricingEstimate {
     if input_tokens == 0 && output_tokens == 0 {
         return PricingEstimate {
@@ -336,7 +345,8 @@ fn estimate_pricing(
         };
     }
 
-    let Some(pricing) = resolve_model_pricing(provider, model_id) else {
+    let pricing = user_pricing.or_else(|| resolve_model_pricing(provider, model_id));
+    let Some(pricing) = pricing else {
         return PricingEstimate {
             estimated_input_cost_usd: None,
             estimated_output_cost_usd: None,
@@ -354,6 +364,37 @@ fn estimate_pricing(
         estimated_total_cost_usd: Some(input_cost + output_cost),
         pricing_status: "estimated".to_string(),
     }
+}
+
+/// 查询用户在模型管理中为指定 model_id 配置的价格。
+///
+/// 命中且输入/输出单价均存在时返回；否则返回 `None`（由内置价目表兜底）。
+/// 匹配忽略大小写，任意 agent 下配置的同名模型均可命中。
+fn fetch_user_model_pricing(
+    conn: &rusqlite::Connection,
+    model_id: Option<&str>,
+) -> Option<ModelPricing> {
+    let model_id = normalize_model_id(model_id)?;
+    conn.query_row(
+        "SELECT input_cost_per_million_usd, output_cost_per_million_usd
+         FROM agent_models
+         WHERE LOWER(model_id) = LOWER(?1)
+         LIMIT 1",
+        [&model_id],
+        |row| {
+            let input: Option<f64> = row.get(0)?;
+            let output: Option<f64> = row.get(1)?;
+            Ok((input, output))
+        },
+    )
+    .ok()
+    .and_then(|(input, output)| match (input, output) {
+        (Some(input), Some(output)) => Some(ModelPricing {
+            input_per_million_usd: input,
+            output_per_million_usd: output,
+        }),
+        _ => None,
+    })
 }
 
 fn reference_exists(conn: &rusqlite::Connection, table: &str, id: &str) -> Result<bool, String> {
@@ -543,6 +584,7 @@ fn repair_claude_usage_history(
             Some(target_model_id.as_str()),
             input_tokens,
             output_tokens,
+            None,
         );
 
         updated_count += conn
@@ -621,7 +663,14 @@ pub fn record_agent_cli_usage(
     let task_id = normalize_reference_id(&conn, "tasks", task_id)?;
     let message_id = normalize_reference_id(&conn, "messages", message_id)?;
     let agent_name_snapshot = normalize_optional_text(agent_name_snapshot);
-    let pricing = estimate_pricing(&provider, model_id.as_deref(), input_tokens, output_tokens);
+    let user_pricing = fetch_user_model_pricing(&conn, model_id.as_deref());
+    let pricing = estimate_pricing(
+        &provider,
+        model_id.as_deref(),
+        input_tokens,
+        output_tokens,
+        user_pricing,
+    );
 
     conn.execute(
         r#"
@@ -756,6 +805,8 @@ pub fn query_agent_cli_usage_stats(
             COALESCE(SUM(total_tokens), 0),
             COALESCE(SUM(cache_read_input_tokens), 0),
             COALESCE(SUM(cache_creation_input_tokens), 0),
+            COALESCE(SUM(estimated_input_cost_usd), 0),
+            COALESCE(SUM(estimated_output_cost_usd), 0),
             COALESCE(SUM(estimated_total_cost_usd), 0),
             COALESCE(SUM(CASE WHEN pricing_status != 'estimated' THEN call_count ELSE 0 END), 0)
         FROM agent_cli_usage_records
@@ -773,8 +824,10 @@ pub fn query_agent_cli_usage_stats(
                 total_tokens: row.get(3)?,
                 cache_read_tokens: row.get(4)?,
                 cache_creation_tokens: row.get(5)?,
-                estimated_total_cost_usd: row.get(6)?,
-                unpriced_calls: row.get(7)?,
+                estimated_input_cost_usd: row.get(6)?,
+                estimated_output_cost_usd: row.get(7)?,
+                estimated_total_cost_usd: row.get(8)?,
+                unpriced_calls: row.get(9)?,
             })
         })
         .map_err(|error| error.to_string())?;
@@ -789,6 +842,8 @@ pub fn query_agent_cli_usage_stats(
             COALESCE(SUM(total_tokens), 0),
             COALESCE(SUM(cache_read_input_tokens), 0),
             COALESCE(SUM(cache_creation_input_tokens), 0),
+            COALESCE(SUM(estimated_input_cost_usd), 0),
+            COALESCE(SUM(estimated_output_cost_usd), 0),
             COALESCE(SUM(estimated_total_cost_usd), 0)
         FROM agent_cli_usage_records
         WHERE {where_clause}
@@ -812,7 +867,9 @@ pub fn query_agent_cli_usage_stats(
                 total_tokens: row.get(4)?,
                 cache_read_tokens: row.get(5)?,
                 cache_creation_tokens: row.get(6)?,
-                estimated_total_cost_usd: row.get(7)?,
+                estimated_input_cost_usd: row.get(7)?,
+                estimated_output_cost_usd: row.get(8)?,
+                estimated_total_cost_usd: row.get(9)?,
             })
         })
         .map_err(|error| error.to_string())?
@@ -973,7 +1030,7 @@ mod tests {
 
     #[test]
     fn marks_unknown_models_as_unmapped() {
-        let pricing = estimate_pricing("claude", Some("claude-unknown"), 1000, 1000);
+        let pricing = estimate_pricing("claude", Some("claude-unknown"), 1000, 1000, None);
         assert_eq!(pricing.pricing_status, "unmapped");
         assert!(pricing.estimated_total_cost_usd.is_none());
     }

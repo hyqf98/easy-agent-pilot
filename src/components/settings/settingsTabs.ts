@@ -2,14 +2,9 @@ import { markRaw, type Component } from 'vue'
 import type { SettingsTab } from '@/stores/ui'
 import GeneralSettings from './tabs/GeneralSettings.vue'
 import AgentSettings from './tabs/AgentSettings.vue'
-import AgentTeamsSettings from './tabs/AgentTeamsSettings.vue'
-import SkillConfigPage from '@/components/skill-config/SkillConfigPage.vue'
-import ProviderSwitch from './tabs/ProviderSwitch.vue'
+import AgentManagementSettings from './agent-management/AgentManagementSettings.vue'
 import ThemeSettings from './tabs/ThemeSettings.vue'
-import DataSettings from './tabs/DataSettings.vue'
 import LogSettings from './tabs/LogSettings.vue'
-import LspSettings from './tabs/LspSettings.vue'
-import SessionManagementSettings from './tabs/SessionManagementSettings.vue'
 import AppUpdateSettings from './tabs/AppUpdateSettings.vue'
 import UnattendedSettings from './tabs/UnattendedSettings.vue'
 import AgentCliUsageSettings from './tabs/agentCliUsageSettings/AgentCliUsageSettings.vue'
@@ -50,15 +45,6 @@ export const SETTINGS_TAB_DESCRIPTORS: SettingsTabDescriptor[] = [
     group: 'workspace'
   },
   {
-    id: 'providerSwitch',
-    labelKey: 'settings.nav.providerSwitch',
-    descriptionKey: 'settings.desc.providerSwitch',
-    icon: 'repeat',
-    component: markRaw(ProviderSwitch),
-    layout: 'wide',
-    group: 'workspace'
-  },
-  {
     id: 'theme',
     labelKey: 'settings.nav.theme',
     descriptionKey: 'settings.desc.theme',
@@ -68,38 +54,20 @@ export const SETTINGS_TAB_DESCRIPTORS: SettingsTabDescriptor[] = [
     group: 'workspace'
   },
   {
-    id: 'sessions',
-    labelKey: 'settings.nav.sessions',
-    descriptionKey: 'settings.desc.sessions',
-    icon: 'history',
-    component: markRaw(SessionManagementSettings),
-    layout: 'wide',
-    group: 'workspace'
-  },
-  {
     id: 'agents',
     labelKey: 'settings.nav.agents',
     descriptionKey: 'settings.desc.agents',
     icon: 'bot',
     component: markRaw(AgentSettings),
-    layout: 'wide',
-    group: 'agents'
-  },
-  {
-    id: 'agentTeams',
-    labelKey: 'settings.nav.agentTeams',
-    descriptionKey: 'settings.desc.agentTeams',
-    icon: 'users',
-    component: markRaw(AgentTeamsSettings),
     layout: 'full',
     group: 'agents'
   },
   {
-    id: 'agentConfig',
-    labelKey: 'settings.nav.agentConfig',
-    descriptionKey: 'settings.desc.agentConfig',
-    icon: 'settings-2',
-    component: markRaw(SkillConfigPage),
+    id: 'agentManagement',
+    labelKey: 'settings.nav.agentManagement',
+    descriptionKey: 'settings.desc.agentManagement',
+    icon: 'sliders-horizontal',
+    component: markRaw(AgentManagementSettings),
     layout: 'full',
     group: 'agents'
   },
@@ -111,24 +79,6 @@ export const SETTINGS_TAB_DESCRIPTORS: SettingsTabDescriptor[] = [
     component: markRaw(UnattendedSettings),
     layout: 'full',
     group: 'agents'
-  },
-  {
-    id: 'lsp',
-    labelKey: 'settings.nav.lsp',
-    descriptionKey: 'settings.desc.lsp',
-    icon: 'languages',
-    component: markRaw(LspSettings),
-    layout: 'wide',
-    group: 'system'
-  },
-  {
-    id: 'data',
-    labelKey: 'settings.nav.data',
-    descriptionKey: 'settings.desc.data',
-    icon: 'database',
-    component: markRaw(DataSettings),
-    layout: 'wide',
-    group: 'system'
   },
   {
     id: 'logs',

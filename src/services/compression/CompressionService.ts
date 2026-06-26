@@ -1,4 +1,4 @@
-import { useMessageStore, type Message, type ToolCallSummary, type CompressionMetadata } from '@/stores/message'
+import { useMessageStore, type Message, type ToolCallSummary } from '@/stores/message'
 import { useSessionStore, type Session } from '@/stores/session'
 import { useSessionExecutionStore } from '@/stores/sessionExecution'
 import { useAgentStore } from '@/stores/agent'
@@ -20,7 +20,6 @@ import type { ConversationContext } from '@/services/conversation/strategies/typ
 import i18n from '@/i18n'
 import { extractExecutionResult } from '@/utils/structuredContent'
 import { resolveSessionAgent } from '@/utils/sessionAgent'
-import type { FileEditTrace } from '@/types/fileTrace'
 
 interface CompressionFileGroups {
   generatedFiles: string[]
@@ -198,16 +197,8 @@ export class CompressionService {
         summaryContent = this.generateSimpleSummary(sourceMessages, toolCallsSummary, fileGroups)
       }
 
-      const compressionMetadata: CompressionMetadata = {
-        compressedAt: new Date().toISOString(),
-        originalMessageCount: messageCount,
-        originalTokenCount,
-        strategy: options.strategy,
-        summaryContent,
-        toolCallsSummary: toolCallsSummary.length > 0 ? toolCallsSummary : undefined,
-        panelExpanded: triggerSource === 'auto',
-        triggerSource
-      }
+      // 新结构下压缩元数据不再折叠进 message.compressionMetadata，
+      // 原始消息数/token/策略等后续按需独立存储。
 
       await messageStore.clearSessionMessages(sessionId)
       await this.clearRuntimeBindings(sourceSession)
@@ -322,24 +313,25 @@ export class CompressionService {
   }
 
   /**
-   * 提取工具调用摘要
+   * 提取工具调用摘要。
+   * 新结构下 tool_use / tool_result 是独立消息行，按 toolName 聚合。
    */
   private extractToolCallsSummary(messages: Message[]): ToolCallSummary[] {
     const toolCallMap = new Map<string, { count: number; successCount: number; errorCount: number }>()
 
     for (const message of messages) {
-      if (message.toolCalls) {
-        for (const toolCall of message.toolCalls) {
-          const existing = toolCallMap.get(toolCall.name) || { count: 0, successCount: 0, errorCount: 0 }
-          existing.count++
-          if (toolCall.status === 'success') {
-            existing.successCount++
-          } else if (toolCall.status === 'error') {
-            existing.errorCount++
-          }
-          toolCallMap.set(toolCall.name, existing)
-        }
+      if (message.messageType !== 'tool_use' || !message.toolName) {
+        continue
       }
+
+      const existing = toolCallMap.get(message.toolName) || { count: 0, successCount: 0, errorCount: 0 }
+      existing.count++
+      if (message.status === 'error') {
+        existing.errorCount++
+      } else if (message.status === 'completed') {
+        existing.successCount++
+      }
+      toolCallMap.set(message.toolName, existing)
     }
 
     return Array.from(toolCallMap.entries()).map(([name, data]) => ({
@@ -463,6 +455,7 @@ export class CompressionService {
   ): Promise<void> {
     const context: ConversationContext = {
       sessionId,
+      requestId: `compression-${sessionId}-${Date.now()}`,
       agent,
       messages,
       workingDirectory,
@@ -555,7 +548,7 @@ export class CompressionService {
 
     const meaningfulMessages = messageStore
       .messagesBySession(sessionId)
-      .filter(message => !message.compressionMetadata)
+      .filter(message => message.messageType !== 'compression')
     const usage = tokenStore.getTokenUsage(sessionId)
 
     return shouldAutoCompressByThreshold({
@@ -582,7 +575,7 @@ export class CompressionService {
   private resolvePendingWork(messages: Message[]): string {
     const lastMeaningfulMessage = [...messages]
       .reverse()
-      .find(message => (message.role === 'user' || message.role === 'assistant') && message.content.trim())
+      .find(message => (message.role === 'user' || message.role === 'assistant') && (message.content ?? '').trim())
 
     if (!lastMeaningfulMessage) {
       return ''
@@ -604,12 +597,10 @@ export class CompressionService {
     }
 
     for (const message of messages) {
-      for (const trace of message.editTraces ?? []) {
-        this.appendTraceFile(fileGroups, trace)
-      }
+      // 新结构下 editTraces 不再折叠进 message，文件变更后续按需重建
 
       if (message.role === 'assistant') {
-        const executionResult = extractExecutionResult(message.content)
+        const executionResult = extractExecutionResult(message.content ?? '')
         if (executionResult) {
           fileGroups.generatedFiles.push(...executionResult.generatedFiles)
           fileGroups.modifiedFiles.push(...executionResult.modifiedFiles)
@@ -618,11 +609,11 @@ export class CompressionService {
         }
       }
 
-      for (const toolCall of message.toolCalls ?? []) {
+      // 工具调用参数/结果中的路径引用
+      if (message.messageType === 'tool_use' || message.messageType === 'tool_result') {
         fileGroups.changedFiles.push(
-          ...this.extractPathReferencesFromUnknown(toolCall.arguments),
-          ...this.extractPathReferencesFromText(toolCall.result),
-          ...this.extractPathReferencesFromText(toolCall.errorMessage)
+          ...this.extractPathReferencesFromUnknown(this.safeParseToolInput(message.toolInput)),
+          ...this.extractPathReferencesFromText(message.toolResult ?? '')
         )
       }
     }
@@ -642,23 +633,15 @@ export class CompressionService {
     }
   }
 
-  private appendTraceFile(fileGroups: CompressionFileGroups, trace: FileEditTrace): void {
-    const file = trace.relativePath?.trim() || trace.filePath?.trim()
-    if (!file) {
-      return
+  private safeParseToolInput(toolInput?: string | null): unknown {
+    if (!toolInput) {
+      return null
     }
-
-    if (trace.changeType === 'create') {
-      fileGroups.generatedFiles.push(file)
-      return
+    try {
+      return JSON.parse(toolInput)
+    } catch {
+      return toolInput
     }
-
-    if (trace.changeType === 'delete') {
-      fileGroups.deletedFiles.push(file)
-      return
-    }
-
-    fileGroups.modifiedFiles.push(file)
   }
 
   private buildFileSummaryLines(fileGroups: CompressionFileGroups): string[] {
@@ -668,6 +651,12 @@ export class CompressionService {
       this.formatFileGroupLine(this.t('message.structured.changedFiles'), fileGroups.changedFiles),
       this.formatFileGroupLine(this.t('message.structured.deletedFiles'), fileGroups.deletedFiles)
     ].filter(Boolean) as string[]
+  }
+
+  private extractPathReferencesFromUnknown(value: unknown): string[] {
+    const results: string[] = []
+    this.walkPathReferences(value, results)
+    return this.uniqueStrings(results)
   }
 
   private buildPromptFileLines(fileGroups: CompressionFileGroups): string[] {
@@ -684,12 +673,6 @@ export class CompressionService {
     const suffix = files.length > visibleFiles.length ? ` 等 ${files.length} 个` : ''
     const content = visibleFiles.length > 0 ? `${visibleFiles.join(', ')}${suffix}` : this.t('compression.none')
     return `- ${label}: ${content}`
-  }
-
-  private extractPathReferencesFromUnknown(value: unknown): string[] {
-    const results: string[] = []
-    this.walkPathReferences(value, results)
-    return this.uniqueStrings(results)
   }
 
   private walkPathReferences(value: unknown, results: string[]): void {

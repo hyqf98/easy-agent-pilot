@@ -165,8 +165,9 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: var(--color-bg-overlay);
-  backdrop-filter: blur(4px);
+  background: rgba(15, 23, 42, 0.38);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .confirm-dialog {
@@ -174,22 +175,11 @@ onUnmounted(() => {
   flex-direction: column;
   width: 90%;
   max-width: 420px;
-  background-color: var(--color-surface);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-2xl);
+  background: color-mix(in srgb, var(--workspace-panel-bg, var(--color-surface)) 96%, transparent);
+  border: 1px solid var(--workspace-border, var(--color-border));
+  border-radius: 16px;
+  box-shadow: var(--workspace-card-shadow, 0 18px 40px rgba(24, 24, 22, 0.12));
   overflow: hidden;
-}
-
-.confirm-dialog--warning {
-  border-top: 4px solid var(--color-warning);
-}
-
-.confirm-dialog--danger {
-  border-top: 4px solid var(--color-error);
-}
-
-.confirm-dialog--info {
-  border-top: 4px solid var(--color-info);
 }
 
 .confirm-dialog__header {
@@ -226,7 +216,7 @@ onUnmounted(() => {
   margin: 0;
   font-size: var(--font-size-lg);
   font-weight: var(--font-weight-semibold);
-  color: var(--color-text-primary);
+  color: var(--workspace-text-primary, var(--color-text-primary));
   line-height: var(--line-height-tight);
 }
 
@@ -237,7 +227,7 @@ onUnmounted(() => {
 .confirm-dialog__message {
   margin: 0;
   font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
   line-height: var(--line-height-normal);
   white-space: pre-line;
 }
@@ -247,7 +237,7 @@ onUnmounted(() => {
   justify-content: flex-end;
   gap: var(--spacing-3);
   padding: var(--spacing-4) var(--spacing-5) var(--spacing-5);
-  border-top: 1px solid var(--color-border-light);
+  border-top: 1px solid var(--workspace-border, var(--color-border-light));
 }
 
 /* Animations */

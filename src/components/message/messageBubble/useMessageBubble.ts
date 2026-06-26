@@ -49,6 +49,8 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
   const isUser = computed(() => props.message.role === 'user')
   const isAssistant = computed(() => props.message.role === 'assistant')
   const isCompression = computed(() => props.message.messageType === 'compression')
+  // 系统状态消息（如 "Connecting to agent via ACP…"）：轻量状态条，不走完整气泡
+  const isSystemStatus = computed(() => props.message.messageType === 'system' && props.message.role === 'assistant')
   const isStreaming = computed(() => props.message.status === 'streaming')
   const resolvedSessionMessages = computed(() => {
     if (props.sessionMessages) {
@@ -442,6 +444,10 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
   )
 
   // ── 用量独立行渲染（usage / context_window） ───────────────────────────
+  // 这两类消息仅供 token 进度环使用，不作为独立消息气泡渲染。
+  const isTokenOnlyMessage = computed(() =>
+    props.message.messageType === 'usage' || props.message.messageType === 'context_window'
+  )
   const isUsage = computed(() => props.message.messageType === 'usage')
   const isContextWindow = computed(() => props.message.messageType === 'context_window')
 
@@ -609,6 +615,8 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
     isUser,
     isAssistant,
     isCompression,
+    isSystemStatus,
+    isTokenOnlyMessage,
     isStreaming,
     isCurrentStreamingMessage,
     isError,

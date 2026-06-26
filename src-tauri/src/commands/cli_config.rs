@@ -873,16 +873,6 @@ fn write_cli_config_internal(
     Ok(())
 }
 
-/// 写入 CLI 配置文件 (Tauri 命令)
-#[tauri::command]
-pub fn write_cli_config(
-    cli_path: String,
-    cli_type: Option<String>,
-    config: ClaudeCliConfig,
-) -> Result<(), String> {
-    write_cli_config_internal(&cli_path, cli_type.as_deref(), config)
-}
-
 /// 更新 CLI 配置中的 MCP 服务器 (Tauri 命令)
 #[tauri::command]
 pub fn update_cli_mcp_config(

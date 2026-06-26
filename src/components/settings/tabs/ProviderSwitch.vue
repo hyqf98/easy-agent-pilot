@@ -10,21 +10,21 @@ import {
 } from '@/stores/providerProfile'
 import ProviderConnectionInfoCard from '@/components/settings/provider-switch/ProviderConnectionInfoCard.vue'
 import ProviderConfigEditorModal from '@/components/settings/provider-switch/ProviderConfigEditorModal.vue'
-import ProviderDeleteDialog from '@/components/settings/provider-switch/ProviderDeleteDialog.vue'
 import ProviderProfilesSection from '@/components/settings/provider-switch/ProviderProfilesSection.vue'
 import ProviderSwitchTabs from '@/components/settings/provider-switch/ProviderSwitchTabs.vue'
 import { useNotificationStore } from '@/stores/notification'
+import { useConfirmDialog } from '@/composables/useConfirmDialog'
 import { useDefaultCliConfigEditor } from '@/composables/useDefaultCliConfigEditor'
 import ProviderProfileForm from './ProviderProfileForm.vue'
 
 const { t } = useI18n()
 const store = useProviderProfileStore()
 const notificationStore = useNotificationStore()
+const confirmDialog = useConfirmDialog()
 
 const currentCliType = ref<CliType>('claude')
 const showFormModal = ref(false)
 const editingProfile = ref<ProviderProfile | null>(null)
-const showDeleteConfirm = ref(false)
 const deletingProfile = ref<ProviderProfile | null>(null)
 const switchingId = ref<string | null>(null)
 const showApiKey = ref(false)
@@ -107,24 +107,25 @@ async function handleSwitch(profile: ProviderProfile) {
   }
 }
 
-function handleDeleteConfirm(profile: ProviderProfile) {
+async function handleDeleteConfirm(profile: ProviderProfile) {
   deletingProfile.value = profile
-  showDeleteConfirm.value = true
-}
-
-async function handleDelete() {
-  if (!deletingProfile.value) {
+  const confirmed = await confirmDialog.danger(
+    t('settings.providerSwitch.confirmDeleteMessage', { name: profile.name }),
+    t('settings.providerSwitch.confirmDelete')
+  )
+  if (!confirmed || !deletingProfile.value) {
+    deletingProfile.value = null
     return
   }
 
   try {
     await store.deleteProfile(deletingProfile.value.id)
-    showDeleteConfirm.value = false
-    deletingProfile.value = null
     showSuccess(t('settings.providerSwitch.messages.deleteSuccess'))
   } catch (error) {
     console.error('Delete failed:', error)
     showError(t('settings.providerSwitch.messages.deleteFailed'))
+  } finally {
+    deletingProfile.value = null
   }
 }
 
@@ -171,13 +172,6 @@ async function handleReloadConfigEditor() {
   await reloadConfigEditor(currentCliType.value)
 }
 
-function handleDeleteDialogVisibleChange(visible: boolean) {
-  showDeleteConfirm.value = visible
-  if (!visible) {
-    deletingProfile.value = null
-  }
-}
-
 onMounted(async () => {
   await store.loadProfiles()
   await store.refreshCliTypeState(currentCliType.value)
@@ -197,15 +191,6 @@ watch(showFormModal, (visible) => {
 
 <template>
   <div class="provider-switch">
-    <div class="header">
-      <h2 class="title">
-        {{ t('settings.providerSwitch.title') }}
-      </h2>
-      <p class="description">
-        {{ t('settings.providerSwitch.description') }}
-      </p>
-    </div>
-
     <ProviderSwitchTabs
       :current-cli-type="currentCliType"
       @change="handleCliTypeChange"
@@ -238,13 +223,6 @@ watch(showFormModal, (visible) => {
       @save="handleSave"
     />
 
-    <ProviderDeleteDialog
-      :visible="showDeleteConfirm"
-      :profile-name="deletingProfile?.name"
-      @update:visible="handleDeleteDialogVisibleChange"
-      @confirm="handleDelete"
-    />
-
     <ProviderConfigEditorModal
       v-model:visible="showConfigEditor"
       :loading="isConfigEditorLoading"
@@ -263,22 +241,9 @@ watch(showFormModal, (visible) => {
 
 <style scoped>
 .provider-switch {
-  padding: 16px;
-}
-
-.header {
-  margin-bottom: 24px;
-}
-
-.title {
-  margin: 0 0 8px;
-  color: var(--color-text-primary, #1a1a1a);
-  font-size: 20px;
-  font-weight: 600;
-}
-
-.description {
-  color: var(--color-text-secondary, #666);
-  font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+  padding: clamp(8px, 1vw, 14px);
 }
 </style>

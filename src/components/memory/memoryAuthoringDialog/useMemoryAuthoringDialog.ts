@@ -3,16 +3,16 @@ import i18n, { getLocale } from '@/i18n'
 import type { Message } from '@/stores/message'
 import type { TimelineEntry } from '@/types/timeline'
 import type { AgentConfig } from '@/stores/agent'
-import type { AgentExpert } from '@/stores/agentTeams'
+import type { SubAgent } from '@/stores/subAgent'
 import type { MemoryLibrary, RawMemoryRecord } from '@/types/memory'
 import { useAgentStore } from '@/stores/agent'
-import { useAgentTeamsStore } from '@/stores/agentTeams'
+import { useSubAgentStore } from '@/stores/subAgent'
 import { useMemoryStore } from '@/stores/memory'
 import { useNotificationStore } from '@/stores/notification'
 import { useProjectStore } from '@/stores/project'
 import { agentExecutor } from '@/services/conversation/AgentExecutor'
 import type { ConversationContext, StreamEvent } from '@/services/conversation/strategies/types'
-import { buildExpertSystemPrompt, resolveExpertRuntime } from '@/services/agentTeams/runtime'
+import { buildSubAgentSystemPrompt, resolveSubAgentExecutionWithFallback } from '@/services/subAgent/runtime'
 import { getErrorMessage } from '@/utils/api'
 
 interface MemoryAuthoringDialogOpenOptions {
@@ -30,7 +30,7 @@ interface MemoryAuthoringExpertOption {
   name: string
   description?: string
   prompt: string
-  expert?: AgentExpert
+  expert?: SubAgent
 }
 
 const BUILTIN_MEMORY_EXPERT_ID = '__memory-authoring-builtin__'
@@ -258,7 +258,7 @@ function buildBuiltinMemoryExpertOption(): MemoryAuthoringExpertOption {
 export function useMemoryAuthoringDialog() {
   const memoryStore = useMemoryStore()
   const agentStore = useAgentStore()
-  const agentTeamsStore = useAgentTeamsStore()
+  const agentTeamsStore = useSubAgentStore()
   const projectStore = useProjectStore()
   const notificationStore = useNotificationStore()
 
@@ -279,7 +279,7 @@ export function useMemoryAuthoringDialog() {
 
   const availableExperts = computed<MemoryAuthoringExpertOption[]>(() => [
     buildBuiltinMemoryExpertOption(),
-    ...agentTeamsStore.enabledExperts.map((expert) => ({
+    ...agentTeamsStore.enabledSubAgents.map((expert) => ({
       id: expert.id,
       name: expert.name,
       description: expert.description,
@@ -342,7 +342,7 @@ export function useMemoryAuthoringDialog() {
     }
 
     if (option.expert) {
-      const runtime = resolveExpertRuntime(option.expert, agentStore.agents)
+      const runtime = resolveSubAgentExecutionWithFallback(option.expert, agentStore.agents)
       if (runtime && agentExecutor.isSupported(runtime.agent)) {
         return {
           expertPrompt: option.prompt,
@@ -369,8 +369,8 @@ export function useMemoryAuthoringDialog() {
     if (agentStore.agents.length === 0) {
       await agentStore.loadAgents()
     }
-    if (agentTeamsStore.experts.length === 0) {
-      await agentTeamsStore.loadExperts()
+    if (agentTeamsStore.subAgents.length === 0) {
+      await agentTeamsStore.loadSubAgents()
     }
     if (!selectedExpertId.value) {
       selectedExpertId.value = BUILTIN_MEMORY_EXPERT_ID
@@ -481,9 +481,10 @@ export function useMemoryAuthoringDialog() {
 
     const context: ConversationContext = {
       sessionId,
+      requestId: `memory-authoring-${Date.now()}`,
       agent: runtime.agent,
       messages: [
-        createMessage('system', buildExpertSystemPrompt(runtime.expertPrompt, [
+        createMessage('system', buildSubAgentSystemPrompt(runtime.expertPrompt, [
           buildMemoryAuthoringSystemPrompt()
         ]), sessionId),
         createMessage('user', buildMemoryAuthoringPrompt({

@@ -61,7 +61,7 @@ function dedupeSystemMessages(messages: Message[]): Message[] {
       return true
     }
 
-    const normalized = normalizeContent(message.content)
+    const normalized = normalizeContent(message.content ?? '')
     if (!normalized || seen.has(normalized)) {
       return false
     }
@@ -94,7 +94,7 @@ export function buildConversationMessages(
   assembled.push(
     ...messages.filter((message) =>
       (message.role === 'system' || message.role === 'user' || message.role === 'assistant') &&
-      !(message.role === 'assistant' && !normalizeContent(message.content) && message.status === 'streaming')
+      !(message.role === 'assistant' && !normalizeContent(message.content ?? '') && message.status === 'streaming')
     )
   )
 

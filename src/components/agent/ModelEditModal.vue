@@ -24,14 +24,8 @@ const CONTEXT_WINDOW_PRESETS = [
 
 const props = defineProps<{
   agentId: string
-  provider?: string
   model?: AgentModelConfig | null
 }>()
-
-// 是否是内置的默认模型（允许 modelId 为空）
-const isBuiltinDefaultModel = computed(() => {
-  return props.model?.isBuiltin && !props.model?.modelId
-})
 
 const emit = defineEmits<{
   close: []
@@ -43,49 +37,63 @@ const isEditMode = computed(() => !!props.model)
 const contextWindowFieldRef = ref<HTMLElement | null>(null)
 const showContextWindowOptions = ref(false)
 
-const providerPlaceholders = computed(() => {
-  switch (props.provider) {
-    case 'opencode':
-      return {
-        modelId: '例如: openai/gpt-4.1, modelscope/glm-5.1',
-        displayName: '例如: OpenAI GPT-4.1, GLM 5.1',
-        modelHint: '按 provider/模型ID 格式填写，opencode 会直接使用这个值调用 -m'
-      }
-    case 'codex':
-      return {
-        modelId: '例如: gpt-5, codex-mini, o4-mini',
-        displayName: '例如: GPT-5, Codex Mini',
-        modelHint: '按 Codex CLI 支持的模型 ID 填写'
-      }
-    default:
-      return {
-        modelId: '例如: opus4.6, sonnet4.5, haiku3.5',
-        displayName: '例如: Claude Opus 4.6, Claude Sonnet 4.5',
-        modelHint: '按 Claude CLI 支持的模型 ID 填写，例如 opus4.6'
-      }
-  }
-})
+// 统一的占位符与提示（所有提供商共用）
+const modelPlaceholders = {
+  modelId: '例如: opus4.6、gpt-5、openai/gpt-4.1',
+  displayName: '例如: Claude Opus 4.6、GPT-5',
+  modelHint: '按对应 CLI 支持的模型 ID 填写'
+}
 
 // 保存按钮是否可用
 const canSave = computed(() => {
   const hasValidContextWindow = contextWindow.value !== undefined
-  // 内置默认模型只需要 displayName
-  if (isBuiltinDefaultModel.value) {
-    return !!formData.value.displayName.trim() && hasValidContextWindow
-  }
-  // 其他模型需要 modelId 和 displayName
-  return !!formData.value.modelId.trim() && !!formData.value.displayName.trim() && hasValidContextWindow
+  // 价格非必填；若填写则需为合法数值
+  return !!formData.value.modelId.trim()
+    && !!formData.value.displayName.trim()
+    && hasValidContextWindow
+    && inputCostError.value === ''
+    && outputCostError.value === ''
 })
 
 // 表单
 const formData = ref({
   modelId: '',
   displayName: '',
-  contextWindowInput: '128K'
+  contextWindowInput: '128K',
+  inputCostInput: '',
+  outputCostInput: ''
 })
 
 const contextWindow = computed(() => {
   return parseContextWindowInput(formData.value.contextWindowInput)
+})
+
+// 解析费用输入：空字符串 → null（未配置），否则解析为数值
+function parseCostInput(value: string): number | null | undefined {
+  const trimmed = value.trim()
+  if (trimmed === '') return null
+  const num = Number(trimmed)
+  return Number.isFinite(num) ? num : undefined
+}
+
+const inputCostError = computed(() => {
+  const trimmed = formData.value.inputCostInput.trim()
+  if (trimmed === '') return ''
+  const num = Number(trimmed)
+  if (!Number.isFinite(num) || num < 0) {
+    return '请输入有效的非负数值'
+  }
+  return ''
+})
+
+const outputCostError = computed(() => {
+  const trimmed = formData.value.outputCostInput.trim()
+  if (trimmed === '') return ''
+  const num = Number(trimmed)
+  if (!Number.isFinite(num) || num < 0) {
+    return '请输入有效的非负数值'
+  }
+  return ''
 })
 
 const contextWindowError = computed(() => {
@@ -149,13 +157,17 @@ watch(() => props.model, (model) => {
     formData.value = {
       modelId: model.modelId,
       displayName: model.displayName,
-      contextWindowInput: matchingPreset?.label || formatContextWindowCount(model.contextWindow || 128000)
+      contextWindowInput: matchingPreset?.label || formatContextWindowCount(model.contextWindow || 128000),
+      inputCostInput: model.inputCostPerMillionUsd != null ? String(model.inputCostPerMillionUsd) : '',
+      outputCostInput: model.outputCostPerMillionUsd != null ? String(model.outputCostPerMillionUsd) : ''
     }
   } else {
     formData.value = {
       modelId: '',
       displayName: '',
-      contextWindowInput: '128K'
+      contextWindowInput: '128K',
+      inputCostInput: '',
+      outputCostInput: ''
     }
   }
 }, { immediate: true })
@@ -176,7 +188,9 @@ const handleSubmit = async () => {
       await agentConfigStore.updateModelConfig(props.model.id, props.agentId, {
         modelId: formData.value.modelId,
         displayName: formData.value.displayName,
-        contextWindow: contextWindow.value
+        contextWindow: contextWindow.value,
+        inputCostPerMillionUsd: parseCostInput(formData.value.inputCostInput),
+        outputCostPerMillionUsd: parseCostInput(formData.value.outputCostInput)
       })
     } else {
       await agentConfigStore.createModelConfig({
@@ -187,7 +201,9 @@ const handleSubmit = async () => {
         isDefault: false,
         sortOrder: 0,
         enabled: true,
-        contextWindow: contextWindow.value
+        contextWindow: contextWindow.value,
+        inputCostPerMillionUsd: parseCostInput(formData.value.inputCostInput),
+        outputCostPerMillionUsd: parseCostInput(formData.value.outputCostInput)
       })
     }
     emit('close')
@@ -233,11 +249,10 @@ const handleClose = () => {
               v-model="formData.modelId"
               type="text"
               class="form-input"
-              :placeholder="isBuiltinDefaultModel ? '使用系统默认模型' : providerPlaceholders.modelId"
-              :disabled="isBuiltinDefaultModel"
+              :placeholder="modelPlaceholders.modelId"
             >
             <p class="form-hint">
-              {{ isBuiltinDefaultModel ? '此配置使用系统默认模型，无需指定模型 ID' : providerPlaceholders.modelHint }}
+              {{ modelPlaceholders.modelHint }}
             </p>
           </div>
 
@@ -247,7 +262,7 @@ const handleClose = () => {
               v-model="formData.displayName"
               type="text"
               class="form-input"
-              :placeholder="providerPlaceholders.displayName"
+              :placeholder="modelPlaceholders.displayName"
             >
             <p class="form-hint">
               在界面上显示的友好名称
@@ -307,6 +322,50 @@ const handleClose = () => {
             >
               {{ contextWindowError }}
             </p>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">输入费用（$/百万 token）</label>
+              <input
+                v-model="formData.inputCostInput"
+                type="text"
+                inputmode="decimal"
+                class="form-input"
+                :class="{ 'form-input--error': !!inputCostError }"
+                placeholder="例如 3"
+              >
+              <p class="form-hint">
+                每百万输入 token 的费用（美元），用于统计费用
+              </p>
+              <p
+                v-if="inputCostError"
+                class="form-error"
+              >
+                {{ inputCostError }}
+              </p>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">输出费用（$/百万 token）</label>
+              <input
+                v-model="formData.outputCostInput"
+                type="text"
+                inputmode="decimal"
+                class="form-input"
+                :class="{ 'form-input--error': !!outputCostError }"
+                placeholder="例如 15"
+              >
+              <p class="form-hint">
+                每百万输出 token 的费用（美元），用于统计费用
+              </p>
+              <p
+                v-if="outputCostError"
+                class="form-error"
+              >
+                {{ outputCostError }}
+              </p>
+            </div>
           </div>
         </div>
 
@@ -409,6 +468,17 @@ const handleClose = () => {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-2);
+}
+
+/* 输入/输出费用并排 */
+.form-row {
+  display: flex;
+  gap: var(--spacing-4);
+}
+
+.form-row .form-group {
+  flex: 1;
+  min-width: 0;
 }
 
 .form-label {

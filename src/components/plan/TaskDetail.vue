@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAgentStore } from '@/stores/agent'
-import { useAgentTeamsStore } from '@/stores/agentTeams'
+import { useSubAgentStore } from '@/stores/subAgent'
 import { usePlanStore } from '@/stores/plan'
 import { useTaskStore } from '@/stores/task'
 import { useTaskExecutionStore } from '@/stores/taskExecution'
@@ -12,7 +12,7 @@ import AgentRoleBadge from './AgentRoleBadge.vue'
 import TaskEditModal from './taskEditModal/TaskEditModal.vue'
 
 const agentStore = useAgentStore()
-const agentTeamsStore = useAgentTeamsStore()
+const agentTeamsStore = useSubAgentStore()
 const planStore = usePlanStore()
 const taskStore = useTaskStore()
 const taskExecutionStore = useTaskExecutionStore()
@@ -115,7 +115,7 @@ const executionConfig = computed(() => {
     ? agentStore.agents.find(item => item.id === selection.agentId)
     : null
   const expert = selection.expertId
-    ? agentTeamsStore.getExpertById(selection.expertId)
+    ? agentTeamsStore.getSubAgentById(selection.expertId)
     : null
 
   return {

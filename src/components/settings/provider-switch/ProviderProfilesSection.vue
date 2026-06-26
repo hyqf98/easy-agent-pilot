@@ -220,37 +220,31 @@ const { t } = useI18n()
 }
 
 .active-profile-card {
-  border: 2px solid #60a5fa;
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(59, 130, 246, 0.02) 100%);
-  box-shadow: 0 2px 10px rgba(59, 130, 246, 0.12);
+  border: 1px solid var(--workspace-border, var(--color-border));
+  background: var(--workspace-list-active-bg, var(--color-surface-active));
+  box-shadow: var(--shadow-sm);
 }
 
 .profile-card {
-  border: 1px solid var(--color-border, #d7e1ec);
-  background: var(--color-bg-secondary, #f8fbff);
-  transition: all 0.2s ease;
+  border: 1px solid var(--workspace-border, var(--color-border));
+  background: var(--workspace-panel-bg, var(--color-bg-secondary));
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .profile-card:hover {
-  border-color: #93c5fd;
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+  border-color: var(--color-border-dark, var(--color-border));
+  box-shadow: var(--shadow-sm);
 }
 
 .profile-card.active {
-  border-width: 2px;
-  border-color: #60a5fa;
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(59, 130, 246, 0.02) 100%);
-}
-
-:global(.dark) .active-profile-card,
-:global(.dark) .profile-card.active {
-  border-color: #60a5fa;
-  background: linear-gradient(135deg, rgba(96, 165, 250, 0.18) 0%, rgba(96, 165, 250, 0.06) 100%);
+  border: 1px solid var(--workspace-border, var(--color-border));
+  background: var(--workspace-list-active-bg, var(--color-surface-active));
+  box-shadow: var(--shadow-sm);
 }
 
 :global(.dark) .profile-card {
-  border-color: var(--color-border, #334155);
-  background: var(--color-bg-secondary, #1f2937);
+  border-color: var(--workspace-border, var(--color-border));
+  background: var(--workspace-panel-bg, var(--color-bg-secondary));
 }
 
 .profile-info {

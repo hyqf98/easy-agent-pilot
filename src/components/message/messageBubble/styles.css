@@ -1,10 +1,10 @@
 .message-bubble {
-  --message-fixed-width: min(100%, 46rem);
+  --message-fixed-width: min(100%, 40rem);
   --message-min-width: var(--message-fixed-width);
   --message-max-width: 100%;
   --message-compact-max-width: var(--message-fixed-width);
   --message-compact-max-height: 20rem;
-  --message-trace-max-width: 46rem;
+  --message-trace-max-width: 40rem;
   --thinking-display-width: var(--message-fixed-width);
   display: flex;
   flex-direction: row;
@@ -24,11 +24,11 @@
 }
 
 .message-bubble--assistant.message-bubble--form-only {
-  --message-fixed-width: clamp(21rem, 42vw, 33rem);
+  --message-fixed-width: clamp(20rem, 39vw, 31rem);
   --message-min-width: 0;
-  --message-max-width: clamp(22rem, 52vw, 40rem);
-  --message-compact-max-width: clamp(20rem, 44vw, 34rem);
-  --thinking-display-width: clamp(18rem, 40vw, 30rem);
+  --message-max-width: clamp(21rem, 48vw, 36rem);
+  --message-compact-max-width: clamp(19rem, 40vw, 31rem);
+  --thinking-display-width: clamp(18rem, 38vw, 28rem);
 }
 
 .message-bubble__avatar {
@@ -60,7 +60,7 @@
 }
 
 .message-bubble__stream-segment + .message-bubble__stream-segment {
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
 .message-bubble--assistant .message-bubble__body {
@@ -92,10 +92,10 @@
 }
 
 .message-bubble__content {
-  padding: var(--spacing-2) var(--spacing-3);
+  padding: 7px 10px;
   border-radius: var(--radius-lg);
   font-size: var(--font-size-sm);
-  line-height: 1.6;
+  line-height: 1.55;
   width: fit-content;
   min-width: min(100%, var(--message-fixed-width));
   max-width: min(100%, var(--message-max-width));
@@ -108,6 +108,8 @@
   width: 100%;
   min-width: 0;
   max-width: min(100%, var(--message-fixed-width));
+  /* 内容为空时仍保留与头像等高的占位，使下方 meta 行（时间/已中断/重试）与头像底部对齐 */
+  min-height: 24px;
   padding: 2px 0;
   background-color: transparent;
   border: 0;
@@ -130,12 +132,12 @@
 
 .message-bubble--user .message-bubble__content {
   min-width: unset;
-  max-width: min(100%, 38rem);
-  padding: 8px 11px;
+  max-width: min(100%, 34rem);
+  padding: 7px 10px;
   background-color: color-mix(in srgb, var(--workspace-list-active-bg, var(--color-primary-light)) 86%, var(--workspace-panel-bg, #ffffff));
   color: var(--workspace-text-primary, var(--color-primary-dark));
   border: 1px solid color-mix(in srgb, var(--workspace-border, var(--color-border)) 72%, transparent);
-  border-radius: 12px;
+  border-radius: 10px;
 }
 
 :global([data-theme='dark']) .message-bubble--user .message-bubble__content,
@@ -948,7 +950,8 @@
   margin-top: var(--spacing-1);
 }
 
-/* ── 用量独立行（usage / context_window） ──────────────────────────────── */
+/* ── 用量独立行（usage / context_window）已不再作为独立气泡渲染 ─────── */
+/* 保留占位样式以兼容历史 class 引用 */
 .message-bubble--usage .message-bubble__body--usage {
   background: transparent;
   box-shadow: none;
@@ -981,4 +984,15 @@
 
 .message-bubble--usage .message-bubble__meta {
   margin-top: var(--spacing-1);
+}
+
+/* ── meta 行对齐优化：时间 / 状态 / 停止 / 重试 统一垂直居中 ─────────── */
+.message-bubble__stop,
+.message-bubble__retry {
+  align-self: center;
+}
+
+.message-bubble__stop {
+  width: 22px;
+  height: 22px;
 }

@@ -239,7 +239,9 @@ onUnmounted(() => {
 .plugin-detail {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  /* 详情视图嵌入在可滚动容器内，父级无固定高度，用视口相对的最小高度撑开编辑区 */
+  min-height: min(70vh, 560px);
+  border-radius: var(--radius-lg);
   background: var(--color-surface);
 }
 

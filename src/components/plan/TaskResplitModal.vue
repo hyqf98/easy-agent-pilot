@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useAgentStore, useAgentConfigStore } from '@/stores'
-import { useAgentTeamsStore } from '@/stores/agentTeams'
+import { useSubAgentStore } from '@/stores/subAgent'
 import { inferAgentProvider } from '@/stores/agent'
 import type { AgentModelConfig } from '@/stores/agentConfig'
 import type { AITaskItem, TaskResplitConfig } from '@/types/plan'
 import { useOverlayDismiss } from '@/composables/useOverlayDismiss'
 import { DEFAULT_SPLIT_GRANULARITY } from '@/constants/plan'
-import { resolveExpertById, resolveExpertRuntime } from '@/services/agentTeams/runtime'
+import { resolveSubAgentById, resolveSubAgentExecutionWithFallback } from '@/services/subAgent/runtime'
 
 const props = defineProps<{
   visible: boolean
@@ -24,7 +24,7 @@ const emit = defineEmits<{
 
 const agentStore = useAgentStore()
 const agentConfigStore = useAgentConfigStore()
-const agentTeamsStore = useAgentTeamsStore()
+const agentTeamsStore = useSubAgentStore()
 
 // 表单状态
 const customPrompt = ref('')
@@ -33,7 +33,7 @@ const selectedExpertId = ref<string | undefined>(undefined)
 const selectedAgentId = ref<string | undefined>(undefined)
 const selectedModelId = ref<string | undefined>(undefined)
 
-const availableExperts = computed(() => agentTeamsStore.enabledExperts)
+const availableExperts = computed(() => agentTeamsStore.enabledSubAgents)
 
 const availableModels = computed(() => {
   if (!selectedAgentId.value) return []
@@ -72,7 +72,7 @@ watch(() => props.visible, (newVisible) => {
     resetForm()
     void Promise.all([
       agentStore.loadAgents(),
-      agentTeamsStore.loadExperts(true)
+      agentTeamsStore.loadSubAgents(true)
     ]).then(() => {
       selectedExpertId.value = props.defaultExpertId
     })
@@ -80,8 +80,8 @@ watch(() => props.visible, (newVisible) => {
 })
 
 watch(selectedExpertId, async (newExpertId) => {
-  const expert = resolveExpertById(newExpertId, agentTeamsStore.experts)
-  const runtime = resolveExpertRuntime(expert, agentStore.agents, selectedModelId.value)
+  const expert = resolveSubAgentById(newExpertId, agentTeamsStore.subAgents)
+  const runtime = resolveSubAgentExecutionWithFallback(expert, agentStore.agents, selectedModelId.value)
   selectedAgentId.value = runtime?.agent.id
 
   if (runtime?.agent.id) {

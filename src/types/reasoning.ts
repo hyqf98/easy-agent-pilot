@@ -6,8 +6,11 @@ export interface ReasoningEffortOption {
 }
 
 const PROVIDER_REASONING_EFFORTS: Record<string, ReasoningEffortLevel[]> = {
+  acp: ['minimal', 'low', 'medium', 'high', 'xhigh'],
   claude: ['low', 'medium', 'high', 'xhigh'],
-  codex: ['minimal', 'low', 'medium', 'high', 'xhigh']
+  codex: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+  opencode: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+  custom: ['minimal', 'low', 'medium', 'high', 'xhigh']
 }
 
 const EFFORT_LABEL_KEYS: Record<ReasoningEffortLevel, string> = {

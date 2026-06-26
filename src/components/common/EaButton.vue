@@ -121,32 +121,33 @@ const handleClick = (event: MouseEvent) => {
 
 /* Primary 类型 */
 .ea-button--primary {
-  background-color: var(--color-primary);
-  color: var(--color-text-inverse);
+  background: var(--workspace-text-primary, var(--color-primary));
+  color: var(--workspace-panel-bg, var(--color-text-inverse));
+  border: 1px solid var(--workspace-text-primary, var(--color-primary));
 }
 
 .ea-button--primary:hover:not(.ea-button--disabled) {
-  background-color: var(--color-primary-hover);
+  background: color-mix(in srgb, var(--workspace-text-primary, var(--color-primary)) 88%, transparent);
 }
 
 .ea-button--primary:active:not(.ea-button--disabled) {
-  background-color: var(--color-primary-active);
+  background: color-mix(in srgb, var(--workspace-text-primary, var(--color-primary)) 82%, transparent);
 }
 
 /* Secondary 类型 */
 .ea-button--secondary {
-  background-color: var(--color-surface);
-  color: var(--color-text-primary);
-  border: 1px solid var(--color-border);
+  background: var(--workspace-control-bg, var(--color-surface));
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  border: 1px solid var(--workspace-control-border, var(--color-border));
 }
 
 .ea-button--secondary:hover:not(.ea-button--disabled) {
-  background-color: var(--color-surface-hover);
-  border-color: var(--color-border-dark);
+  background: var(--workspace-control-hover-bg, var(--color-surface-hover));
+  border-color: var(--workspace-border-strong, var(--color-border-dark));
 }
 
 .ea-button--secondary:active:not(.ea-button--disabled) {
-  background-color: var(--color-surface-active);
+  background: var(--workspace-list-active-bg, var(--color-surface-active));
 }
 
 /* Ghost 类型 */
@@ -165,16 +166,18 @@ const handleClick = (event: MouseEvent) => {
 
 /* Danger 类型 */
 .ea-button--danger {
-  background-color: var(--color-error);
-  color: var(--color-text-inverse);
+  background: color-mix(in srgb, var(--color-error) 12%, var(--workspace-control-bg, var(--color-surface)));
+  color: var(--color-error);
+  border: 1px solid color-mix(in srgb, var(--color-error) 28%, var(--workspace-control-border, var(--color-border)));
 }
 
 .ea-button--danger:hover:not(.ea-button--disabled) {
-  background-color: var(--color-error-hover, #dc2626);
+  background: color-mix(in srgb, var(--color-error) 18%, var(--workspace-control-bg, var(--color-surface)));
 }
 
 .ea-button--danger:active:not(.ea-button--disabled) {
-  background-color: var(--color-error-active, #b91c1c);
+  background-color: var(--color-error-dark, #b91c1c);
+  filter: brightness(0.92);
 }
 
 /* 禁用状态 */

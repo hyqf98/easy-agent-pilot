@@ -1,9 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { AgentConfig, AgentProvider, AgentType } from '@/stores/agent'
-import type { CliName } from '@/stores/cliInstaller'
-import type { VersionInfo } from '@/components/settings/cli/types'
+import type { AgentConfig, AgentProvider } from '@/stores/agent'
 import { EaButton, EaIcon, EaStateBlock } from '@/components/common'
 
 interface Props {
@@ -15,7 +13,6 @@ interface Props {
   pageNumbers: number[]
   pageSize: number
   testingAgentId: string | null
-  versionInfoMap: Record<CliName, VersionInfo | null>
 }
 
 const props = defineProps<Props>()
@@ -32,10 +29,6 @@ const { t } = useI18n()
 
 const showPagination = computed(() => props.filteredCount > props.pageSize)
 
-function getTypeIcon(_type: AgentType): string {
-  return 'terminal'
-}
-
 function getProviderIcon(provider?: AgentProvider): string {
   if (!provider) return 'bot'
   return provider === 'claude' ? 'bot' : provider === 'opencode' ? 'terminal' : 'code'
@@ -44,15 +37,6 @@ function getProviderIcon(provider?: AgentProvider): string {
 function getProviderText(provider?: AgentProvider): string {
   if (!provider) return '-'
   return provider === 'claude' ? 'Claude' : provider === 'opencode' ? 'OpenCode' : 'Codex'
-}
-
-function getTypeText(_type: AgentType): string {
-  return 'ACP'
-}
-
-function getVersionUpdate(agent: AgentConfig): VersionInfo | null {
-  if (!agent.provider) return null
-  return props.versionInfoMap[agent.provider as CliName] ?? null
 }
 
 function formatDate(dateStr: string): string {
@@ -76,9 +60,6 @@ function changePage(page: number) {
           <tr>
             <th class="agent-table__th agent-table__th--name">
               {{ t('settings.agentList.columnName') }}
-            </th>
-            <th class="agent-table__th agent-table__th--type">
-              {{ t('settings.agentList.columnType') }}
             </th>
             <th class="agent-table__th agent-table__th--provider">
               {{ t('settings.agentList.columnProvider') }}
@@ -108,21 +89,6 @@ function changePage(page: number) {
                   class="agent-name-cell__icon"
                 />
                 <span class="agent-name-cell__text">{{ agent.name }}</span>
-                <span
-                  v-if="getVersionUpdate(agent)?.has_update"
-                  class="agent-name-cell__update-badge"
-                >
-                  {{ t('settings.agentList.updateAvailable', { version: getVersionUpdate(agent)!.latest }) }}
-                </span>
-              </div>
-            </td>
-            <td class="agent-table__td agent-table__td--type">
-              <div class="type-badge">
-                <EaIcon
-                  :name="getTypeIcon(agent.type)"
-                  :size="14"
-                />
-                <span>{{ getTypeText(agent.type) }}</span>
               </div>
             </td>
             <td class="agent-table__td agent-table__td--provider">
@@ -330,28 +296,6 @@ function changePage(page: number) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.agent-name-cell__update-badge {
-  flex-shrink: 0;
-  padding: 1px var(--spacing-2);
-  background-color: var(--color-info-light, rgba(59, 130, 246, 0.1));
-  color: var(--color-info, #3b82f6);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-xs);
-  white-space: nowrap;
-}
-
-.type-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-1);
-  padding: 2px var(--spacing-2);
-  background-color: var(--color-primary-light);
-  color: var(--color-primary);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
 }
 
 .provider-text {

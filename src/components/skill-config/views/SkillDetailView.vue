@@ -6,27 +6,13 @@ import type { UnifiedSkillConfig } from '@/stores/skillConfig'
 import { EaButton, EaIcon } from '@/components/common'
 import ConfigFileWorkspace from '@/components/skill-config/common/ConfigFileWorkspace.vue'
 
-// Reference 文件类型
-interface ReferenceFile {
+// Skill 目录条目（递归）
+interface SkillFileEntry {
   name: string
   path: string
-  file_type: string
-  size: number
-}
-
-// Reference 文件内容类型
-interface ReferenceFileContent {
-  name: string
-  path: string
-  content: string
-  file_type: string
-}
-
-// Skill 文件内容类型
-interface SkillFileContent {
-  path: string
-  content: string
-  file_type: string
+  relPath: string
+  isDir: boolean
+  fileType: string
 }
 
 const props = defineProps<{
@@ -42,97 +28,193 @@ const { t } = useI18n()
 
 // 状态
 const isLoading = ref(true)
-const skillFileContent = ref<SkillFileContent | null>(null)
-const referenceFiles = ref<ReferenceFile[]>([])
-const showReferences = ref(false)
+const allEntries = ref<SkillFileEntry[]>([])
 const isEditMode = ref(false)
 const editContent = ref('')
 
-// 当前显示的文件
-const currentFile = computed(() => {
-  if (selectedReference.value && referenceContent.value) {
-    return {
-      name: selectedReference.value.name,
-      path: selectedReference.value.path,
-      content: referenceContent.value.content,
-      file_type: referenceContent.value.file_type,
-    }
-  }
-  if (skillFileContent.value) {
-    return {
-      name: 'SKILL.md',
-      path: skillFileContent.value.path,
-      content: skillFileContent.value.content,
-      file_type: skillFileContent.value.file_type,
-    }
-  }
-  return null
-})
-
-const selectedReference = ref<ReferenceFile | null>(null)
-const referenceContent = ref<ReferenceFileContent | null>(null)
+// 当前选中的文件
+const selectedPath = ref<string | null>(null)
+const currentFileContent = ref('')
+const currentFileType = ref('text')
+const currentFileName = ref('')
 const isLoadingFile = ref(false)
 
-// 加载 Skill 详情
-async function loadSkillDetail() {
-  isLoading.value = true
-  selectedReference.value = null
-  referenceContent.value = null
-  isEditMode.value = false
-  try {
-    // 并行加载 Skill 文件和 references 列表
-    const [skillFile, refs] = await Promise.all([
-      invoke<SkillFileContent>('read_skill_file', {
-        skillPath: props.skill.skillPath
-      }),
-      invoke<ReferenceFile[]>('list_skill_references', {
-        skillPath: props.skill.skillPath
-      })
-    ])
+// 展开的文件夹（按 relPath 记录）
+const expandedDirs = ref<Set<string>>(new Set())
 
-    skillFileContent.value = skillFile
-    referenceFiles.value = refs
-  } catch (error) {
-    console.error('Failed to load skill detail:', error)
-  } finally {
-    isLoading.value = false
+// ── 树形结构构建 ──────────────────────────────────────────
+interface TreeNode {
+  key: string
+  name: string
+  relPath: string
+  path: string
+  isDir: boolean
+  fileType: string
+  children: TreeNode[]
+  depth: number
+}
+
+const fileTree = computed<TreeNode[]>(() => {
+  const root: TreeNode = {
+    key: '__root__',
+    name: '',
+    relPath: '',
+    path: props.skill.skillPath,
+    isDir: true,
+    fileType: 'directory',
+    children: [],
+    depth: 0,
+  }
+
+  for (const entry of allEntries.value) {
+    const parts = entry.relPath.split('/')
+    let current = root
+
+    for (let i = 0; i < parts.length; i++) {
+      const partRelPath = parts.slice(0, i + 1).join('/')
+      const isLast = i === parts.length - 1
+      const isDir = isLast ? entry.isDir : true
+
+      let child = current.children.find(c => c.name === parts[i])
+      if (!child) {
+        child = {
+          key: partRelPath,
+          name: parts[i],
+          relPath: partRelPath,
+          path: isLast ? entry.path : `${props.skill.skillPath}/${partRelPath}`,
+          isDir,
+          fileType: isDir ? 'directory' : entry.fileType,
+          children: [],
+          depth: i + 1,
+        }
+        current.children.push(child)
+      }
+      current = child
+    }
+  }
+
+  // 排序：目录在前，同类按名
+  function sortNodes(nodes: TreeNode[]) {
+    nodes.sort((a, b) => {
+      if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
+      return a.name.localeCompare(b.name)
+    })
+    nodes.forEach(n => sortNodes(n.children))
+  }
+  sortNodes(root.children)
+
+  return root.children
+})
+
+// 扁平化可见节点（考虑展开状态），用于 v-for 渲染
+interface FlatNode extends TreeNode {}
+
+const visibleNodes = computed<FlatNode[]>(() => {
+  const result: FlatNode[] = []
+
+  function walk(nodes: TreeNode[]) {
+    for (const node of nodes) {
+      result.push(node)
+      if (node.isDir && expandedDirs.value.has(node.relPath)) {
+        walk(node.children)
+      }
+    }
+  }
+
+  walk(fileTree.value)
+  return result
+})
+
+// 当前显示的文件
+const currentFile = computed(() => {
+  if (!selectedPath.value) return null
+  return {
+    name: currentFileName.value,
+    path: selectedPath.value,
+    content: currentFileContent.value,
+    file_type: currentFileType.value,
+  }
+})
+
+// 默认展开第一层 + 选中 SKILL.md
+function initTreeSelection() {
+  expandedDirs.value = new Set()
+  // 展开顶层目录
+  for (const node of fileTree.value) {
+    if (node.isDir) {
+      expandedDirs.value.add(node.relPath)
+    }
+  }
+  // 默认选中 SKILL.md
+  const skillMd = allEntries.value.find(e => !e.isDir && (e.name === 'SKILL.md' || e.name === 'skill.md'))
+  if (skillMd) {
+    void selectFile(skillMd)
+  } else {
+    const firstFile = allEntries.value.find(e => !e.isDir)
+    if (firstFile) {
+      void selectFile(firstFile)
+    }
   }
 }
 
-// 选择 Reference 文件
-async function selectReference(file: ReferenceFile) {
-  selectedReference.value = file
+function toggleDir(node: TreeNode) {
+  if (expandedDirs.value.has(node.relPath)) {
+    expandedDirs.value.delete(node.relPath)
+  } else {
+    expandedDirs.value.add(node.relPath)
+  }
+}
+
+// 选择文件并加载内容
+async function selectFile(entry: SkillFileEntry | TreeNode) {
+  if (entry.isDir) {
+    toggleDir(entry as TreeNode)
+    return
+  }
+
+  selectedPath.value = entry.path
+  currentFileName.value = entry.name
+  currentFileType.value = entry.fileType
   isLoadingFile.value = true
-  referenceContent.value = null
+  currentFileContent.value = ''
   isEditMode.value = false
-  showReferences.value = false // 收起侧边栏
 
   try {
-    const content = await invoke<ReferenceFileContent>('read_reference_file', {
-      filePath: file.path
+    const content = await invoke<string>('read_file_content', {
+      filePath: entry.path,
     })
-    referenceContent.value = content
+    currentFileContent.value = content
   } catch (error) {
-    console.error('Failed to load reference file:', error)
+    console.error('Failed to load file:', error)
   } finally {
     isLoadingFile.value = false
   }
 }
 
-// 返回 SKILL.md
-function showSkillMd() {
-  selectedReference.value = null
-  referenceContent.value = null
+// 加载 Skill 所有文件
+async function loadSkillDetail() {
+  isLoading.value = true
+  selectedPath.value = null
+  currentFileContent.value = ''
   isEditMode.value = false
+  try {
+    const entries = await invoke<SkillFileEntry[]>('list_skill_all_files', {
+      skillPath: props.skill.skillPath,
+    })
+    allEntries.value = entries
+    initTreeSelection()
+  } catch (error) {
+    console.error('Failed to load skill files:', error)
+  } finally {
+    isLoading.value = false
+  }
 }
 
 // 切换编辑模式
 function toggleEditMode() {
   if (isEditMode.value) {
-    // 退出编辑模式
     isEditMode.value = false
   } else {
-    // 进入编辑模式
     if (currentFile.value) {
       editContent.value = currentFile.value.content
       isEditMode.value = true
@@ -142,32 +224,22 @@ function toggleEditMode() {
 
 // 保存编辑
 async function saveEdit() {
-  // TODO: 实现保存功能
   if (currentFile.value) {
     currentFile.value.content = editContent.value
   }
   isEditMode.value = false
 }
 
-// 返回列表
 function handleBack() {
   emit('back')
 }
 
-// 删除 Skill
 function handleDelete() {
   emit('delete', props.skill)
 }
 
-// 格式化文件大小
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-// 获取文件图标
-function getFileIcon(fileType: string): string {
+function getFileIcon(fileType: string, isDir: boolean): string {
+  if (isDir) return 'lucide:folder'
   switch (fileType) {
     case 'markdown':
       return 'lucide:file-text'
@@ -175,19 +247,16 @@ function getFileIcon(fileType: string): string {
     case 'typescript':
     case 'python':
     case 'rust':
+    case 'html':
+    case 'css':
       return 'lucide:file-code'
     case 'json':
       return 'lucide:file-json'
-    case 'html':
-      return 'lucide:file-code'
-    case 'css':
-      return 'lucide:file-code'
     default:
       return 'lucide:file'
   }
 }
 
-// 监听 skill 变化
 watch(() => props.skill, () => {
   loadSkillDetail()
 }, { immediate: true })
@@ -220,24 +289,10 @@ onMounted(() => {
             name="lucide:chevron-right"
             class="skill-detail__chevron"
           />
-          <span class="skill-detail__current-file">{{ currentFile?.name }}</span>
+          <span class="skill-detail__current-file">{{ currentFileName || '—' }}</span>
         </div>
       </div>
       <div class="skill-detail__toolbar-right">
-        <!-- References 切换按钮 -->
-        <EaButton
-          v-if="referenceFiles.length > 0"
-          variant="ghost"
-          size="small"
-          :class="{ 'skill-detail__ref-btn--active': showReferences }"
-          @click="showReferences = !showReferences"
-        >
-          <EaIcon name="lucide:folder-tree" />
-          {{ t('settings.skills.references') }}
-          <span class="skill-detail__badge">{{ referenceFiles.length }}</span>
-        </EaButton>
-
-        <!-- 编辑按钮 -->
         <EaButton
           v-if="skill.source === 'file' && currentFile"
           :variant="isEditMode ? 'primary' : 'ghost'"
@@ -248,7 +303,6 @@ onMounted(() => {
           {{ isEditMode ? t('common.view') : t('common.edit') }}
         </EaButton>
 
-        <!-- 保存按钮 -->
         <EaButton
           v-if="isEditMode"
           variant="primary"
@@ -259,18 +313,6 @@ onMounted(() => {
           {{ t('common.save') }}
         </EaButton>
 
-        <!-- 返回 SKILL.md 按钮 -->
-        <EaButton
-          v-if="selectedReference"
-          variant="ghost"
-          size="small"
-          @click="showSkillMd"
-        >
-          <EaIcon name="lucide:file-text" />
-          SKILL.md
-        </EaButton>
-
-        <!-- 删除按钮 -->
         <EaButton
           v-if="skill.source === 'file'"
           variant="ghost"
@@ -287,16 +329,6 @@ onMounted(() => {
     <div class="skill-detail__path-bar">
       <EaIcon name="lucide:folder" />
       <span>{{ skill.skillPath }}</span>
-      <span
-        v-if="currentFile && currentFile.name !== 'SKILL.md'"
-        class="skill-detail__path-separator"
-      >/</span>
-      <span
-        v-if="currentFile && currentFile.name !== 'SKILL.md'"
-        class="skill-detail__path-file"
-      >
-        {{ currentFile.name }}
-      </span>
     </div>
 
     <!-- 加载中 -->
@@ -311,70 +343,57 @@ onMounted(() => {
       {{ t('common.loading') }}
     </div>
 
-    <!-- 主内容区域 -->
+    <!-- 主内容区域：左侧文件树 + 右侧文件内容 -->
     <div
       v-else
       class="skill-detail__body"
     >
-      <!-- References 侧边栏 -->
-      <Transition name="slide">
-        <div
-          v-if="showReferences && referenceFiles.length > 0"
-          class="skill-detail__sidebar"
-        >
-          <div class="skill-detail__sidebar-header">
-            <h3>{{ t('settings.skills.references') }}</h3>
-            <EaButton
-              variant="ghost"
-              size="small"
-              @click="showReferences = false"
-            >
-              <EaIcon name="lucide:x" />
-            </EaButton>
-          </div>
-          <div class="skill-detail__sidebar-content">
-            <!-- SKILL.md 选项 -->
-            <div
-              class="skill-detail__file-item"
-              :class="{ 'skill-detail__file-item--active': !selectedReference }"
-              @click="showSkillMd"
-            >
-              <EaIcon
-                name="lucide:file-text"
-                class="skill-detail__file-icon"
-              />
-              <div class="skill-detail__file-info">
-                <span class="skill-detail__file-name">SKILL.md</span>
-                <span class="skill-detail__file-type">Markdown</span>
-              </div>
-            </div>
+      <!-- 左侧文件导航树 -->
+      <aside class="skill-detail__tree">
+        <div class="skill-detail__tree-header">
+          <EaIcon
+            name="lucide:folder-tree"
+            :size="14"
+          />
+          <span>{{ t('settings.skills.files') }}</span>
+        </div>
+        <div class="skill-detail__tree-content">
+          <button
+            v-for="node in visibleNodes"
+            :key="node.key"
+            type="button"
+            class="skill-detail__tree-item"
+            :class="{
+              'skill-detail__tree-item--active': !node.isDir && selectedPath === node.path,
+              'skill-detail__tree-item--dir': node.isDir
+            }"
+            :style="{ paddingLeft: `calc(var(--spacing-2) + ${node.depth * 14}px)` }"
+            @click="selectFile(node)"
+          >
+            <EaIcon
+              v-if="node.isDir"
+              :name="expandedDirs.has(node.relPath) ? 'lucide:chevron-down' : 'lucide:chevron-right'"
+              :size="12"
+              class="skill-detail__tree-chevron"
+            />
+            <EaIcon
+              :name="getFileIcon(node.fileType, node.isDir)"
+              :size="14"
+              class="skill-detail__tree-icon"
+            />
+            <span class="skill-detail__tree-name">{{ node.name }}</span>
+          </button>
 
-            <div class="skill-detail__divider" />
-
-            <!-- Reference 文件列表 -->
-            <div
-              v-for="file in referenceFiles"
-              :key="file.path"
-              class="skill-detail__file-item"
-              :class="{ 'skill-detail__file-item--active': selectedReference?.path === file.path }"
-              @click="selectReference(file)"
-            >
-              <EaIcon
-                :name="getFileIcon(file.file_type)"
-                class="skill-detail__file-icon"
-              />
-              <div class="skill-detail__file-info">
-                <span class="skill-detail__file-name">{{ file.name }}</span>
-                <span class="skill-detail__file-meta">
-                  {{ file.file_type }} · {{ formatFileSize(file.size) }}
-                </span>
-              </div>
-            </div>
+          <div
+            v-if="visibleNodes.length === 0"
+            class="skill-detail__tree-empty"
+          >
+            {{ t('settings.skills.noContent') }}
           </div>
         </div>
-      </Transition>
+      </aside>
 
-      <!-- 主面板 -->
+      <!-- 右侧文件内容 -->
       <div class="skill-detail__main">
         <ConfigFileWorkspace
           :loading="isLoadingFile"
@@ -391,6 +410,7 @@ onMounted(() => {
           max-width="900px"
           padding="var(--spacing-6)"
           @update:edit-content="editContent = $event"
+          @save="saveEdit"
         >
           <template #loading>
             {{ t('common.loading') }}
@@ -405,8 +425,11 @@ onMounted(() => {
 .skill-detail {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  /* 详情视图嵌入在可滚动容器内，父级无固定高度，用视口相对的最小高度撑开编辑区 */
+  min-height: min(70vh, 560px);
+  border-radius: var(--radius-lg);
   background: var(--color-surface);
+  overflow: hidden;
 }
 
 /* 工具栏 */
@@ -416,7 +439,8 @@ onMounted(() => {
   justify-content: space-between;
   padding: var(--spacing-3) var(--spacing-4);
   border-bottom: 1px solid var(--color-border);
-  background: var(--color-background-secondary);
+  background: var(--color-bg-secondary);
+  flex-shrink: 0;
 }
 
 .skill-detail__toolbar-left {
@@ -459,31 +483,18 @@ onMounted(() => {
   color: var(--color-text-secondary);
 }
 
-.skill-detail__badge {
-  padding: 2px 6px;
-  background: var(--color-primary-bg);
-  color: var(--color-primary);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-}
-
-.skill-detail__ref-btn--active {
-  background: var(--color-primary-bg);
-  color: var(--color-primary);
-}
-
 /* 路径栏 */
 .skill-detail__path-bar {
   display: flex;
   align-items: center;
   gap: var(--spacing-2);
   padding: var(--spacing-2) var(--spacing-4);
-  background: var(--color-background-tertiary);
+  background: var(--color-bg-tertiary);
   font-family: var(--font-family-mono);
   font-size: var(--font-size-xs);
   color: var(--color-text-tertiary);
   border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
 }
 
 .skill-detail__path-bar svg {
@@ -492,110 +503,111 @@ onMounted(() => {
   flex-shrink: 0;
 }
 
-.skill-detail__path-separator {
-  color: var(--color-text-tertiary);
-}
-
-.skill-detail__path-file {
-  color: var(--color-text-secondary);
-}
-
-/* 主体 */
+/* 主体：左侧树 + 右侧内容 */
 .skill-detail__body {
   display: flex;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
-  position: relative;
 }
 
-/* 侧边栏 */
-.skill-detail__sidebar {
-  width: 280px;
-  background: var(--color-background-secondary);
+/* 左侧文件树 */
+.skill-detail__tree {
+  width: 240px;
+  flex-shrink: 0;
+  background: var(--color-bg-secondary);
   border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
-  flex-shrink: 0;
-  z-index: 10;
+  overflow: hidden;
 }
 
-.skill-detail__sidebar-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--spacing-3) var(--spacing-4);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.skill-detail__sidebar-header h3 {
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-semibold);
-  margin: 0;
-}
-
-.skill-detail__sidebar-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: var(--spacing-2);
-}
-
-.skill-detail__file-item {
+.skill-detail__tree-header {
   display: flex;
   align-items: center;
   gap: var(--spacing-2);
-  padding: var(--spacing-2) var(--spacing-3);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.skill-detail__file-item:hover {
-  background: var(--color-background-tertiary);
-}
-
-.skill-detail__file-item--active {
-  background: var(--color-primary-bg);
-}
-
-.skill-detail__file-icon {
-  width: 18px;
-  height: 18px;
+  padding: var(--spacing-3);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
   color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
 }
 
-.skill-detail__file-item--active .skill-detail__file-icon {
-  color: var(--color-primary);
-}
-
-.skill-detail__file-info {
+.skill-detail__tree-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-2);
   display: flex;
   flex-direction: column;
-  min-width: 0;
-  flex: 1;
+  gap: 1px;
 }
 
-.skill-detail__file-name {
+.skill-detail__tree-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  padding: var(--spacing-1) var(--spacing-2);
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
   font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  overflow: hidden;
-  text-overflow: ellipsis;
+  color: var(--color-text-secondary);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
   white-space: nowrap;
 }
 
-.skill-detail__file-type,
-.skill-detail__file-meta {
+.skill-detail__tree-item:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.skill-detail__tree-item--active {
+  background: var(--workspace-list-active-bg, var(--color-surface-active));
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  font-weight: var(--font-weight-medium);
+}
+
+.skill-detail__tree-item--dir {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.skill-detail__tree-chevron {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+}
+
+.skill-detail__tree-icon {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+}
+
+.skill-detail__tree-item--dir .skill-detail__tree-icon {
+  color: var(--color-warning);
+}
+
+.skill-detail__tree-item--active .skill-detail__tree-icon {
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+.skill-detail__tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--font-size-xs);
+}
+
+.skill-detail__tree-empty {
+  padding: var(--spacing-3);
   font-size: var(--font-size-xs);
   color: var(--color-text-tertiary);
 }
 
-.skill-detail__divider {
-  height: 1px;
-  background: var(--color-border);
-  margin: var(--spacing-2) var(--spacing-3);
-}
-
-/* 主面板 */
+/* 右侧主面板 */
 .skill-detail__main {
   flex: 1;
   overflow: auto;
@@ -617,23 +629,11 @@ onMounted(() => {
 .skill-detail__spinner {
   width: 20px;
   height: 20px;
-  animation: spin 1s linear infinite;
+  animation: skill-detail-spin 1s linear infinite;
 }
 
-@keyframes spin {
+@keyframes skill-detail-spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
-}
-
-/* 侧边栏动画 */
-.slide-enter-active,
-.slide-leave-active {
-  transition: all 0.2s ease;
-}
-
-.slide-enter-from,
-.slide-leave-to {
-  transform: translateX(-100%);
-  opacity: 0;
 }
 </style>

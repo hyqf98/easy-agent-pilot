@@ -5,31 +5,6 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Skill 文件内容
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SkillFileContent {
-    pub path: String,
-    pub content: String,
-    pub file_type: String, // "markdown", "text", "code"
-}
-
-/// Reference 文件信息
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ReferenceFile {
-    pub name: String,
-    pub path: String,
-    pub file_type: String,
-    pub size: u64,
-}
-
-/// Reference 文件内容
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ReferenceFileContent {
-    pub name: String,
-    pub path: String,
-    pub content: String,
-    pub file_type: String,
-}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -335,111 +310,6 @@ pub fn create_cli_skill_scaffold(
         references_path,
         scripts_path,
         assets_path,
-    })
-}
-
-/// 读取 Skill 文件内容 (SKILL.md 或 skill.md)
-#[tauri::command]
-pub fn read_skill_file(skill_path: String) -> Result<SkillFileContent, String> {
-    let skill_dir = PathBuf::from(&skill_path);
-
-    if !skill_dir.exists() {
-        return Err(format!("Skill directory does not exist: {}", skill_path));
-    }
-
-    // 尝试读取 SKILL.md（优先）或 skill.md
-    let skill_md = skill_dir.join("SKILL.md");
-    let skill_md_lower = skill_dir.join("skill.md");
-
-    let md_path = if skill_md.exists() {
-        skill_md
-    } else if skill_md_lower.exists() {
-        skill_md_lower
-    } else {
-        return Err(format!("No SKILL.md or skill.md found in: {}", skill_path));
-    };
-
-    let content =
-        fs::read_to_string(&md_path).map_err(|e| format!("Failed to read skill file: {}", e))?;
-
-    Ok(SkillFileContent {
-        path: md_path.to_string_lossy().to_string(),
-        content,
-        file_type: "markdown".to_string(),
-    })
-}
-
-/// 列出 Skill references 目录下的文件
-#[tauri::command]
-pub fn list_skill_references(skill_path: String) -> Result<Vec<ReferenceFile>, String> {
-    let skill_dir = PathBuf::from(&skill_path);
-    let references_dir = skill_dir.join("references");
-
-    if !references_dir.exists() {
-        return Ok(Vec::new());
-    }
-
-    let mut files = Vec::new();
-
-    fn scan_directory(dir: &Path, files: &mut Vec<ReferenceFile>) -> Result<(), String> {
-        let entries = fs::read_dir(dir).map_err(|e| format!("Failed to read directory: {}", e))?;
-
-        for entry in entries.flatten() {
-            let path = entry.path();
-
-            if path.is_dir() {
-                // 递归扫描子目录
-                scan_directory(&path, files)?;
-            } else if path.is_file() {
-                let name = path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_default();
-
-                let metadata = fs::metadata(&path).ok();
-                let size = metadata.map(|m| m.len()).unwrap_or(0);
-
-                files.push(ReferenceFile {
-                    name,
-                    path: path.to_string_lossy().to_string(),
-                    file_type: get_file_type(&path),
-                    size,
-                });
-            }
-        }
-
-        Ok(())
-    }
-
-    scan_directory(&references_dir, &mut files)?;
-
-    // 按文件名排序
-    files.sort_by(|a, b| a.name.cmp(&b.name));
-
-    Ok(files)
-}
-
-/// 读取 reference 文件内容
-#[tauri::command]
-pub fn read_reference_file(file_path: String) -> Result<ReferenceFileContent, String> {
-    let path = PathBuf::from(&file_path);
-
-    if !path.exists() {
-        return Err(format!("File does not exist: {}", file_path));
-    }
-
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_default();
-
-    let content = fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {}", e))?;
-
-    Ok(ReferenceFileContent {
-        name,
-        path: file_path,
-        content,
-        file_type: get_file_type(&path),
     })
 }
 
@@ -854,9 +724,91 @@ pub fn delete_plugin_directory(plugin_path: String) -> Result<(), String> {
 /// 目录文件信息
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DirectoryFile {
     pub name: String,
     pub path: String,
+}
+
+/// Skill 目录下的文件/文件夹条目（递归）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillFileEntry {
+    pub name: String,
+    /// 绝对路径
+    pub path: String,
+    /// 相对于 skill 根目录的相对路径
+    pub rel_path: String,
+    pub is_dir: bool,
+    pub file_type: String,
+}
+
+/// 递归列出 Skill 目录下的所有文件和文件夹
+#[tauri::command]
+pub fn list_skill_all_files(skill_path: String) -> Result<Vec<SkillFileEntry>, String> {
+    let skill_dir = PathBuf::from(&skill_path);
+
+    if !skill_dir.exists() || !skill_dir.is_dir() {
+        return Err(format!("Skill directory does not exist: {}", skill_path));
+    }
+
+    let mut entries = Vec::new();
+
+    fn scan(
+        dir: &Path,
+        base: &Path,
+        entries: &mut Vec<SkillFileEntry>,
+    ) -> Result<(), String> {
+        let read = fs::read_dir(dir).map_err(|e| format!("Failed to read directory: {}", e))?;
+
+        for entry in read.flatten() {
+            let path = entry.path();
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+
+            // 跳过隐藏文件/目录
+            if name.starts_with('.') {
+                continue;
+            }
+
+            let rel_path = path
+                .strip_prefix(base)
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| name.clone());
+
+            let is_dir = path.is_dir();
+
+            entries.push(SkillFileEntry {
+                name: name.clone(),
+                path: path.to_string_lossy().to_string(),
+                rel_path,
+                is_dir,
+                file_type: if is_dir {
+                    "directory".to_string()
+                } else {
+                    get_file_type(&path)
+                },
+            });
+
+            if is_dir {
+                scan(&path, base, entries)?;
+            }
+        }
+        Ok(())
+    }
+
+    scan(&skill_dir, &skill_dir, &mut entries)?;
+
+    // 目录在前，同类按名称排序
+    entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.rel_path.cmp(&b.rel_path),
+    });
+
+    Ok(entries)
 }
 
 /// 读取文件内容

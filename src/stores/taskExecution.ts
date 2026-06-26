@@ -17,7 +17,7 @@ import { useTaskStore } from '@/stores/task'
 import { usePlanStore } from '@/stores/plan'
 import { useProjectStore } from '@/stores/project'
 import { useAgentStore, type AgentConfig, inferAgentProvider } from '@/stores/agent'
-import { useAgentTeamsStore } from '@/stores/agentTeams'
+import { useSubAgentStore } from '@/stores/subAgent'
 import { useSettingsStore } from '@/stores/settings'
 import { agentExecutor } from '@/services/conversation/AgentExecutor'
 import type { ConversationContext } from '@/services/conversation/strategies/types'
@@ -81,10 +81,10 @@ import {
 } from '@/utils/runtimeUsage'
 import { recordAgentCliUsageInBackground, resolveRecordedModelId } from '@/services/usage/agentCliUsageRecorder'
 import {
-  buildExpertSystemPrompt,
-  resolveExpertById,
-  resolveExpertRuntime
-} from '@/services/agentTeams/runtime'
+  buildSubAgentSystemPrompt,
+  resolveSubAgentById,
+  resolveSubAgentExecutionWithFallback
+} from '@/services/subAgent/runtime'
 import {
   getTaskRuntimeBinding,
   resolveRuntimeBindingKey,
@@ -768,7 +768,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
     const planStore = usePlanStore()
     const projectStore = useProjectStore()
     const agentStore = useAgentStore()
-    const agentTeamsStore = useAgentTeamsStore()
+    const agentTeamsStore = useSubAgentStore()
     const settingsStore = useSettingsStore()
 
     const task = taskStore.tasks.find(t => t.id === taskId)
@@ -864,12 +864,12 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
     }
 
     try {
-      await agentTeamsStore.loadExperts()
+      await agentTeamsStore.loadSubAgents()
 
-      const selectedExpert = resolveExpertById(task.expertId, agentTeamsStore.experts)
-        || resolveExpertById(plan.splitExpertId, agentTeamsStore.experts)
-        || agentTeamsStore.builtinDeveloperExpert
-        || agentTeamsStore.enabledExperts.find(expert => expert.category === 'developer')
+      const selectedExpert = resolveSubAgentById(task.expertId, agentTeamsStore.subAgents)
+        || resolveSubAgentById(plan.splitExpertId, agentTeamsStore.subAgents)
+        || agentTeamsStore.builtinDeveloperSubAgent
+        || agentTeamsStore.enabledSubAgents.find(expert => expert.category === 'developer')
         || null
 
       const selection = resolvePlanTaskAgentSelection(
@@ -881,7 +881,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
         plan
       )
 
-      const runtime = resolveExpertRuntime(
+      const runtime = resolveSubAgentExecutionWithFallback(
         selectedExpert,
         agentStore.agents,
         task.modelId || plan.splitModelId || undefined
@@ -985,7 +985,7 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
                 requestId: `task-${taskId}`,
                 role: 'system' as const,
                 messageType: 'system' as const,
-                content: buildExpertSystemPrompt(selectedExpert.prompt),
+                content: buildSubAgentSystemPrompt(selectedExpert.prompt),
                 status: 'completed' as const,
                 seq: 0,
                 createdAt: new Date().toISOString(),

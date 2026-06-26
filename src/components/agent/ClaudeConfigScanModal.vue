@@ -49,7 +49,7 @@ const scanConfig = async () => {
   scanResult.value = null
 
   try {
-    const result = await invoke<ClaudeConfigScanResult>('scan_claude_config')
+    const result = await invoke<ClaudeConfigScanResult>('scan_cli_config')
     scanResult.value = result
 
     if (!result.scan_success && result.error_message) {

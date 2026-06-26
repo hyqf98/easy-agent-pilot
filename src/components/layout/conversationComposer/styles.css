@@ -20,12 +20,12 @@
 }
 
 .conversation-composer--main {
-  --conversation-composer-main-max-lines: 4;
-  --conversation-composer-main-line-height: 1.6;
-  --conversation-composer-main-padding-y: 14px;
-  --conversation-composer-main-padding-x: 16px;
+  --conversation-composer-main-max-lines: 3.2;
+  --conversation-composer-main-line-height: 1.5;
+  --conversation-composer-main-padding-y: 10px;
+  --conversation-composer-main-padding-x: 13px;
   gap: 0;
-  padding: 12px 18px 14px;
+  padding: 8px 18px 12px;
   border-top: none;
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--color-bg-primary) 0%, transparent), var(--color-bg-primary) 42%);
@@ -122,13 +122,13 @@
 
 .conversation-composer--main .conversation-composer__panel {
   width: 100%;
-  max-width: min(100%, 980px);
+  max-width: min(100%, 900px);
   margin: 0 auto;
-  padding: 12px;
+  padding: 9px;
   border: 1px solid color-mix(in srgb, var(--workspace-border, var(--color-border)) 74%, transparent);
-  border-radius: 24px;
+  border-radius: 18px;
   background: color-mix(in srgb, var(--workspace-panel-bg, var(--color-surface)) 94%, transparent);
-  box-shadow: 0 18px 46px rgba(15, 23, 42, 0.1);
+  box-shadow: 0 12px 34px rgba(15, 23, 42, 0.08);
   backdrop-filter: blur(14px);
 }
 
@@ -137,7 +137,7 @@
   align-items: center;
   justify-content: flex-start;
   gap: 10px;
-  padding: 0 0 6px;
+  padding: 0 0 4px;
   border-bottom: none;
 }
 
@@ -154,7 +154,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 6px 0 0;
+  padding: 4px 0 0;
   flex-wrap: wrap;
 }
 
@@ -196,7 +196,7 @@
 
 .conversation-composer--main .composer-chip,
 .conversation-composer--main .conversation-composer__send {
-  min-height: 28px;
+  min-height: 26px;
   border: 1px solid var(--color-border);
   border-radius: 8px;
   background: var(--color-surface);
@@ -208,13 +208,13 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 28px;
+  min-height: 26px;
   padding: 0 10px;
   font-size: 12px;
 }
 
 .conversation-composer--main .composer-chip__button {
-  min-height: 28px;
+  min-height: 26px;
   gap: 4px;
   padding: 0 9px;
   font-size: 12px;
@@ -230,8 +230,8 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-width: 30px;
-  width: 30px;
+  min-width: 28px;
+  width: 28px;
   padding: 0;
   font-size: 12px;
   line-height: 1;
@@ -239,7 +239,7 @@
 }
 
 .conversation-composer--main .composer-chip--image {
-  min-height: 28px;
+  min-height: 26px;
 }
 
 .composer-chip--image:disabled {
@@ -270,9 +270,12 @@
   overflow-y: auto;
   border: 1px solid var(--composer-menu-border);
   border-radius: 12px;
-  background: var(--composer-menu-bg);
+  background: var(--workspace-panel-bg, var(--composer-menu-bg, var(--color-surface)));
   box-shadow: var(--composer-menu-shadow);
-  z-index: var(--z-dropdown);
+  z-index: calc(var(--z-dropdown) + 4);
+  cursor: default;
+  pointer-events: auto;
+  user-select: none;
 }
 
 .composer-chip__menu--right {
@@ -293,6 +296,7 @@
   padding: 7px 10px;
   border-radius: 8px;
   cursor: pointer;
+  user-select: none;
   font-size: 12px;
 }
 
@@ -318,7 +322,7 @@
 }
 
 .conversation-composer--main .conversation-composer__queue {
-  gap: 6px;
+  gap: 5px;
   padding: 0;
 }
 
@@ -356,11 +360,11 @@
 
 .conversation-composer--main .conversation-composer__queue-item {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) auto;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
-  padding: 7px 9px;
-  border-radius: 12px;
+  gap: 7px;
+  padding: 6px 8px;
+  border-radius: 10px;
   border: 1px solid color-mix(in srgb, var(--workspace-border, var(--color-border)) 76%, transparent);
   background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 88%, transparent);
 }
@@ -476,8 +480,8 @@
   box-sizing: border-box;
   display: block;
   width: 100%;
-  min-height: 108px;
-  padding: 12px 14px;
+  min-height: 82px;
+  padding: 9px 11px;
   border: 1px solid color-mix(in srgb, var(--color-primary) 26%, var(--color-border));
   border-radius: 14px;
   background:
@@ -529,8 +533,8 @@
 }
 
 .conversation-composer--main .conversation-composer__queue-action {
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   border-radius: 8px;
   border: 1px solid transparent;
   background: transparent;
@@ -552,7 +556,7 @@
   display: flex;
   flex-direction: column;
   position: relative;
-  min-height: 122px;
+  min-height: 104px;
   border: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
   border-radius: 22px;
   background: rgba(255, 255, 255, 0.96);
@@ -688,9 +692,9 @@
   grid-area: 1 / 1;
   width: 100%;
   height: 100%;
-  min-height: 122px;
+  min-height: 104px;
   max-height: 100%;
-  padding: 16px 18px;
+  padding: 13px 15px;
   box-sizing: border-box;
   font-family: inherit;
   font-weight: inherit;
@@ -1815,20 +1819,21 @@
 }
 
 .conversation-composer--main {
-  padding: 0 clamp(20px, 5%, 120px) 18px;
+  padding: 0 clamp(18px, 4.5%, 96px) 12px;
   background: var(--workspace-stage-bg);
 }
 
 .conversation-composer--main .conversation-composer__panel {
-  gap: 12px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  box-shadow: none;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--workspace-border, rgba(38, 38, 38, 0.1));
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--workspace-panel-bg, #ffffff) 94%, transparent);
+  box-shadow: var(--workspace-card-shadow, 0 18px 40px rgba(24, 24, 22, 0.06));
 }
 
 .conversation-composer--main .conversation-composer__queue {
-  gap: 8px;
+  gap: 5px;
   padding: 0 2px;
 }
 
@@ -1836,7 +1841,7 @@
 .conversation-composer--main .conversation-composer__queue-item {
   border-color: var(--workspace-border, rgba(38, 38, 38, 0.1));
   background: color-mix(in srgb, var(--workspace-panel-bg, #ffffff) 94%, transparent);
-  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.05);
 }
 
 .conversation-composer--main .conversation-composer__queue-head {
@@ -1846,7 +1851,7 @@
 .conversation-composer--main .conversation-composer__queue-item--editing {
   border-color: color-mix(in srgb, var(--color-primary, #2563eb) 26%, var(--workspace-border, rgba(38, 38, 38, 0.1)));
   background: color-mix(in srgb, var(--workspace-panel-bg, #ffffff) 90%, var(--color-primary-light, #dbeafe));
-  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.07);
 }
 
 .conversation-composer--main .conversation-composer__queue-index {
@@ -1890,6 +1895,8 @@
 .conversation-composer--main .conversation-composer__textarea:focus,
 .conversation-composer--main .conversation-composer__render:focus-within {
   outline: none;
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .conversation-composer--plan-mode.conversation-composer--main .conversation-composer__editor-shell,
@@ -1924,8 +1931,8 @@
 .conversation-composer--main .conversation-composer__textarea {
   height: auto;
   min-height: calc(var(--font-size-sm) * var(--conversation-composer-main-line-height) * 3 + (var(--conversation-composer-main-padding-y) * 2));
-  max-height: 220px;
-  padding: 16px 16px 8px;
+  max-height: 180px;
+  padding: 5px 12px 3px;
   color: var(--workspace-text-primary, var(--color-text-primary)) !important;
   -webkit-text-fill-color: currentColor;
   caret-color: var(--workspace-text-primary, var(--color-text-primary));
@@ -1959,7 +1966,7 @@
   align-items: flex-end;
   justify-content: space-between;
   gap: 12px;
-  padding: 6px 12px 12px;
+  padding: 2px 6px 4px;
   border-top: 0;
   background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 34%, transparent);
   border-radius: 0 0 18px 18px;
@@ -1992,6 +1999,8 @@
   color: var(--workspace-text-primary, var(--color-text-primary));
   backdrop-filter: blur(10px);
   box-shadow: none;
+  cursor: pointer;
+  user-select: none;
 }
 
 .conversation-composer--main .composer-chip__button {
@@ -1999,6 +2008,8 @@
   gap: 6px;
   padding: 0 11px;
   color: inherit;
+  cursor: pointer;
+  user-select: none;
 }
 
 .conversation-composer--main .composer-chip__text {
@@ -2021,7 +2032,7 @@
   bottom: calc(100% + 10px);
   border-radius: 14px;
   border-color: var(--workspace-border, rgba(38, 38, 38, 0.1));
-  background: color-mix(in srgb, var(--workspace-panel-bg, #ffffff) 98%, transparent);
+  background: var(--workspace-panel-bg, #ffffff);
   box-shadow: 0 22px 44px rgba(15, 23, 42, 0.12);
   color: var(--workspace-text-primary, var(--color-text-primary));
 }
@@ -2113,7 +2124,7 @@
 
 @media (max-width: 900px) {
   .conversation-composer--main {
-    padding: 10px 12px 14px;
+    padding: 8px 12px 12px;
   }
 
   .conversation-composer--main .token-progress {
@@ -2128,13 +2139,13 @@
 
   .conversation-composer--main .conversation-composer__render,
   .conversation-composer--main .conversation-composer__textarea {
-    padding: 8px 14px 14px;
+    padding: 5px 12px 3px;
   }
 
   .conversation-composer__control-row {
     flex-direction: column;
     align-items: stretch;
-    padding: 14px;
+    padding: 2px 6px 4px;
   }
 
   .conversation-composer__control-group--end {

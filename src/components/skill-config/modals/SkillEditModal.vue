@@ -20,9 +20,6 @@ const form = ref({
   name: '',
   description: '',
   skillPath: '',
-  scriptsPath: '',
-  referencesPath: '',
-  assetsPath: '',
 })
 
 const isEdit = computed(() => !!props.config?.id)
@@ -36,9 +33,6 @@ function resetForm() {
     name: '',
     description: '',
     skillPath: '',
-    scriptsPath: '',
-    referencesPath: '',
-    assetsPath: '',
   }
 }
 
@@ -52,9 +46,6 @@ watch(() => props.config, (config) => {
     name: config.name,
     description: config.description || '',
     skillPath: config.skillPath,
-    scriptsPath: config.scriptsPath || '',
-    referencesPath: config.referencesPath || '',
-    assetsPath: config.assetsPath || '',
   }
 }, { immediate: true })
 
@@ -71,9 +62,6 @@ function handleSave() {
     name: form.value.name.trim(),
     description: form.value.description.trim() || undefined,
     skillPath: form.value.skillPath.trim(),
-    scriptsPath: form.value.scriptsPath.trim() || undefined,
-    referencesPath: form.value.referencesPath.trim() || undefined,
-    assetsPath: form.value.assetsPath.trim() || undefined,
   }, props.config?.id)
 
   close()
@@ -127,35 +115,6 @@ function handleSave() {
           v-model="form.skillPath"
           type="text"
           :placeholder="t('settings.sdkConfig.skills.pathPlaceholder')"
-        >
-      </div>
-
-      <div class="form-row">
-        <div class="form-group">
-          <label>{{ t('settings.sdkConfig.skills.scriptsPath') }}</label>
-          <input
-            v-model="form.scriptsPath"
-            type="text"
-            :placeholder="t('settings.sdkConfig.skills.scriptsPathPlaceholder')"
-          >
-        </div>
-
-        <div class="form-group">
-          <label>{{ t('settings.sdkConfig.skills.referencesPath') }}</label>
-          <input
-            v-model="form.referencesPath"
-            type="text"
-            :placeholder="t('settings.sdkConfig.skills.referencesPathPlaceholder')"
-          >
-        </div>
-      </div>
-
-      <div class="form-group">
-        <label>{{ t('settings.sdkConfig.skills.assetsPath') }}</label>
-        <input
-          v-model="form.assetsPath"
-          type="text"
-          :placeholder="t('settings.sdkConfig.skills.assetsPathPlaceholder')"
         >
       </div>
     </div>
@@ -218,12 +177,6 @@ function handleSave() {
   gap: var(--spacing-4);
 }
 
-.form-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--spacing-4);
-}
-
 .form-group {
   display: flex;
   flex-direction: column;
@@ -253,11 +206,5 @@ function handleSave() {
   outline: none;
   border-color: var(--color-primary);
   box-shadow: 0 0 0 3px var(--color-primary-bg);
-}
-
-@media (max-width: 720px) {
-  .form-row {
-    grid-template-columns: 1fr;
-  }
 }
 </style>

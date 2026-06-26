@@ -8,7 +8,8 @@ import { useNotificationStore } from '@/stores/notification'
 import logger from '@/utils/logger'
 import { useTokenStore } from '@/stores/token'
 import { useMemoryStore } from '@/stores/memory'
-import { useAgentTeamsStore } from '@/stores/agentTeams'
+import { usePermissionStore } from '@/stores/permission'
+import { useSubAgentStore } from '@/stores/subAgent'
 import { agentExecutor } from './AgentExecutor'
 import type { ConversationContext, McpServerConfig, StreamEvent } from './strategies/types'
 import type { ReasoningEffortLevel } from '@/types/reasoning'
@@ -41,7 +42,7 @@ import {
   readCliSessionUsageSnapshot,
   readSessionCliUsageSnapshot
 } from '@/services/usage/cliSessionUsageSnapshot'
-import { buildExpertSystemPrompt, resolveExpertById } from '@/services/agentTeams/runtime'
+import { buildSubAgentSystemPrompt, resolveSubAgentById } from '@/services/subAgent/runtime'
 import { writeFrontendRuntimeLog } from '@/services/runtimeLog/client'
 import { useSettingsStore } from '@/stores/settings'
 import {
@@ -538,7 +539,7 @@ export class ConversationService {
       const userMessages = messages.filter(message => message.role === 'user')
       const systemMessages = messages.filter(message => message.role === 'system')
       const assistantMessages = messages.filter(message => message.role === 'assistant')
-      const selectedExpert = resolveExpertById(session?.expertId, useAgentTeamsStore().experts)
+      const selectedExpert = resolveSubAgentById(session?.expertId, useSubAgentStore().subAgents)
       // 上下文策略提示在新结构下走独立 system 行，不再构造塞进 aiMessage
       void selectedExpert
 
@@ -648,9 +649,9 @@ export class ConversationService {
 
     try {
       const sessionStore = useSessionStore()
-      const agentTeamsStore = useAgentTeamsStore()
+      const agentTeamsStore = useSubAgentStore()
       const projectId = sessionStore.sessions.find(session => session.id === sessionId)?.projectId
-      const expert = resolveExpertById(nextDraft.expertId, agentTeamsStore.experts)
+      const expert = resolveSubAgentById(nextDraft.expertId, agentTeamsStore.subAgents)
       await this.sendMessage(
         sessionId,
         nextDraft.content,
@@ -660,7 +661,7 @@ export class ConversationService {
         {
           modelId: nextDraft.modelId,
           injectedSystemMessages: expert
-            ? [buildExpertSystemPrompt(expert.prompt)]
+            ? [buildSubAgentSystemPrompt(expert.prompt)]
             : undefined,
           previewContent: nextDraft.displayContent,
           memoryReferencesToPersist: nextDraft.memoryReferences ?? []
@@ -1565,7 +1566,21 @@ export class ConversationService {
               return
             }
 
-            // 系统提示在新结构下走独立 system 行，前端不再塞进 aiMessage.runtimeNotices
+            // 非压缩系统消息（如 "Connecting to agent via ACP…"）：
+            // 落库为独立 system 行，前端以轻量状态条样式渲染
+            if (content && content.trim()) {
+              void messageStore.addMessage({
+                sessionId,
+                requestId: this.currentRequestId,
+                role: 'assistant',
+                messageType: 'system',
+                content,
+                status: 'completed',
+                seq: 0
+              }).catch(error => {
+                console.warn('[ConversationService] Failed to persist system message:', error)
+              })
+            }
           },
           onError: (error) => {
             if (isAiMessageInterrupted()) {
@@ -1574,8 +1589,20 @@ export class ConversationService {
 
             lastErrorMessage = error
           },
+          onPermissionRequest: (permission) => {
+            // ask 模式下后端已挂起等待；写入权限 store 驱动询问弹窗
+            usePermissionStore().setPending({
+              sessionId,
+              requestId: this.currentRequestId,
+              toolName: permission.toolName,
+              toolInput: permission.toolInput,
+              options: permission.options
+            })
+          },
           onDone: () => {
             markMetric('doneAt')
+            // 兜底清理：执行结束时移除可能残留的权限询问（后端超时 / 非正常完成）
+            usePermissionStore().clearPending(sessionId)
             const finalizedToolCalls = finalizePendingToolCalls(toolCalls)
             if (finalizedToolCalls !== toolCalls) {
               toolCalls.splice(0, toolCalls.length, ...finalizedToolCalls)
@@ -1833,10 +1860,15 @@ export class ConversationService {
       }) => void
       onSystem: (content: string) => void
       onError: (error: string) => void
+      onPermissionRequest: (permission: {
+        toolName: string
+        toolInput?: Record<string, unknown>
+        options: { optionId: string; name: string; kind: string }[]
+      }) => void
       onDone: () => void
     }
   ): void {
-    const { onContent, onThinking, onThinkingStart, onToolUse, onToolInputDelta, onToolResult, onFileEdit, onUsage, onSystem, onError, onDone } = handlers
+    const { onContent, onThinking, onThinkingStart, onToolUse, onToolInputDelta, onToolResult, onFileEdit, onUsage, onSystem, onError, onPermissionRequest, onDone } = handlers
 
     switch (event.type) {
       case 'content':
@@ -1920,6 +1952,14 @@ export class ConversationService {
         if (event.fileEdit) {
           onFileEdit(event.fileEdit)
         }
+        break
+
+      case 'permission_request':
+        onPermissionRequest({
+          toolName: event.toolName ?? '',
+          toolInput: event.toolInput,
+          options: event.permissionOptions ?? []
+        })
         break
 
       case 'done':

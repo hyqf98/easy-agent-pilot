@@ -8,7 +8,7 @@ import { LogicalPosition, LogicalSize } from '@tauri-apps/api/dpi'
 const WINDOW_STATE_KEY = 'windowState'
 
 // 窗口状态版本号（修改比例时递增此版本号，强制重新计算窗口大小）
-const WINDOW_STATE_VERSION = 5
+const WINDOW_STATE_VERSION = 6
 
 // 窗口状态接口
 export interface WindowState {
@@ -24,11 +24,11 @@ export interface WindowState {
 // 防抖保存延迟（毫秒）
 const SAVE_DELAY = 500
 
-// 默认窗口尺寸比例（相对于屏幕）
-const DEFAULT_WIDTH_RATIO = 0.8   // 窗口宽度占屏幕宽度的80%
-const DEFAULT_HEIGHT_RATIO = 0.8  // 窗口高度占屏幕高度的80%
-const MIN_WIDTH = 1200
-const MIN_HEIGHT = 720
+// 固定默认窗口尺寸（不再按屏幕比例缩放）
+const DEFAULT_WIDTH = 1200
+const DEFAULT_HEIGHT = 900
+const MIN_WIDTH = 640
+const MIN_HEIGHT = 480
 
 // 标记是否正在初始化窗口（初始化期间不保存状态）
 let isInitializing = false
@@ -98,30 +98,9 @@ export const useWindowStateStore = defineStore('windowState', () => {
     }
   }
 
-  // 获取屏幕尺寸并计算默认窗口大小（返回逻辑尺寸）
+  // 获取默认窗口大小（固定尺寸，不再按屏幕比例缩放）
   async function calculateDefaultWindowSize(): Promise<{ width: number; height: number }> {
-    try {
-      // 获取当前窗口所在的显示器
-      const monitor = await currentMonitor()
-      if (monitor) {
-        // 获取屏幕的逻辑尺寸（考虑 DPI 缩放）
-        const screenSize = monitor.size
-        const scaleFactor = monitor.scaleFactor
-
-        // 计算逻辑尺寸（物理尺寸 / 缩放因子）
-        const logicalWidth = Math.floor(screenSize.width / scaleFactor)
-        const logicalHeight = Math.floor(screenSize.height / scaleFactor)
-
-        // 按比例计算窗口大小
-        const width = Math.max(Math.floor(logicalWidth * DEFAULT_WIDTH_RATIO), MIN_WIDTH)
-        const height = Math.max(Math.floor(logicalHeight * DEFAULT_HEIGHT_RATIO), MIN_HEIGHT)
-        return { width, height }
-      }
-    } catch (error) {
-      console.error('[WindowState] 获取屏幕尺寸失败:', error)
-    }
-    // 如果无法获取屏幕尺寸，使用默认值
-    return { width: 1400, height: 900 }
+    return { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT }
   }
 
   // 应用窗口状态（使用逻辑像素）

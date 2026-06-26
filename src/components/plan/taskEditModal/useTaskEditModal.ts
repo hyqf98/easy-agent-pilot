@@ -2,13 +2,13 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { inferAgentProvider, useAgentStore } from '@/stores/agent'
 import { useAgentConfigStore } from '@/stores/agentConfig'
-import { useAgentTeamsStore } from '@/stores/agentTeams'
+import { useSubAgentStore } from '@/stores/subAgent'
 import { useNotificationStore } from '@/stores/notification'
 import { usePlanStore } from '@/stores/plan'
 import { useTaskStore } from '@/stores/task'
 import { checkCircularDependency, getAvailableDependencies } from '@/composables'
 import { useSafeOutsideClick } from '@/composables/useSafeOutsideClick'
-import { resolveExpertById, resolveExpertRuntime } from '@/services/agentTeams/runtime'
+import { resolveSubAgentById, resolveSubAgentExecutionWithFallback } from '@/services/subAgent/runtime'
 import type { Task, TaskPriority } from '@/types/plan'
 import { formatAgentModelLabel } from '@/utils/agentModelLabel'
 import { getErrorMessage } from '@/utils/api'
@@ -55,7 +55,7 @@ export function useTaskEditModal(props: TaskEditModalProps, emit: TaskEditModalE
   const taskStore = useTaskStore()
   const agentStore = useAgentStore()
   const agentConfigStore = useAgentConfigStore()
-  const agentTeamsStore = useAgentTeamsStore()
+  const agentTeamsStore = useSubAgentStore()
   const planStore = usePlanStore()
   const notificationStore = useNotificationStore()
   const { t } = useI18n()
@@ -75,7 +75,7 @@ export function useTaskEditModal(props: TaskEditModalProps, emit: TaskEditModalE
 
   const form = ref<TaskEditFormState>(buildFormState(props.task, planStore))
 
-  const expertOptions = computed(() => agentTeamsStore.enabledExperts)
+  const expertOptions = computed(() => agentTeamsStore.enabledSubAgents)
 
   const currentPlan = computed(() =>
     planStore.plans.find(plan => plan.id === props.task.planId) || null
@@ -103,7 +103,7 @@ export function useTaskEditModal(props: TaskEditModalProps, emit: TaskEditModalE
       return '当前计划未配置默认执行专家，可直接为任务单独选择。'
     }
 
-    const expertName = agentTeamsStore.getExpertById(currentPlan.value.splitExpertId)?.name || currentPlan.value.splitExpertId
+    const expertName = agentTeamsStore.getSubAgentById(currentPlan.value.splitExpertId)?.name || currentPlan.value.splitExpertId
     const modelLabel = currentPlan.value.splitModelId ? ` / ${currentPlan.value.splitModelId}` : ''
     return `默认来源于计划配置：${expertName}${modelLabel}`
   })
@@ -133,8 +133,8 @@ export function useTaskEditModal(props: TaskEditModalProps, emit: TaskEditModalE
   )
 
   function resolveCurrentRuntime() {
-    const expert = resolveExpertById(form.value.expertId, agentTeamsStore.experts)
-    return resolveExpertRuntime(expert, agentStore.agents, form.value.modelId)
+    const expert = resolveSubAgentById(form.value.expertId, agentTeamsStore.subAgents)
+    return resolveSubAgentExecutionWithFallback(expert, agentStore.agents, form.value.modelId)
   }
 
   function toggleSection(section: 'details') {
@@ -272,7 +272,7 @@ export function useTaskEditModal(props: TaskEditModalProps, emit: TaskEditModalE
   )
 
   watch(
-    () => [form.value.expertId, agentTeamsStore.experts.length] as const,
+    () => [form.value.expertId, agentTeamsStore.subAgents.length] as const,
     async () => {
       const runtime = resolveCurrentRuntime()
       if (!runtime) {
@@ -318,9 +318,9 @@ export function useTaskEditModal(props: TaskEditModalProps, emit: TaskEditModalE
   onMounted(() => {
     void Promise.all([
       agentStore.agents.length === 0 ? agentStore.loadAgents() : Promise.resolve(agentStore.agents),
-      agentTeamsStore.experts.length === 0
-        ? agentTeamsStore.loadExperts(true)
-        : Promise.resolve(agentTeamsStore.experts)
+      agentTeamsStore.subAgents.length === 0
+        ? agentTeamsStore.loadSubAgents(true)
+        : Promise.resolve(agentTeamsStore.subAgents)
     ])
     window.addEventListener('resize', updateDependencyDropdownLayout)
   })

@@ -53,60 +53,39 @@ const { t } = useI18n()
 
 <style scoped>
 .cli-type-tabs {
-  margin-bottom: 24px;
+  margin-bottom: var(--spacing-3);
 }
 
+/* 次级 Tab：下划线风格，与外层胶囊 Tab 形成层级区分 */
 .tabs-wrapper {
   display: inline-flex;
-  gap: 4px;
-  padding: 4px;
-  border: 1px solid var(--color-border, #d7e1ec);
-  border-radius: 10px;
-  background: var(--color-bg-secondary, #f4f7fb);
+  gap: var(--spacing-1);
+  border-bottom: 1px solid var(--workspace-border, var(--color-border));
 }
 
 .tab-btn {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 20px;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-3);
+  margin-bottom: -1px;
   border: none;
-  border-radius: 8px;
+  border-bottom: 2px solid transparent;
   background: transparent;
-  color: var(--color-text-secondary, #667085);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
   cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: all 0.2s ease;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  transition: color var(--transition-fast), border-color var(--transition-fast);
 }
 
 .tab-btn:hover {
-  background: var(--color-surface-hover, rgba(15, 23, 42, 0.05));
-  color: var(--color-text-primary, #0f172a);
+  color: var(--workspace-text-primary, var(--color-text-primary));
 }
 
 .tab-btn.active {
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-  color: #ffffff;
-  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.22);
-}
-
-:global(.dark) .tabs-wrapper {
-  border-color: var(--color-border, #334155);
-  background: var(--color-bg-secondary, #1f2937);
-}
-
-:global(.dark) .tab-btn {
-  color: var(--color-text-secondary, #cbd5e1);
-}
-
-:global(.dark) .tab-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--color-text-primary, #ffffff);
-}
-
-:global(.dark) .tab-btn.active {
-  background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
-  box-shadow: 0 8px 18px rgba(59, 130, 246, 0.28);
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  font-weight: var(--font-weight-semibold);
+  border-bottom-color: var(--workspace-text-primary, var(--color-text-primary));
 }
 </style>

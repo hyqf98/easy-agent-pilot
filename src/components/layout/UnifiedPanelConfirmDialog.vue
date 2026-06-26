@@ -81,16 +81,18 @@ function handleClose() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
+  background: rgba(15, 23, 42, 0.38);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .confirm-dialog {
   width: 400px;
   max-width: 90vw;
-  background-color: var(--color-surface);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-2xl);
+  background: color-mix(in srgb, var(--workspace-panel-bg, var(--color-surface)) 96%, transparent);
+  border: 1px solid var(--workspace-border, var(--color-border));
+  border-radius: 16px;
+  box-shadow: var(--workspace-card-shadow, 0 18px 40px rgba(24, 24, 22, 0.12));
 }
 
 .confirm-dialog__content {
@@ -110,7 +112,7 @@ function handleClose() {
   margin: 0 0 var(--spacing-2);
   font-size: var(--font-size-lg);
   font-weight: var(--font-weight-semibold);
-  color: var(--color-text-primary);
+  color: var(--workspace-text-primary, var(--color-text-primary));
 }
 
 .confirm-dialog__message {
@@ -118,7 +120,7 @@ function handleClose() {
   font-size: var(--font-size-sm);
   line-height: 1.5;
   white-space: pre-line;
-  color: var(--color-text-secondary);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
 }
 
 .confirm-dialog__actions {
@@ -126,7 +128,7 @@ function handleClose() {
   justify-content: flex-end;
   gap: var(--spacing-3);
   padding: var(--spacing-4) var(--spacing-6);
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--workspace-border, var(--color-border));
 }
 
 </style>

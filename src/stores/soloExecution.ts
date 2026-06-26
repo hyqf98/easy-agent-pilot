@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { AgentConfig } from '@/stores/agent'
 import { inferAgentProvider, useAgentStore } from '@/stores/agent'
-import { useAgentTeamsStore } from '@/stores/agentTeams'
+import { useSubAgentStore } from '@/stores/subAgent'
 import { useProjectStore } from '@/stores/project'
 import { useSettingsStore } from '@/stores/settings'
 import { useSoloRunStore } from './soloRun'
@@ -25,10 +25,11 @@ import {
 } from '@/utils/runtimeUsage'
 import { recordAgentCliUsageInBackground, resolveRecordedModelId } from '@/services/usage/agentCliUsageRecorder'
 import {
-  buildExpertCatalogPrompt,
-  resolveExpertById,
-  resolveExpertRuntime
-} from '@/services/agentTeams/runtime'
+  buildSubAgentCatalogPrompt,
+  resolveSubAgentById,
+  resolveSubAgentExecutionWithFallback
+} from '@/services/subAgent/runtime'
+import { syncSubAgentFiles } from '@/services/subAgent/syncService'
 import { loadAgentMcpServers } from '@/utils/mcpServerConfig'
 import {
   deleteSoloRuntimeBinding,
@@ -61,7 +62,7 @@ import type {
   UpdateSoloStepInput
 } from '@/types/solo'
 import type { ExecutionLogMetadata } from '@/types/taskExecution'
-import type { ToolCall } from '@/stores/message'
+import type { Message, ToolCall } from '@/stores/message'
 import type { AgentRuntimeKey } from '@/services/conversation/runtimeProfiles'
 import {
   classifyCliFailureWithExplicitPriority,
@@ -227,7 +228,7 @@ function createExecutionState(runId: string): SoloExecutionState {
   }
 }
 
-function createMessage(runId: string, role: 'system' | 'user' | 'assistant', content: string) {
+function createMessage(runId: string, role: 'system' | 'user' | 'assistant', content: string): Message {
   const now = new Date().toISOString()
   return {
     id: `solo-${role}-${runId}-${Math.random().toString(36).slice(2, 8)}`,
@@ -236,7 +237,7 @@ function createMessage(runId: string, role: 'system' | 'user' | 'assistant', con
     role,
     messageType: role === 'system' ? 'system' : 'text',
     content,
-    status: 'completed' as const,
+    status: 'completed',
     seq: 0,
     createdAt: now,
     updatedAt: now
@@ -551,14 +552,14 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
   }
 
   function resolveParticipantExperts(run: SoloRun) {
-    const agentTeamsStore = useAgentTeamsStore()
-    const enabledBuiltins = agentTeamsStore.enabledExperts.filter((expert) =>
+    const agentTeamsStore = useSubAgentStore()
+    const enabledBuiltins = agentTeamsStore.enabledSubAgents.filter((expert) =>
       expert.isBuiltin && expert.builtinCode !== 'builtin-solo-coordinator'
     )
-    const selectableExperts = agentTeamsStore.enabledExperts.filter((expert) =>
+    const selectableExperts = agentTeamsStore.enabledSubAgents.filter((expert) =>
       expert.builtinCode !== 'builtin-solo-coordinator'
     )
-    const fallbackExperts = enabledBuiltins.length > 0 ? enabledBuiltins : agentTeamsStore.enabledExperts
+    const fallbackExperts = enabledBuiltins.length > 0 ? enabledBuiltins : agentTeamsStore.enabledSubAgents
     const selectedIds = new Set((run.participantExpertIds ?? []).filter(Boolean))
 
     if (selectedIds.size === 0) {
@@ -597,23 +598,23 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
 
   async function resolveCoordinatorRuntime(run: SoloRun): Promise<SoloResolvedRuntime> {
     const agentStore = useAgentStore()
-    const agentTeamsStore = useAgentTeamsStore()
+    const agentTeamsStore = useSubAgentStore()
     const projectStore = useProjectStore()
 
     await Promise.all([
       agentStore.loadAgents(),
-      agentTeamsStore.loadExperts()
+      agentTeamsStore.loadSubAgents()
     ])
 
-    const runtimeExpert = resolveExpertById(run.coordinatorExpertId, agentTeamsStore.experts)
-      || agentTeamsStore.builtinSoloCoordinatorExpert
-      || agentTeamsStore.builtinPlannerExpert
-      || agentTeamsStore.builtinGeneralExpert
-      || agentTeamsStore.enabledExperts.find((expert) => expert.isBuiltin)
-      || agentTeamsStore.enabledExperts[0]
+    const runtimeExpert = resolveSubAgentById(run.coordinatorExpertId, agentTeamsStore.subAgents)
+      || agentTeamsStore.builtinSoloCoordinatorSubAgent
+      || agentTeamsStore.builtinPlannerSubAgent
+      || agentTeamsStore.builtinGeneralSubAgent
+      || agentTeamsStore.enabledSubAgents.find((expert) => expert.isBuiltin)
+      || agentTeamsStore.enabledSubAgents[0]
       || null
 
-    const runtime = resolveExpertRuntime(runtimeExpert, agentStore.agents, run.coordinatorModelId)
+    const runtime = resolveSubAgentExecutionWithFallback(runtimeExpert, agentStore.agents, run.coordinatorModelId)
     const agent = (run.coordinatorAgentId ? agentStore.agents.find((item) => item.id === run.coordinatorAgentId) : null)
       || runtime?.agent
       || agentStore.agents[0]
@@ -657,23 +658,23 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
 
   async function resolveStepRuntime(run: SoloRun, step: SoloStep): Promise<SoloResolvedRuntime> {
     const agentStore = useAgentStore()
-    const agentTeamsStore = useAgentTeamsStore()
+    const agentTeamsStore = useSubAgentStore()
     const projectStore = useProjectStore()
 
     await Promise.all([
       agentStore.loadAgents(),
-      agentTeamsStore.loadExperts()
+      agentTeamsStore.loadSubAgents()
     ])
 
-    const selectedExpert = resolveExpertById(step.selectedExpertId, agentTeamsStore.experts)
+    const selectedExpert = resolveSubAgentById(step.selectedExpertId, agentTeamsStore.subAgents)
       || resolveParticipantExperts(run)[0]
-      || resolveExpertById(run.coordinatorExpertId, agentTeamsStore.experts)
-      || agentTeamsStore.builtinGeneralExpert
-      || agentTeamsStore.enabledExperts.find((expert) => expert.isBuiltin)
-      || agentTeamsStore.enabledExperts[0]
+      || resolveSubAgentById(run.coordinatorExpertId, agentTeamsStore.subAgents)
+      || agentTeamsStore.builtinGeneralSubAgent
+      || agentTeamsStore.enabledSubAgents.find((expert) => expert.isBuiltin)
+      || agentTeamsStore.enabledSubAgents[0]
       || null
 
-    const runtime = resolveExpertRuntime(selectedExpert, agentStore.agents)
+    const runtime = resolveSubAgentExecutionWithFallback(selectedExpert, agentStore.agents)
     const fallbackAgent = agentStore.agents[0]
     const resolvedAgent = runtime?.agent || fallbackAgent
 
@@ -776,6 +777,7 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
 
     const context: ConversationContext = {
       sessionId,
+      requestId: run.id,
       agent,
       messages,
       workingDirectory,
@@ -1255,6 +1257,10 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
       await projectStore.loadProjects()
     }
     const project = projectStore.projects.find((project) => project.id === run.projectId)
+    // 子代理定义写盘到协调执行器的 CLI 配置目录（仅 claude/opencode 生效）
+    await syncSubAgentFiles(runtime.agent, useSubAgentStore().subAgents, run.executionPath || project?.path).catch(error => {
+      console.warn('Sub-agent sync failed:', error)
+    })
     const mountedMemoryPrompt = await loadMountedMemoryPrompt(
       collectMountedMemoryLibraryIds(project?.memoryLibraryIds, run.memoryLibraryIds)
     )
@@ -1268,7 +1274,7 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
     const coordinatorResumeSessionId = coordinatorBinding?.externalSessionId?.trim() || undefined
     const systemPrompt = buildSoloCoordinatorSystemPrompt(
       runtime.expertPrompt,
-      buildExpertCatalogPrompt(participantExperts, useAgentStore().agents)
+      buildSubAgentCatalogPrompt(participantExperts)
     )
     const controlPrompt = buildSoloControlPrompt({
       run,
@@ -1426,7 +1432,7 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
     )
     const stepRuntime = await resolveStepRuntime(run, step)
     const binding = stepRuntime.bindingKey ? await getSoloRuntimeBinding(run.id, stepRuntime.bindingKey).catch(() => null) : null
-    const selectedExpert = resolveExpertById(step.selectedExpertId, useAgentTeamsStore().experts)
+    const selectedExpert = resolveSubAgentById(step.selectedExpertId, useSubAgentStore().subAgents)
     const resumeContext = options.resume ? buildSoloResumeContext(state.logs.filter((log) => log.stepId === step.id)) : ''
     const userPrompt = options.resume && binding?.externalSessionId
       ? '继续执行当前步骤，直到满足本步完成条件。'
@@ -1759,7 +1765,7 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
         ? decision.step.selectedExpertId
         : undefined
       const expertForStep = selectedExpertId
-        ? resolveExpertById(selectedExpertId, useAgentTeamsStore().experts)
+        ? resolveSubAgentById(selectedExpertId, useSubAgentStore().subAgents)
         : null
 
       await addLog({
@@ -1965,19 +1971,19 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
 
   async function clearRunRuntimeBindings(run: SoloRun): Promise<void> {
     const agentStore = useAgentStore()
-    const agentTeamsStore = useAgentTeamsStore()
+    const agentTeamsStore = useSubAgentStore()
 
     await Promise.all([
       agentStore.loadAgents(),
-      agentTeamsStore.loadExperts()
+      agentTeamsStore.loadSubAgents()
     ])
 
     const bindingKeys = new Set<string>()
-    const coordinatorRuntime = resolveExpertRuntime(
-      resolveExpertById(run.coordinatorExpertId, agentTeamsStore.experts)
-        || agentTeamsStore.builtinSoloCoordinatorExpert
-        || agentTeamsStore.builtinPlannerExpert
-        || agentTeamsStore.builtinGeneralExpert,
+    const coordinatorRuntime = resolveSubAgentExecutionWithFallback(
+      resolveSubAgentById(run.coordinatorExpertId, agentTeamsStore.subAgents)
+        || agentTeamsStore.builtinSoloCoordinatorSubAgent
+        || agentTeamsStore.builtinPlannerSubAgent
+        || agentTeamsStore.builtinGeneralSubAgent,
       agentStore.agents,
       run.coordinatorModelId
     )

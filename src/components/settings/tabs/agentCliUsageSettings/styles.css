@@ -1,3 +1,9 @@
+/* ============================================================
+ * Token 统计页 —— 精致极简风格
+ * 遵循应用设计系统（variables.css），去除渐变与花哨边框，
+ * 靠留白、排版与克制配色建立层次。
+ * ============================================================ */
+
 .usage-stats-page {
   display: flex;
   flex-direction: column;
@@ -37,57 +43,69 @@
   background-color: var(--scrollbar-thumb-hover, var(--color-border-dark));
 }
 
-.usage-stats-page__hero {
+/* ---------- 页头：标题 + 操作 ---------- */
+.usage-stats-page__header {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: var(--spacing-4);
-  padding: var(--spacing-5);
-  border: 1px solid color-mix(in srgb, var(--color-border) 82%, white 18%);
-  border-radius: calc(var(--radius-lg) + 4px);
-  background:
-    radial-gradient(circle at top left, rgba(37, 99, 235, 0.16), transparent 42%),
-    radial-gradient(circle at bottom right, rgba(14, 116, 144, 0.16), transparent 44%),
-    linear-gradient(160deg, color-mix(in srgb, var(--color-bg-secondary) 92%, white 8%), var(--color-bg-secondary));
-}
-
-.usage-stats-page__eyebrow {
-  margin: 0 0 var(--spacing-2);
-  font-size: var(--font-size-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-primary);
 }
 
 .usage-stats-page__title {
   margin: 0;
-  font-size: clamp(1.5rem, 2vw, 2rem);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
   color: var(--color-text-primary);
-}
-
-.usage-stats-page__subtitle {
-  margin: var(--spacing-2) 0 0;
-  max-width: 760px;
-  color: var(--color-text-secondary);
-  line-height: 1.7;
 }
 
 .usage-stats-page__actions {
   display: flex;
   gap: var(--spacing-2);
-  flex-wrap: wrap;
 }
 
-.usage-filters {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+/* ---------- 筛选区（已移入各图表板块） ---------- */
+.usage-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
   gap: var(--spacing-4);
+  margin-bottom: var(--spacing-4);
+  padding-bottom: var(--spacing-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* 内联布局：筛选与卡片标题行并排 */
+.usage-filter-bar--inline {
+  justify-content: flex-start;
+}
+
+.usage-filter-bar__fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-4);
+  flex: 1;
+  min-width: 0;
+}
+
+.usage-filter-bar__presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--spacing-2);
+  padding-bottom: 0;
 }
 
 .usage-field {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-2);
+  /* 统一字段宽度，保证日期/CLI 控件宽高一致 */
+  width: 160px;
+}
+
+/* 内联字段：固定宽度，与同行控件对齐 */
+.usage-field--inline {
+  width: 200px;
 }
 
 .usage-field__label {
@@ -105,217 +123,179 @@
   color: var(--color-text-primary);
 }
 
-.usage-presets {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-3);
-  margin-top: var(--spacing-4);
-  padding-top: var(--spacing-4);
-  border-top: 1px dashed color-mix(in srgb, var(--color-border) 82%, white 18%);
-}
-
-.usage-presets__label {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-}
-
-.usage-presets__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--spacing-2);
+/* EaSelect 触发器与日期输入框高度统一为 40px */
+.usage-field :deep(.ea-select__trigger) {
+  min-height: 40px;
 }
 
 .usage-preset-chip {
-  min-height: 32px;
+  /* 与字段输入行对齐：行高 40px，使「今天/近7天」与日期控件底部基线一致 */
+  min-height: 40px;
   padding: 0 var(--spacing-3);
-  border: 1px solid color-mix(in srgb, var(--color-border) 85%, white 15%);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-bg-secondary) 92%, white 8%);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  background: var(--color-bg-secondary);
   color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
   cursor: pointer;
-  transition: transform 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+  transition:
+    color var(--transition-fast) var(--easing-default),
+    border-color var(--transition-fast) var(--easing-default),
+    background-color var(--transition-fast) var(--easing-default);
 }
 
 .usage-preset-chip:hover {
   color: var(--color-primary);
-  border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border) 60%);
-  transform: translateY(-1px);
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
 }
 
-.usage-stats-page__feedback,
-.usage-stats-page__warning {
-  padding: var(--spacing-4);
-  border-radius: var(--radius-lg);
-}
-
-.usage-stats-page__warning {
-  display: flex;
-  gap: var(--spacing-3);
-  align-items: center;
-  border: 1px solid rgba(234, 88, 12, 0.2);
-  background: rgba(255, 237, 213, 0.6);
-  color: #9a3412;
-}
-
-[data-theme='dark'] .usage-stats-page__warning {
-  background: rgba(124, 45, 18, 0.24);
-  color: #fdba74;
-}
-
-.usage-today-grid {
+/* ---------- 今日概览卡片 ---------- */
+.usage-overview {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--spacing-3);
-}
-
-.usage-today-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-2);
-  padding: var(--spacing-5);
-  border-radius: var(--radius-lg);
-  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-border) 76%);
-  background:
-    radial-gradient(circle at top left, color-mix(in srgb, var(--color-primary) 10%, transparent), transparent 60%),
-    var(--color-bg-secondary);
-}
-
-.usage-today-card__label {
-  color: var(--color-text-tertiary);
-  font-size: var(--font-size-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.usage-today-card__value {
-  color: var(--color-text-primary);
-  font-size: 1.6rem;
-  font-weight: var(--font-weight-semibold);
-}
-
-.usage-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: var(--spacing-3);
-}
-
-.usage-summary-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-2);
-  padding: var(--spacing-4);
-  border-radius: var(--radius-lg);
-  border: 1px solid color-mix(in srgb, var(--color-border) 84%, white 16%);
-  background: var(--color-bg-secondary);
-}
-
-.usage-summary-card__label {
-  color: var(--color-text-tertiary);
-  font-size: var(--font-size-xs);
-}
-
-.usage-summary-card__value {
-  color: var(--color-text-primary);
-  font-size: 1.25rem;
-}
-
-.usage-insight-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--spacing-3);
-}
-
-.usage-insight-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-2);
-  padding: var(--spacing-4);
-  border-radius: var(--radius-lg);
-  border: 1px solid color-mix(in srgb, var(--color-border) 82%, white 18%);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--color-bg-secondary) 96%, white 4%), var(--color-surface));
-}
-
-.usage-insight-card__label,
-.usage-insight-card__detail {
-  color: var(--color-text-tertiary);
-  font-size: var(--font-size-xs);
-}
-
-.usage-insight-card__value {
-  color: var(--color-text-primary);
-  font-size: 1.05rem;
-}
-
-.usage-chart-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--spacing-4);
 }
 
-.usage-chart-grid--ranking {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.usage-overview-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  padding: var(--spacing-5) var(--spacing-6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  transition: border-color var(--transition-fast) var(--easing-default);
 }
 
+.usage-overview-card:hover {
+  border-color: var(--color-primary);
+}
+
+.usage-overview-card__label {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-tertiary);
+  letter-spacing: 0.04em;
+}
+
+.usage-overview-card__value {
+  font-size: var(--font-size-3xl);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+/* 主指标（今日总 Token）用主色强调 */
+.usage-overview-card--accent .usage-overview-card__value {
+  color: var(--color-primary);
+}
+
+/* hover 明细弹框（向下弹出，避免被顶部遮挡） */
+.usage-overview-card__popover {
+  position: absolute;
+  top: calc(100% + var(--spacing-2));
+  left: 50%;
+  transform: translateX(-50%) translateY(calc(-1 * var(--spacing-1)));
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  min-width: 180px;
+  padding: var(--spacing-3) var(--spacing-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-elevated);
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity var(--transition-fast) var(--easing-default),
+    transform var(--transition-fast) var(--easing-default),
+    visibility var(--transition-fast);
+}
+
+/* 小三角指示（向上） */
+.usage-overview-card__popover::after {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-bottom-color: var(--color-surface-elevated);
+}
+
+.usage-overview-card__popover-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-3);
+}
+
+.usage-overview-card__popover-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.usage-overview-card__popover-value {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* hover / focus-within 时向下弹出 */
+.usage-overview-card:hover .usage-overview-card__popover,
+.usage-overview-card:focus-within .usage-overview-card__popover {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ---------- 反馈条 ---------- */
+.usage-stats-page__feedback {
+  padding: var(--spacing-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+/* ---------- 图表 ---------- */
 .usage-chart {
   width: 100%;
-  min-height: 340px;
+  min-height: 320px;
 }
 
-.usage-chart--compact {
-  min-height: 450px;
-}
-
-.usage-chart--provider {
-  min-height: 340px;
-}
-
-.usage-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--spacing-4);
-  color: var(--color-text-tertiary);
-  font-size: var(--font-size-xs);
-}
-
+/* ---------- 响应式 ---------- */
 @media (max-width: 1200px) {
-  .usage-filters,
-  .usage-today-grid,
-  .usage-summary-grid,
-  .usage-insight-grid,
-  .usage-chart-grid {
+  .usage-overview {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 1480px) {
-  .usage-chart-grid--ranking {
-    grid-template-columns: 1fr;
-  }
-}
-
 @media (max-width: 768px) {
-  .usage-stats-page__hero,
-  .usage-today-grid,
-  .usage-summary-grid,
-  .usage-insight-grid,
-  .usage-filters,
-  .usage-chart-grid {
-    grid-template-columns: 1fr;
-    display: grid;
+  .usage-stats-page__header {
+    flex-wrap: wrap;
   }
 
-  .usage-stats-page__hero {
-    align-items: flex-start;
+  .usage-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .usage-filter-bar,
+  .usage-filter-bar__fields {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .usage-field--inline {
+    width: 100%;
   }
 
   .usage-stats-page__actions {
     width: 100%;
-  }
-
-  .usage-stats-page__warning,
-  .usage-presets {
-    flex-direction: column;
-    align-items: flex-start;
   }
 }

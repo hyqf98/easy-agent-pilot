@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useI18n } from 'vue-i18n'
-import { EaButton, EaIcon, EaSelect } from '@/components/common'
+import { EaButton, EaIcon, EaSelect, EaActionMenu } from '@/components/common'
 import { useAgentStore } from '@/stores/agent'
 import { useNotificationStore } from '@/stores/notification'
 import { useProjectStore } from '@/stores/project'
@@ -479,10 +479,6 @@ onMounted(async () => {
 
 <template>
   <div class="settings-page">
-    <h3 class="settings-page__title">
-      {{ t('settings.nav.sessions') }}
-    </h3>
-
     <div class="settings-card">
       <h4 class="settings-card__title">
         {{ t('settings.sessionManager.agentSelection') }}
@@ -516,32 +512,33 @@ onMounted(async () => {
               :options="updatedRangeOptions"
             />
           </div>
-        </div>
 
-        <div class="toolbar__row toolbar__actions">
-          <EaButton
-            type="danger"
-            size="small"
-            :disabled="!currentProjectPath || isPreparingCurrentProjectDelete"
-            :loading="isPreparingCurrentProjectDelete"
-            @click="requestDeleteCurrentProjectSessions"
-          >
-            {{ t('settings.sessionManager.deleteCurrentProjectSessions') }}
-          </EaButton>
+          <div class="toolbar__actions">
+            <EaButton
+              type="ghost"
+              size="small"
+              :disabled="sessionListLoading"
+              @click="handleRefresh"
+            >
+              <EaIcon
+                name="refresh-cw"
+                :size="14"
+                :class="{ 'is-spinning': sessionListLoading }"
+              />
+              {{ t('common.refresh') }}
+            </EaButton>
 
-          <EaButton
-            type="ghost"
-            size="small"
-            :disabled="sessionListLoading"
-            @click="handleRefresh"
-          >
-            <EaIcon
-              name="refresh-cw"
-              :size="14"
-              :class="{ 'is-spinning': sessionListLoading }"
+            <EaActionMenu
+              :items="[{
+                key: 'delete-current-project',
+                label: t('settings.sessionManager.deleteCurrentProjectSessions'),
+                icon: 'trash-2',
+                danger: true,
+                disabled: !currentProjectPath || isPreparingCurrentProjectDelete
+              }]"
+              @select="(key) => key === 'delete-current-project' && requestDeleteCurrentProjectSessions()"
             />
-            {{ t('common.refresh') }}
-          </EaButton>
+          </div>
         </div>
       </div>
 
@@ -598,21 +595,15 @@ onMounted(async () => {
 .settings-page {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-6);
-}
-
-.settings-page__title {
-  margin: 0;
-  font-size: var(--font-size-xl);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text-primary);
+  gap: var(--spacing-4);
+  padding: clamp(8px, 1vw, 14px);
 }
 
 .settings-card {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-4);
-  padding: var(--spacing-5);
+  gap: var(--spacing-3);
+  padding: var(--spacing-4);
   background-color: var(--color-bg-secondary);
   border-radius: var(--radius-lg);
 }
@@ -622,14 +613,13 @@ onMounted(async () => {
   font-size: var(--font-size-base);
   font-weight: var(--font-weight-medium);
   color: var(--color-text-primary);
-  padding-bottom: var(--spacing-3);
+  padding-bottom: var(--spacing-2);
   border-bottom: 1px solid var(--color-border);
 }
 
 .toolbar {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-4);
 }
 
 .toolbar__row {
@@ -644,16 +634,18 @@ onMounted(async () => {
 
 .toolbar__item {
   flex: 1 1 0;
-  min-width: 160px;
+  min-width: 150px;
   display: flex;
   flex-direction: column;
   gap: var(--spacing-2);
 }
 
 .toolbar__actions {
-  justify-content: flex-end;
-  flex-wrap: wrap;
+  display: flex;
+  align-items: center;
   gap: var(--spacing-2);
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .toolbar__label {

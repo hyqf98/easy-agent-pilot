@@ -245,7 +245,8 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
       cacheReadInputTokens: event.cacheReadInputTokens,
       cacheCreationInputTokens: event.cacheCreationInputTokens,
       model: event.model,
-      externalSessionId: event.externalSessionId
+      externalSessionId: event.externalSessionId,
+      permissionOptions: event.permissionOptions
     }
 
     switch (event.type) {

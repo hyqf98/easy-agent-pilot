@@ -2,7 +2,7 @@ use anyhow::Result;
 use rusqlite::{Connection, Row};
 use serde::{Deserialize, Serialize};
 
-use super::agent_team::ensure_builtin_agent_experts;
+use super::sub_agent::ensure_builtin_sub_agents;
 use super::cli_support::normalize_cli_identifier;
 use super::support::{
     bind_optional, bind_optional_mapped, bind_value, bool_from_int, now_rfc3339,
@@ -102,34 +102,16 @@ fn map_agent_row(row: &Row<'_>) -> rusqlite::Result<Agent> {
     })
 }
 
+/// 解析智能体的运行模式。
+///
+/// 当前所有智能体统一使用 ACP 运行时，`agent_type` 恒为 `"acp"`，
+/// 仅需根据传入的 provider / mode 兜底默认值。
 fn resolve_agent_mode(
-    agent_type: &str,
     provider: Option<&String>,
     mode: Option<&String>,
-) -> (String, Option<String>, String) {
-    if agent_type == "acp" {
-        let resolved_mode = mode.cloned().unwrap_or_else(|| "acp".to_string());
-        return (agent_type.to_string(), provider.cloned(), resolved_mode);
-    }
-
-    if ["claude", "codex", "custom"].contains(&agent_type) {
-        let resolved_mode = mode.cloned().unwrap_or_else(|| "acp".to_string());
-        let resolved_provider = if agent_type == "custom" {
-            None
-        } else {
-            Some(agent_type.to_string())
-        };
-
-        return (resolved_mode.clone(), resolved_provider, resolved_mode);
-    }
-
-    if agent_type == "cli" {
-        let resolved_mode = mode.cloned().unwrap_or_else(|| "acp".to_string());
-        return ("acp".to_string(), provider.cloned(), resolved_mode);
-    }
-
-    let resolved_mode = mode.cloned().unwrap_or_else(|| agent_type.to_string());
-    (agent_type.to_string(), provider.cloned(), resolved_mode)
+) -> (Option<String>, String) {
+    let resolved_mode = mode.cloned().unwrap_or_else(|| "acp".to_string());
+    (provider.cloned(), resolved_mode)
 }
 
 /// 获取所有智能体配置
@@ -166,11 +148,11 @@ pub fn create_agent(input: CreateAgentInput) -> Result<Agent, String> {
     let now = now_rfc3339();
     let status = "offline".to_string();
 
-    let (final_type, final_provider, final_mode) = resolve_agent_mode(
-        input.agent_type.as_deref().unwrap_or("acp"),
+    let (final_provider, final_mode) = resolve_agent_mode(
         input.provider.as_ref(),
         input.mode.as_ref(),
     );
+    let final_type = "acp".to_string();
 
     let custom_model_enabled_int = if input.custom_model_enabled.unwrap_or(false) {
         1
@@ -202,7 +184,7 @@ pub fn create_agent(input: CreateAgentInput) -> Result<Agent, String> {
     )
     .map_err(|e| e.to_string())?;
 
-    ensure_builtin_agent_experts(&conn)?;
+    ensure_builtin_sub_agents(&conn)?;
 
     Ok(Agent {
         id,
@@ -275,7 +257,7 @@ pub fn update_agent(id: String, input: UpdateAgentInput) -> Result<Agent, String
 
     stmt.raw_execute().map_err(|e| e.to_string())?;
 
-    ensure_builtin_agent_experts(&conn)?;
+    ensure_builtin_sub_agents(&conn)?;
 
     // 获取更新后的智能体
     let agent = get_agent_by_id(&conn, &id)?;
@@ -311,7 +293,7 @@ pub fn delete_agent(id: String) -> Result<(), String> {
     conn.execute("DELETE FROM agents WHERE id = ?1", [&id])
         .map_err(|e| e.to_string())?;
 
-    ensure_builtin_agent_experts(&conn)?;
+    ensure_builtin_sub_agents(&conn)?;
 
     Ok(())
 }
@@ -332,13 +314,8 @@ pub async fn test_agent_connection(id: String) -> Result<TestResult, String> {
     )
     .map_err(|e| e.to_string())?;
 
-    let (success, message) = if agent.agent_type == "acp" || agent.acp_command.is_some() {
-        test_acp_connection(&agent).await
-    } else if agent.agent_type == "cli" {
-        test_cli_connection(&agent).await
-    } else {
-        test_api_connection(&agent).await
-    };
+    // 当前所有智能体统一使用 ACP 运行时，直接走 ACP 连接测试
+    let (success, message) = test_acp_connection(&agent).await;
 
     // 更新测试结果
     let status = if success { "online" } else { "error" };
@@ -369,83 +346,5 @@ async fn test_acp_connection(agent: &Agent) -> (bool, String) {
     match agent_client_protocol_tokio::AcpAgent::from_str(acp_command) {
         Ok(_) => (true, format!("ACP 命令解析成功: {}", acp_command)),
         Err(e) => (false, format!("ACP 命令解析失败: {}", e)),
-    }
-}
-
-/// 测试 CLI 连接
-async fn test_cli_connection(agent: &Agent) -> (bool, String) {
-    use crate::commands::cli_support::get_cli_version;
-
-    let cli_command = match agent
-        .cli_path
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .or_else(|| agent.provider.as_deref())
-    {
-        Some(command) => command,
-        None => return (false, "CLI 命令未配置".to_string()),
-    };
-
-    match get_cli_version(std::path::Path::new(cli_command)) {
-        Some(version) => (true, format!("连接成功: {}", version)),
-        None => (false, "CLI 执行失败: 无法获取版本信息".to_string()),
-    }
-}
-
-/// 测试 API 连接
-async fn test_api_connection(agent: &Agent) -> (bool, String) {
-    let base_url = match &agent.base_url {
-        Some(url) => url,
-        None => return (false, "API Base URL 未配置".to_string()),
-    };
-
-    // 构建测试 URL（尝试访问 /v1/models 端点）
-    let test_url = if base_url.ends_with('/') {
-        format!("{}v1/models", base_url)
-    } else {
-        format!("{}/v1/models", base_url)
-    };
-
-    // 使用 reqwest 发送请求
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build();
-
-    let client = match client {
-        Ok(c) => c,
-        Err(e) => return (false, format!("创建 HTTP 客户端失败: {}", e)),
-    };
-
-    let mut request = client.get(&test_url);
-
-    // 如果有 API Key，添加到请求头
-    if let Some(api_key) = &agent.api_key {
-        if !api_key.is_empty() {
-            request = request.bearer_auth(api_key);
-        }
-    }
-
-    let response = request.send().await;
-
-    match response {
-        Ok(resp) => {
-            if resp.status().is_success() {
-                (true, "连接成功: API 服务可用".to_string())
-            } else {
-                let status = resp.status();
-                (false, format!("API 返回错误状态: {}", status))
-            }
-        }
-        Err(e) => {
-            let err_msg = if e.is_timeout() {
-                "连接超时".to_string()
-            } else if e.is_connect() {
-                format!("无法连接到服务器: {}", e)
-            } else {
-                format!("请求失败: {}", e)
-            };
-            (false, err_msg)
-        }
     }
 }

@@ -2,13 +2,14 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSessionView } from '@/composables'
 import { useAgentStore } from '@/stores/agent'
-import { useAgentTeamsStore } from '@/stores/agentTeams'
+import { useSubAgentStore } from '@/stores/subAgent'
 import { useMessageStore } from '@/stores/message'
 import { useNotificationStore } from '@/stores/notification'
 import { useProjectStore } from '@/stores/project'
 import { useSessionStore, type Session } from '@/stores/session'
 import { useUIStore } from '@/stores/ui'
-import { resolveExpertRuntime } from '@/services/agentTeams/runtime'
+import { resolveSubAgentExecutionWithFallback } from '@/services/subAgent/runtime'
+import { syncSubAgentFiles } from '@/services/subAgent/syncService'
 
 export interface SessionPanelProps {
   collapsed?: boolean
@@ -37,7 +38,7 @@ export function useSessionPanelView() {
   const messageStore = useMessageStore()
   const notificationStore = useNotificationStore()
   const agentStore = useAgentStore()
-  const agentTeamsStore = useAgentTeamsStore()
+  const agentTeamsStore = useSubAgentStore()
   const { openSessionTarget } = useSessionView()
 
   const showDeleteConfirm = ref(false)
@@ -191,10 +192,10 @@ export function useSessionPanelView() {
     try {
       await Promise.all([
         agentStore.loadAgents(),
-        agentTeamsStore.loadExperts(true)
+        agentTeamsStore.loadSubAgents(true)
       ])
-      const expert = agentTeamsStore.builtinGeneralExpert || agentTeamsStore.enabledExperts[0] || null
-      const runtime = resolveExpertRuntime(expert, agentStore.agents)
+      const expert = agentTeamsStore.builtinGeneralSubAgent || agentTeamsStore.enabledSubAgents[0] || null
+      const runtime = resolveSubAgentExecutionWithFallback(expert, agentStore.agents)
 
       const newSession = await sessionStore.createSession({
         projectId: projectStore.currentProjectId,
@@ -207,6 +208,13 @@ export function useSessionPanelView() {
       projectStore.incrementSessionCount(projectStore.currentProjectId)
       uiStore.setAppMode('chat')
       uiStore.setMainContentMode('chat')
+      // 子代理定义写盘到选定执行器的 CLI 配置目录（仅 claude/opencode 生效）
+      if (runtime?.agent) {
+        const projectPath = projectStore.projects.find(p => p.id === projectStore.currentProjectId)?.path
+        await syncSubAgentFiles(runtime.agent, agentTeamsStore.subAgents, projectPath).catch(error => {
+          console.warn('Sub-agent sync failed:', error)
+        })
+      }
       await sessionStore.openSession(newSession.id)
     } catch (error) {
       console.error('Session creation failed in component:', error)
@@ -297,10 +305,10 @@ export function useSessionPanelView() {
     try {
       await Promise.all([
         agentStore.loadAgents(),
-        agentTeamsStore.loadExperts(true)
+        agentTeamsStore.loadSubAgents(true)
       ])
-      const expert = agentTeamsStore.builtinGeneralExpert || agentTeamsStore.enabledExperts[0] || null
-      const runtime = resolveExpertRuntime(expert, agentStore.agents)
+      const expert = agentTeamsStore.builtinGeneralSubAgent || agentTeamsStore.enabledSubAgents[0] || null
+      const runtime = resolveSubAgentExecutionWithFallback(expert, agentStore.agents)
 
       const newSession = await sessionStore.createSession({
         projectId: projectStore.currentProjectId,
@@ -315,6 +323,13 @@ export function useSessionPanelView() {
       uiStore.closeSessionCreateModal()
       uiStore.setAppMode('chat')
       uiStore.setMainContentMode('chat')
+      // 子代理定义写盘到选定执行器的 CLI 配置目录（仅 claude/opencode 生效）
+      if (runtime?.agent) {
+        const projectPath = projectStore.projects.find(p => p.id === projectStore.currentProjectId)?.path
+        await syncSubAgentFiles(runtime.agent, agentTeamsStore.subAgents, projectPath).catch(error => {
+          console.warn('Sub-agent sync failed:', error)
+        })
+      }
       await sessionStore.openSession(newSession.id)
     } catch (error) {
       console.error('Session creation failed in component:', error)

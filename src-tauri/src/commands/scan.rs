@@ -5,8 +5,7 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
-use crate::commands::cli_support::{resolve_cli_name, run_cli_command};
-use crate::commands::mcp_shared::parse_args_string;
+use crate::commands::cli_support::resolve_cli_name;
 use crate::commands::scan_session_shared::{
     clean_display_text, collect_jsonl_files, delete_cli_session_path,
     extract_jsonl_message_content, extract_jsonl_message_type, extract_jsonl_project_path,
@@ -944,61 +943,6 @@ pub async fn scan_cli_config(
     tokio::task::spawn_blocking(move || scan_cli_config_sync(cli_path, cli_type, project_path))
         .await
         .map_err(|e| e.to_string())?
-}
-
-/// 尝试通过 claude mcp list 命令获取 MCP 配置
-#[tauri::command]
-pub fn scan_claude_mcp_list() -> Result<Vec<ScannedMcpServer>, String> {
-    let output = run_cli_command(Path::new("claude"), &["mcp", "list"]);
-
-    match output {
-        Ok(output) => {
-            if output.status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                // 解析输出，格式可能是：
-                // server-name: command args
-                let mut servers = Vec::new();
-                for line in stdout.lines() {
-                    let line = line.trim();
-                    if line.is_empty() || line.starts_with('#') {
-                        continue;
-                    }
-
-                    // 尝试解析 "name: command args" 格式
-                    if let Some((name, rest)) = line.split_once(':') {
-                        let name = name.trim().to_string();
-                        let rest = rest.trim();
-
-                        let parts = parse_args_string(Some(rest));
-                        if !parts.is_empty() {
-                            let command = parts[0].clone();
-                            let args: Vec<String> = parts[1..].to_vec();
-
-                            servers.push(ScannedMcpServer {
-                                name,
-                                transport: McpTransportType::Stdio,
-                                scope: McpConfigScope::User,
-                                command: Some(command),
-                                args: if args.is_empty() { None } else { Some(args) },
-                                env: None,
-                                url: None,
-                                headers: None,
-                                disabled: false,
-                            });
-                        }
-                    }
-                }
-                Ok(servers)
-            } else {
-                // 命令执行失败，返回空列表
-                Ok(Vec::new())
-            }
-        }
-        Err(_) => {
-            // claude 命令不存在，返回空列表
-            Ok(Vec::new())
-        }
-    }
 }
 
 /// 扫描到的智能体会话信息
@@ -2436,12 +2380,6 @@ fn delete_opencode_session(_agent_id: &str, session_path: &str) -> Result<(), St
         .map_err(|e| format!("删除会话记录失败: {}", e))?;
 
     Ok(())
-}
-
-/// 扫描智能体会话历史 (Tauri 命令)
-#[tauri::command]
-pub fn scan_cli_sessions(input: ScanCliSessionsInput) -> Result<ScanCliSessionsResult, String> {
-    scan_cli_sessions_internal(input, false)
 }
 
 fn scan_cli_sessions_internal(

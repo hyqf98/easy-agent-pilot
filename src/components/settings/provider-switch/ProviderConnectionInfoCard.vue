@@ -39,21 +39,8 @@ const { t } = useI18n()
     >
       <div class="connection-header">
         <div class="connection-name">
-          <EaIcon
-            :name="connection.isValid ? 'check-circle' : 'alert-circle'"
-            :class="connection.isValid ? 'valid-icon' : 'invalid-icon'"
-            :size="18"
-          />
           {{ connection.displayName }}
         </div>
-        <span
-          class="status-badge"
-          :class="connection.isValid ? 'status-valid' : 'status-invalid'"
-        >
-          {{ connection.isValid ? t('settings.providerSwitch.connectionValid') : t('settings.providerSwitch.connectionInvalid') }}
-        </span>
-      </div>
-      <div class="connection-header__actions">
         <button
           class="connection-open-btn"
           @click="emit('openConfigEditor')"
@@ -171,24 +158,14 @@ const { t } = useI18n()
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--spacing-2);
   padding: 12px 16px;
   border-bottom: 1px solid var(--color-border, #d7e1ec);
   background: var(--color-surface, #ffffff);
 }
 
-.connection-header__actions {
-  display: flex;
-  justify-content: flex-end;
-  padding: 0 16px 12px;
-  background: var(--color-surface, #ffffff);
-}
-
 :global(.dark) .connection-header {
   border-color: var(--color-border, #334155);
-  background: var(--color-bg-tertiary, #253142);
-}
-
-:global(.dark) .connection-header__actions {
   background: var(--color-bg-tertiary, #253142);
 }
 
@@ -205,22 +182,19 @@ const { t } = useI18n()
   align-items: center;
   gap: 6px;
   border: 1px solid var(--color-border, #d7e1ec);
-  border-radius: 999px;
+  border-radius: var(--radius-md);
   padding: 6px 12px;
   background: var(--color-surface, #ffffff);
   color: var(--color-text-primary, #1a1a1a);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
   cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
 }
 
 .connection-open-btn:hover {
-  border-color: #93c5fd;
-  color: var(--color-primary, #2563eb);
-}
-
-.connection-open-btn--secondary {
-  font-weight: 500;
+  border-color: var(--color-border-dark, var(--color-border));
+  background: var(--color-surface-hover, rgba(15, 23, 42, 0.05));
 }
 
 :global(.dark) .connection-open-btn {
@@ -231,33 +205,6 @@ const { t } = useI18n()
 
 :global(.dark) .connection-name {
   color: var(--color-text-primary, #ffffff);
-}
-
-.valid-icon {
-  color: var(--color-success, #22c55e);
-}
-
-.invalid-icon {
-  color: var(--color-warning, #f59e0b);
-}
-
-.status-badge {
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.status-valid {
-  border: 1px solid rgba(34, 197, 94, 0.25);
-  background: rgba(34, 197, 94, 0.12);
-  color: #15803d;
-}
-
-.status-invalid {
-  border: 1px solid rgba(239, 68, 68, 0.24);
-  background: rgba(239, 68, 68, 0.12);
-  color: #dc2626;
 }
 
 .connection-body {
@@ -340,8 +287,8 @@ const { t } = useI18n()
 }
 
 .toggle-visibility-btn:hover {
-  background: rgba(37, 99, 235, 0.1);
-  color: #2563eb;
+  background: var(--color-surface-active, rgba(15, 23, 42, 0.08));
+  color: var(--color-text-primary, #1a1a1a);
 }
 
 .connection-error {

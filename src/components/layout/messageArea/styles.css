@@ -159,22 +159,6 @@
   flex: 1;
 }
 
-.message-area__empty-icon {
-  color: var(--color-text-tertiary);
-  margin-bottom: var(--spacing-4);
-}
-
-.message-area__empty-text {
-  font-size: var(--font-size-lg);
-  color: var(--color-text-secondary);
-  margin-bottom: var(--spacing-2);
-}
-
-.message-area__empty-hint {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-tertiary);
-}
-
 /* 输入区域 */
 .message-input {
   display: flex;
@@ -782,56 +766,101 @@
 
 .message-area__empty {
   background:
-    radial-gradient(circle at 50% 24%, rgba(0, 0, 0, 0.04), transparent 28%),
+    radial-gradient(circle at 50% 32%, rgba(0, 0, 0, 0.04), transparent 32%),
     var(--workspace-stage-bg);
   color: var(--workspace-text-secondary);
 }
 
-.message-area__empty-card {
-  width: min(520px, calc(100vw - 360px));
-  min-width: 280px;
-  padding: 34px;
-  border: 1px solid var(--workspace-border);
-  border-radius: 20px;
-  background: color-mix(in srgb, var(--workspace-panel-bg) 72%, transparent);
-  box-shadow: var(--workspace-card-shadow);
+/* 无边框欢迎页：内容直接铺在工作区背景上，与整体融为一体 */
+.message-area__empty-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  text-align: center;
+  max-width: 440px;
+  padding: 0 24px;
 }
 
-.message-area__empty-orb {
+/* 智能体图标：无边框，仅靠柔和光晕与背景过渡，作为欢迎页主视觉 */
+.message-area__empty-hero {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 52px;
-  height: 52px;
-  margin-bottom: 18px;
-  border: 1px solid var(--workspace-border);
-  border-radius: 16px;
-  background: var(--workspace-control-bg);
+  width: 76px;
+  height: 76px;
+  margin-bottom: 22px;
+  border-radius: 50%;
   color: var(--workspace-text-primary);
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--workspace-text-primary) 10%, transparent) 0%,
+    color-mix(in srgb, var(--workspace-text-primary) 4%, transparent) 55%,
+    transparent 100%
+  );
 }
 
-.message-area__empty-kicker {
-  margin-bottom: 8px;
-  color: var(--workspace-text-tertiary);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.message-area__empty-text {
-  margin-bottom: 8px;
+.message-area__empty-title {
+  margin-bottom: 10px;
   color: var(--workspace-text-primary);
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 600;
+  line-height: 1.4;
 }
 
 .message-area__empty-hint {
-  max-width: 420px;
-  margin: 0 auto;
+  max-width: 380px;
+  margin: 0 0 24px;
   color: var(--workspace-text-secondary);
   font-size: 13px;
-  line-height: 1.6;
+  line-height: 1.7;
+}
+
+/* 导入按钮：与工作区控件风格一致（描边 + 微凸起，不用蓝色实心） */
+.message-area__empty-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 20px;
+  border: 1px solid var(--workspace-control-border);
+  border-radius: 12px;
+  background: var(--workspace-control-active-bg);
+  color: var(--workspace-text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--workspace-control-active-shadow);
+  transition: transform 0.18s ease, background-color 0.18s ease;
+}
+
+.message-area__empty-cta:hover {
+  background: var(--workspace-control-hover-bg);
+  transform: translateY(-1px);
+}
+
+.message-area__empty-cta:active {
+  transform: translateY(0);
+}
+
+.message-area__modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+  opacity: 0;
 }
 
 .message-area__trace-handle,

@@ -19,14 +19,15 @@ import SkillCreateView from './skills/SkillCreateView.vue'
 import SkillDetailView from './views/SkillDetailView.vue'
 import PluginDetailView from './views/PluginDetailView.vue'
 import ProviderConfigEditorModal from '@/components/settings/provider-switch/ProviderConfigEditorModal.vue'
-import { EaButton, EaIcon } from '@/components/common'
-import { useOverlayDismiss } from '@/composables/useOverlayDismiss'
+import { EaIcon } from '@/components/common'
+import { useConfirmDialog } from '@/composables/useConfirmDialog'
 import type { CliSyncResult, CreateVisualSkillInput, SyncConfigType } from '@/stores/skillConfig'
 
 const { t } = useI18n()
 const agentStore = useAgentStore()
 const projectStore = useProjectStore()
 const skillConfigStore = useSkillConfigStore()
+const confirmDialog = useConfirmDialog()
 
 const activeTab = ref<'mcp' | 'skills' | 'plugins'>('mcp')
 
@@ -59,12 +60,6 @@ const {
   onAfterSave: async () => {
     await skillConfigStore.refreshCliConfigs()
   }
-})
-const {
-  handleOverlayPointerDown: handleDeleteOverlayPointerDown,
-  handleOverlayClick: handleDeleteOverlayClick
-} = useOverlayDismiss(() => {
-  showDeleteConfirm.value = false
 })
 
 const selectedCliType = computed<CliType | null>(() => {
@@ -133,8 +128,31 @@ watch(
   }
 )
 
-const showDeleteConfirm = ref(false)
-const deletingConfig = ref<{ type: 'mcp' | 'skills' | 'plugins'; config: UnifiedMcpConfig | UnifiedSkillConfig | UnifiedPluginConfig } | null>(null)
+// 通用删除确认：统一走全局确认弹框，按类型分发到对应 store 操作
+async function requestDelete(
+  type: 'mcp' | 'skills' | 'plugins',
+  config: UnifiedMcpConfig | UnifiedSkillConfig | UnifiedPluginConfig
+) {
+  const confirmed = await confirmDialog.danger(
+    t('settings.sdkConfig.confirmDeleteMessage'),
+    t('common.confirmDelete')
+  )
+  if (!confirmed) {
+    return
+  }
+
+  switch (type) {
+    case 'mcp':
+      await skillConfigStore.deleteMcpConfig((config as UnifiedMcpConfig).id)
+      break
+    case 'skills':
+      await skillConfigStore.deleteSkillWithFiles(config as UnifiedSkillConfig)
+      break
+    case 'plugins':
+      await skillConfigStore.deletePluginWithFiles(config as UnifiedPluginConfig)
+      break
+  }
+}
 
 // 加载智能体列表
 onMounted(async () => {
@@ -166,29 +184,7 @@ async function handleSaveMcp(config: Partial<UnifiedMcpConfig>, originalId?: str
 }
 
 function handleDeleteMcp(config: UnifiedMcpConfig) {
-  deletingConfig.value = { type: 'mcp', config }
-  showDeleteConfirm.value = true
-}
-
-async function confirmDelete() {
-  if (!deletingConfig.value) return
-
-  try {
-    switch (deletingConfig.value.type) {
-      case 'mcp':
-        await skillConfigStore.deleteMcpConfig((deletingConfig.value.config as UnifiedMcpConfig).id)
-        break
-      case 'skills':
-        await skillConfigStore.deleteSkillWithFiles(deletingConfig.value.config as UnifiedSkillConfig)
-        break
-      case 'plugins':
-        await skillConfigStore.deletePluginWithFiles(deletingConfig.value.config as UnifiedPluginConfig)
-        break
-    }
-  } finally {
-    showDeleteConfirm.value = false
-    deletingConfig.value = null
-  }
+  void requestDelete('mcp', config)
 }
 
 // Skills 鎿嶄綔
@@ -237,8 +233,7 @@ function handleEditSkill(config: UnifiedSkillConfig) {
 }
 
 function handleDeleteSkill(config: UnifiedSkillConfig) {
-  deletingConfig.value = { type: 'skills', config }
-  showDeleteConfirm.value = true
+  void requestDelete('skills', config)
 }
 
 function handleBackFromSkill() {
@@ -246,8 +241,7 @@ function handleBackFromSkill() {
 }
 
 async function handleDeleteSkillFromDetail(skill: UnifiedSkillConfig) {
-  deletingConfig.value = { type: 'skills', config: skill }
-  showDeleteConfirm.value = true
+  void requestDelete('skills', skill)
 }
 
 async function handleSaveSkill(config: Partial<UnifiedSkillConfig>, originalId?: string) {
@@ -304,8 +298,7 @@ async function handleSavePlugin(config: Partial<UnifiedPluginConfig>, originalId
 }
 
 function handleDeletePlugin(config: UnifiedPluginConfig) {
-  deletingConfig.value = { type: 'plugins', config }
-  showDeleteConfirm.value = true
+  void requestDelete('plugins', config)
 }
 
 function handleBackFromPlugin() {
@@ -313,8 +306,7 @@ function handleBackFromPlugin() {
 }
 
 async function handleDeletePluginFromDetail(plugin: UnifiedPluginConfig) {
-  deletingConfig.value = { type: 'plugins', config: plugin }
-  showDeleteConfirm.value = true
+  void requestDelete('plugins', plugin)
 }
 
 async function handleRefresh() {
@@ -410,7 +402,7 @@ function handleSyncCompleted(payload: { targetAgentId: string; result: CliSyncRe
       <div class="skill-config-page__tabs">
         <button
           class="skill-config-page__tab"
-          :class="{ 'skill-config-page__tab--active': activeTab === 'mcp', 'skill-config-page__tab--mcp': activeTab === 'mcp' }"
+          :class="{ 'skill-config-page__tab--active': activeTab === 'mcp' }"
           @click="activeTab = 'mcp'"
         >
           <EaIcon name="lucide:server" />
@@ -418,7 +410,7 @@ function handleSyncCompleted(payload: { targetAgentId: string; result: CliSyncRe
         </button>
         <button
           class="skill-config-page__tab"
-          :class="{ 'skill-config-page__tab--active': activeTab === 'skills', 'skill-config-page__tab--skills': activeTab === 'skills' }"
+          :class="{ 'skill-config-page__tab--active': activeTab === 'skills' }"
           @click="activeTab = 'skills'"
         >
           <EaIcon name="lucide:book-open" />
@@ -427,7 +419,7 @@ function handleSyncCompleted(payload: { targetAgentId: string; result: CliSyncRe
         <button
           v-if="showPluginsTab"
           class="skill-config-page__tab"
-          :class="{ 'skill-config-page__tab--active': activeTab === 'plugins', 'skill-config-page__tab--plugins': activeTab === 'plugins' }"
+          :class="{ 'skill-config-page__tab--active': activeTab === 'plugins' }"
           @click="activeTab = 'plugins'"
         >
           <EaIcon name="lucide:puzzle" />
@@ -516,40 +508,6 @@ function handleSyncCompleted(payload: { targetAgentId: string; result: CliSyncRe
       @format="handleFormatConfigEditor"
       @save="handleSaveConfigEditor"
     />
-
-    <div
-      v-if="showDeleteConfirm"
-      class="delete-confirm-overlay"
-      @pointerdown.capture="handleDeleteOverlayPointerDown"
-      @click.self="handleDeleteOverlayClick"
-    >
-      <div class="delete-confirm">
-        <div class="delete-confirm__header">
-          <EaIcon
-            name="lucide:alert-triangle"
-            class="delete-confirm__icon"
-          />
-          <h3>{{ t('common.confirmDelete') }}</h3>
-        </div>
-        <p class="delete-confirm__message">
-          {{ t('settings.sdkConfig.confirmDeleteMessage') }}
-        </p>
-        <div class="delete-confirm__actions">
-          <EaButton
-            variant="ghost"
-            @click="showDeleteConfirm = false"
-          >
-            {{ t('common.cancel') }}
-          </EaButton>
-          <EaButton
-            variant="danger"
-            @click="confirmDelete"
-          >
-            {{ t('common.delete') }}
-          </EaButton>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -557,69 +515,44 @@ function handleSyncCompleted(payload: { targetAgentId: string; result: CliSyncRe
 .skill-config-page {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  padding: var(--spacing-4);
-  overflow: hidden;
+  gap: var(--spacing-3);
+  /* 嵌入 Agent 管理后由父容器统一滚动，去掉 height:100%/overflow:hidden 避免双重滚动 */
+  padding: clamp(8px, 1vw, 14px);
 }
 
+/* 次级 Tab：下划线风格，与外层胶囊 Tab 形成层级区分 */
 .skill-config-page__tabs {
   display: flex;
   gap: var(--spacing-1);
-  padding: var(--spacing-1);
-  background: var(--color-background-secondary);
-  border-radius: var(--radius-lg);
-  margin-bottom: var(--spacing-4);
+  border-bottom: 1px solid var(--workspace-border, var(--color-border));
+  flex-shrink: 0;
+  align-self: flex-start;
 }
 
 .skill-config-page__tab {
   display: flex;
   align-items: center;
   gap: var(--spacing-2);
-  padding: var(--spacing-2) var(--spacing-4);
+  padding: var(--spacing-2) var(--spacing-3);
+  margin-bottom: -1px;
   border: none;
+  border-bottom: 2px solid transparent;
   background: transparent;
-  border-radius: var(--radius-md);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
-  color: var(--color-text-secondary);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
   cursor: pointer;
-  transition: all 0.2s;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
 }
 
 .skill-config-page__tab:hover {
-  color: var(--color-text);
+  color: var(--workspace-text-primary, var(--color-text-primary));
 }
 
 .skill-config-page__tab--active {
-  background: var(--color-surface);
-  box-shadow: var(--shadow-sm);
-}
-
-.skill-config-page__tab--mcp {
-  color: #8b5cf6;
-}
-
-.skill-config-page__tab--mcp.skill-config-page__tab--active {
-  background: rgba(139, 92, 246, 0.1);
-  color: #8b5cf6;
-}
-
-.skill-config-page__tab--skills {
-  color: #10b981;
-}
-
-.skill-config-page__tab--skills.skill-config-page__tab--active {
-  background: rgba(16, 185, 129, 0.1);
-  color: #10b981;
-}
-
-.skill-config-page__tab--plugins {
-  color: #f59e0b;
-}
-
-.skill-config-page__tab--plugins.skill-config-page__tab--active {
-  background: rgba(245, 158, 11, 0.1);
-  color: #f59e0b;
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  font-weight: var(--font-weight-semibold);
+  border-bottom-color: var(--workspace-text-primary, var(--color-text-primary));
 }
 
 .skill-config-page__tab svg {
@@ -628,57 +561,9 @@ function handleSyncCompleted(payload: { targetAgentId: string; result: CliSyncRe
 }
 
 .skill-config-page__content {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
-}
-
-.delete-confirm-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.delete-confirm {
-  background: var(--color-surface);
-  border-radius: var(--radius-xl);
-  padding: var(--spacing-6);
-  width: 400px;
-  max-width: 90vw;
-}
-
-.delete-confirm__header {
-  display: flex;
-  align-items: center;
   gap: var(--spacing-3);
-  margin-bottom: var(--spacing-4);
-}
-
-.delete-confirm__icon {
-  width: 24px;
-  height: 24px;
-  color: var(--color-danger);
-}
-
-.delete-confirm__header h3 {
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-semibold);
-}
-
-.delete-confirm__message {
-  color: var(--color-text-secondary);
-  margin-bottom: var(--spacing-6);
-}
-
-.delete-confirm__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--spacing-2);
+  min-height: 0;
 }
 </style>

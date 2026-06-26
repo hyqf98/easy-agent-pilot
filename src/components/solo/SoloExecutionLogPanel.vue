@@ -7,12 +7,12 @@ import { useAgentStore } from '@/stores/agent'
 import { formatTokenCount } from '@/stores/token'
 import { useSoloExecutionStore } from '@/stores/soloExecution'
 import { useSoloRunStore } from '@/stores/soloRun'
-import { useAgentTeamsStore } from '@/stores/agentTeams'
+import { useSubAgentStore } from '@/stores/subAgent'
 import type { SoloExecutionStatus, SoloLogEntry, SoloRunStatus, SoloStep, SoloStepStatus } from '@/types/solo'
 import type { TimelineEntry } from '@/types/timeline'
 import { buildToolCallMapFromLogs } from '@/utils/toolCallLog'
 import { DEFAULT_CONTEXT_WINDOW, resolveConfiguredContextWindow } from '@/utils/configuredModelContext'
-import { resolveExpertById, resolveExpertRuntime } from '@/services/agentTeams/runtime'
+import { resolveSubAgentById, resolveSubAgentExecutionWithFallback } from '@/services/subAgent/runtime'
 
 const props = defineProps<{
   runId: string
@@ -27,7 +27,7 @@ interface SoloCliRetryState {
 
 const soloExecutionStore = useSoloExecutionStore()
 const soloRunStore = useSoloRunStore()
-const agentTeamsStore = useAgentTeamsStore()
+const agentTeamsStore = useSubAgentStore()
 const agentStore = useAgentStore()
 const agentConfigStore = useAgentConfigStore()
 
@@ -56,18 +56,18 @@ const visibleLogs = computed<SoloLogEntry[]>(() => {
 })
 
 const selectedExpert = computed(() =>
-  resolveExpertById(selectedStep.value?.selectedExpertId, agentTeamsStore.experts)
+  resolveSubAgentById(selectedStep.value?.selectedExpertId, agentTeamsStore.subAgents)
 )
 const coordinatorExpert = computed(() =>
-  resolveExpertById(run.value?.coordinatorExpertId, agentTeamsStore.experts)
+  resolveSubAgentById(run.value?.coordinatorExpertId, agentTeamsStore.subAgents)
 )
 
 const currentRuntime = computed(() => {
   if (selectedStep.value) {
-    return resolveExpertRuntime(selectedExpert.value, agentStore.agents)
+    return resolveSubAgentExecutionWithFallback(selectedExpert.value, agentStore.agents)
   }
 
-  return resolveExpertRuntime(coordinatorExpert.value, agentStore.agents, run.value?.coordinatorModelId)
+  return resolveSubAgentExecutionWithFallback(coordinatorExpert.value, agentStore.agents, run.value?.coordinatorModelId)
 })
 
 const selectedExpertLabel = computed(() => {
@@ -498,7 +498,7 @@ onMounted(async () => {
   await Promise.all([
     soloExecutionStore.loadLogs(props.runId),
     agentStore.loadAgents(),
-    agentTeamsStore.loadExperts()
+    agentTeamsStore.loadSubAgents()
   ])
 })
 </script>

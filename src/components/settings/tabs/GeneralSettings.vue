@@ -17,12 +17,6 @@ const languageOptions = computed(() => [
   { value: 'en-US', label: t('languages.enUS') }
 ])
 
-// Tab 宽度选项
-const tabSizeOptions = computed(() => [
-  { value: 2, label: '2' },
-  { value: 4, label: '4' }
-])
-
 // 压缩策略选项
 const compressionStrategyOptions = computed(() => [
   { value: 'simple', label: t('settings.general.compressionStrategySimple') },
@@ -53,27 +47,16 @@ const acpPermissionModeOptions = computed(() => [
     </h3>
 
     <SettingsSectionCard :title="t('settings.general.appSettings')">
-      <div class="settings-item">
-        <div class="settings-item__info">
-          <span class="settings-item__label">{{ t('settings.general.language') }}</span>
-          <span class="settings-item__desc">{{ t('settings.general.languageDesc') }}</span>
-        </div>
+      <div class="settings-item settings-item--language">
+        <span class="settings-item__label">{{ t('settings.general.language') }}</span>
         <EaSelect
           v-model="settingsStore.settings.language"
           :options="languageOptions"
         />
       </div>
 
-      <div class="settings-item settings-item--column">
-        <div class="settings-item__header">
-          <div class="settings-item__info">
-            <span class="settings-item__label">{{ t('settings.general.fontSize') }}</span>
-            <span class="settings-item__desc">{{ t('settings.general.fontSizeDesc') }}</span>
-          </div>
-          <div class="font-size-value">
-            {{ settingsStore.settings.fontSize }}px
-          </div>
-        </div>
+      <div class="settings-item settings-item--font">
+        <span class="settings-item__label">{{ t('settings.general.fontSize') }}</span>
         <div class="font-size-slider">
           <span class="font-size-slider__label">12px</span>
           <input
@@ -86,58 +69,6 @@ const acpPermissionModeOptions = computed(() => [
           >
           <span class="font-size-slider__label">24px</span>
         </div>
-      </div>
-    </SettingsSectionCard>
-
-    <SettingsSectionCard :title="t('settings.general.behaviorSettings')">
-      <div class="settings-item">
-        <div class="settings-item__info">
-          <span class="settings-item__label">{{ t('settings.general.autoSave') }}</span>
-          <span class="settings-item__desc">{{ t('settings.general.autoSaveDesc') }}</span>
-        </div>
-        <label class="settings-toggle">
-          <input
-            v-model="settingsStore.settings.autoSave"
-            type="checkbox"
-          >
-          <span class="settings-toggle__slider" />
-        </label>
-      </div>
-
-      <div
-        v-if="!settingsStore.settings.autoSave"
-        class="settings-warning"
-      >
-        <span class="settings-warning__icon">⚠️</span>
-        <span class="settings-warning__text">{{ t('settings.general.autoSaveWarning') }}</span>
-      </div>
-
-      <div class="settings-item">
-        <div class="settings-item__info">
-          <span class="settings-item__label">{{ t('settings.general.confirmBeforeDelete') }}</span>
-          <span class="settings-item__desc">{{ t('settings.general.confirmBeforeDeleteDesc') }}</span>
-        </div>
-        <label class="settings-toggle">
-          <input
-            v-model="settingsStore.settings.confirmBeforeDelete"
-            type="checkbox"
-          >
-          <span class="settings-toggle__slider" />
-        </label>
-      </div>
-
-      <div class="settings-item">
-        <div class="settings-item__info">
-          <span class="settings-item__label">{{ t('settings.general.sendOnEnter') }}</span>
-          <span class="settings-item__desc">{{ t('settings.general.sendOnEnterDesc') }}</span>
-        </div>
-        <label class="settings-toggle">
-          <input
-            v-model="settingsStore.settings.sendOnEnter"
-            type="checkbox"
-          >
-          <span class="settings-toggle__slider" />
-        </label>
       </div>
     </SettingsSectionCard>
 
@@ -236,47 +167,6 @@ const acpPermissionModeOptions = computed(() => [
       </div>
     </SettingsSectionCard>
 
-    <SettingsSectionCard :title="t('settings.general.editorSettings')">
-      <div class="settings-item">
-        <div class="settings-item__info">
-          <span class="settings-item__label">{{ t('settings.general.editorFontSize') }}</span>
-          <span class="settings-item__desc">{{ t('settings.general.editorFontSizeDesc') }}</span>
-        </div>
-        <input
-          v-model.number="settingsStore.settings.editorFontSize"
-          type="number"
-          class="settings-input settings-input--small"
-          min="10"
-          max="24"
-        >
-      </div>
-
-      <div class="settings-item">
-        <div class="settings-item__info">
-          <span class="settings-item__label">{{ t('settings.general.tabWidth') }}</span>
-          <span class="settings-item__desc">{{ t('settings.general.tabWidthDesc') }}</span>
-        </div>
-        <EaSelect
-          v-model="settingsStore.settings.editorTabSize"
-          :options="tabSizeOptions"
-        />
-      </div>
-
-      <div class="settings-item">
-        <div class="settings-item__info">
-          <span class="settings-item__label">{{ t('settings.general.wordWrap') }}</span>
-          <span class="settings-item__desc">{{ t('settings.general.wordWrapDesc') }}</span>
-        </div>
-        <label class="settings-toggle">
-          <input
-            v-model="settingsStore.settings.editorWordWrap"
-            type="checkbox"
-          >
-          <span class="settings-toggle__slider" />
-        </label>
-      </div>
-    </SettingsSectionCard>
-
     <SettingsSectionCard :title="t('settings.general.retrySettings')">
       <div class="settings-item">
         <div class="settings-item__info">
@@ -343,16 +233,9 @@ const acpPermissionModeOptions = computed(() => [
   gap: var(--spacing-4);
 }
 
-.settings-item--column {
-  flex-direction: column;
-  align-items: stretch;
-}
-
-.settings-item__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-4);
+/* 字体大小：标签与滑条同行 */
+.settings-item--font {
+  gap: var(--spacing-3);
 }
 
 .settings-item__info {
@@ -365,6 +248,13 @@ const acpPermissionModeOptions = computed(() => [
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
   color: var(--color-text-primary);
+  white-space: nowrap;
+}
+
+/* 语言选择器：收窄宽度，避免与标签挤压导致换行 */
+.settings-item--language :deep(.ea-select) {
+  width: 220px;
+  max-width: 50%;
 }
 
 .settings-item__desc {
@@ -447,23 +337,12 @@ const acpPermissionModeOptions = computed(() => [
   transform: translateX(20px);
 }
 
-.font-size-value {
-  min-width: 50px;
-  padding: var(--spacing-1) var(--spacing-3);
-  background-color: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-primary);
-  text-align: center;
-}
-
 .font-size-slider {
   display: flex;
   align-items: center;
-  gap: var(--spacing-3);
-  margin-top: var(--spacing-3);
+  gap: var(--spacing-2);
+  width: 220px;
+  max-width: 50%;
 }
 
 .font-size-slider__label {

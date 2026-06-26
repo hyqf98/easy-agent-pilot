@@ -5,12 +5,17 @@ import { MessageList } from '@/components/message'
 import AiEditTracePane from './AiEditTracePane.vue'
 import PanelResizer from '../PanelResizer.vue'
 import ConversationComposer from '../conversationComposer/ConversationComposer.vue'
+import { ProjectCreateModal } from '@/components/project'
 import { useActiveFormRequest } from '@/composables/useActiveFormRequest'
 import { ACTIVE_FORM_ID } from '@/constants/activeForm'
 import { useMessageArea } from './useMessageArea'
 
 const {
   sessionStore,
+  uiStore,
+  projectStore,
+  hasProjects,
+  handleImportProject,
   workspaceRef,
   composerRef,
   TRACE_PANE_MIN_WIDTH,
@@ -44,6 +49,13 @@ function handleComposerFormSubmit(values: Record<string, unknown>) {
   if (activeForm.value) {
     void handleMessageFormSubmit(activeForm.value.formId, values, activeForm.value.assistantMessageId)
   }
+}
+
+// 欢迎页：导入项目提交（复用 projectStore.createProject）
+function handleProjectCreateSubmit(data: { name: string; path: string; description?: string }) {
+  void projectStore.createProject({ ...data, memoryLibraryIds: [] }).then(() => {
+    uiStore.closeProjectCreateModal()
+  })
 }
 </script>
 
@@ -99,7 +111,9 @@ function handleComposerFormSubmit(values: Record<string, unknown>) {
           :class="{ 'message-area__conversation--trace-active': showDesktopTracePane }"
         >
           <MessageList
+            :key="sessionStore.currentSessionId || 'empty'"
             class="message-area__list"
+            :session-id="sessionStore.currentSessionId || undefined"
             :hide-context-strategy-notice="true"
             :top-safe-inset="0"
             @retry="handleRetry"
@@ -154,28 +168,52 @@ function handleComposerFormSubmit(values: Record<string, unknown>) {
       </button>
     </template>
 
-    <!-- 空状态 -->
+    <!-- 欢迎页（无会话时引导用户导入项目，无边框，与工作区融为一体） -->
     <div
       v-else
       class="message-area__empty"
     >
-      <div class="message-area__empty-card">
-        <div class="message-area__empty-orb">
+      <div class="message-area__empty-inner">
+        <div class="message-area__empty-hero">
           <EaIcon
             name="bot"
-            :size="26"
+            :size="40"
           />
         </div>
-        <p class="message-area__empty-kicker">
-          Agent Workspace
-        </p>
-        <p class="message-area__empty-text">
-          Ready when you are.
+        <p class="message-area__empty-title">
+          {{ hasProjects ? $t('messageArea.welcome.titleReturning') : $t('messageArea.welcome.title') }}
         </p>
         <p class="message-area__empty-hint">
-          Start from New Agent, pick a repository on the left, or switch to Plan / SOLO above.
+          {{ hasProjects ? $t('messageArea.welcome.hintReturning') : $t('messageArea.welcome.hint') }}
         </p>
+        <button
+          class="message-area__empty-cta"
+          @click="handleImportProject"
+        >
+          <EaIcon
+            name="folder-plus"
+            :size="16"
+          />
+          <span>{{ $t('messageArea.welcome.importCta') }}</span>
+        </button>
       </div>
+
+      <!-- 导入项目弹窗 -->
+      <Teleport to="body">
+        <Transition name="modal-fade">
+          <div
+            v-if="uiStore.projectCreateModalVisible"
+            class="message-area__modal-backdrop"
+            @click.self="uiStore.closeProjectCreateModal()"
+          >
+            <ProjectCreateModal
+              :project="null"
+              @submit="handleProjectCreateSubmit"
+              @cancel="uiStore.closeProjectCreateModal()"
+            />
+          </div>
+        </Transition>
+      </Teleport>
     </div>
 
     <!-- 压缩确认对话框由 ConversationComposer 内部自洽处理 -->

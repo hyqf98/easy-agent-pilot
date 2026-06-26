@@ -70,11 +70,15 @@ const activeTabDescriptor = computed(() => getSettingsTabDescriptor(uiStore.acti
   min-height: 0;
   min-width: 0;
   overflow: hidden;
+  /* 顶部为浮动导航让出空间（设置页左栏已满铺至顶，仅内容区避让） */
+  padding-top: calc(var(--workspace-topbar-height, 44px) + 2px);
 }
 
 /* full 布局：交给各 tab 自管滚动 */
 .settings-content--full {
   padding: 14px;
+  /* 保留避让浮动导航的顶部空间（padding 简写会覆盖上面的 padding-top，需显式重设） */
+  padding-top: calc(var(--workspace-topbar-height, 44px) + 2px + 14px);
 }
 
 .settings-content__full {

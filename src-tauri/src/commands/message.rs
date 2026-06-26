@@ -10,6 +10,7 @@ use super::support::{now_rfc3339, open_db_connection};
 const MAX_INLINE_IMAGE_PREVIEW_BYTES: usize = 8 * 1024 * 1024;
 const MAX_ATTACHMENT_BYTES: usize = 64 * 1024 * 1024;
 const SESSION_UPLOADS_DIR: &str = "session-uploads";
+const PROJECT_UPLOADS_DIR: &str = ".agent_pilot";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -165,14 +166,34 @@ pub struct UploadSessionImagesResponse {
     pub attachments: Vec<MessageAttachment>,
 }
 
-fn session_uploads_root() -> Result<PathBuf, String> {
+fn fallback_session_uploads_root() -> Result<PathBuf, String> {
     super::get_persistence_dir_path()
         .map(|path| path.join("data").join(SESSION_UPLOADS_DIR))
         .map_err(|e| e.to_string())
 }
 
-fn session_upload_dir(session_id: &str) -> Result<PathBuf, String> {
-    Ok(session_uploads_root()?.join(session_id))
+fn project_session_uploads_root(project_path: &Path) -> PathBuf {
+    project_path.join(PROJECT_UPLOADS_DIR).join(SESSION_UPLOADS_DIR)
+}
+
+fn session_uploads_roots(project_path: Option<&str>) -> Result<Vec<PathBuf>, String> {
+    let mut roots = Vec::new();
+    if let Some(path) = project_path {
+        let trimmed = path.trim();
+        if !trimmed.is_empty() {
+            roots.push(project_session_uploads_root(Path::new(trimmed)));
+        }
+    }
+    roots.push(fallback_session_uploads_root()?);
+    Ok(roots)
+}
+
+fn session_upload_dir(session_id: &str, project_path: Option<&str>) -> Result<PathBuf, String> {
+    let root = session_uploads_roots(project_path)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| "无法解析附件目录".to_string())?;
+    Ok(root.join(session_id))
 }
 
 fn sanitize_file_name(name: &str) -> String {
@@ -238,8 +259,16 @@ fn parse_attachments(attachments_json: Option<String>) -> Option<Vec<MessageAtta
 }
 
 fn uploads_root_contains(path: &Path) -> Result<bool, String> {
-    let root = session_uploads_root()?;
-    Ok(path.starts_with(root))
+    let fallback_root = fallback_session_uploads_root()?;
+    let contains_fallback = path.starts_with(&fallback_root);
+    let components = path
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>();
+    let contains_project_root = components.windows(2).any(|window| {
+        window[0] == PROJECT_UPLOADS_DIR && window[1] == SESSION_UPLOADS_DIR
+    });
+    Ok(contains_fallback || contains_project_root)
 }
 
 /// messages 查询使用的列（与 INIT_SQL 定义一致，按此顺序读取）
@@ -292,9 +321,11 @@ fn remove_attachment_files(attachments: &[MessageAttachment]) -> Result<(), Stri
 }
 
 pub(crate) fn remove_session_uploads(session_id: &str) -> Result<(), String> {
-    let directory = session_upload_dir(session_id)?;
-    if directory.exists() {
-        fs::remove_dir_all(directory).map_err(|e| e.to_string())?;
+    for root in session_uploads_roots(None)? {
+        let directory = root.join(session_id);
+        if directory.exists() {
+            fs::remove_dir_all(directory).map_err(|e| e.to_string())?;
+        }
     }
 
     Ok(())
@@ -302,9 +333,14 @@ pub(crate) fn remove_session_uploads(session_id: &str) -> Result<(), String> {
 
 fn ensure_session_upload_path(session_id: &str, path: &str) -> Result<PathBuf, String> {
     let candidate = PathBuf::from(path);
-    let session_dir = session_upload_dir(session_id)?;
+    let is_session_path = uploads_root_contains(&candidate)?
+        && candidate
+            .parent()
+            .and_then(|parent| parent.file_name())
+            .and_then(|name| name.to_str())
+            == Some(session_id);
 
-    if !candidate.starts_with(&session_dir) {
+    if !is_session_path {
         return Err("非法的图片路径".to_string());
     }
 
@@ -548,6 +584,18 @@ pub fn delete_message(id: String) -> Result<(), String> {
 #[tauri::command]
 pub fn clear_session_messages(session_id: String) -> Result<(), String> {
     let conn = open_db_connection().map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare("SELECT attachments FROM messages WHERE session_id = ?1")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([&session_id], |row| row.get::<_, Option<String>>(0))
+        .map_err(|e| e.to_string())?;
+
+    for row in rows {
+        if let Some(attachments) = parse_attachments(row.map_err(|e| e.to_string())?) {
+            remove_attachment_files(&attachments)?;
+        }
+    }
 
     conn.execute("DELETE FROM messages WHERE session_id = ?1", [&session_id])
         .map_err(|e| e.to_string())?;
@@ -561,6 +609,7 @@ pub fn clear_session_messages(session_id: String) -> Result<(), String> {
 #[tauri::command]
 pub fn upload_session_images(
     session_id: String,
+    project_path: Option<String>,
     files: Vec<UploadImageInput>,
 ) -> Result<UploadSessionImagesResponse, String> {
     if files.is_empty() {
@@ -569,7 +618,7 @@ pub fn upload_session_images(
         });
     }
 
-    let session_dir = session_upload_dir(&session_id)?;
+    let session_dir = session_upload_dir(&session_id, project_path.as_deref())?;
     fs::create_dir_all(&session_dir).map_err(|e| e.to_string())?;
 
     let mut attachments = Vec::with_capacity(files.len());

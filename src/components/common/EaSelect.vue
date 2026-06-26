@@ -275,13 +275,14 @@ onUnmounted(() => {
 }
 
 .ea-select__option--selected {
-  background-color: var(--color-primary-light);
-  color: var(--color-primary-dark);
+  background-color: var(--workspace-list-active-bg, var(--color-surface-active));
+  color: var(--workspace-text-primary, var(--color-text-primary));
   font-weight: var(--font-weight-medium);
 }
 
 [data-theme='dark'] .ea-select__option--selected {
-  color: var(--color-primary);
+  background-color: var(--workspace-list-active-bg, var(--color-surface-active));
+  color: var(--workspace-text-primary, var(--color-text-primary));
 }
 
 .ea-select__option--disabled {

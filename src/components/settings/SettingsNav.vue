@@ -27,16 +27,6 @@ const groupedTabs = computed(() => (
     class="settings-nav"
     aria-label="Settings navigation"
   >
-    <header class="settings-nav__brand">
-      <span class="settings-nav__brand-mark">
-        <EaIcon
-          name="sliders-horizontal"
-          :size="15"
-        />
-      </span>
-      <span class="settings-nav__brand-title">{{ t('settings.title') }}</span>
-    </header>
-
     <div class="settings-nav__scroll">
       <section
         v-for="group in groupedTabs"
@@ -82,34 +72,6 @@ const groupedTabs = computed(() => (
   background-color: var(--workspace-sidebar-bg, var(--color-bg-secondary));
   border-right: 1px solid var(--workspace-border, var(--color-border));
   overflow: hidden;
-}
-
-.settings-nav__brand {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  height: var(--workspace-topbar-height, 44px);
-  flex: 0 0 auto;
-  padding: 0 16px;
-  border-bottom: 1px solid var(--workspace-border, var(--color-border));
-  color: var(--workspace-text-primary, var(--color-text-primary));
-}
-
-.settings-nav__brand-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: var(--radius-md);
-  background: var(--workspace-control-hover-bg, var(--color-surface-active));
-  color: var(--workspace-text-secondary, var(--color-text-secondary));
-}
-
-.settings-nav__brand-title {
-  font-size: 13px;
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.01em;
 }
 
 .settings-nav__scroll {

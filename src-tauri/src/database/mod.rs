@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 use crate::commands::support::{
     MEMORY_CHUNKS_FTS_TABLE_SQL, MEMORY_SEARCH_TRIGGERS_SQL, RAW_MEMORY_FTS_TABLE_SQL,
@@ -93,27 +93,31 @@ const INIT_SQL: &str = r#"
         updated_at TEXT NOT NULL
     );
 
-    -- AgentTeams 专家表
-    CREATE TABLE IF NOT EXISTS agent_experts (
+    -- 子代理配置表（Sub-Agent，对齐 CLI 子代理 frontmatter）
+    -- 子代理是纯 persona 层（prompt + 工具约束），不再绑定 ACP 执行载体；
+    -- 执行器选择上移到会话/计划/SOLO 运行级别，子代理经 _meta.systemPrompt 自动注入给会话选定的执行器。
+    CREATE TABLE IF NOT EXISTS sub_agents (
         id TEXT PRIMARY KEY,
         builtin_code TEXT UNIQUE,
         name TEXT NOT NULL,
         description TEXT,
         prompt TEXT NOT NULL,
-        runtime_agent_id TEXT,
-        default_model_id TEXT,
         category TEXT NOT NULL DEFAULT 'custom',
         tags TEXT NOT NULL DEFAULT '[]',
         recommended_scenes TEXT NOT NULL DEFAULT '[]',
+        tools TEXT NOT NULL DEFAULT '[]',
+        disallowed_tools TEXT NOT NULL DEFAULT '[]',
+        model TEXT,
+        permission_mode TEXT,
+        max_turns INTEGER,
         is_builtin INTEGER NOT NULL DEFAULT 0,
         is_enabled INTEGER NOT NULL DEFAULT 1,
+        is_system INTEGER NOT NULL DEFAULT 0,
         sort_order INTEGER NOT NULL DEFAULT 100,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        FOREIGN KEY (runtime_agent_id) REFERENCES agents(id) ON DELETE SET NULL
+        updated_at TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_agent_experts_runtime ON agent_experts(runtime_agent_id);
-    CREATE INDEX IF NOT EXISTS idx_agent_experts_enabled_order ON agent_experts(is_enabled, sort_order, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_sub_agents_enabled_order ON sub_agents(is_enabled, sort_order, updated_at DESC);
 
     -- MCP 服务器配置表
     CREATE TABLE IF NOT EXISTS mcp_servers (
@@ -842,6 +846,87 @@ fn table_has_column(conn: &Connection, table_name: &str, column_name: &str) -> R
     Ok(false)
 }
 
+/// 检测表是否存在（用于条件迁移）。
+fn table_exists(conn: &Connection, table_name: &str) -> Result<bool> {
+    conn.query_row(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
+        [table_name],
+        |_| Ok(()),
+    )
+    .optional()
+    .map(|opt| opt.is_some())
+    .map_err(Into::into)
+}
+
+/// 将旧 `agent_experts`（专家团队）表迁移为 `sub_agents`（子代理）表。
+///
+/// 迁移策略（数据保留，结构重建）：
+/// - `sub_agents` 不存在时按新结构建表；
+/// - 旧 `agent_experts` 若存在，把 persona 相关列拷贝过来（丢弃 `runtime_agent_id` /
+///   `default_model_id`，补默认值给新增的 `tools`/`disallowed_tools`/`model`/
+///   `permission_mode`/`max_turns`），随后 DROP 旧表；
+/// - 补建索引。
+fn migrate_agent_experts_to_sub_agents(conn: &Connection) -> Result<()> {
+    let sub_agents_ready = table_has_column(conn, "sub_agents", "prompt")?;
+    if !sub_agents_ready {
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS sub_agents (
+                id TEXT PRIMARY KEY,
+                builtin_code TEXT UNIQUE,
+                name TEXT NOT NULL,
+                description TEXT,
+                prompt TEXT NOT NULL,
+                category TEXT NOT NULL DEFAULT 'custom',
+                tags TEXT NOT NULL DEFAULT '[]',
+                recommended_scenes TEXT NOT NULL DEFAULT '[]',
+                tools TEXT NOT NULL DEFAULT '[]',
+                disallowed_tools TEXT NOT NULL DEFAULT '[]',
+                model TEXT,
+                permission_mode TEXT,
+                max_turns INTEGER,
+                is_builtin INTEGER NOT NULL DEFAULT 0,
+                is_enabled INTEGER NOT NULL DEFAULT 1,
+                is_system INTEGER NOT NULL DEFAULT 0,
+                sort_order INTEGER NOT NULL DEFAULT 100,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            "#,
+        )?;
+    }
+
+    // 旧表存在则把 persona 数据迁移过来，再删除旧表。
+    // runtime_agent_id / default_model_id 故意不迁移：执行器选择已上移到
+    // session/plan/soloRun 实体列，子代理不再持有载体绑定。
+    if table_exists(conn, "agent_experts")? {
+        println!("Migrating agent_experts -> sub_agents ...");
+        conn.execute_batch(
+            r#"
+            INSERT OR IGNORE INTO sub_agents (
+                id, builtin_code, name, description, prompt,
+                category, tags, recommended_scenes, tools, disallowed_tools,
+                model, permission_mode, max_turns,
+                is_builtin, is_enabled, sort_order, created_at, updated_at
+            )
+            SELECT
+                id, builtin_code, name, description, prompt,
+                category, tags, recommended_scenes, '[]', '[]',
+                NULL, NULL, NULL,
+                is_builtin, is_enabled, sort_order, created_at, updated_at
+            FROM agent_experts;
+            DROP TABLE agent_experts;
+            "#,
+        )?;
+        println!("agent_experts migrated to sub_agents.");
+    }
+
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_sub_agents_enabled_order ON sub_agents(is_enabled, sort_order, updated_at DESC)",
+    )?;
+    Ok(())
+}
+
 /// 初始化数据库
 pub fn init_database() -> Result<()> {
     // 获取持久化目录
@@ -1060,9 +1145,12 @@ pub fn init_database() -> Result<()> {
         println!("Agent models index migration warning: {}", e);
     }
 
-    // agent_models 表添加 context_window 字段
-    let agent_models_migrations =
-        ["ALTER TABLE agent_models ADD COLUMN context_window INTEGER DEFAULT 128000"];
+    // agent_models 表添加 context_window / 输入费用 / 输出费用字段
+    let agent_models_migrations = [
+        "ALTER TABLE agent_models ADD COLUMN context_window INTEGER DEFAULT 128000",
+        "ALTER TABLE agent_models ADD COLUMN input_cost_per_million_usd REAL",
+        "ALTER TABLE agent_models ADD COLUMN output_cost_per_million_usd REAL",
+    ];
 
     for migration in agent_models_migrations {
         if let Err(e) = conn.execute(migration, []) {
@@ -1070,6 +1158,17 @@ pub fn init_database() -> Result<()> {
             if !err_str.contains("duplicate column name") {
                 println!("Agent models migration warning: {}", e);
             }
+        }
+    }
+
+    // sub_agents 表添加 is_system 字段（系统级子代理，配置页隐藏）
+    if let Err(e) = conn.execute(
+        "ALTER TABLE sub_agents ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0",
+        [],
+    ) {
+        let err_str = e.to_string();
+        if !err_str.contains("duplicate column name") {
+            println!("Sub agents migration warning: {}", e);
         }
     }
 
@@ -1311,39 +1410,8 @@ pub fn init_database() -> Result<()> {
         }
     }
 
-    let agent_experts_table_sql = r#"
-        CREATE TABLE IF NOT EXISTS agent_experts (
-            id TEXT PRIMARY KEY,
-            builtin_code TEXT UNIQUE,
-            name TEXT NOT NULL,
-            description TEXT,
-            prompt TEXT NOT NULL,
-            runtime_agent_id TEXT,
-            default_model_id TEXT,
-            category TEXT NOT NULL DEFAULT 'custom',
-            tags TEXT NOT NULL DEFAULT '[]',
-            recommended_scenes TEXT NOT NULL DEFAULT '[]',
-            is_builtin INTEGER NOT NULL DEFAULT 0,
-            is_enabled INTEGER NOT NULL DEFAULT 1,
-            sort_order INTEGER NOT NULL DEFAULT 100,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            FOREIGN KEY (runtime_agent_id) REFERENCES agents(id) ON DELETE SET NULL
-        )
-    "#;
-    if let Err(e) = conn.execute(agent_experts_table_sql, []) {
-        println!("Agent experts table migration warning: {}", e);
-    }
-
-    let agent_experts_index_migrations = [
-        "CREATE INDEX IF NOT EXISTS idx_agent_experts_runtime ON agent_experts(runtime_agent_id)",
-        "CREATE INDEX IF NOT EXISTS idx_agent_experts_enabled_order ON agent_experts(is_enabled, sort_order, updated_at DESC)",
-    ];
-    for migration in agent_experts_index_migrations {
-        if let Err(e) = conn.execute(migration, []) {
-            println!("Agent experts index migration warning: {}", e);
-        }
-    }
+    // agent_experts -> sub_agents 迁移（表重建 + persona 数据保留）
+    migrate_agent_experts_to_sub_agents(&conn)?;
 
     // task_split_sessions 表（存储AI原始输出和解析状态）
     let task_split_sessions_table_sql = r#"

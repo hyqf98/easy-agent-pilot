@@ -43,6 +43,7 @@ const { t } = useI18n()
 const projectItemRef = ref<HTMLElement | null>(null)
 const isCompactMenuOpen = ref(false)
 const showAllSessions = ref(false)
+const isBatchSelectMode = ref(false)
 const selectedSessionIds = ref<string[]>([])
 const visibleSessions = computed(() => (
   showAllSessions.value
@@ -52,17 +53,17 @@ const visibleSessions = computed(() => (
 const hiddenSessionCount = computed(() => Math.max(props.sessions.length - SESSION_PREVIEW_LIMIT, 0))
 const hasHiddenSessions = computed(() => hiddenSessionCount.value > 0)
 const selectedSessions = computed(() => props.sessions.filter(session => selectedSessionIds.value.includes(session.id)))
-const selectedSessionCount = computed(() => selectedSessions.value.length)
-const hasSelectedSessions = computed(() => selectedSessionCount.value > 0)
-const allVisibleSessionsSelected = computed(() =>
-  visibleSessions.value.length > 0 && visibleSessions.value.every(session => selectedSessionIds.value.includes(session.id))
-)
+const hasSelectedSessions = computed(() => selectedSessions.value.length > 0)
 
 function handleStartEditSession(session: Session, event: Event) {
   emit('startEditSession', session, event)
 }
 
 function toggleSessionSelection(sessionId: string) {
+  if (!isBatchSelectMode.value) {
+    return
+  }
+
   selectedSessionIds.value = selectedSessionIds.value.includes(sessionId)
     ? selectedSessionIds.value.filter(id => id !== sessionId)
     : [...selectedSessionIds.value, sessionId]
@@ -72,18 +73,32 @@ function clearSelectedSessions() {
   selectedSessionIds.value = []
 }
 
-function selectAllVisibleSessions() {
-  const currentIds = new Set(selectedSessionIds.value)
-  visibleSessions.value.forEach(session => currentIds.add(session.id))
-  selectedSessionIds.value = Array.from(currentIds)
-}
-
 function handleBatchDeleteSessions() {
   if (!selectedSessions.value.length) {
     return
   }
 
   emit('deleteSessions', selectedSessions.value)
+  selectedSessionIds.value = []
+  isBatchSelectMode.value = false
+}
+
+function handleProjectDeleteAction(event: Event) {
+  event.stopPropagation()
+  if (hasSelectedSessions.value) {
+    handleBatchDeleteSessions()
+    return
+  }
+
+  emit('deleteProject', props.project)
+}
+
+function toggleBatchSelectMode(event: Event) {
+  event.stopPropagation()
+  isBatchSelectMode.value = !isBatchSelectMode.value
+  if (!isBatchSelectMode.value) {
+    clearSelectedSessions()
+  }
 }
 
 function closeCompactMenu(event: Event) {
@@ -224,16 +239,6 @@ watch(
       </div>
       <div class="project-item__meta">
         <span class="project-item__time">{{ importedTimeLabel }} {{ t('unified.imported') }}</span>
-        <span
-          class="project-item__session-count"
-          :class="{ 'project-item__session-count--has': project.sessionCount && project.sessionCount > 0 }"
-        >
-          <EaIcon
-            name="message-square"
-            :size="10"
-          />
-          {{ t('unified.sessionCount', { count: project.sessionCount || 0 }) }}
-        </span>
       </div>
     </div>
 
@@ -249,9 +254,21 @@ watch(
         />
       </button>
       <button
+        class="project-item__action-btn project-item__action-btn--select"
+        title="批量选择会话"
+        aria-label="批量选择会话"
+        :aria-pressed="isBatchSelectMode"
+        @click.stop="toggleBatchSelectMode"
+      >
+        <EaIcon
+          name="list-checks"
+          :size="12"
+        />
+      </button>
+      <button
         class="project-item__action-btn project-item__action-btn--danger"
-        :title="t('common.delete')"
-        @click.stop="emit('deleteProject', project)"
+        :title="hasSelectedSessions ? t('common.batchDelete') : t('common.delete')"
+        @click.stop="handleProjectDeleteAction"
       >
         <EaIcon
           name="x"
@@ -260,17 +277,32 @@ watch(
       </button>
     </div>
 
-    <button
-      class="project-item__inline-action"
-      title="打开文件管理"
-      aria-label="打开文件管理"
-      @click.stop="emit('openProjectFiles', project)"
-    >
-      <EaIcon
-        name="files"
-        :size="12"
-      />
-    </button>
+    <div class="project-item__inline-actions">
+      <button
+        class="project-item__inline-action project-item__inline-action--select"
+        :class="{ 'project-item__inline-action--active': isBatchSelectMode }"
+        title="批量选择会话"
+        aria-label="批量选择会话"
+        :aria-pressed="isBatchSelectMode"
+        @click.stop="toggleBatchSelectMode"
+      >
+        <EaIcon
+          name="list-checks"
+          :size="12"
+        />
+      </button>
+      <button
+        class="project-item__inline-action"
+        title="打开文件管理"
+        aria-label="打开文件管理"
+        @click.stop="emit('openProjectFiles', project)"
+      >
+        <EaIcon
+          name="files"
+          :size="12"
+        />
+      </button>
+    </div>
 
     <details
       class="project-item__menu"
@@ -308,6 +340,17 @@ watch(
           <span>{{ t('common.edit') }}</span>
         </button>
         <button
+          type="button"
+          class="project-item__menu-action"
+          @click="toggleBatchSelectMode($event); closeCompactMenu($event)"
+        >
+          <EaIcon
+            name="list-checks"
+            :size="12"
+          />
+          <span>{{ isBatchSelectMode ? t('common.cancel') : '批量选择' }}</span>
+        </button>
+        <button
           class="project-item__menu-action project-item__menu-action--danger"
           @click="handleProjectCompactAction('delete', project, $event)"
         >
@@ -326,43 +369,13 @@ watch(
     class="project-content"
   >
     <div class="tab-content tab-content--sessions">
-      <div
-        v-if="hasSelectedSessions"
-        class="session-batch-bar"
-      >
-        <span class="session-batch-bar__label">
-          {{ t('session.selectedCount', { count: selectedSessionCount }) }}
-        </span>
-        <div class="session-batch-bar__actions">
-          <button
-            class="session-batch-bar__button"
-            @click="allVisibleSessionsSelected ? clearSelectedSessions() : selectAllVisibleSessions()"
-          >
-            {{ allVisibleSessionsSelected ? t('common.clearSelection') : t('session.selectAllVisible') }}
-          </button>
-          <button
-            class="session-batch-bar__button"
-            :disabled="!hasSelectedSessions"
-            @click="clearSelectedSessions"
-          >
-            {{ t('common.clearSelection') }}
-          </button>
-          <button
-            class="session-batch-bar__button session-batch-bar__button--danger"
-            :disabled="!hasSelectedSessions"
-            @click="handleBatchDeleteSessions"
-          >
-            {{ t('common.batchDelete') }}
-          </button>
-        </div>
-      </div>
-
       <UnifiedPanelSessionList
         :sessions="visibleSessions"
         :current-session-id="currentSessionId"
         :editing-session-id="editingSessionId"
         :editing-session-name="editingSessionName"
         :selected-session-ids="selectedSessionIds"
+        :selection-mode="isBatchSelectMode"
         @select="emit('selectSession', $event)"
         @toggle-select="toggleSessionSelection"
         @toggle-pin="emit('togglePin', $event)"
@@ -406,8 +419,8 @@ watch(
 }
 
 .project-item:hover {
-  background-color: var(--color-surface-hover);
-  border-color: var(--color-border);
+  background-color: var(--color-surface);
+  border-color: transparent;
 }
 
 .project-item:focus-visible {
@@ -416,13 +429,13 @@ watch(
 }
 
 .project-item--active {
-  background-color: var(--color-primary-light);
-  border-color: var(--color-primary);
+  background-color: var(--color-surface);
+  border-color: transparent;
 }
 
 [data-theme='dark'] .project-item--active {
-  background-color: var(--color-active-bg);
-  border-color: var(--color-active-border);
+  background-color: var(--color-surface);
+  border-color: transparent;
 }
 
 .project-item--expanded {
@@ -497,13 +510,20 @@ watch(
   white-space: nowrap;
 }
 
+.project-item__inline-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 .project-item__inline-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 22px;
   height: 22px;
-  margin-left: auto;
   flex-shrink: 0;
   border: none;
   border-radius: 6px;
@@ -519,6 +539,12 @@ watch(
 .project-item__inline-action:hover {
   background: var(--workspace-control-hover-bg, var(--color-surface-hover));
   color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+.project-item__inline-action--active {
+  background: var(--workspace-list-active-bg, color-mix(in srgb, var(--color-primary) 10%, transparent));
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  box-shadow: inset 0 0 0 1px var(--workspace-border, var(--color-border));
 }
 
 .project-item__meta {
@@ -540,21 +566,6 @@ watch(
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.project-item__session-count {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  padding: 1px 6px;
-  border-radius: var(--radius-full);
-  background-color: var(--color-bg-tertiary);
-  flex-shrink: 0;
-}
-
-.project-item__session-count--has {
-  background-color: var(--color-primary-light);
-  color: var(--color-primary);
 }
 
 .project-item__actions {
@@ -591,6 +602,11 @@ watch(
 .project-item__action-btn--danger:hover {
   background-color: var(--color-error-light);
   color: var(--color-error);
+}
+
+.project-item__action-btn--select:hover {
+  background-color: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
 }
 
 .project-item__menu {
@@ -668,12 +684,13 @@ watch(
 
 .project-content {
   display: flex;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   min-height: 0;
   flex-direction: column;
   box-sizing: border-box;
   max-width: calc(100% - var(--spacing-4));
+  margin-top: 2px;
   margin-bottom: var(--spacing-1);
   margin-left: var(--spacing-4);
   border: 1px solid var(--color-border);
@@ -724,13 +741,13 @@ watch(
 
 .tab-content {
   display: block;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   width: 100%;
   height: auto;
   min-width: 0;
   min-height: 0;
   overflow-x: hidden;
-  overflow-y: visible;
+  overflow-y: auto;
   box-sizing: border-box;
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb, var(--color-border)) var(--scrollbar-track, transparent);
@@ -739,7 +756,9 @@ watch(
 .tab-content--sessions {
   display: flex;
   flex-direction: column;
-  overflow: visible;
+  max-height: min(42vh, 360px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .session-more-btn {
@@ -789,70 +808,6 @@ watch(
   min-height: 0;
   flex-direction: column;
   padding: var(--spacing-1);
-}
-
-.session-batch-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-2);
-  padding: var(--spacing-2);
-  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-surface) 96%, white) 0%,
-      var(--color-surface) 100%
-    );
-  flex-wrap: wrap;
-  flex-shrink: 0;
-}
-
-.session-batch-bar__label {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
-  font-weight: var(--font-weight-medium);
-}
-
-.session-batch-bar__actions {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-1);
-  flex-wrap: wrap;
-  margin-left: auto;
-}
-
-.session-batch-bar__button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 26px;
-  padding: 0 var(--spacing-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background-color: var(--color-surface);
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  cursor: pointer;
-  transition: all var(--transition-fast) var(--easing-default);
-}
-
-.session-batch-bar__button:hover:not(:disabled) {
-  border-color: var(--color-primary);
-  background-color: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
-  color: var(--color-primary);
-}
-
-.session-batch-bar__button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.session-batch-bar__button--danger:hover:not(:disabled) {
-  border-color: var(--color-error);
-  color: var(--color-error);
-  background-color: var(--color-error-light);
 }
 
 .file-tree__loading {
@@ -971,10 +926,6 @@ watch(
     width: 22px;
     height: 22px;
   }
-
-  .project-item__session-count {
-    padding: 1px 5px;
-  }
 }
 
 @container (max-width: 240px) {
@@ -1021,12 +972,8 @@ watch(
 .project-item:hover,
 .project-item--expanded,
 .project-item--active {
-  background: var(--workspace-list-hover-bg);
+  background: transparent;
   border-color: transparent;
-}
-
-.project-item--active {
-  background: var(--workspace-list-active-bg);
 }
 
 .project-item:focus-visible {
@@ -1068,17 +1015,6 @@ watch(
   gap: 6px;
   color: var(--workspace-text-tertiary);
   font-size: 11px;
-}
-
-.project-item__session-count {
-  padding: 0;
-  background: transparent;
-  color: var(--workspace-text-tertiary);
-}
-
-.project-item__session-count--has {
-  background: transparent;
-  color: var(--workspace-text-tertiary);
 }
 
 .project-item__actions,
@@ -1137,27 +1073,4 @@ watch(
   overflow: visible;
 }
 
-.session-batch-bar {
-  margin: 2px 0 4px;
-  padding: 6px;
-  border: none;
-  border-radius: 8px;
-  background: var(--workspace-control-bg);
-}
-
-.session-batch-bar__button {
-  border-color: var(--workspace-control-border);
-  background-color: var(--workspace-control-bg);
-  color: var(--workspace-text-secondary);
-}
-
-.session-batch-bar__button:hover:not(:disabled) {
-  border-color: var(--workspace-border-strong);
-  background-color: var(--workspace-control-hover-bg);
-  color: var(--workspace-text-primary);
-}
-
-.session-batch-bar__button--danger:hover:not(:disabled) {
-  color: var(--color-error);
-}
 </style>

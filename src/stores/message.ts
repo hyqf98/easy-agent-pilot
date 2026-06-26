@@ -7,6 +7,7 @@ import { useSessionExecutionStore } from './sessionExecution'
 import { useTokenStore, type CompressionStrategy } from './token'
 import { readSessionCliUsageSnapshot } from '@/services/usage/cliSessionUsageSnapshot'
 import { getErrorMessage } from '@/utils/api'
+import type { FileEditTrace } from '@/types/fileTrace'
 
 export type MessageRole = 'user' | 'assistant' | 'system'
 export type MessageStatus = 'pending' | 'streaming' | 'completed' | 'error' | 'interrupted'
@@ -136,8 +137,9 @@ interface PaginatedRustMessages {
   has_more: boolean
 }
 
-// 文件编辑追踪功能在新消息结构下已搁置，保留占位类型避免大面积改动
-type SessionEditTrace = { id: string, messageId: string, filePath: string, timestamp: string }
+// 文件编辑追踪功能在新消息结构下已搁置；保留 FileEditTrace 作为占位类型，
+// 使依赖 trace 的组件（AiEditTracePane 等）在新结构下仍可编译，实际数据恒为空。
+type SessionEditTrace = FileEditTrace
 
 function resolveRawMessageCreatedAt(message?: RustMessage): string | null {
   return message?.createdAt ?? null
@@ -167,24 +169,24 @@ const EMPTY_TRACE_MAP = new Map<string, { traceId: string, messageId: string, ti
 const EMPTY_VISIBLE_MESSAGE_TRACES: SessionEditTrace[] = []
 
 interface CreateMessageInput {
-  session_id: string
-  request_id: string
+  sessionId: string
+  requestId: string
   role: string
-  message_type: string
+  messageType: string
   content?: string
   attachments?: string
   status?: string
-  tool_call_id?: string
-  tool_name?: string
-  tool_input?: string
-  tool_result?: string
-  input_tokens?: number
-  output_tokens?: number
-  cache_read_tokens?: number
-  cache_creation_tokens?: number
+  toolCallId?: string
+  toolName?: string
+  toolInput?: string
+  toolResult?: string
+  inputTokens?: number
+  outputTokens?: number
+  cacheReadTokens?: number
+  cacheCreationTokens?: number
   model?: string
-  cost_usd?: number
-  error_message?: string
+  costUsd?: number
+  errorMessage?: string
   seq?: number
 }
 
@@ -192,7 +194,7 @@ interface UpdateMessageInput {
   content?: string
   attachments?: string
   status?: string
-  error_message?: string
+  errorMessage?: string
 }
 
 // 分页状态
@@ -305,9 +307,12 @@ export const useMessageStore = defineStore('message', () => {
   // 默认分页大小
   const PAGE_SIZE = 20
 
-  const messagesBySession = computed(() => {
-    return (sessionId: string) => sessionMessages.value.get(sessionId) ?? EMPTY_MESSAGES
-  })
+  // 普通函数：在调用方（如 useMessageList 的 computed）的依赖作用域内
+  // 直接读取响应式 Map，确保 sessionMessages 变化能正确触发调用方重算。
+  // 避免使用返回函数的 computed（高阶 computed 会丢失对具体 key 的依赖追踪）。
+  function messagesBySession(sessionId: string): Message[] {
+    return sessionMessages.value.get(sessionId) ?? EMPTY_MESSAGES
+  }
 
   const getLatestAssistantTraceIdsByFile = (sessionId: string) => {
     return latestAssistantTraceBySession.value.get(sessionId) ?? EMPTY_TRACE_MAP
@@ -327,7 +332,7 @@ export const useMessageStore = defineStore('message', () => {
 
   const lastMessage = computed(() => {
     return (sessionId: string) => {
-      const sessionMessages = messagesBySession.value(sessionId)
+      const sessionMessages = messagesBySession(sessionId)
       return sessionMessages[sessionMessages.length - 1]
     }
   })
@@ -348,7 +353,7 @@ export const useMessageStore = defineStore('message', () => {
     if (updates.content !== undefined) input.content = updates.content
     if (updates.attachments !== undefined) input.attachments = JSON.stringify(updates.attachments)
     if (updates.status !== undefined) input.status = updates.status
-    if (updates.errorMessage !== undefined) input.error_message = updates.errorMessage
+    if (updates.errorMessage !== undefined) input.errorMessage = updates.errorMessage
     return input
   }
 
@@ -739,24 +744,24 @@ export const useMessageStore = defineStore('message', () => {
   async function addMessage(message: Omit<Message, 'id' | 'createdAt' | 'updatedAt'>) {
     const notificationStore = useNotificationStore()
     const input: CreateMessageInput = {
-      session_id: message.sessionId,
-      request_id: message.requestId,
+      sessionId: message.sessionId,
+      requestId: message.requestId,
       role: message.role,
-      message_type: message.messageType,
+      messageType: message.messageType,
       content: message.content,
       attachments: message.attachments ? JSON.stringify(message.attachments) : undefined,
       status: message.status,
-      tool_call_id: message.toolCallId,
-      tool_name: message.toolName,
-      tool_input: message.toolInput,
-      tool_result: message.toolResult,
-      input_tokens: message.inputTokens,
-      output_tokens: message.outputTokens,
-      cache_read_tokens: message.cacheReadTokens,
-      cache_creation_tokens: message.cacheCreationTokens,
+      toolCallId: message.toolCallId,
+      toolName: message.toolName,
+      toolInput: message.toolInput,
+      toolResult: message.toolResult,
+      inputTokens: message.inputTokens,
+      outputTokens: message.outputTokens,
+      cacheReadTokens: message.cacheReadTokens,
+      cacheCreationTokens: message.cacheCreationTokens,
       model: message.model,
-      cost_usd: message.costUsd,
-      error_message: message.errorMessage,
+      costUsd: message.costUsd,
+      errorMessage: message.errorMessage,
       seq: message.seq
     }
 

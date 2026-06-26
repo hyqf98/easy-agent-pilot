@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import EaButton from '@/components/common/EaButton.vue'
 import EaConfirmDialog from '@/components/common/EaConfirmDialog.vue'
+import { EaIcon } from '@/components/common'
 import TaskSplitPreview from '../TaskSplitPreview.vue'
 import MessageList from '@/components/message/messageList/MessageList.vue'
 import { useTaskSplitDialog } from './useTaskSplitDialog'
@@ -12,7 +14,6 @@ const {
   splitDialogTabs,
   activeSplitPlanId,
   taskSplitStore,
-  isDarkTheme,
   isConfirming,
   userInstruction,
   instructionInputRef,
@@ -61,17 +62,18 @@ const {
     <div
       v-if="planStore.splitDialogVisible"
       class="split-dialog-overlay"
-      :class="{ 'split-dialog-overlay--dark': isDarkTheme }"
       @pointerdown.capture="handleOverlayPointerDown"
       @click.self="handleOverlayClick"
     >
-      <div
-        class="split-dialog"
-        :class="{ 'split-dialog--dark': isDarkTheme }"
-      >
+      <div class="split-dialog">
         <div class="dialog-header">
           <h4>
-            <span class="dialog-icon">✂️</span>
+            <span class="dialog-icon">
+              <EaIcon
+                name="scissors"
+                :size="16"
+              />
+            </span>
             {{ t('taskSplit.dialogTitle') }}
           </h4>
           <div class="dialog-header-actions">
@@ -80,32 +82,20 @@ const {
               :title="t('taskSplit.hide')"
               @click="handleMinimizeClick"
             >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path d="M5 12h14" />
-              </svg>
+              <EaIcon
+                name="minus"
+                :size="18"
+              />
             </button>
             <button
               class="btn-close"
               :title="t('taskSplit.close')"
               @click="handleCloseClick"
             >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path d="M18 6L6 18M6 6l12 12" />
-              </svg>
+              <EaIcon
+                name="x"
+                :size="18"
+              />
             </button>
           </div>
         </div>
@@ -214,9 +204,9 @@ const {
           class="dialog-footer"
         >
           <div class="footer-actions footer-actions--confirm">
-            <button
+            <EaButton
               v-if="canRetrySplit"
-              class="btn btn-secondary btn-retry"
+              type="secondary"
               :class="{ 'btn-retry--pending': isAutoRetryPending }"
               @click="retrySplitTask"
             >
@@ -225,28 +215,28 @@ const {
                 class="btn-retry__pulse"
               />
               {{ retryButtonLabel }}
-            </button>
-            <button
+            </EaButton>
+            <EaButton
               v-if="canContinueSplit"
-              class="btn btn-secondary btn-continue"
+              type="secondary"
               @click="continueSplitTask"
             >
               {{ t('taskSplit.continueSplit') }}
-            </button>
-            <button
-              class="btn btn-secondary"
+            </EaButton>
+            <EaButton
+              type="secondary"
               :disabled="isSessionRunning"
               @click="restartSplit"
             >
               {{ t('taskSplit.restart') }}
-            </button>
-            <button
-              class="btn btn-primary"
+            </EaButton>
+            <EaButton
+              type="primary"
               :disabled="isConfirming || isSessionRunning || (hasPendingRefinement && !canApplyRefinement)"
               @click="confirmSplit"
             >
               {{ primaryActionLabel }}
-            </button>
+            </EaButton>
           </div>
         </div>
 

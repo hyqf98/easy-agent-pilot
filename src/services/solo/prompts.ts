@@ -6,7 +6,7 @@ import type {
   SoloRun,
   SoloStep
 } from '@/types/solo'
-import { buildExpertSystemPrompt } from '@/services/agentTeams/runtime'
+import { buildSubAgentSystemPrompt } from '@/services/subAgent/runtime'
 
 const MAX_CONTEXT_STEPS = 12
 const MAX_RESUME_LOG_LINES = 40
@@ -354,7 +354,7 @@ export function buildSoloCoordinatorSystemPrompt(
   coordinatorPrompt: string | null | undefined,
   expertCatalogPrompt: string
 ): string {
-  return buildExpertSystemPrompt(coordinatorPrompt || SOLO_BUILTIN_COORDINATOR_PROMPT, [
+  return buildSubAgentSystemPrompt(coordinatorPrompt || SOLO_BUILTIN_COORDINATOR_PROMPT, [
     [
       '你是 SOLO 模式里的统一协调 AI。',
       '你不是传统聊天助手，而是一个持续推进任务的内部总控。',
@@ -579,7 +579,7 @@ export function buildSoloExecutionRepairPrompt(input: {
 }
 
 export function buildSoloExecutionSystemPrompt(expertPrompt: string | null | undefined): string {
-  return buildExpertSystemPrompt(expertPrompt, [
+  return buildSubAgentSystemPrompt(expertPrompt, [
     [
       '你当前在 SOLO 模式下执行一个具体步骤。',
       '保持执行导向，优先交付可以验证的结果。',

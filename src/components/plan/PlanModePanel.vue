@@ -231,6 +231,8 @@ onUnmounted(() => {
   flex: 1;
   min-width: 0;
   background: var(--workspace-stage-bg, var(--color-bg-secondary));
+  /* 顶部为浮动导航让出空间（左栏列表已满铺至顶，仅任务区避让） */
+  padding-top: calc(var(--workspace-topbar-height, 44px) + 2px);
 }
 
 .task-board-container--with-right {
@@ -249,6 +251,8 @@ onUnmounted(() => {
   min-height: 0;
   overflow: hidden;
   background: var(--workspace-panel-bg, var(--detail-panel-surface));
+  /* 顶部为浮动导航让出空间（与任务看板一致） */
+  padding-top: calc(var(--workspace-topbar-height, 44px) + 2px);
 }
 
 .task-detail-container > :not(.resize-handle):not(.collapse-button) {

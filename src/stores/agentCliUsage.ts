@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import type {
   AgentCliUsageGranularity,
   AgentCliUsageProviderFilter,
+  AgentCliUsageSummary,
   RepairAgentCliUsageHistoryResult,
   AgentCliUsageStatsResponse,
   QueryAgentCliUsageStatsInput
@@ -55,6 +56,8 @@ function createEmptyResponse(filters: AgentCliUsageFilters): AgentCliUsageStatsR
       totalTokens: 0,
       cacheReadTokens: 0,
       cacheCreationTokens: 0,
+      estimatedInputCostUsd: 0,
+      estimatedOutputCostUsd: 0,
       estimatedTotalCostUsd: 0,
       unpricedCalls: 0
     },
@@ -160,10 +163,43 @@ export const useAgentCliUsageStore = defineStore('agentCliUsage', () => {
     filters.value = buildDefaultFilters()
   }
 
+  // 今日用量汇总：从 timeline 中聚合当天 bucket
+  const todaySummary = computed<AgentCliUsageSummary>(() => {
+    const today = formatDateInput(new Date())
+    const empty: AgentCliUsageSummary = {
+      totalCalls: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      estimatedInputCostUsd: 0,
+      estimatedOutputCostUsd: 0,
+      estimatedTotalCostUsd: 0,
+      unpricedCalls: 0
+    }
+
+    return stats.value.timeline
+      .filter(point => point.bucket.startsWith(today))
+      .reduce<AgentCliUsageSummary>((acc, point) => ({
+        totalCalls: acc.totalCalls + point.callCount,
+        inputTokens: acc.inputTokens + point.inputTokens,
+        outputTokens: acc.outputTokens + point.outputTokens,
+        totalTokens: acc.totalTokens + point.totalTokens,
+        cacheReadTokens: acc.cacheReadTokens + point.cacheReadTokens,
+        cacheCreationTokens: acc.cacheCreationTokens + point.cacheCreationTokens,
+        estimatedInputCostUsd: acc.estimatedInputCostUsd + point.estimatedInputCostUsd,
+        estimatedOutputCostUsd: acc.estimatedOutputCostUsd + point.estimatedOutputCostUsd,
+        estimatedTotalCostUsd: acc.estimatedTotalCostUsd + point.estimatedTotalCostUsd,
+        unpricedCalls: acc.unpricedCalls
+      }), empty)
+  })
+
   return {
     filters,
     stats,
     modelStats,
+    todaySummary,
     isLoading,
     errorMessage,
     hasLoaded,

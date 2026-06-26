@@ -6,14 +6,15 @@ import { useSessionStore, type Session } from '@/stores/session'
 import { useLayoutStore } from '@/stores/layout'
 import { useUIStore } from '@/stores/ui'
 import { useAgentStore } from '@/stores/agent'
-import { useAgentTeamsStore } from '@/stores/agentTeams'
+import { useSubAgentStore } from '@/stores/subAgent'
 import { useSplitPaneStore } from '@/stores/splitPane'
 import { useSessionView } from '@/composables'
 import { EaIcon, EaButton, EaSkeleton } from '@/components/common'
 import { ProjectCreateModal } from '@/components/project'
 import UnifiedPanelConfirmDialog from './UnifiedPanelConfirmDialog.vue'
 import UnifiedPanelProjectEntry from './UnifiedPanelProjectEntry.vue'
-import { resolveExpertRuntime } from '@/services/agentTeams/runtime'
+import { resolveSubAgentExecutionWithFallback } from '@/services/subAgent/runtime'
+import { syncSubAgentFiles } from '@/services/subAgent/syncService'
 
 const { t } = useI18n()
 
@@ -35,7 +36,7 @@ const sessionStore = useSessionStore()
 const layoutStore = useLayoutStore()
 const uiStore = useUIStore()
 const agentStore = useAgentStore()
-const agentTeamsStore = useAgentTeamsStore()
+const agentTeamsStore = useSubAgentStore()
 const splitPaneStore = useSplitPaneStore()
 const {
   openSessionTarget,
@@ -171,10 +172,10 @@ const handleAddSession = async (projectId: string) => {
     projectStore.setCurrentProject(projectId)
     await Promise.all([
       agentStore.loadAgents(),
-      agentTeamsStore.loadExperts(true)
+      agentTeamsStore.loadSubAgents(true)
     ])
-    const expert = agentTeamsStore.builtinGeneralExpert || agentTeamsStore.enabledExperts[0] || null
-    const runtime = resolveExpertRuntime(expert, agentStore.agents)
+    const expert = agentTeamsStore.builtinGeneralSubAgent || agentTeamsStore.enabledSubAgents[0] || null
+    const runtime = resolveSubAgentExecutionWithFallback(expert, agentStore.agents)
     const newSession = await sessionStore.createSession({
       projectId,
       name: t('session.unnamedSession'),
@@ -186,6 +187,13 @@ const handleAddSession = async (projectId: string) => {
     projectStore.incrementSessionCount(projectId)
     uiStore.setAppMode('chat')
     uiStore.setMainContentMode('chat')
+    // 子代理定义写盘到选定执行器的 CLI 配置目录（仅 claude/opencode 生效）
+    if (runtime?.agent) {
+      const projectPath = projectStore.projects.find(p => p.id === projectId)?.path
+      await syncSubAgentFiles(runtime.agent, agentTeamsStore.subAgents, projectPath).catch(error => {
+        console.warn('Sub-agent sync failed:', error)
+      })
+    }
 
     // 分屏模式：新会话进入当前聚焦的分屏窗口；否则走全局 tab
     if (splitPaneStore.isSplitActive && splitPaneStore.focusedPaneId) {
@@ -286,7 +294,7 @@ const handleOpenProjectFiles = (project: Project) => {
       v-if="!collapsed"
       class="unified-panel__section-header"
     >
-      <span>Repositories</span>
+      <span>{{ t('unified.repositories') }}</span>
       <div class="unified-panel__section-actions">
         <button
           class="header-action-btn"
@@ -389,19 +397,11 @@ const handleOpenProjectFiles = (project: Project) => {
         class="project-empty"
       >
         <p class="project-empty__title">
-          No repositories yet
+          {{ t('unified.projectEmptyTitle') }}
         </p>
-        <button
-          class="project-empty__button"
-          type="button"
-          @click="handleAddProject"
-        >
-          <EaIcon
-            name="folder-plus"
-            :size="14"
-          />
-          <span>Import Repository</span>
-        </button>
+        <p class="project-empty__hint">
+          {{ t('unified.projectEmptyHint') }}
+        </p>
       </div>
 
       <div
@@ -618,13 +618,14 @@ const handleOpenProjectFiles = (project: Project) => {
 
 /* 空状态 */
 .project-empty {
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: var(--spacing-10) var(--spacing-4);
+  padding: var(--spacing-6) var(--spacing-4);
   text-align: center;
-  min-height: 200px;
+  min-height: 0;
 }
 
 .project-empty__illustration {
@@ -652,13 +653,9 @@ const handleOpenProjectFiles = (project: Project) => {
 .project-empty__hint {
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
-  margin: 0 0 var(--spacing-5);
+  margin: 0;
   max-width: 180px;
   line-height: 1.5;
-}
-
-.project-empty__button {
-  gap: var(--spacing-2);
 }
 
 /* 弹框样式 */
@@ -669,16 +666,18 @@ const handleOpenProjectFiles = (project: Project) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
+  background: rgba(15, 23, 42, 0.38);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .modal-container {
   width: 420px;
   max-width: 90vw;
-  background-color: var(--color-surface);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-2xl);
+  background: color-mix(in srgb, var(--workspace-panel-bg, var(--color-surface)) 96%, transparent);
+  border: 1px solid var(--workspace-border, var(--color-border));
+  border-radius: 16px;
+  box-shadow: var(--workspace-card-shadow, 0 18px 40px rgba(24, 24, 22, 0.12));
 }
 
 /* 动画 */
@@ -806,7 +805,8 @@ const handleOpenProjectFiles = (project: Project) => {
 
 .project-error,
 .project-empty {
-  min-height: 150px;
+  flex: 1;
+  min-height: 0;
   padding: 24px 16px;
   color: var(--workspace-text-tertiary);
 }
@@ -816,25 +816,13 @@ const handleOpenProjectFiles = (project: Project) => {
   font-size: 13px;
 }
 
-.project-error__detail {
+.project-empty__hint {
   color: var(--workspace-text-tertiary);
   font-size: 12px;
 }
 
-.project-empty__button {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  height: 30px;
-  padding: 0 10px;
-  border: 1px solid var(--workspace-control-border);
-  border-radius: 8px;
-  background: var(--workspace-control-bg);
-  color: var(--workspace-text-primary);
+.project-error__detail {
+  color: var(--workspace-text-tertiary);
   font-size: 12px;
-}
-
-.project-empty__button:hover {
-  background: var(--workspace-control-hover-bg);
 }
 </style>

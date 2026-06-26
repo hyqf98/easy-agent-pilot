@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { inferAgentProvider, useAgentStore, type AgentConfig } from './agent'
-import { useAgentTeamsStore } from './agentTeams'
+import { useSubAgentStore } from './subAgent'
 import { usePlanStore } from './plan'
 import { useSettingsStore } from './settings'
 import type { MessageAttachment, MessageRetryState } from './message'
@@ -14,10 +14,10 @@ import {
   extractTaskSplitResultFromContents
 } from '@/utils/structuredContent'
 import {
-  buildExpertCatalogPrompt,
-  buildExpertSystemPrompt,
-  resolveExpertById
-} from '@/services/agentTeams/runtime'
+  buildSubAgentCatalogPrompt,
+  buildSubAgentSystemPrompt,
+  resolveSubAgentById
+} from '@/services/subAgent/runtime'
 import {
   appendPlanSplitInstructionGuard,
   buildPlanSplitJsonSchema,
@@ -493,18 +493,17 @@ function isAutoRetryProgressLog(log: Pick<PlanSplitLogRecord, 'type' | 'metadata
 }
 
 async function buildSplitSystemPrompt(expertId?: string): Promise<string> {
-  const agentStore = useAgentStore()
-  const agentTeamsStore = useAgentTeamsStore()
-  await agentTeamsStore.loadExperts()
+  const agentTeamsStore = useSubAgentStore()
+  await agentTeamsStore.loadSubAgents()
 
-  const expert = resolveExpertById(expertId, agentTeamsStore.experts)
-    || agentTeamsStore.builtinPlannerExpert
-    || agentTeamsStore.enabledExperts[0]
+  const expert = resolveSubAgentById(expertId, agentTeamsStore.subAgents)
+    || agentTeamsStore.builtinPlannerSubAgent
+    || agentTeamsStore.enabledSubAgents[0]
     || null
 
-  return buildExpertSystemPrompt(expert?.prompt, [
+  return buildSubAgentSystemPrompt(expert?.prompt, [
     buildPlanSplitSystemPrompt(),
-    buildExpertCatalogPrompt(agentTeamsStore.enabledExperts, agentStore.agents)
+    buildSubAgentCatalogPrompt(agentTeamsStore.enabledSubAgents)
   ])
 }
 
@@ -1253,7 +1252,7 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     usageModelHint.value = null
     const selectedAgent = useAgentStore().agents.find(agent => agent.id === nextContext.agentId)
     if (selectedAgent) {
-      const selectedExpert = resolveExpertById(nextContext.expertId, useAgentTeamsStore().experts)
+      const selectedExpert = resolveSubAgentById(nextContext.expertId, useSubAgentStore().subAgents)
       const contextNotice = buildContextStrategyNotice({
         strategy: 'Plan Split Prompt Context',
         runtime: inferAgentProvider(selectedAgent)?.toUpperCase() || selectedAgent.type,
@@ -1588,9 +1587,9 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
   }
 
   function addSplitTask() {
-    const agentTeamsStore = useAgentTeamsStore()
-    const defaultExpertId = agentTeamsStore.builtinDeveloperExpert?.id
-      || agentTeamsStore.enabledExperts.find(expert => expert.category === 'developer')?.id
+    const agentTeamsStore = useSubAgentStore()
+    const defaultExpertId = agentTeamsStore.builtinDeveloperSubAgent?.id
+      || agentTeamsStore.enabledSubAgents.find(expert => expert.category === 'developer')?.id
       || undefined
     const nextTask: AITaskItem = {
       title: '',
@@ -1675,7 +1674,7 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
         strategy: 'Subtask Resplit Context',
         runtime: inferAgentProvider(selectedAgent)?.toUpperCase() || selectedAgent.type,
         model: nextContext.modelId || usageModelHint.value || selectedAgent.modelId,
-        expert: resolveExpertById(nextContext.expertId, useAgentTeamsStore().experts)?.name || nextContext.expertId,
+        expert: resolveSubAgentById(nextContext.expertId, useSubAgentStore().subAgents)?.name || nextContext.expertId,
         systemMessageCount: llmMessages.filter(message => message.role === 'system').length,
         userMessageCount: llmMessages.filter(message => message.role === 'user').length,
         assistantMessageCount: 0,
@@ -1769,7 +1768,7 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
         strategy: 'Task List Optimize Context',
         runtime: inferAgentProvider(selectedAgent)?.toUpperCase() || selectedAgent.type,
         model: nextContext.modelId || usageModelHint.value || selectedAgent.modelId,
-        expert: resolveExpertById(nextContext.expertId, useAgentTeamsStore().experts)?.name || nextContext.expertId,
+        expert: resolveSubAgentById(nextContext.expertId, useSubAgentStore().subAgents)?.name || nextContext.expertId,
         systemMessageCount: llmMessages.filter(message => message.role === 'system').length,
         userMessageCount: llmMessages.filter(message => message.role === 'user').length,
         assistantMessageCount: 0,

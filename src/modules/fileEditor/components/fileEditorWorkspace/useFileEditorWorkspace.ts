@@ -6,21 +6,6 @@ import { prewarmMonacoEditor } from '../../monaco/setup'
 import { useFileEditorStore } from '../../stores/fileEditor'
 import type { MarkdownEditorMode } from '../../types'
 
-const languageNameMap: Record<string, string> = {
-  plaintext: 'Plain Text',
-  javascript: 'JavaScript',
-  typescript: 'TypeScript',
-  json: 'JSON',
-  markdown: 'Markdown',
-  python: 'Python',
-  java: 'Java',
-  rust: 'Rust',
-  html: 'HTML',
-  css: 'CSS',
-  shell: 'Shell',
-  yaml: 'YAML'
-}
-
 /**
  * 文件编辑工作区视图状态。
  * 负责聚合工具栏展示数据和选中代码发送到会话的行为。
@@ -29,19 +14,6 @@ export function useFileEditorWorkspace() {
   const fileEditorStore = useFileEditorStore()
   const settingsStore = useSettingsStore()
   const { sendFileReferencesToSession } = useSessionFileReference()
-
-  const languageName = computed(() => languageNameMap[fileEditorStore.languageId] ?? fileEditorStore.languageId)
-
-  const fileSizeLabel = computed(() => {
-    if (!fileEditorStore.hasActiveFile) {
-      return ''
-    }
-
-    const bytes = fileEditorStore.fileSizeBytes
-    if (bytes < 1024) return `${bytes} B`
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-  })
 
   const saveStatusText = computed(() => {
     if (fileEditorStore.previewMode !== 'editor') {
@@ -56,18 +28,14 @@ export function useFileEditorWorkspace() {
 
   const markdownModeText = computed(() => {
     if (fileEditorStore.effectiveMarkdownMode === 'rich') {
-      return '所见即所得'
+      return '预览'
     }
 
-    return '源码'
+    return '编辑'
   })
 
   const handleSave = async (): Promise<void> => {
     await fileEditorStore.saveFile()
-  }
-
-  const handleBack = (): void => {
-    fileEditorStore.switchBackToChat()
   }
 
   const handleSendSelectionToSession = async (payload: { startLine: number; endLine: number }): Promise<void> => {
@@ -106,12 +74,9 @@ export function useFileEditorWorkspace() {
 
   return {
     fileEditorStore,
-    fileSizeLabel,
-    handleBack,
     handleMarkdownModeChange,
     handleSave,
     handleSendSelectionToSession,
-    languageName,
     markdownModeText,
     saveStatusText,
     settingsStore

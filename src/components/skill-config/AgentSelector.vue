@@ -182,16 +182,25 @@ function getAgentTypeLabel(_type: string) {
   display: flex;
   align-items: center;
   gap: var(--spacing-2);
+  width: 100%;
   padding: var(--spacing-2) var(--spacing-3);
-  background: var(--color-surface);
+  background-color: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
   cursor: pointer;
-  transition: border-color 0.2s;
+  transition: all var(--transition-fast) var(--easing-default);
 }
 
 .agent-selector__current:hover {
-  border-color: var(--color-border-hover);
+  border-color: var(--color-border-dark);
+  background-color: var(--color-surface-hover);
+}
+
+.agent-selector__dropdown--open .agent-selector__current {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary-light);
 }
 
 .agent-selector__current--placeholder {
@@ -213,7 +222,7 @@ function getAgentTypeLabel(_type: string) {
   font-size: var(--font-size-xs);
   color: var(--color-text-tertiary);
   padding: 2px 6px;
-  background: var(--color-background-secondary);
+  background: var(--color-bg-secondary);
   border-radius: var(--radius-sm);
 }
 
@@ -230,17 +239,18 @@ function getAgentTypeLabel(_type: string) {
   left: 0;
   right: 0;
   margin-top: var(--spacing-1);
-  background: var(--color-surface);
+  padding: var(--spacing-1);
+  background-color: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
-  z-index: 100;
+  z-index: var(--z-dropdown, 1000);
   max-height: 300px;
   overflow-y: auto;
   opacity: 0;
   visibility: hidden;
-  transform: translateY(-8px);
-  transition: all 0.2s;
+  transform: translateY(-4px);
+  transition: opacity var(--transition-fast), transform var(--transition-fast), visibility var(--transition-fast);
 }
 
 .agent-selector__dropdown--open .agent-selector__menu {
@@ -273,12 +283,13 @@ function getAgentTypeLabel(_type: string) {
 }
 
 .agent-selector__option:hover {
-  background: var(--color-background-secondary);
+  background: var(--color-surface-hover);
 }
 
 .agent-selector__option--active {
-  background: var(--color-primary-bg);
-  color: var(--color-primary);
+  background: var(--workspace-list-active-bg, var(--color-surface-active));
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  font-weight: var(--font-weight-medium);
 }
 
 .agent-selector__option-icon {

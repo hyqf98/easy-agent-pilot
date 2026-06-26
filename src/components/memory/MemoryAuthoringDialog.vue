@@ -201,23 +201,21 @@ function handleInstructionKeydown(event: KeyboardEvent) {
 
 <style>
 .memory-authoring-dialog__overlay {
-  backdrop-filter: blur(10px);
-  background: rgba(15, 23, 42, 0.4);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  background: rgba(15, 23, 42, 0.45);
 }
 
 .ea-modal.memory-authoring-dialog {
-  width: min(1480px, calc(100vw - 24px)) !important;
-  max-width: min(1480px, calc(100vw - 24px)) !important;
-  min-width: min(1240px, calc(100vw - 24px)) !important;
-  height: min(900px, calc(100vh - 24px)) !important;
-  max-height: min(900px, calc(100vh - 24px)) !important;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  border-radius: 30px;
-  background:
-    radial-gradient(circle at top right, rgba(20, 184, 166, 0.08), transparent 30%),
-    radial-gradient(circle at bottom left, rgba(59, 130, 246, 0.08), transparent 26%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.97));
-  box-shadow: 0 40px 120px rgba(15, 23, 42, 0.18);
+  width: min(1480px, calc(100vw - 24px));
+  max-width: min(1480px, calc(100vw - 24px));
+  min-width: min(1240px, calc(100vw - 24px));
+  height: min(900px, calc(100vh - 24px));
+  max-height: min(900px, calc(100vh - 24px));
+  border: 1px solid var(--workspace-border, rgba(38, 38, 38, 0.1));
+  border-radius: var(--radius-xl, 16px);
+  background: color-mix(in srgb, var(--workspace-panel-bg, #fff) 96%, transparent);
+  box-shadow: var(--workspace-card-shadow, 0 18px 40px rgba(24, 24, 22, 0.06));
 }
 
 .memory-authoring-dialog .ea-modal__header {
@@ -243,7 +241,7 @@ function handleInstructionKeydown(event: KeyboardEvent) {
 
 .memory-authoring-dialog__eyebrow {
   margin: 0 0 6px;
-  color: var(--color-text-secondary);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
   font-size: 11px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -251,21 +249,27 @@ function handleInstructionKeydown(event: KeyboardEvent) {
 
 .memory-authoring-dialog__title {
   margin: 0;
-  font-size: 28px;
+  font-size: 24px;
   font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
-  color: var(--color-text-primary);
+  color: var(--workspace-text-primary, var(--color-text-primary));
 }
 
 .memory-authoring-dialog__close {
-  width: 36px;
-  height: 36px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
-  color: var(--color-text-primary);
-  font-size: 22px;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--workspace-border, var(--color-border));
+  border-radius: var(--radius-md, 8px);
+  background: transparent;
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary));
+  font-size: 18px;
   line-height: 1;
   cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.memory-authoring-dialog__close:hover {
+  background: var(--workspace-control-hover-bg, var(--color-surface-hover));
+  color: var(--workspace-text-primary, var(--color-text-primary));
 }
 
 .memory-authoring-workspace {
@@ -285,7 +289,7 @@ function handleInstructionKeydown(event: KeyboardEvent) {
 }
 
 .memory-authoring-pane--conversation {
-  border-right: 1px solid rgba(148, 163, 184, 0.18);
+  border-right: 1px solid var(--workspace-border, var(--color-border));
 }
 
 .memory-authoring-field {
@@ -293,7 +297,7 @@ function handleInstructionKeydown(event: KeyboardEvent) {
   flex-direction: column;
   gap: 8px;
   min-width: 0;
-  color: var(--color-text-secondary);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
   font-size: 12px;
 }
 
@@ -302,17 +306,16 @@ function handleInstructionKeydown(event: KeyboardEvent) {
 }
 
 .memory-authoring-field span {
-  color: var(--color-text-primary);
+  color: var(--workspace-text-primary, var(--color-text-primary));
   font-weight: 600;
 }
 
 .memory-authoring-timeline,
 .memory-authoring-draft__body {
   min-height: 0;
-  border: 1px solid rgba(148, 163, 184, 0.12);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.62);
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.04);
+  border: 1px solid var(--workspace-border, var(--color-border));
+  border-radius: var(--radius-md, 8px);
+  background: var(--workspace-control-bg, var(--color-surface));
 }
 
 .memory-authoring-timeline {
@@ -326,7 +329,7 @@ function handleInstructionKeydown(event: KeyboardEvent) {
   align-items: center;
   gap: 10px;
   margin-top: 12px;
-  color: var(--color-text-secondary);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
   font-size: 13px;
 }
 
@@ -334,8 +337,8 @@ function handleInstructionKeydown(event: KeyboardEvent) {
   width: 10px;
   height: 10px;
   border-radius: 999px;
-  background: #0f766e;
-  box-shadow: 0 0 0 0 rgba(15, 118, 110, 0.3);
+  background: var(--color-primary);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary) 30%, transparent);
   animation: memory-authoring-pulse 1.2s ease infinite;
 }
 
@@ -367,10 +370,10 @@ function handleInstructionKeydown(event: KeyboardEvent) {
 .memory-authoring-draft__description,
 .memory-authoring-draft__editor {
   width: 100%;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.84);
-  color: var(--color-text-primary);
+  border: 1px solid var(--workspace-border, var(--color-border));
+  border-radius: var(--radius-md, 8px);
+  background: var(--workspace-panel-bg, var(--color-surface));
+  color: var(--workspace-text-primary, var(--color-text-primary));
   outline: none;
 }
 
@@ -385,8 +388,8 @@ function handleInstructionKeydown(event: KeyboardEvent) {
 .memory-authoring-composer__input:focus,
 .memory-authoring-draft__description:focus,
 .memory-authoring-draft__editor:focus {
-  border-color: rgba(15, 118, 110, 0.42);
-  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.12);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-light);
 }
 
 .memory-authoring-draft__meta {
@@ -412,23 +415,23 @@ function handleInstructionKeydown(event: KeyboardEvent) {
 
 @keyframes memory-authoring-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(15, 118, 110, 0.3);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary) 30%, transparent);
   }
 
   70% {
-    box-shadow: 0 0 0 8px rgba(15, 118, 110, 0);
+    box-shadow: 0 0 0 8px color-mix(in srgb, var(--color-primary) 0%, transparent);
   }
 
   100% {
-    box-shadow: 0 0 0 0 rgba(15, 118, 110, 0);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary) 0%, transparent);
   }
 }
 
 @media (max-width: 1200px) {
   .ea-modal.memory-authoring-dialog {
-    min-width: auto !important;
-    height: min(920px, calc(100vh - 16px)) !important;
-    max-height: min(920px, calc(100vh - 16px)) !important;
+    min-width: auto;
+    height: min(920px, calc(100vh - 16px));
+    max-height: min(920px, calc(100vh - 16px));
   }
 
   .memory-authoring-workspace {
@@ -437,7 +440,7 @@ function handleInstructionKeydown(event: KeyboardEvent) {
 
   .memory-authoring-pane--conversation {
     border-right: none;
-    border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+    border-bottom: 1px solid var(--workspace-border, var(--color-border));
   }
 
   .memory-authoring-composer__head {

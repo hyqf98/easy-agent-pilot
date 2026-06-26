@@ -1,10 +1,11 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { UnifiedSkillConfig } from '@/stores/skillConfig'
 import SkillConfigItem from '../items/SkillConfigItem.vue'
-import { EaButton, EaIcon } from '@/components/common'
+import { EaButton, EaIcon, EaStateBlock, EaActionMenu, type ActionMenuItem } from '@/components/common'
 
-defineProps<{
+const props = defineProps<{
   configs: UnifiedSkillConfig[]
   isReadOnly: boolean
   isLoading: boolean
@@ -20,6 +21,13 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+// 次要操作收入溢出菜单（同步），主操作「添加」常驻
+const overflowItems = computed<ActionMenuItem[]>(() => {
+  return props.canSync
+    ? [{ key: 'sync', label: t('settings.integration.sync.button'), icon: 'arrow-right-left' }]
+    : []
+})
 </script>
 
 <template>
@@ -28,50 +36,37 @@ const { t } = useI18n()
       <h3 class="skills-config-tab__title">
         {{ t('settings.sdkConfig.skills.title') }}
       </h3>
-      <div
-        class="skills-config-tab__actions"
-      >
-        <EaButton
-          v-if="canSync"
-          size="small"
-          type="secondary"
-          @click="emit('sync')"
-        >
-          <EaIcon name="lucide:arrow-right-left" />
-          {{ t('settings.integration.sync.button') }}
-        </EaButton>
+      <div class="skills-config-tab__actions">
         <EaButton
           v-if="!isReadOnly"
-          size="small"
+          size="medium"
           @click="emit('add')"
         >
-          <EaIcon name="lucide:plus" />
+          <EaIcon
+            name="plus"
+            :size="14"
+          />
           {{ t('settings.sdkConfig.skills.add') }}
         </EaButton>
+        <EaActionMenu
+          v-if="overflowItems.length"
+          :items="overflowItems"
+          @select="(key) => key === 'sync' && emit('sync')"
+        />
       </div>
     </div>
 
-    <div
+    <EaStateBlock
       v-if="isLoading"
-      class="skills-config-tab__loading"
-    >
-      <EaIcon
-        name="lucide:loader-2"
-        class="skills-config-tab__spinner"
-      />
-      {{ t('common.loading') }}
-    </div>
+      variant="loading"
+      :title="t('common.loading')"
+    />
 
-    <div
+    <EaStateBlock
       v-else-if="configs.length === 0"
-      class="skills-config-tab__empty"
-    >
-      <EaIcon
-        name="lucide:book-open"
-        class="skills-config-tab__empty-icon"
-      />
-      <p>{{ t('settings.sdkConfig.skills.noConfigs') }}</p>
-    </div>
+      icon="book-open"
+      :description="t('settings.sdkConfig.skills.noConfigs')"
+    />
 
     <div
       v-else
@@ -106,41 +101,6 @@ const { t } = useI18n()
 .skills-config-tab__actions {
   display: flex;
   gap: var(--spacing-2);
-}
-
-.skills-config-tab__loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--spacing-2);
-  padding: var(--spacing-8);
-  color: var(--color-text-tertiary);
-}
-
-.skills-config-tab__spinner {
-  width: 16px;
-  height: 16px;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-.skills-config-tab__empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--spacing-2);
-  padding: var(--spacing-8);
-  color: var(--color-text-tertiary);
-}
-
-.skills-config-tab__empty-icon {
-  width: 32px;
-  height: 32px;
-  opacity: 0.5;
 }
 
 .skills-config-tab__list {

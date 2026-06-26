@@ -540,6 +540,7 @@ export function useMessageComposer() {
 
       const result = await invoke<UploadSessionImagesResponse>('upload_session_images', {
         sessionId,
+        projectPath: null,
         files: payload
       })
 

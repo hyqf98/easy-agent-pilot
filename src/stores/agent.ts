@@ -89,9 +89,6 @@ interface TestConnectionResult {
   message: string
 }
 
-import type { CliTool, DetectionResult, CliStatus } from './settings'
-export type { CliTool, DetectionResult, CliStatus }
-
 function transformAgent(raw: RawAgentData): AgentConfig {
   const acpCommand = raw.acp_command || raw.cli_path
   return {
@@ -116,17 +113,11 @@ function transformAgent(raw: RawAgentData): AgentConfig {
 }
 
 export const useAgentStore = defineStore('agent', () => {
-  const CLI_SCAN_CACHE_MS = 60_000
-
   // State
   const agents = ref<AgentConfig[]>([])
   const currentAgentId = ref<string | null>(null)
   const isLoading = ref(false)
   const testingAgentId = ref<string | null>(null)
-  const detectedTools = ref<CliTool[]>([])
-  const isScanning = ref(false)
-  let lastCliScanAt = 0
-  let cliScanPromise: Promise<void> | null = null
 
   // Getters
   const currentAgent = computed(() =>
@@ -141,15 +132,6 @@ export const useAgentStore = defineStore('agent', () => {
   const agentsByProvider = computed(() => {
     return (provider: AgentProvider) =>
       agents.value.filter(a => a.provider === provider)
-  })
-
-  const availableToolsToAdd = computed(() => {
-    return detectedTools.value.filter(tool => {
-      if (tool.status !== 'available') return false
-      return !agents.value.some(agent =>
-        agent.acpCommand === tool.command || agent.cliPath === tool.command
-      )
-    })
   })
 
   // Actions
@@ -174,7 +156,6 @@ export const useAgentStore = defineStore('agent', () => {
 
   async function createAgent(agent: Omit<AgentConfig, 'id' | 'createdAt' | 'updatedAt' | 'status'>) {
     const notificationStore = useNotificationStore()
-    const agentConfigStore = useAgentConfigStore()
 
     try {
       const rawAgent = await invoke<RawAgentData>('create_agent', {
@@ -194,14 +175,6 @@ export const useAgentStore = defineStore('agent', () => {
       })
       const newAgent = transformAgent(rawAgent)
       agents.value.push(newAgent)
-
-      if (agent.provider) {
-        try {
-          await agentConfigStore.initBuiltinModels(newAgent.id, agent.provider)
-        } catch (error) {
-          console.error('Failed to init builtin models:', error)
-        }
-      }
       return newAgent
     } catch (error) {
       console.error('Failed to create agent:', error)
@@ -246,13 +219,8 @@ export const useAgentStore = defineStore('agent', () => {
         agents.value[index] = transformAgent(rawAgent)
       }
 
-      if (providerChanged && rawAgent.provider) {
+      if (providerChanged) {
         agentConfigStore.clearConfigs(id)
-        try {
-          await agentConfigStore.initBuiltinModels(id, rawAgent.provider)
-        } catch (modelError) {
-          console.error('Failed to sync builtin models after provider change:', modelError)
-        }
       }
     } catch (error) {
       console.error('Failed to update agent:', error)
@@ -333,81 +301,22 @@ export const useAgentStore = defineStore('agent', () => {
     }
   }
 
-  async function scanCliTools(options: { force?: boolean } = {}) {
-    const force = options.force ?? false
-    const now = Date.now()
-
-    if (!force && detectedTools.value.length > 0 && now - lastCliScanAt < CLI_SCAN_CACHE_MS) {
-      return
-    }
-
-    if (cliScanPromise) {
-      return cliScanPromise
-    }
-
-    isScanning.value = true
-    cliScanPromise = (async () => {
-      try {
-        const result = await invoke<DetectionResult>('detect_cli_tools')
-        detectedTools.value = result.tools.map(tool => ({
-          name: tool.name,
-          command: tool.command,
-          version: tool.version,
-          status: tool.status as CliStatus
-        }))
-        lastCliScanAt = Date.now()
-      } catch (error) {
-        console.error('Failed to scan CLI tools:', error)
-        detectedTools.value = []
-        lastCliScanAt = 0
-      } finally {
-        isScanning.value = false
-        cliScanPromise = null
-      }
-    })()
-
-    return cliScanPromise
-  }
-
-  // 快速添加检测到的 CLI 工具
-  async function addDetectedTool(tool: CliTool) {
-    const provider = inferAgentProvider({ name: tool.name, cliPath: tool.command })
-
-    const name = tool.name === 'claude' ? 'Claude CLI'
-               : tool.name === 'codex' ? 'Codex CLI'
-               : tool.name === 'opencode' ? 'OpenCode CLI'
-               : tool.name
-
-    return await createAgent({
-      name,
-      type: 'acp',
-      provider,
-      acpCommand: tool.command,
-      cliPath: tool.command
-    })
-  }
-
   return {
     // State
     agents,
     currentAgentId,
     isLoading,
     testingAgentId,
-    detectedTools,
-    isScanning,
     // Getters
     currentAgent,
     agentsByType,
     agentsByProvider,
-    availableToolsToAdd,
     // Actions
     loadAgents,
     createAgent,
     updateAgent,
     deleteAgent,
     setCurrentAgent,
-    testConnection,
-    scanCliTools,
-    addDetectedTool
+    testConnection
   }
 })

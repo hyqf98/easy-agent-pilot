@@ -8,7 +8,7 @@ use agent_client_protocol::schema::{
     ContentBlock, McpServer, McpServerStdio, NewSessionRequest, PermissionOptionKind,
     PromptRequest, PromptResponse,
     RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
-    SelectedPermissionOutcome, SessionNotification, SessionUpdate,
+    SelectedPermissionOutcome, SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
 };
 use agent_client_protocol::util::MatchDispatch;
 use agent_client_protocol::{on_receive_request, Agent, Client, SessionMessage};
@@ -24,7 +24,7 @@ use crate::commands::conversation::abort::{
     clear_abort_flag, should_abort,
     unregister_session_pid,
 };
-use crate::commands::conversation::message_recorder::{MessageRecorder, RecordableEvent};
+use crate::commands::conversation::message_recorder::RecordableEvent;
 use crate::commands::conversation::strategy::{AgentExecutionStrategy, AgentRuntimeKind};
 use crate::commands::conversation::types::{AcpStreamEvent, ExecutionRequest, McpServerConfig};
 use crate::commands::mcp_shared::parse_args_string;
@@ -105,6 +105,45 @@ fn parse_env_string(env_str: &str) -> Vec<(String, String)> {
     pairs
 }
 
+fn normalize_reasoning_effort(effort: &str) -> Option<String> {
+    let normalized = effort.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        return None;
+    }
+
+    Some(normalized.replace('-', "_"))
+}
+
+fn acp_reasoning_config_ids() -> &'static [&'static str] {
+    &[
+        "thought_level",
+        "reasoning_effort",
+        "reasoningEffort",
+        "thinking_level",
+        "thinking",
+        "reasoning",
+    ]
+}
+
+fn acp_reasoning_value_candidates(effort: &str) -> Vec<&'static str> {
+    match effort {
+        "none" => vec!["none", "off", "disabled", "minimal"],
+        "minimal" => vec!["minimal", "none", "low"],
+        "low" => vec!["low", "minimal"],
+        "medium" => vec!["medium", "normal", "default"],
+        "high" => vec!["high"],
+        "xhigh" | "x_high" => vec!["xhigh", "x-high", "x_high", "very_high", "extra_high", "max"],
+        "max" => vec!["max", "xhigh", "x-high", "x_high", "very_high", "extra_high"],
+        _ => vec![],
+    }
+}
+
+/// 不同 ACP Agent 暴露的模型配置项 ID 候选（claude/opencode/codex 命名不一）。
+/// 探测时按顺序尝试，命中第一个成功的即返回。
+fn acp_model_config_ids() -> &'static [&'static str] {
+    &["model", "defaultModel", "model_id", "modelId"]
+}
+
 fn resolve_permission_outcome(
     mode: &str,
     options: &[agent_client_protocol::schema::PermissionOption],
@@ -172,6 +211,7 @@ fn build_permission_event(
         cache_creation_input_tokens: None,
         model: None,
         external_session_id: None,
+        permission_options: Some(super::super::permission::to_permission_option_views(options)),
     }
 }
 
@@ -226,6 +266,7 @@ fn build_done_event(session_id: &str, request_id: &str) -> AcpStreamEvent {
         cache_creation_input_tokens: None,
         model: None,
         external_session_id: None,
+        permission_options: None,
     }
 }
 
@@ -248,6 +289,7 @@ fn build_thinking_event(session_id: &str, request_id: &str, content: String) -> 
         cache_creation_input_tokens: None,
         model: None,
         external_session_id: None,
+        permission_options: None,
     }
 }
 
@@ -276,6 +318,7 @@ fn build_tool_use_event(
         cache_creation_input_tokens: None,
         model: None,
         external_session_id: None,
+        permission_options: None,
     }
 }
 
@@ -303,6 +346,7 @@ fn build_tool_result_event(
         cache_creation_input_tokens: None,
         model: None,
         external_session_id: None,
+        permission_options: None,
     }
 }
 
@@ -325,6 +369,7 @@ fn build_session_started_event(session_id: &str, request_id: &str, external_sid:
         cache_creation_input_tokens: None,
         model: None,
         external_session_id: Some(external_sid),
+        permission_options: None,
     }
 }
 
@@ -347,6 +392,7 @@ fn build_plan_event(session_id: &str, request_id: &str, plan_json: String) -> Ac
         cache_creation_input_tokens: None,
         model: None,
         external_session_id: None,
+        permission_options: None,
     }
 }
 
@@ -398,6 +444,7 @@ fn build_usage_event(
         cache_creation_input_tokens,
         model: None,
         external_session_id: None,
+        permission_options: None,
     }
 }
 
@@ -461,6 +508,7 @@ impl AgentExecutionStrategy for AcpStrategy {
         let execution_mode = request.execution_mode.clone();
         let reasoning_effort = request.reasoning_effort.clone();
         let system_prompt = request.system_prompt.clone();
+        let model_id = request.model_id.clone();
 
         log_info!(
             "Starting ACP session | session_id={} | command={} | cwd={}",
@@ -525,7 +573,34 @@ impl AgentExecutionStrategy for AcpStrategy {
                         mode
                     );
 
-                    let outcome = resolve_permission_outcome(&mode, &request.options);
+                    // ask 模式：挂起等待前端用户决策；其它模式自动决策
+                    let outcome = if mode == "ask" {
+                        let _ = app_for_handler.emit(
+                            &event_name_for_handler,
+                            &build_permission_event(
+                                &session_id_for_handler,
+                                &request_id_for_handler,
+                                &tool_title,
+                                &request.options,
+                                &RequestPermissionOutcome::Cancelled,
+                            ),
+                        );
+
+                        let decision = super::super::permission::await_approval(
+                            &session_id_for_handler,
+                            &request_id_for_handler,
+                        )
+                        .await;
+
+                        match decision {
+                            Some(d) => RequestPermissionOutcome::Selected(
+                                SelectedPermissionOutcome::new(d.option_id),
+                            ),
+                            None => RequestPermissionOutcome::Cancelled,
+                        }
+                    } else {
+                        resolve_permission_outcome(&mode, &request.options)
+                    };
 
                     let _ = app_for_handler.emit(
                         &event_name_for_handler,
@@ -587,6 +662,92 @@ impl AgentExecutionStrategy for AcpStrategy {
 
                 let external_sid = session.session_id().to_string();
                 let _ = app.emit(&event_name, &build_session_started_event(&session_id, &request_id, external_sid));
+
+                if let Some(effort) = reasoning_effort
+                    .as_deref()
+                    .and_then(normalize_reasoning_effort)
+                {
+                    let candidates = acp_reasoning_value_candidates(&effort);
+                    let mut applied_config: Option<String> = None;
+
+                    for config_id in acp_reasoning_config_ids() {
+                        for value in &candidates {
+                            let result = session
+                                .connection()
+                                .send_request_to(
+                                    Agent,
+                                    SetSessionConfigOptionRequest::new(
+                                        session.session_id().clone(),
+                                        *config_id,
+                                        *value,
+                                    ),
+                                )
+                                .block_task()
+                                .await;
+
+                            if result.is_ok() {
+                                applied_config = Some(format!("{}={}", config_id, value));
+                                break;
+                            }
+                        }
+
+                        if applied_config.is_some() {
+                            break;
+                        }
+                    }
+
+                    if let Some(config) = applied_config {
+                        log_info!(
+                            "ACP thought_level applied | session_id={} | {}",
+                            session_id,
+                            config
+                        );
+                    } else {
+                        log_info!(
+                            "ACP thought_level config unsupported | session_id={} | effort={}",
+                            session_id,
+                            effort
+                        );
+                    }
+                }
+
+                // 子代理/会话选定的模型经 ACP config option 回填给执行器。
+                // 与 reasoning_effort 同理：不同 Agent 暴露的 config id 命名不一，逐个探测直到命中。
+                if let Some(model) = model_id.as_deref() {
+                    let model = model.trim();
+                    if !model.is_empty() {
+                        let mut applied_model: Option<String> = None;
+                        for config_id in acp_model_config_ids() {
+                            let result = session
+                                .connection()
+                                .send_request_to(
+                                    Agent,
+                                    SetSessionConfigOptionRequest::new(
+                                        session.session_id().clone(),
+                                        *config_id,
+                                        model.to_string(),
+                                    ),
+                                )
+                                .block_task()
+                                .await;
+
+                            if result.is_ok() {
+                                applied_model = Some(format!("{}={}", config_id, model));
+                                break;
+                            }
+                        }
+
+                        if let Some(config) = applied_model {
+                            log_info!("ACP model applied | session_id={} | {}", session_id, config);
+                        } else {
+                            log_info!(
+                                "ACP model config unsupported | session_id={} | model={}",
+                                session_id,
+                                model
+                            );
+                        }
+                    }
+                }
 
                 // Bypass session.send_prompt() to retain PromptResponse.usage
                 // (send_prompt discards it via `let PromptResponse { stop_reason, .. }`).
@@ -755,6 +916,7 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                                     cache_creation_input_tokens: None,
                                                                     model: None,
                                                                     external_session_id: None,
+                                                                    permission_options: None,
                                                                 },
                                                             );
                                                         }
@@ -876,6 +1038,8 @@ impl AgentExecutionStrategy for AcpStrategy {
 
         unregister_session_pid(&session_id_cleanup).await;
         clear_abort_flag(&session_id_cleanup).await;
+        // 清理可能残留的待处理权限询问，避免前端弹窗悬空
+        super::super::permission::cancel_session_approvals(&session_id_cleanup).await;
 
         result.map_err(|e| anyhow::anyhow!("ACP execution failed: {}", e))
     }

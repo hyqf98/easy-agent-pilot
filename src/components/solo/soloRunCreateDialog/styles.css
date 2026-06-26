@@ -1,15 +1,19 @@
+/* ============================================================
+ * SoloRunCreateDialog 样式
+ * 采用 workspace-* 令牌，暗色模式自动跟随
+ * ============================================================ */
+
 .solo-create-overlay {
   position: fixed;
   inset: 0;
-  z-index: 1400;
+  z-index: var(--z-modal, 1050);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background:
-    radial-gradient(circle at top left, color-mix(in srgb, var(--color-primary) 16%, transparent) 0%, transparent 44%),
-    rgba(8, 15, 28, 0.52);
-  backdrop-filter: blur(10px);
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 
 .solo-create-dialog {
@@ -18,10 +22,10 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--color-border) 76%, var(--color-primary) 24%);
-  border-radius: 28px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--color-surface) 92%, white 8%) 0%, var(--color-surface) 100%);
-  box-shadow: 0 32px 90px rgba(3, 10, 22, 0.28);
+  border: 1px solid var(--workspace-border, rgba(38, 38, 38, 0.1));
+  border-radius: var(--radius-xl, 16px);
+  background: color-mix(in srgb, var(--workspace-panel-bg, #fff) 96%, transparent);
+  box-shadow: var(--workspace-card-shadow, 0 18px 40px rgba(24, 24, 22, 0.06));
 }
 
 .solo-create-dialog__header,
@@ -34,13 +38,13 @@
 }
 
 .solo-create-dialog__header {
-  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent);
+  border-bottom: 1px solid var(--workspace-border, var(--color-border));
 }
 
 .solo-create-dialog__header h3 {
   margin: 4px 0 0;
-  font-size: 22px;
-  color: var(--color-text-primary);
+  font-size: 20px;
+  color: var(--workspace-text-primary, var(--color-text-primary));
 }
 
 .solo-create-dialog__subtitle {
@@ -48,7 +52,7 @@
   max-width: 560px;
   font-size: 13px;
   line-height: 1.7;
-  color: var(--color-text-secondary);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
 }
 
 .solo-create-dialog__eyebrow {
@@ -60,26 +64,28 @@
 }
 
 .solo-create-dialog__close {
-  width: 36px;
-  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
   border: none;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-surface-hover) 88%, transparent);
-  color: var(--color-text-secondary);
-  font-size: 24px;
-  line-height: 1;
+  border-radius: var(--radius-md, 8px);
+  background: transparent;
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary));
   cursor: pointer;
+  transition: all var(--transition-fast, 150ms);
+  flex-shrink: 0;
+}
+
+.solo-create-dialog__close:hover {
+  background-color: var(--workspace-control-hover-bg, var(--color-surface-hover));
+  color: var(--workspace-text-primary, var(--color-text-primary));
 }
 
 .solo-create-dialog__body {
   padding: 20px 24px 12px;
   overflow: auto;
-}
-
-.solo-create-dialog__grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
 }
 
 .solo-create-dialog__field {
@@ -93,7 +99,7 @@
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  color: var(--color-text-secondary);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
 }
 
 .solo-create-dialog__label-row {
@@ -116,23 +122,20 @@
 .solo-create-dialog__field select {
   width: 100%;
   box-sizing: border-box;
-  padding: 12px 14px;
-  border: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--color-surface) 86%, transparent);
-  color: var(--color-text-primary);
+  padding: 10px 14px;
+  border: 1px solid var(--workspace-border, var(--color-border));
+  border-radius: var(--radius-md, 8px);
+  background: var(--workspace-panel-bg, var(--color-surface));
+  color: var(--workspace-text-primary, var(--color-text-primary));
   font-size: 14px;
-  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 
 .solo-create-dialog__field select {
   appearance: none;
   padding-right: 40px;
-  background-image:
-    linear-gradient(45deg, transparent 50%, color-mix(in srgb, var(--color-text-secondary) 88%, transparent) 50%),
-    linear-gradient(135deg, color-mix(in srgb, var(--color-text-secondary) 88%, transparent) 50%, transparent 50%);
-  background-position: calc(100% - 18px) calc(50% - 2px), calc(100% - 12px) calc(50% - 2px);
-  background-size: 6px 6px, 6px 6px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-position: calc(100% - 16px) center;
   background-repeat: no-repeat;
 }
 
@@ -150,33 +153,33 @@
 .solo-create-dialog__path-input,
 .solo-create-dialog__select,
 .solo-create-dialog__number-input {
-  min-height: 48px;
+  min-height: 44px;
 }
 
 .solo-create-dialog__picker-button {
   min-width: 124px;
   padding: 0 16px;
-  border: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--color-surface-hover) 86%, transparent);
-  color: var(--color-text-primary);
+  border: 1px solid var(--workspace-border, var(--color-border));
+  border-radius: var(--radius-md, 8px);
+  background: var(--workspace-control-bg, var(--color-surface));
+  color: var(--workspace-text-primary, var(--color-text-primary));
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+  transition: border-color 160ms ease, background 160ms ease;
 }
 
 .solo-create-dialog__picker-button:hover {
-  transform: translateY(-1px);
-  border-color: color-mix(in srgb, var(--color-primary) 38%, var(--color-border) 62%);
+  border-color: var(--color-primary);
+  background: var(--workspace-control-hover-bg, var(--color-surface-hover));
 }
 
 .solo-create-dialog__field input:focus,
 .solo-create-dialog__field textarea:focus,
 .solo-create-dialog__field select:focus {
   outline: none;
-  border-color: color-mix(in srgb, var(--color-primary) 72%, var(--color-border) 28%);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary) 14%, transparent);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-light);
 }
 
 .solo-create-dialog__experts {
@@ -191,16 +194,16 @@
   justify-content: space-between;
   gap: 12px;
   margin-top: 12px;
-  color: var(--color-text-secondary);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
   font-size: 12px;
 }
 
 .solo-create-dialog__more-button {
   padding: 8px 14px;
-  border: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent);
+  border: 1px solid var(--workspace-border, var(--color-border));
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-surface-hover) 82%, transparent);
-  color: var(--color-text-primary);
+  background: var(--workspace-control-bg, var(--color-surface-hover));
+  color: var(--workspace-text-primary, var(--color-text-primary));
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -211,22 +214,17 @@
   align-items: flex-start;
   gap: 12px;
   padding: 14px;
-  border: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+  border: 1px solid var(--workspace-border, var(--color-border));
+  border-radius: var(--radius-md, 8px);
+  background: var(--workspace-panel-bg, var(--color-surface));
   text-align: left;
   cursor: pointer;
-  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
-}
-
-.solo-expert-chip:hover {
-  transform: translateY(-1px);
+  transition: border-color 160ms ease, background 160ms ease;
 }
 
 .solo-expert-chip--active {
-  border-color: color-mix(in srgb, var(--color-primary) 54%, var(--color-border) 46%);
-  box-shadow: 0 12px 24px color-mix(in srgb, var(--color-primary) 12%, transparent);
-  background: linear-gradient(135deg, color-mix(in srgb, var(--color-primary) 8%, transparent) 0%, color-mix(in srgb, var(--color-surface) 92%, transparent) 100%);
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
 }
 
 .solo-expert-chip__checkbox {
@@ -235,11 +233,16 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--color-surface-hover) 90%, transparent);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--workspace-control-bg, var(--color-surface-hover));
   color: var(--color-primary);
   font-size: 12px;
   flex: 0 0 auto;
+}
+
+.solo-expert-chip--active .solo-expert-chip__checkbox {
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
 }
 
 .solo-expert-chip__content {
@@ -250,12 +253,12 @@
 }
 
 .solo-expert-chip__content strong {
-  color: var(--color-text-primary);
+  color: var(--workspace-text-primary, var(--color-text-primary));
 }
 
 .solo-expert-chip__content small {
   line-height: 1.5;
-  color: var(--color-text-secondary);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
 }
 
 .solo-create-dialog__notice {
@@ -263,9 +266,9 @@
   gap: 12px;
   align-items: flex-start;
   padding: 16px 18px;
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
-  color: var(--color-text-secondary);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-primary-light);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
 }
 
 .solo-create-dialog__notice-dot {
@@ -285,36 +288,8 @@
 .solo-create-dialog__footer {
   align-items: center;
   justify-content: flex-end;
-  border-top: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent);
-}
-
-.solo-create-dialog__button {
-  padding: 10px 18px;
-  border: none;
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.solo-create-dialog__button--ghost {
-  background: color-mix(in srgb, var(--color-surface-hover) 88%, transparent);
-  color: var(--color-text-primary);
-}
-
-.solo-create-dialog__button--secondary {
-  background: color-mix(in srgb, #0ea5e9 14%, transparent);
-  color: color-mix(in srgb, #0369a1 90%, white 10%);
-}
-
-.solo-create-dialog__button--primary {
-  color: white;
-  background: linear-gradient(135deg, color-mix(in srgb, var(--color-primary) 82%, white) 0%, var(--color-primary) 100%);
-}
-
-.solo-create-dialog__button:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
+  gap: 12px;
+  border-top: 1px solid var(--workspace-border, var(--color-border));
 }
 
 @media (max-width: 900px) {

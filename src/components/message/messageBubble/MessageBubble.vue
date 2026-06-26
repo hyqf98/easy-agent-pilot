@@ -38,6 +38,8 @@ const {
   isUser,
   isAssistant,
   isCompression,
+  isSystemStatus,
+  isTokenOnlyMessage,
   isStreaming,
   isCurrentStreamingMessage,
   isError,
@@ -59,9 +61,6 @@ const {
   resolvedFormResponsesById,
   shouldRenderAsToolCall,
   toolCallForDisplay,
-  isUsage,
-  isContextWindow,
-  usageSummary,
   handleStop,
   handleRetry,
   handleFormSubmit
@@ -69,9 +68,15 @@ const {
 </script>
 
 <template>
+  <!-- 用量 / 上下文窗口信息仅供 token 进度环使用，不作为独立消息气泡渲染 -->
+  <template v-if="isTokenOnlyMessage" />
+
+  <!-- 系统状态消息（如 "Connecting to agent via ACP…"）：不在会话流中展示，避免干扰 -->
+  <template v-else-if="isSystemStatus" />
+
   <!-- 压缩消息使用专用组件，右对齐 + 用户头像 -->
   <div
-    v-if="isCompression"
+    v-else-if="isCompression"
     class="message-bubble message-bubble--user"
   >
     <div class="message-bubble__body">
@@ -102,38 +107,6 @@ const {
         :live="isStreaming"
         :compact="true"
       />
-      <div class="message-bubble__meta">
-        <span class="message-bubble__time">{{ formattedTime }}</span>
-      </div>
-    </div>
-  </div>
-
-  <!-- 用量信息（usage / context_window）：独立行，紧凑展示 token 统计 -->
-  <div
-    v-else-if="(isUsage || isContextWindow) && usageSummary"
-    class="message-bubble message-bubble--assistant message-bubble--usage"
-  >
-    <div class="message-bubble__avatar">
-      <EaIcon
-        name="bot"
-        :size="15"
-      />
-    </div>
-    <div class="message-bubble__body message-bubble__body--usage">
-      <div class="message-bubble__usage">
-        <EaIcon
-          name="cpu"
-          :size="13"
-          class="message-bubble__usage-icon"
-        />
-        <span class="message-bubble__usage-text">
-          {{ usageSummary.input + usageSummary.output }} tokens
-          <template v-if="usageSummary.cacheRead > 0">
-            · 缓存命中 {{ usageSummary.cacheRead }}
-          </template>
-          <template v-if="usageSummary.model"> · {{ usageSummary.model }} </template>
-        </span>
-      </div>
       <div class="message-bubble__meta">
         <span class="message-bubble__time">{{ formattedTime }}</span>
       </div>

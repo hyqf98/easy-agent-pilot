@@ -15,12 +15,9 @@ const props = withDefaults(defineProps<{
 
 const {
   fileEditorStore,
-  fileSizeLabel,
-  handleBack,
   handleMarkdownModeChange,
   handleSave,
   handleSendSelectionToSession,
-  languageName,
   markdownModeText,
   saveStatusText,
   settingsStore
@@ -97,31 +94,8 @@ onBeforeUnmount(() => {
   >
     <div class="file-editor-workspace__toolbar">
       <div class="file-editor-workspace__toolbar-left">
-        <EaButton
-          type="ghost"
-          size="small"
-          @click="handleBack"
-        >
-          <EaIcon
-            name="arrow-left"
-            :size="14"
-          />
-          返回聊天
-        </EaButton>
-
         <div class="file-editor-workspace__file-meta">
           <span class="file-editor-workspace__file-name">{{ fileEditorStore.fileName || '未选择文件' }}</span>
-          <span class="file-editor-workspace__divider">•</span>
-          <span class="file-editor-workspace__language">{{ languageName }}</span>
-          <span
-            v-if="fileEditorStore.previewMode === 'editor'"
-            class="file-editor-workspace__divider"
-          />
-          <span
-            v-if="fileEditorStore.previewMode === 'editor'"
-            class="file-editor-workspace__metrics"
-          >{{ fileSizeLabel }} / {{ fileEditorStore.lineCount }} 行</span>
-          <span class="file-editor-workspace__divider">•</span>
           <span
             class="file-editor-workspace__status"
             :class="{ 'file-editor-workspace__status--dirty': fileEditorStore.isDirty }"
@@ -155,7 +129,7 @@ onBeforeUnmount(() => {
               name="lucide:book-open"
               :size="13"
             />
-            所见即所得
+            预览
           </button>
           <button
             type="button"
@@ -169,13 +143,13 @@ onBeforeUnmount(() => {
               name="file-code"
               :size="13"
             />
-            源码
+            编辑
           </button>
         </div>
 
         <EaButton
           v-if="fileEditorStore.previewMode === 'editor'"
-          type="primary"
+          type="secondary"
           size="small"
           :loading="fileEditorStore.isSaving"
           :disabled="!fileEditorStore.hasActiveFile || !fileEditorStore.isDirty"

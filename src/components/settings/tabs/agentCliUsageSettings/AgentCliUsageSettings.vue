@@ -7,36 +7,25 @@ const {
   t,
   usageStore,
   trendChartRef,
-  providerChartRef,
-  agentChartRef,
-  modelChartRef,
+  modelTrendChartRef,
   cliTypeOptions,
   dateRangePresets,
-  summaryCards,
+  usageMetric,
+  usageMetricOptions,
   todayCards,
-  insightCards,
   hasStats,
   applyDatePreset,
   refreshStats,
-  resetFilters,
-  formatDateTime
+  resetFilters
 } = useAgentCliUsageSettings()
 </script>
 
 <template>
   <div class="usage-stats-page">
-    <section class="usage-stats-page__hero">
-      <div>
-        <p class="usage-stats-page__eyebrow">
-          {{ t('settings.usageStats.eyebrow') }}
-        </p>
-        <h2 class="usage-stats-page__title">
-          {{ t('settings.usageStats.title') }}
-        </h2>
-        <p class="usage-stats-page__subtitle">
-          {{ t('settings.usageStats.subtitle') }}
-        </p>
-      </div>
+    <header class="usage-stats-page__header">
+      <h3 class="usage-stats-page__title">
+        {{ t('settings.usageStats.title') }}
+      </h3>
 
       <div class="usage-stats-page__actions">
         <EaButton
@@ -52,65 +41,35 @@ const {
           {{ t('common.refresh') }}
         </EaButton>
       </div>
-    </section>
+    </header>
 
-    <SettingsSectionCard
-      :title="t('settings.usageStats.filtersTitle')"
-      :description="t('settings.usageStats.filtersDescriptionSimplified')"
-    >
-      <div class="usage-filters">
-        <label class="usage-field">
-          <span class="usage-field__label">{{ t('settings.usageStats.startDate') }}</span>
-          <input
-            v-model="usageStore.filters.startDate"
-            class="usage-field__input"
-            type="date"
+    <!-- 今日概览：总 Token / 折合价格 / 缓存命中率（hover 显示明细） -->
+    <section class="usage-overview">
+      <article
+        v-for="card in todayCards"
+        :key="card.key"
+        class="usage-overview-card"
+        :class="{ 'usage-overview-card--accent': card.key === 'today-total-tokens' }"
+      >
+        <span class="usage-overview-card__label">{{ card.label }}</span>
+        <strong class="usage-overview-card__value">{{ card.value }}</strong>
+
+        <!-- hover 明细弹框：仅当存在 details 时显示 -->
+        <div
+          v-if="card.details"
+          class="usage-overview-card__popover"
+        >
+          <div
+            v-for="item in card.details"
+            :key="item.label"
+            class="usage-overview-card__popover-row"
           >
-        </label>
-
-        <label class="usage-field">
-          <span class="usage-field__label">{{ t('settings.usageStats.endDate') }}</span>
-          <input
-            v-model="usageStore.filters.endDate"
-            class="usage-field__input"
-            type="date"
-          >
-        </label>
-
-        <label class="usage-field">
-          <span class="usage-field__label">{{ t('settings.usageStats.cliType') }}</span>
-          <EaSelect
-            v-model="usageStore.filters.cliType"
-            :options="cliTypeOptions"
-          />
-        </label>
-
-        <label class="usage-field">
-          <span class="usage-field__label">{{ t('settings.usageStats.modelName') }}</span>
-          <input
-            v-model.trim="usageStore.filters.modelKeyword"
-            class="usage-field__input"
-            type="text"
-            :placeholder="t('settings.usageStats.modelNamePlaceholder')"
-          >
-        </label>
-      </div>
-
-      <div class="usage-presets">
-        <span class="usage-presets__label">{{ t('settings.usageStats.rangePresetsTitle') }}</span>
-        <div class="usage-presets__actions">
-          <button
-            v-for="preset in dateRangePresets"
-            :key="preset.key"
-            class="usage-preset-chip"
-            type="button"
-            @click="applyDatePreset(preset.days)"
-          >
-            {{ preset.label }}
-          </button>
+            <span class="usage-overview-card__popover-label">{{ item.label }}</span>
+            <span class="usage-overview-card__popover-value">{{ item.value }}</span>
+          </div>
         </div>
-      </div>
-    </SettingsSectionCard>
+      </article>
+    </section>
 
     <div
       v-if="usageStore.errorMessage"
@@ -123,54 +82,6 @@ const {
       />
     </div>
 
-    <div
-      v-if="usageStore.stats.meta.costPartial"
-      class="usage-stats-page__warning"
-    >
-      <strong>{{ t('settings.usageStats.partialCostTitle') }}</strong>
-      <span>{{ t('settings.usageStats.partialCostDescription', {
-        count: usageStore.stats.summary.unpricedCalls,
-        version: usageStore.stats.meta.pricingVersion
-      }) }}</span>
-    </div>
-
-    <section class="usage-today-grid">
-      <article
-        v-for="card in todayCards"
-        :key="card.key"
-        class="usage-today-card"
-      >
-        <span class="usage-today-card__label">{{ card.label }}</span>
-        <strong class="usage-today-card__value">{{ card.value }}</strong>
-      </article>
-    </section>
-
-    <section class="usage-summary-grid">
-      <article
-        v-for="card in summaryCards"
-        :key="card.key"
-        class="usage-summary-card"
-      >
-        <span class="usage-summary-card__label">{{ card.label }}</span>
-        <strong class="usage-summary-card__value">{{ card.value }}</strong>
-      </article>
-    </section>
-
-    <section
-      v-if="hasStats"
-      class="usage-insight-grid"
-    >
-      <article
-        v-for="card in insightCards"
-        :key="card.key"
-        class="usage-insight-card"
-      >
-        <span class="usage-insight-card__label">{{ card.label }}</span>
-        <strong class="usage-insight-card__value">{{ card.value }}</strong>
-        <span class="usage-insight-card__detail">{{ card.detail }}</span>
-      </article>
-    </section>
-
     <template v-if="usageStore.isLoading && !usageStore.hasLoaded">
       <EaStateBlock
         variant="loading"
@@ -180,57 +91,83 @@ const {
     </template>
 
     <template v-else-if="hasStats">
-      <div class="usage-chart-grid">
-        <SettingsSectionCard
-          :title="t('settings.usageStats.trendTitle')"
-          :description="t('settings.usageStats.trendDescriptionSimplified')"
-        >
-          <div
-            ref="trendChartRef"
-            class="usage-chart"
-          />
-        </SettingsSectionCard>
+      <!-- 趋势图：内联筛选（日期范围 + 快捷范围 + CLI 类型） -->
+      <SettingsSectionCard :title="t('settings.usageStats.trendTitle')">
+        <div class="usage-filter-bar">
+          <div class="usage-filter-bar__fields">
+            <label class="usage-field">
+              <span class="usage-field__label">{{ t('settings.usageStats.startDate') }}</span>
+              <input
+                v-model="usageStore.filters.startDate"
+                class="usage-field__input"
+                type="date"
+              >
+            </label>
 
-        <SettingsSectionCard
-          :title="t('settings.usageStats.providerShareTitle')"
-          :description="t('settings.usageStats.providerShareDescription')"
-        >
-          <div
-            ref="providerChartRef"
-            class="usage-chart usage-chart--provider"
-          />
-        </SettingsSectionCard>
-      </div>
+            <label class="usage-field">
+              <span class="usage-field__label">{{ t('settings.usageStats.endDate') }}</span>
+              <input
+                v-model="usageStore.filters.endDate"
+                class="usage-field__input"
+                type="date"
+              >
+            </label>
 
-      <div class="usage-chart-grid usage-chart-grid--ranking">
-        <SettingsSectionCard
-          :title="t('settings.usageStats.agentRankingTitle')"
-          :description="t('settings.usageStats.agentRankingDescription')"
-        >
-          <div
-            ref="agentChartRef"
-            class="usage-chart usage-chart--compact"
-          />
-        </SettingsSectionCard>
+            <label class="usage-field">
+              <span class="usage-field__label">{{ t('settings.usageStats.cliType') }}</span>
+              <EaSelect
+                v-model="usageStore.filters.cliType"
+                :options="cliTypeOptions"
+              />
+            </label>
+          </div>
 
-        <SettingsSectionCard
-          :title="t('settings.usageStats.modelRankingTitle')"
-          :description="t('settings.usageStats.modelRankingDescription')"
-        >
-          <div
-            ref="modelChartRef"
-            class="usage-chart usage-chart--compact"
-          />
-        </SettingsSectionCard>
-      </div>
+          <div class="usage-filter-bar__presets">
+            <button
+              v-for="preset in dateRangePresets"
+              :key="preset.key"
+              class="usage-preset-chip"
+              type="button"
+              @click="applyDatePreset(preset.days)"
+            >
+              {{ preset.label }}
+            </button>
+          </div>
+        </div>
 
-      <footer class="usage-meta">
-        <span>{{ t('settings.usageStats.metaPricingVersion', { version: usageStore.stats.meta.pricingVersion || '-' }) }}</span>
-        <span>{{ t('settings.usageStats.metaRange', {
-          start: formatDateTime(usageStore.stats.meta.startAt),
-          end: formatDateTime(usageStore.stats.meta.endAt)
-        }) }}</span>
-      </footer>
+        <div
+          ref="trendChartRef"
+          class="usage-chart"
+        />
+      </SettingsSectionCard>
+
+      <!-- 每模型折线图：内联筛选（模型名称 + 指标切换） -->
+      <SettingsSectionCard :title="t('settings.usageStats.modelTrendTitle')">
+        <div class="usage-filter-bar usage-filter-bar--inline">
+          <label class="usage-field usage-field--inline">
+            <span class="usage-field__label">{{ t('settings.usageStats.modelName') }}</span>
+            <input
+              v-model.trim="usageStore.filters.modelKeyword"
+              class="usage-field__input"
+              type="text"
+              :placeholder="t('settings.usageStats.modelNamePlaceholder')"
+            >
+          </label>
+
+          <label class="usage-field usage-field--inline">
+            <span class="usage-field__label">{{ t('settings.usageStats.metricLabel') }}</span>
+            <EaSelect
+              v-model="usageMetric"
+              :options="usageMetricOptions"
+            />
+          </label>
+        </div>
+
+        <div
+          ref="modelTrendChartRef"
+          class="usage-chart"
+        />
+      </SettingsSectionCard>
     </template>
 
     <template v-else>

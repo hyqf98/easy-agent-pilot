@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import EaButton from '@/components/common/EaButton.vue'
+import { EaIcon } from '@/components/common'
 import MemoryLibraryPicker from '@/components/memory/MemoryLibraryPicker.vue'
 import {
   useSoloRunCreateDialog,
@@ -47,9 +49,13 @@ const isEditMode = computed(() => props.mode === 'edit')
           </div>
           <button
             class="solo-create-dialog__close"
+            title="关闭"
             @click="emit('close')"
           >
-            ×
+            <EaIcon
+              name="x"
+              :size="18"
+            />
           </button>
         </div>
 
@@ -193,35 +199,35 @@ const isEditMode = computed(() => props.mode === 'edit')
         </div>
 
         <div class="solo-create-dialog__footer">
-          <button
-            class="solo-create-dialog__button solo-create-dialog__button--ghost"
+          <EaButton
+            type="secondary"
             @click="emit('close')"
           >
             取消
-          </button>
-          <button
+          </EaButton>
+          <EaButton
             v-if="isEditMode"
-            class="solo-create-dialog__button solo-create-dialog__button--primary"
+            type="primary"
             :disabled="!canCreate"
             @click="emit('save')"
           >
             保存修改
-          </button>
+          </EaButton>
           <template v-else>
-            <button
-              class="solo-create-dialog__button solo-create-dialog__button--secondary"
+            <EaButton
+              type="secondary"
               :disabled="!canCreate"
               @click="emit('createDraft')"
             >
               创建草稿
-            </button>
-            <button
-              class="solo-create-dialog__button solo-create-dialog__button--primary"
+            </EaButton>
+            <EaButton
+              type="primary"
               :disabled="!canCreate"
               @click="emit('createAndStart')"
             >
               创建并启动
-            </button>
+            </EaButton>
           </template>
         </div>
       </div>

@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import MemoryLibraryPicker from '@/components/memory/MemoryLibraryPicker.vue'
-import { useAgentTeamsStore } from '@/stores/agentTeams'
+import { useSubAgentStore } from '@/stores/subAgent'
 import type { AITaskItem, TaskPriority } from '@/types/plan'
 import { useSafeOutsideClick } from '@/composables/useSafeOutsideClick'
 
@@ -19,7 +19,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-const agentTeamsStore = useAgentTeamsStore()
+const agentTeamsStore = useSubAgentStore()
 
 const draft = ref<AITaskItem>({
   title: '',
@@ -32,7 +32,7 @@ const draft = ref<AITaskItem>({
   dependsOn: []
 })
 
-const expertOptions = computed(() => agentTeamsStore.enabledExperts)
+const expertOptions = computed(() => agentTeamsStore.enabledSubAgents)
 
 const isDepDropdownOpen = ref(false)
 const depDropdownRef = ref<HTMLElement | null>(null)
