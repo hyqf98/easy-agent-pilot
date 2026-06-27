@@ -6,6 +6,7 @@ import { resolveRecordedModelId } from '@/services/usage/agentCliUsageRecorder'
 import { useAgentStore } from '@/stores/agent'
 import { MANUAL_STOP_ERROR_MARKER, type Message, type ToolCall } from '@/stores/message'
 import { useMessageStore } from '@/stores/message'
+import { useFileChangeStore } from '@/stores/fileChange'
 import { useSessionStore } from '@/stores/session'
 import { useSessionExecutionStore } from '@/stores/sessionExecution'
 import { FILE_MENTION_PATTERN, getMentionDisplayText } from '@/utils/fileMention'
@@ -40,6 +41,7 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
   const { t, locale } = useI18n()
   const agentStore = useAgentStore()
   const messageStore = useMessageStore()
+  const fileChangeStore = useFileChangeStore()
   const sessionStore = useSessionStore()
   const sessionExecutionStore = useSessionExecutionStore()
   const nowTick = ref(Date.now())
@@ -350,11 +352,11 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
       return []
     }
 
-    // editTraces 在新结构下不折叠进 message
-    return []
-
-    return messageStore.getVisibleAssistantEditTracesForMessage(props.message.sessionId, props.message.id)
+    // 文件变更追踪：从 fileChange store 读取本回合（requestId）的变更
+    return fileChangeStore.getTracesForRequest(props.message.sessionId, props.message.requestId)
   })
+
+  const hasFileChanges = computed(() => assistantVisibleEditTraces.value.length > 0)
 
   const errorMessage = computed(() => props.message.errorMessage || t('message.failed'))
 
@@ -636,6 +638,7 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
     displayRuntimeNotices,
     shouldShowRuntimeNotices,
     assistantVisibleEditTraces,
+    hasFileChanges,
     errorMessage,
     toolCallCount,
     toolCallModelLabel,

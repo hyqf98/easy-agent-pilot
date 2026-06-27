@@ -1,0 +1,29 @@
+.panel-resizer {
+  width: 4px;
+  height: 100%;
+  cursor: col-resize;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+}
+
+.panel-resizer:hover .panel-resizer__line,
+.panel-resizer--dragging .panel-resizer__line {
+  opacity: 1;
+}
+
+.panel-resizer--dragging {
+  cursor: col-resize;
+}
+
+.panel-resizer__line {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background-color: var(--color-primary);
+  transform: translateX(-50%);
+  opacity: 0;
+  transition: opacity var(--transition-fast) var(--easing-default);
+}

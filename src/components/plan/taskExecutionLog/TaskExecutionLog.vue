@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import ExecutionTimeline from '@/components/message/ExecutionTimeline.vue'
+import ExecutionTimeline from '@/components/message/ExecutionTimeline/ExecutionTimeline.vue'
 import DynamicForm from '@/components/plan/dynamicForm/DynamicForm.vue'
 import { EaIcon } from '@/components/common'
 import { formatTokenCount } from '@/stores/token'

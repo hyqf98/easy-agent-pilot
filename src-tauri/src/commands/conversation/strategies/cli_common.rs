@@ -25,6 +25,7 @@ pub fn build_content_event(session_id: &str, request_id: &str, content: String) 
         cache_read_input_tokens: None,
         cache_creation_input_tokens: None,
         permission_options: None,
+        file_edit: None,
     }
 }
 
@@ -48,6 +49,7 @@ pub fn build_error_event(session_id: &str, request_id: &str, error: String) -> A
         cache_read_input_tokens: None,
         cache_creation_input_tokens: None,
         permission_options: None,
+        file_edit: None,
     }
 }
 
@@ -71,6 +73,7 @@ pub fn build_system_event(session_id: &str, request_id: &str, content: String) -
         cache_read_input_tokens: None,
         cache_creation_input_tokens: None,
         permission_options: None,
+        file_edit: None,
     }
 }
 

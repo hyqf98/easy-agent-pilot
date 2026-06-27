@@ -1845,6 +1845,34 @@ const zhCN = {
     acceptRight: '接受右侧'
   },
 
+  fileChange: {
+    modifiedFiles: '修改了 {count} 个文件',
+    pendingReview: '{count} 待审',
+    reviewAll: '审查',
+    expand: '展开',
+    collapse: '收起',
+    accept: '采纳',
+    rollback: '回滚',
+    acceptAll: '全部采纳',
+    rollbackAll: '全部回滚',
+    acceptFailed: '采纳失败',
+    rollbackFailed: '回滚失败',
+    pending: '待审查',
+    accepted: '已采纳',
+    rolledBack: '已回滚',
+    create: '新建',
+    modify: '修改',
+    delete: '删除',
+    batchHint: '{count} 个文件待处理',
+    navigatePrev: '上一处变更',
+    navigateNext: '下一处变更',
+    emptyReview: '暂无文件变更可审查'
+  },
+
+  fileReview: {
+    changedFiles: '变更文件'
+  },
+
   reasoning: {
     label: '推理等级',
     default: '默认',

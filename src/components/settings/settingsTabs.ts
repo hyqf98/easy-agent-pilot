@@ -6,7 +6,7 @@ import AgentManagementSettings from './agent-management/AgentManagementSettings.
 import ThemeSettings from './tabs/ThemeSettings.vue'
 import LogSettings from './tabs/LogSettings.vue'
 import AppUpdateSettings from './tabs/AppUpdateSettings.vue'
-import UnattendedSettings from './tabs/UnattendedSettings.vue'
+import UnattendedSettings from './tabs/UnattendedSettings/UnattendedSettings.vue'
 import AgentCliUsageSettings from './tabs/agentCliUsageSettings/AgentCliUsageSettings.vue'
 
 /**

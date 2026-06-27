@@ -50,7 +50,7 @@ export const useAiEditTraceStore = defineStore('aiEditTrace', () => {
   function selectTrace(
     sessionId: string,
     payload: {
-      messageId: string
+      messageId?: string
       traceId: string
       openPane?: boolean
       openMobileDrawer?: boolean
@@ -58,7 +58,7 @@ export const useAiEditTraceStore = defineStore('aiEditTrace', () => {
     }
   ) {
     const state = ensureState(sessionId)
-    state.selectedMessageId = payload.messageId
+    state.selectedMessageId = payload.messageId ?? null
     state.selectedTraceId = payload.traceId
     state.unseenCount = 0
 
@@ -81,7 +81,7 @@ export const useAiEditTraceStore = defineStore('aiEditTrace', () => {
   function handleIncomingTrace(
     sessionId: string,
     payload: {
-      messageId: string
+      messageId?: string
       traceId: string
       shouldAutoOpen: boolean
       isDesktop: boolean
@@ -90,7 +90,7 @@ export const useAiEditTraceStore = defineStore('aiEditTrace', () => {
     const state = ensureState(sessionId)
 
     if (state.isAutoFollow || !state.selectedTraceId) {
-      state.selectedMessageId = payload.messageId
+      state.selectedMessageId = payload.messageId ?? null
       state.selectedTraceId = payload.traceId
     }
 
@@ -154,7 +154,7 @@ export const useAiEditTraceStore = defineStore('aiEditTrace', () => {
     })
   }
 
-  function findSelectedTrace(sessionId: string, traces: Array<FileEditTrace & { messageId: string }>) {
+  function findSelectedTrace(sessionId: string, traces: FileEditTrace[]) {
     const state = ensureState(sessionId)
 
     return traces.find(trace =>

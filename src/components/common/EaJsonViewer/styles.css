@@ -1,0 +1,101 @@
+.ea-json-viewer {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.json-viewer__toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-3);
+  background: var(--color-background-secondary);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.json-viewer__toggle,
+.json-viewer__copy {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  padding: var(--spacing-1) var(--spacing-2);
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all 0.2s;
+}
+
+.json-viewer__toggle:hover,
+.json-viewer__copy:hover {
+  background: var(--color-background);
+  color: var(--color-text);
+}
+
+.json-viewer__toggle svg,
+.json-viewer__copy svg {
+  width: 14px;
+  height: 14px;
+}
+
+.toggle-icon {
+  transition: transform 0.2s;
+}
+
+.toggle-icon--expanded {
+  transform: rotate(90deg);
+}
+
+.json-viewer__content {
+  max-height: 400px;
+  overflow: auto;
+}
+
+.json-viewer__pre {
+  margin: 0;
+  padding: var(--spacing-3);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+  background: var(--color-background);
+  overflow-x: auto;
+}
+
+.json-viewer__pre code {
+  background: transparent;
+  padding: 0;
+}
+
+/* Highlight.js 主题适配 */
+:deep(.hljs) {
+  background: transparent;
+  color: var(--color-text);
+}
+
+:deep(.hljs-attr) {
+  color: #7dd3fc;
+}
+
+:deep(.hljs-string) {
+  color: #86efac;
+}
+
+:deep(.hljs-number) {
+  color: #fbbf24;
+}
+
+:deep(.hljs-literal) {
+  color: #f472b6;
+}
+
+:deep(.hljs-punctuation) {
+  color: var(--color-text-secondary);
+}
+
+:deep(.hljs-comment) {
+  color: var(--color-text-tertiary);
+  font-style: italic;
+}

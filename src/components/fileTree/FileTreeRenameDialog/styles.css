@@ -1,0 +1,72 @@
+.rename-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+.rename-dialog {
+  width: 360px;
+  max-width: 90vw;
+  background-color: var(--color-surface);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-2xl);
+}
+
+.rename-dialog__header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  padding: var(--spacing-4) var(--spacing-5);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.rename-dialog__icon {
+  color: var(--color-primary);
+}
+
+.rename-dialog__title {
+  margin: 0;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.rename-dialog__content {
+  padding: var(--spacing-5);
+}
+
+.rename-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-3);
+  padding: var(--spacing-4) var(--spacing-5);
+  border-top: 1px solid var(--color-border);
+}
+
+/* 动画 */
+.modal-enter-active,
+.modal-leave-active {
+  transition: opacity var(--transition-normal) var(--easing-default);
+}
+
+.modal-enter-active .rename-dialog,
+.modal-leave-active .rename-dialog {
+  transition: transform var(--transition-normal) var(--easing-default),
+              opacity var(--transition-normal) var(--easing-default);
+}
+
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+
+.modal-enter-from .rename-dialog,
+.modal-leave-to .rename-dialog {
+  transform: scale(0.95);
+  opacity: 0;
+}

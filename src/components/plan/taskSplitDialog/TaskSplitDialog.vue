@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import EaButton from '@/components/common/EaButton.vue'
-import EaConfirmDialog from '@/components/common/EaConfirmDialog.vue'
+import EaButton from '@/components/common/EaButton/EaButton.vue'
+import EaConfirmDialog from '@/components/common/EaConfirmDialog/EaConfirmDialog.vue'
 import { EaIcon } from '@/components/common'
-import TaskSplitPreview from '../TaskSplitPreview.vue'
+import TaskSplitPreview from '../TaskSplitPreview/TaskSplitPreview.vue'
 import MessageList from '@/components/message/messageList/MessageList.vue'
 import { useTaskSplitDialog } from './useTaskSplitDialog'
 
@@ -109,9 +109,18 @@ const {
             :key="tab.planId"
             type="button"
             class="dialog-tab"
-            :class="{ 'dialog-tab--active': tab.planId === activeSplitPlanId }"
+            :class="{
+              'dialog-tab--active': tab.planId === activeSplitPlanId,
+              'dialog-tab--running': tab.status === 'running',
+              'dialog-tab--failed': tab.status === 'failed'
+            }"
             @click.stop="planStore.switchSplitDialogTab(tab.planId)"
           >
+            <span
+              v-if="tab.status === 'running'"
+              class="dialog-tab__indicator dialog-tab__indicator--running"
+              :title="t('common.loading')"
+            />
             {{ tab.label }}
           </button>
         </div>

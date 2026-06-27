@@ -1,0 +1,8 @@
+.agent-icon {
+  display: inline-block;
+  flex: 0 0 auto;
+}
+
+.agent-icon__muted {
+  opacity: 0.48;
+}

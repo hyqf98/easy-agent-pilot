@@ -15,7 +15,7 @@ export type SettingsTab =
 export type AppMode = 'chat' | 'plan' | 'solo' | 'memory' | 'settings'
 // 排除 settings 后的纯工作模式，用于记录进入设置前的模式以便退出恢复
 export type WorkspaceMode = Exclude<AppMode, 'settings'>
-export type MainContentMode = 'chat' | 'fileEditor' | 'officeViewer'
+export type MainContentMode = 'chat' | 'fileEditor' | 'officeViewer' | 'fileDiff'
 
 export const useUIStore = defineStore('ui', () => {
   // State

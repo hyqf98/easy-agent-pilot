@@ -1,0 +1,74 @@
+.terminal-tab-pane {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--terminal-surface-bg);
+  border: 1px solid color-mix(in srgb, var(--terminal-surface-border) 88%, transparent);
+  box-shadow: 0 20px 34px rgba(15, 23, 42, 0.12);
+}
+
+.terminal-tab-pane__viewport {
+  width: 100%;
+  height: 100%;
+  padding: 10px 12px;
+  box-sizing: border-box;
+}
+
+.terminal-tab-pane__ghost {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+  backdrop-filter: blur(10px);
+  color: rgba(226, 232, 240, 0.92);
+  font-family: var(--font-family-mono);
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.terminal-tab-pane__ghost-prefix {
+  color: rgba(226, 232, 240, 0.96);
+}
+
+.terminal-tab-pane__ghost-suffix {
+  color: rgba(148, 163, 184, 0.9);
+}
+
+.terminal-tab-pane__ghost-hint {
+  margin-left: auto;
+  color: rgba(148, 163, 184, 0.88);
+  font-family: var(--font-family-sans);
+}
+
+.terminal-tab-pane__overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(15, 23, 42, 0.68);
+  color: #e2e8f0;
+  text-align: center;
+  backdrop-filter: blur(10px);
+}
+
+.terminal-tab-pane__overlay-title {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.terminal-tab-pane__overlay-text {
+  max-width: 28rem;
+  font-size: 12px;
+  color: #cbd5e1;
+}

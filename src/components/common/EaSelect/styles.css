@@ -1,0 +1,123 @@
+.ea-select {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+}
+
+.ea-select--small {
+  min-width: 100px;
+}
+
+.ea-select--medium {
+  min-width: 120px;
+}
+
+.ea-select__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: var(--spacing-2) var(--spacing-3);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: all var(--transition-fast) var(--easing-default);
+}
+
+.ea-select--small .ea-select__trigger {
+  padding: var(--spacing-2) var(--spacing-3);
+  font-size: var(--font-size-sm);
+}
+
+.ea-select__trigger:hover:not(:disabled) {
+  border-color: var(--color-border-dark);
+  background-color: var(--color-surface-hover);
+}
+
+.ea-select--open .ea-select__trigger {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary-light);
+}
+
+.ea-select--disabled .ea-select__trigger {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.ea-select__label {
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ea-select__label--placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.ea-select__arrow {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  transition: transform var(--transition-fast) var(--easing-default);
+}
+
+/* 下拉框样式 - 使用 fixed 定位 */
+.ea-select__dropdown {
+  position: fixed;
+  max-height: 240px;
+  overflow-y: auto;
+  background-color: var(--color-surface-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: var(--z-popover);
+}
+
+.ea-select__option {
+  padding: var(--spacing-2) var(--spacing-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: background-color var(--transition-fast) var(--easing-default);
+}
+
+.ea-select--small .ea-select__option {
+  padding: var(--spacing-2) var(--spacing-3);
+  font-size: var(--font-size-sm);
+}
+
+.ea-select__option:hover:not(.ea-select__option--disabled) {
+  background-color: var(--color-surface-hover);
+}
+
+.ea-select__option--selected {
+  background-color: var(--workspace-list-active-bg, var(--color-surface-active));
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  font-weight: var(--font-weight-medium);
+}
+
+[data-theme='dark'] .ea-select__option--selected {
+  background-color: var(--workspace-list-active-bg, var(--color-surface-active));
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+.ea-select__option--disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* 下拉框动画 */
+.dropdown-enter-active,
+.dropdown-leave-active {
+  transition: all var(--transition-fast) var(--easing-default);
+}
+
+.dropdown-enter-from,
+.dropdown-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}

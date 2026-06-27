@@ -1,0 +1,339 @@
+.markdown-content {
+  --md-code-bg: linear-gradient(180deg, #f8fbff 0%, #edf4ff 100%);
+  --md-code-header-bg: rgba(219, 234, 254, 0.92);
+  --md-code-border: rgba(96, 165, 250, 0.28);
+  --md-code-fg: #1e293b;
+  --md-code-muted: #475569;
+  --md-code-hover-bg: rgba(191, 219, 254, 0.95);
+  line-height: 1.55;
+  color: var(--color-text-primary);
+  width: 100%;
+}
+
+.markdown-content :deep(h1),
+.markdown-content :deep(h2),
+.markdown-content :deep(h3),
+.markdown-content :deep(h4),
+.markdown-content :deep(h5),
+.markdown-content :deep(h6) {
+  margin: 0.55em 0 0.22em;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  line-height: 1.3;
+}
+
+.markdown-content :deep(h1) { font-size: 1.5em; }
+.markdown-content :deep(h2) { font-size: 1.3em; }
+.markdown-content :deep(h3) { font-size: 1.1em; }
+.markdown-content :deep(h4) { font-size: 1em; }
+.markdown-content :deep(h5) { font-size: 0.9em; }
+.markdown-content :deep(h6) { font-size: 0.85em; }
+
+.markdown-content :deep(p) {
+  margin: 0.1em 0 0.15em;
+  color: inherit;
+}
+
+.markdown-content :deep(ul),
+.markdown-content :deep(ol) {
+  margin: 0.1em 0 0.2em;
+  padding-left: 1.5em;
+}
+
+.markdown-content :deep(li) {
+  margin: 0.04em 0;
+  color: inherit;
+}
+
+/* 行内代码样式 */
+.markdown-content :deep(code) {
+  padding: 0.15em 0.38em;
+  background-color: color-mix(in srgb, var(--color-primary) 8%, var(--color-bg-secondary));
+  border-radius: 4px;
+  font-family: var(--font-family-mono);
+  font-size: 0.875em;
+  font-weight: 450;
+  letter-spacing: -0.01em;
+  color: var(--color-text-primary);
+}
+
+/* 代码块容器样式 */
+.markdown-content :deep(pre) {
+  margin: 0;
+  padding: 0;
+  background-color: transparent;
+}
+
+/* 代码块包装器样式 */
+.markdown-content :deep(.code-block-wrapper) {
+  margin: 0 0 0.15em;
+  width: 100%;
+  max-width: 100%;
+  border: 1px solid var(--md-code-border);
+  border-radius: var(--radius-md);
+  background: var(--md-code-bg);
+  box-shadow: 0 4px 12px rgba(148, 163, 184, 0.12);
+  overflow: hidden;
+}
+
+/* 代码块头部样式 */
+.markdown-content :deep(.code-block-header) {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.08rem 0.5rem;
+  background: var(--md-code-header-bg);
+  border-bottom: 1px solid var(--md-code-border);
+  line-height: 1.1;
+}
+
+/* 语言标签样式 */
+.markdown-content :deep(.code-block-language) {
+  font-size: 0.65rem;
+  color: var(--md-code-muted);
+  text-transform: lowercase;
+  font-family: var(--font-family-mono);
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+}
+
+/* 复制按钮样式 */
+.markdown-content :deep(.code-block-copy-btn) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.14rem;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--md-code-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.markdown-content :deep(.code-block-copy-btn:hover) {
+  background-color: var(--md-code-hover-bg);
+  color: var(--md-code-fg);
+}
+
+.markdown-content :deep(.code-block-copy-btn .check-icon) {
+  display: none;
+}
+
+.markdown-content :deep(.code-block-copy-btn.copied) {
+  color: #4ade80;
+}
+
+.markdown-content :deep(.code-block-copy-btn.copied .copy-icon) {
+  display: none;
+}
+
+.markdown-content :deep(.code-block-copy-btn.copied .check-icon) {
+  display: block;
+}
+
+.markdown-content :deep(.hljs) {
+  color: var(--md-code-fg);
+  background: transparent;
+}
+
+/* highlight.js 代码块样式 */
+.markdown-content :deep(pre.hljs) {
+  padding: 0.18rem 0.72rem 0.3rem;
+  background: transparent;
+  margin: 0;
+  border-radius: 0;
+}
+
+.markdown-content :deep(pre.hljs code) {
+  padding: 0;
+  background: none;
+  font-size: 0.82rem;
+  line-height: 1.38;
+}
+
+.markdown-content :deep(.hljs-comment),
+.markdown-content :deep(.hljs-quote) {
+  color: #64748b;
+  font-style: italic;
+}
+
+.markdown-content :deep(.hljs-keyword),
+.markdown-content :deep(.hljs-selector-tag),
+.markdown-content :deep(.hljs-subst) {
+  color: #7c3aed;
+}
+
+.markdown-content :deep(.hljs-string),
+.markdown-content :deep(.hljs-doctag),
+.markdown-content :deep(.hljs-template-variable),
+.markdown-content :deep(.hljs-variable),
+.markdown-content :deep(.hljs-regexp) {
+  color: #0f766e;
+}
+
+.markdown-content :deep(.hljs-title),
+.markdown-content :deep(.hljs-section),
+.markdown-content :deep(.hljs-selector-id),
+.markdown-content :deep(.hljs-selector-class) {
+  color: #2563eb;
+}
+
+.markdown-content :deep(.hljs-number),
+.markdown-content :deep(.hljs-literal),
+.markdown-content :deep(.hljs-symbol),
+.markdown-content :deep(.hljs-bullet),
+.markdown-content :deep(.hljs-attr) {
+  color: #c2410c;
+}
+
+.markdown-content :deep(.hljs-type),
+.markdown-content :deep(.hljs-built_in),
+.markdown-content :deep(.hljs-class .hljs-title) {
+  color: #b45309;
+}
+
+/* 链接样式 */
+.markdown-content :deep(a) {
+  color: var(--color-primary);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.markdown-content :deep(a:hover) {
+  text-decoration: underline;
+}
+
+.markdown-content :deep(a.markdown-link) {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.markdown-content :deep(a.external-link) {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.markdown-content :deep(a.external-link::after) {
+  content: '↗';
+  font-size: 0.8em;
+  opacity: 0.7;
+}
+
+/* 引用块样式 */
+.markdown-content :deep(blockquote) {
+  margin: 0.5em 0;
+  padding: var(--spacing-2) var(--spacing-4);
+  border-left: 3px solid var(--color-border);
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+/* 粗体和斜体 */
+.markdown-content :deep(strong) {
+  font-weight: 550;
+  color: var(--color-text-primary);
+}
+
+.markdown-content :deep(em) {
+  font-style: italic;
+}
+
+/* 删除线 */
+.markdown-content :deep(del) {
+  text-decoration: line-through;
+  color: var(--color-text-tertiary);
+}
+
+/* 表格样式 */
+.markdown-content :deep(table) {
+  width: 100%;
+  margin: 1em 0;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.markdown-content :deep(th),
+.markdown-content :deep(td) {
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--color-border);
+  text-align: left;
+  color: inherit;
+}
+
+.markdown-content :deep(th) {
+  background-color: var(--color-bg-secondary);
+  font-weight: var(--font-weight-medium);
+}
+
+.markdown-content :deep(tr:nth-child(even)) {
+  background-color: var(--color-bg-secondary);
+}
+
+/* 水平分隔线 */
+.markdown-content :deep(hr) {
+  margin: var(--spacing-4) 0;
+  border: none;
+  border-top: 1px solid var(--color-border);
+}
+
+/* 图片样式 */
+.markdown-content :deep(img) {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-md);
+  margin: var(--spacing-2) 0;
+}
+
+:global([data-theme='dark']) .markdown-content,
+:global(.dark) .markdown-content {
+  --md-code-bg: linear-gradient(180deg, #0f172a 0%, #111827 100%);
+  --md-code-header-bg: rgba(30, 41, 59, 0.92);
+  --md-code-border: rgba(148, 163, 184, 0.18);
+  --md-code-fg: #e2e8f0;
+  --md-code-muted: #94a3b8;
+  --md-code-hover-bg: rgba(51, 65, 85, 0.96);
+  color: #e5e7eb;
+}
+
+:global([data-theme='dark']) .markdown-content :deep(h1),
+:global(.dark) .markdown-content :deep(h1),
+:global([data-theme='dark']) .markdown-content :deep(h2),
+:global(.dark) .markdown-content :deep(h2),
+:global([data-theme='dark']) .markdown-content :deep(h3),
+:global(.dark) .markdown-content :deep(h3),
+:global([data-theme='dark']) .markdown-content :deep(h4),
+:global(.dark) .markdown-content :deep(h4),
+:global([data-theme='dark']) .markdown-content :deep(h5),
+:global(.dark) .markdown-content :deep(h5),
+:global([data-theme='dark']) .markdown-content :deep(h6),
+:global(.dark) .markdown-content :deep(h6),
+:global([data-theme='dark']) .markdown-content :deep(strong),
+:global(.dark) .markdown-content :deep(strong) {
+  color: #f8fafc;
+}
+
+:global([data-theme='dark']) .markdown-content :deep(code),
+:global(.dark) .markdown-content :deep(code) {
+  background-color: rgba(148, 163, 184, 0.14);
+}
+
+:global([data-theme='dark']) .markdown-content :deep(blockquote),
+:global(.dark) .markdown-content :deep(blockquote) {
+  border-left-color: rgba(148, 163, 184, 0.3);
+  background-color: rgba(30, 41, 59, 0.72);
+  color: #cbd5e1;
+}
+
+:global([data-theme='dark']) .markdown-content :deep(th),
+:global(.dark) .markdown-content :deep(th) {
+  background-color: rgba(30, 41, 59, 0.76);
+}
+
+:global([data-theme='dark']) .markdown-content :deep(tr:nth-child(even)),
+:global(.dark) .markdown-content :deep(tr:nth-child(even)) {
+  background-color: rgba(30, 41, 59, 0.42);
+}

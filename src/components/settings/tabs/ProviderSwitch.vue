@@ -238,12 +238,4 @@ watch(showFormModal, (visible) => {
     />
   </div>
 </template>
-
-<style scoped>
-.provider-switch {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-3);
-  padding: clamp(8px, 1vw, 14px);
-}
-</style>
+<style scoped src="./ProviderSwitch.css"></style>

@@ -1,0 +1,212 @@
+.pane-tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 6px;
+  height: 30px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  user-select: none;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.pane-tab-bar--focused {
+  border-bottom-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary-light, var(--color-surface)) 40%, var(--color-surface));
+}
+
+.pane-tab-bar--mini {
+  height: 26px;
+  padding: 0 4px;
+}
+
+.pane-tab-bar__grip {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--color-text-quaternary);
+  opacity: 0.4;
+  cursor: grab;
+  transition: opacity var(--transition-fast) var(--easing-default);
+}
+
+.pane-tab-bar__grip:hover {
+  opacity: 1;
+}
+
+.pane-tab-bar--mini .pane-tab-bar__grip {
+  display: none;
+}
+
+.pane-tab-bar__container {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.pane-tab-bar__tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 3px 10px;
+  background-color: var(--color-bg-tertiary);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  flex: 0 1 auto;
+  min-width: 0;
+  border: 1px solid transparent;
+  transition: all var(--transition-fast) var(--easing-default);
+}
+
+.pane-tab-bar__tab:hover {
+  background-color: var(--color-surface-hover);
+}
+
+.pane-tab-bar__tab--active {
+  background-color: var(--color-primary-light);
+  border-color: var(--color-primary);
+}
+
+.pane-tab-bar__tab--active .pane-tab-bar__name {
+  color: var(--color-primary-dark);
+  font-weight: var(--font-weight-medium);
+}
+
+[data-theme='dark'] .pane-tab-bar__tab--active {
+  background-color: var(--color-active-bg);
+  border-color: var(--color-active-border);
+}
+
+[data-theme='dark'] .pane-tab-bar__tab--active .pane-tab-bar__name {
+  color: var(--color-active-text);
+}
+
+.pane-tab-bar__status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  color: white;
+  flex-shrink: 0;
+}
+
+.pane-tab-bar__name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pane-tab-bar__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+  opacity: 0;
+  transition: all var(--transition-fast) var(--easing-default);
+}
+
+.pane-tab-bar__tab:hover .pane-tab-bar__close {
+  opacity: 1;
+}
+
+.pane-tab-bar__close:hover {
+  background-color: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.pane-tab-bar__overflow {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.pane-tab-bar__overflow-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+}
+
+.pane-tab-bar__overflow-trigger:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.pane-tab-bar__overflow-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 50;
+  display: flex;
+  min-width: 140px;
+  max-width: 240px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-surface) 96%, white);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
+}
+
+[data-theme='dark'] .pane-tab-bar__overflow-menu {
+  background: color-mix(in srgb, var(--color-surface, #111827) 90%, #020617);
+  border-color: rgba(148, 163, 184, 0.18);
+  box-shadow: 0 16px 36px rgba(2, 6, 23, 0.38);
+}
+
+.pane-tab-bar__overflow-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.pane-tab-bar__overflow-item:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.pane-tab-bar__overflow-item--active {
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+
+.pane-tab-bar__overflow-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

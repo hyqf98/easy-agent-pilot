@@ -53,6 +53,15 @@ pub enum RecordableEvent {
     System(String),
     /// 错误
     Error(String),
+    /// 文件变更（ACP Diff 捕获到的修改前/后内容）
+    FileEdit {
+        tool_call_id: String,
+        file_path: String,
+        relative_path: String,
+        change_type: String,
+        before_content: Option<String>,
+        after_content: String,
+    },
 }
 
 /// 一个用户回合（request_id）的事件落库服务对象。
@@ -136,6 +145,24 @@ impl MessageRecorder {
             RecordableEvent::Error(msg) => {
                 self.finalize_open_segments()?;
                 self.insert_error(msg)
+            }
+            RecordableEvent::FileEdit {
+                tool_call_id,
+                file_path,
+                relative_path,
+                change_type,
+                before_content,
+                after_content,
+            } => {
+                self.finalize_open_segments()?;
+                self.insert_file_edit(
+                    tool_call_id,
+                    file_path,
+                    relative_path,
+                    change_type,
+                    before_content.clone(),
+                    after_content,
+                )
             }
         }
     }
@@ -287,6 +314,51 @@ impl MessageRecorder {
                 tool_call_id,
                 result,
                 &now,
+                &now,
+                seq,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// 写入文件变更追踪行。
+    ///
+    /// 以 (session_id, tool_call_id, file_path) 为唯一键做 UPSERT：流式期间一个工具
+    /// 可能多次更新同一文件，用最后一次（终态）覆盖。保留最早一次的 status，避免
+    /// 覆盖用户已采纳/回滚的状态。
+    fn insert_file_edit(
+        &self,
+        tool_call_id: &str,
+        file_path: &str,
+        relative_path: &str,
+        change_type: &str,
+        before_content: Option<String>,
+        after_content: &str,
+    ) -> Result<()> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let now = now_rfc3339();
+        let seq = self.next_seq();
+        let conn = open_db_connection()?;
+        conn.execute(
+            "INSERT INTO file_change_traces \
+             (id, session_id, request_id, tool_call_id, file_path, relative_path, change_type, \
+              before_content, after_content, status, created_at, seq) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending', ?10, ?11) \
+             ON CONFLICT(session_id, tool_call_id, file_path) DO UPDATE SET \
+              relative_path = excluded.relative_path, \
+              change_type = excluded.change_type, \
+              before_content = COALESCE(excluded.before_content, file_change_traces.before_content), \
+              after_content = excluded.after_content",
+            params![
+                &id,
+                &self.session_id,
+                &self.request_id,
+                tool_call_id,
+                file_path,
+                relative_path,
+                change_type,
+                before_content,
+                after_content,
                 &now,
                 seq,
             ],

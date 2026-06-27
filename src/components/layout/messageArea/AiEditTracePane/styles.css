@@ -1,0 +1,192 @@
+.trace-pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--color-surface);
+  border-right: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.trace-pane__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.trace-pane__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.trace-pane__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.trace-pane__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.trace-pane__files {
+  width: 200px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  border-right: 1px solid rgba(148, 163, 184, 0.12);
+  background: rgba(248, 250, 252, 0.5);
+}
+
+.trace-pane__file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 10px;
+  border: none;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.trace-pane__file:hover {
+  background: rgba(59, 130, 246, 0.04);
+}
+
+.trace-pane__file--active {
+  background: rgba(59, 130, 246, 0.08);
+  border-left: 2px solid #3b82f6;
+}
+
+.trace-pane__file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-family-mono);
+  font-size: 12px;
+  color: var(--color-text-primary);
+}
+
+.trace-pane__file-tag {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.trace-pane__file-tag--create {
+  color: #047857;
+  background: rgba(16, 185, 129, 0.12);
+}
+
+.trace-pane__file-tag--modify {
+  color: #1d4ed8;
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.trace-pane__file-tag--delete {
+  color: #b91c1c;
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.trace-pane__viewer {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.trace-pane__empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+:global([data-theme='dark']) .trace-pane,
+:global(.dark) .trace-pane {
+  background: rgba(15, 23, 42, 0.96);
+  border-right-color: rgba(71, 85, 105, 0.4);
+}
+
+:global([data-theme='dark']) .trace-pane__header,
+:global(.dark) .trace-pane__header {
+  border-bottom-color: rgba(71, 85, 105, 0.5);
+}
+
+:global([data-theme='dark']) .trace-pane__title,
+:global(.dark) .trace-pane__title {
+  color: #f1f5f9;
+}
+
+:global([data-theme='dark']) .trace-pane__files,
+:global(.dark) .trace-pane__files {
+  border-right-color: rgba(71, 85, 105, 0.4);
+  background: rgba(15, 23, 42, 0.5);
+}
+
+:global([data-theme='dark']) .trace-pane__file,
+:global(.dark) .trace-pane__file {
+  border-bottom-color: rgba(51, 65, 85, 0.4);
+}
+
+:global([data-theme='dark']) .trace-pane__file:hover,
+:global(.dark) .trace-pane__file:hover {
+  background: rgba(59, 130, 246, 0.08);
+}
+
+:global([data-theme='dark']) .trace-pane__file--active,
+:global(.dark) .trace-pane__file--active {
+  background: rgba(59, 130, 246, 0.14);
+  border-left-color: #60a5fa;
+}
+
+:global([data-theme='dark']) .trace-pane__file-name,
+:global(.dark) .trace-pane__file-name {
+  color: #e2e8f0;
+}
+
+:global([data-theme='dark']) .trace-pane__file-tag--create,
+:global(.dark) .trace-pane__file-tag--create {
+  color: #6ee7b7;
+  background: rgba(20, 83, 45, 0.4);
+}
+
+:global([data-theme='dark']) .trace-pane__file-tag--modify,
+:global(.dark) .trace-pane__file-tag--modify {
+  color: #93c5fd;
+  background: rgba(30, 64, 175, 0.3);
+}
+
+:global([data-theme='dark']) .trace-pane__file-tag--delete,
+:global(.dark) .trace-pane__file-tag--delete {
+  color: #fca5a5;
+  background: rgba(127, 29, 29, 0.4);
+}
+
+:global([data-theme='dark']) .trace-pane__empty,
+:global(.dark) .trace-pane__empty {
+  color: #94a3b8;
+}
+
+@media (max-width: 768px) {
+  .trace-pane__files {
+    width: 160px;
+  }
+}

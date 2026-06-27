@@ -141,6 +141,9 @@ pub fn run() {
             commands::file_editor::write_binary_file,
             commands::file_editor::read_binary_file,
             commands::file_editor::detect_file_language,
+            commands::file_change::list_file_change_traces,
+            commands::file_change::update_file_change_status,
+            commands::file_change::rollback_file_change,
             commands::session::list_sessions,
             commands::session::create_session,
             commands::session::update_session,
@@ -275,6 +278,8 @@ pub fn run() {
             commands::conversation::abort_agent_execution,
             commands::conversation::clear_session_abort_flag,
             commands::conversation::respond_permission,
+            commands::conversation::running_tasks::list_running_executions,
+            commands::conversation::running_tasks::force_abort_execution,
             // Plan Mode commands
             commands::plan::list_plans,
             commands::plan::get_plan,

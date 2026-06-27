@@ -1,0 +1,244 @@
+.plan-create-dialog {
+  width: min(100%, 46rem);
+  max-width: 46rem;
+}
+
+.dialog-title {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+.btn-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-1);
+  border: none;
+  background: transparent;
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary));
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+}
+
+.btn-close:hover {
+  background-color: var(--workspace-control-hover-bg, var(--color-surface-hover));
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+/* 让 EaModal header 成为左右布局 */
+:deep(.ea-modal__header) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dialog-body {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-3);
+}
+
+.form-field {
+  margin-bottom: var(--spacing-4);
+}
+
+.form-field--memory {
+  margin-top: var(--spacing-2);
+  margin-bottom: 0;
+  padding-top: var(--spacing-3);
+  border-top: 1px solid var(--workspace-border, var(--color-border));
+}
+
+.form-field label {
+  display: block;
+  margin-bottom: var(--spacing-2);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+}
+
+.required {
+  color: var(--color-error);
+}
+
+.form-field input,
+.form-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--workspace-border, var(--color-border));
+  border-radius: var(--radius-md);
+  background-color: var(--workspace-panel-bg, var(--color-surface));
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  font-size: var(--font-size-sm);
+  transition: all var(--transition-fast);
+}
+
+.form-field input::placeholder,
+.form-field textarea::placeholder {
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary));
+}
+
+.form-field input:focus,
+.form-field textarea:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-light);
+}
+
+.field-hint {
+  display: block;
+  margin-top: var(--spacing-1);
+  font-size: 0.6875rem;
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary));
+}
+
+.hint-box {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-2);
+  margin-bottom: var(--spacing-4);
+  padding: var(--spacing-3);
+  background-color: var(--color-primary-light);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-xs);
+  color: var(--color-primary);
+  line-height: 1.4;
+}
+
+.hint-box svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.schedule-field {
+  margin-top: var(--spacing-4);
+  padding-top: var(--spacing-3);
+  border-top: 1px solid var(--workspace-border, var(--color-border));
+}
+
+.form-select {
+  width: 100%;
+  padding: var(--spacing-2) var(--spacing-8) var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--workspace-border, var(--color-border));
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  background-color: var(--workspace-panel-bg, var(--color-surface));
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--spacing-3) center;
+}
+
+.form-select:hover {
+  border-color: var(--color-primary);
+}
+
+.form-select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-light);
+}
+
+.form-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.schedule-datetime {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.schedule-preview {
+  font-size: var(--font-size-xs);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+  font-style: italic;
+}
+
+/* 模式选择器样式 */
+.mode-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-3);
+}
+
+.mode-option {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  padding: var(--spacing-3);
+  border: 1px solid var(--workspace-border, var(--color-border));
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  background-color: var(--workspace-panel-bg, var(--color-surface));
+}
+
+.mode-option:hover {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary-light);
+}
+
+.mode-option.active {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary-light);
+}
+
+.mode-option input[type="radio"] {
+  display: none;
+}
+
+.mode-icon {
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.mode-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mode-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+.mode-desc {
+  font-size: var(--font-size-xs);
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary));
+}
+
+.mode-option.active .mode-label {
+  color: var(--color-primary);
+}
+
+.hint-box-manual {
+  background-color: var(--color-success-light);
+  color: var(--color-success);
+}
+
+@media (max-width: 640px) {
+  .form-row,
+  .mode-options {
+    grid-template-columns: 1fr;
+  }
+}

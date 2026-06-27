@@ -7,7 +7,9 @@ use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 use tauri::{AppHandle, Emitter};
 
+use super::conversation::abort::get_abort_flag;
 use super::conversation::executor::{get_registry, is_execution_session_active_internal};
+use super::conversation::running_tasks::{self, ExecutionHandle, ExecutionKind};
 use super::conversation::set_abort_flag;
 use super::conversation::strategies::{
     classify_cli_completion, CliTextFragment, CliTextSource, lookup_claude_tool_use_usage,
@@ -1561,9 +1563,27 @@ fn run_split_turn(app: AppHandle, request: ExecutionRequest) {
         let registry = get_registry().await;
         let registry = registry.read().await;
         let session_id = request.session_id.clone();
-        if let Err(error) = registry.execute(app.clone(), request.clone()).await {
+
+        // 注册计划拆分执行任务（与 abort::ABORT_FLAGS 共享中断标志），便于枚举与强制取消
+        let abort_flag = get_abort_flag(&session_id).await;
+        running_tasks::register(
+            &session_id,
+            ExecutionHandle {
+                kind: ExecutionKind::PlanSplit,
+                plan_id: Some(plan_id.clone()),
+                abort_flag,
+                started_at: now_rfc3339(),
+            },
+        )
+        .await;
+
+        let result = registry.execute(app.clone(), request.clone()).await;
+        if let Err(error) = result {
             let _ = mark_plan_split_failed(&app, &plan_id, &session_id, &error.to_string());
         }
+
+        // 任务结束（成功/失败/被取消）统一注销，避免注册表残留
+        running_tasks::unregister(&session_id).await;
     });
 }
 

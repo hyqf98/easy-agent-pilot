@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { EaIcon } from '@/components/common'
-import TokenProgressBar from '@/components/common/TokenProgressBar.vue'
-import CompressionConfirmDialog from '@/components/common/CompressionConfirmDialog.vue'
+import TokenProgressBar from '@/components/common/TokenProgressBar/TokenProgressBar.vue'
+import CompressionConfirmDialog from '@/components/common/CompressionConfirmDialog/CompressionConfirmDialog.vue'
 import { ConversationTodoPanel } from '@/components/message'
 import type { ConversationComposerProps } from './useConversationComposerView'
 import { useConversationComposerView } from './useConversationComposerView'

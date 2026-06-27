@@ -46,6 +46,7 @@ import type {
   DynamicFormSchema,
   PlanSplitLogRecord,
   PlanSplitSessionRecord,
+  PlanSplitSessionStatus,
   PlanSplitStreamPayload,
   SplitMessage,
   TaskCountMode,
@@ -561,6 +562,23 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
 
   const planStateCache = new Map<string, PlanSplitCache>()
 
+  /**
+   * 多计划并行运行态：按 planId 维护各计划拆分会话的最新状态，
+   * 与单值的 `session.value`（当前激活计划）解耦。
+   *
+   * 这样在「计划拆分对话框」多 tab 场景下，非激活 tab 的拆分仍能在后台推进，
+   * tab 栏可据此显示 running / failed 等实时指示，切回该 tab 时状态连续、不冻结。
+   */
+  const planRuntimeStatus = ref<Map<string, PlanSplitSessionStatus>>(new Map())
+  // 每个计划独立的持久监听器，独立于当前激活计划的 streamUnlisten
+  const planBackgroundListeners = new Map<string, UnlistenFn>()
+
+  /** 读取指定计划的最新运行态（供 tab 指示器使用） */
+  const getPlanRuntimeStatus = computed(() => {
+    return (planId: string): PlanSplitSessionStatus | null =>
+      planRuntimeStatus.value.get(planId) ?? null
+  })
+
   const subSplitMode = computed(() => refinementState.value?.mode === 'task_resplit')
   const subSplitTargetIndex = computed(() => refinementState.value?.targetIndex ?? null)
   const subSplitOriginalTasks = computed(() => refinementState.value?.originalTasks ?? [])
@@ -581,6 +599,52 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
       streamUnlisten.value()
       streamUnlisten.value = null
     }
+  }
+
+  /**
+   * 为指定计划建立持久的后台监听器，用于在「非激活 tab」场景下仍能接收
+   * `plan-split-stream-{planId}` 的 session_updated 事件并刷新 planRuntimeStatus。
+   *
+   * 与 subscribeToPlan（驱动激活计划渲染）独立：同一计划可同时拥有
+   * 后台监听器与激活监听器，互不干扰。重复调用同一 planId 为幂等。
+   */
+  async function ensureBackgroundListener(planId: string) {
+    if (planBackgroundListeners.has(planId)) {
+      return
+    }
+    const unlisten = await listen<PlanSplitStreamPayload>(
+      `plan-split-stream-${planId}`,
+      (event) => {
+        const payload = event.payload
+        if (payload.planId !== planId) {
+          return
+        }
+        if (payload.type === 'session_updated' && payload.session) {
+          planRuntimeStatus.value.set(planId, payload.session.status)
+          // 触发响应式更新
+          planRuntimeStatus.value = new Map(planRuntimeStatus.value)
+        }
+      }
+    )
+    planBackgroundListeners.set(planId, unlisten)
+  }
+
+  /** 释放指定计划的后台监听器（关闭 tab / 清空会话时调用） */
+  function releaseBackgroundListener(planId: string) {
+    const unlisten = planBackgroundListeners.get(planId)
+    if (unlisten) {
+      unlisten()
+      planBackgroundListeners.delete(planId)
+    }
+    planRuntimeStatus.value.delete(planId)
+    planRuntimeStatus.value = new Map(planRuntimeStatus.value)
+  }
+
+  /** 释放全部后台监听器 */
+  function releaseAllBackgroundListeners() {
+    planBackgroundListeners.forEach((unlisten) => unlisten())
+    planBackgroundListeners.clear()
+    planRuntimeStatus.value.clear()
   }
 
   function resetState() {
@@ -835,6 +899,13 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
         logs.value = []
       }
       return
+    }
+
+    // 同步并行运行态，确保 tab 指示器随当前计划状态更新
+    if (!planRuntimeStatus.value.has(snapshot.planId)
+      || planRuntimeStatus.value.get(snapshot.planId) !== snapshot.status) {
+      planRuntimeStatus.value.set(snapshot.planId, snapshot.status)
+      planRuntimeStatus.value = new Map(planRuntimeStatus.value)
     }
 
     messages.value = toSplitMessages(snapshot.messagesJson)
@@ -1276,6 +1347,10 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     if (version !== initVersion) return
 
     await subscribeToPlan(nextContext.planId)
+    // 为该计划建立持久的后台监听器，确保其在非激活 tab 时仍能刷新运行态
+    await ensureBackgroundListener(nextContext.planId).catch((error) => {
+      logger.warn('[TaskSplit] Failed to ensure background listener:', error)
+    })
     measurePlanSplit('initSession:subscribe_done', initStartedAt, { planId: nextContext.planId })
     if (version !== initVersion) return
 
@@ -1557,6 +1632,7 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
   async function clearAllSplitData(planId: string) {
     await invoke('clear_plan_split_session', { planId })
     planStateCache.delete(planId)
+    releaseBackgroundListener(planId)
     if (context.value?.planId === planId) {
       detachStream()
       resetState()
@@ -1568,6 +1644,7 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
       return
     }
 
+    planIds.forEach((planId) => releaseBackgroundListener(planId))
     if (context.value && planIds.includes(context.value.planId)) {
       detachStream()
       resetState()
@@ -1841,6 +1918,7 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     detachStream()
     resetState()
     planStateCache.clear()
+    releaseAllBackgroundListeners()
   }
 
   function detach() {
@@ -1882,6 +1960,9 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     subSplitTargetIndex,
     subSplitOriginalTasks,
     subSplitConfig,
+    // 多计划并行运行态（供 tab 标签显示运行/失败指示）
+    planRuntimeStatus,
+    getPlanRuntimeStatus,
     initSession,
     submitFormResponse,
     retry,
@@ -1910,6 +1991,9 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     detachStream,
     attachToPlan,
     saveCurrentPlanState,
+    // 多计划后台监听器生命周期（关闭单个 tab 时释放对应监听器）
+    releaseBackgroundListener,
+    releaseAllBackgroundListeners,
     clearPlanStateCache,
     loadSession
   }

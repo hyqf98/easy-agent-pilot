@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import EaModal from '@/components/common/EaModal.vue'
+import EaModal from '@/components/common/EaModal/EaModal.vue'
 import MemoryLibraryPicker from '@/components/memory/MemoryLibraryPicker.vue'
 import {
   useTaskEditModal,

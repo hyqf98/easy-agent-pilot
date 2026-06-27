@@ -6,6 +6,7 @@ pub mod abort;
 pub mod executor;
 pub mod message_recorder;
 pub mod permission;
+pub mod running_tasks;
 pub mod strategies;
 pub mod strategy;
 pub mod types;

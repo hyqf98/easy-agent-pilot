@@ -1,5 +1,5 @@
 import { ref, readonly, type Ref } from 'vue'
-import type { ConfirmDialogType } from '@/components/common/EaConfirmDialog.vue'
+import type { ConfirmDialogType } from '@/components/common/EaConfirmDialog/useEaConfirmDialog'
 
 export interface ConfirmDialogOptions {
   type?: ConfirmDialogType

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import EaButton from '@/components/common/EaButton.vue'
+import EaButton from '@/components/common/EaButton/EaButton.vue'
 import { EaIcon } from '@/components/common'
 import MemoryLibraryPicker from '@/components/memory/MemoryLibraryPicker.vue'
 import {

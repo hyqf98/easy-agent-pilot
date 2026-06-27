@@ -101,42 +101,4 @@ function handleOverflowSelect(key: string) {
     </div>
   </div>
 </template>
-
-<style scoped>
-.mcp-config-list {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-  gap: var(--spacing-4);
-}
-
-.mcp-config-list__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-3);
-}
-
-.mcp-config-list__title {
-  margin: 0;
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-semibold);
-}
-
-.mcp-config-list__actions {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-2);
-  flex-shrink: 0;
-}
-
-.mcp-config-list__items {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: var(--spacing-3);
-  min-height: 0;
-  overflow-y: auto;
-}
-</style>
+<style scoped src="./McpConfigListView.css"></style>

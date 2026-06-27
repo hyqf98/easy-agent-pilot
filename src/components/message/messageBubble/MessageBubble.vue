@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import AttachmentThumbnail from '@/components/common/AttachmentThumbnail.vue'
-import StructuredContentRenderer from '../StructuredContentRenderer.vue'
-import ThinkingDisplay from '../ThinkingDisplay.vue'
-import CompressionMessageBubble from '../CompressionMessageBubble.vue'
-import RuntimeNoticeList from '../RuntimeNoticeList.vue'
-import ToolCallDisplay from '../ToolCallDisplay.vue'
+import AttachmentThumbnail from '@/components/common/AttachmentThumbnail/AttachmentThumbnail.vue'
+import StructuredContentRenderer from '../StructuredContentRenderer/StructuredContentRenderer.vue'
+import ThinkingDisplay from '../ThinkingDisplay/ThinkingDisplay.vue'
+import CompressionMessageBubble from '../CompressionMessageBubble/CompressionMessageBubble.vue'
+import RuntimeNoticeList from '../RuntimeNoticeList/RuntimeNoticeList.vue'
+import ToolCallDisplay from '../ToolCallDisplay/ToolCallDisplay.vue'
+import FileChangeSummaryBar from '../fileChangeSummary/FileChangeSummaryBar.vue'
 import {
   useMessageBubble,
   type MessageBubbleEmits,
@@ -56,6 +57,7 @@ const {
   assistantElapsedLabel,
   shouldShowRuntimeNotices,
   displayRuntimeNotices,
+  hasFileChanges,
   errorMessage,
   isAssistantFormOnly,
   resolvedFormResponsesById,
@@ -229,7 +231,13 @@ const {
 
       <!-- 工具调用：新结构下 tool_use / tool_result 是独立消息行，此处不再内嵌渲染 -->
 
-      <!-- 文件变更追踪：新结构下 editTraces 不再折叠进 message，后续按需重建 -->
+      <!-- 文件变更追踪：响应底部修改文件列表，点击进入右侧 diff 审查 -->
+      <FileChangeSummaryBar
+        v-if="isAssistant && hasFileChanges"
+        class="message-bubble__stream-segment"
+        :session-id="message.sessionId"
+        :request-id="message.requestId"
+      />
 
       <!-- 时间戳和状态信息 -->
       <div class="message-bubble__meta">

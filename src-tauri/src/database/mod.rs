@@ -119,6 +119,26 @@ const INIT_SQL: &str = r#"
     );
     CREATE INDEX IF NOT EXISTS idx_sub_agents_enabled_order ON sub_agents(is_enabled, sort_order, updated_at DESC);
 
+    -- 文件变更追踪表（ACP Diff 捕获的文件修改前/后内容，用于差异审查与回滚）
+    -- 一个工具调用对一个文件的多次更新通过唯一键 UPSERT 为终态。
+    CREATE TABLE IF NOT EXISTS file_change_traces (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        request_id TEXT NOT NULL,
+        tool_call_id TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        relative_path TEXT NOT NULL,
+        change_type TEXT NOT NULL,
+        before_content TEXT,
+        after_content TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at TEXT NOT NULL,
+        seq INTEGER NOT NULL DEFAULT 0,
+        UNIQUE(session_id, tool_call_id, file_path),
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_file_changes_session ON file_change_traces(session_id, request_id, created_at);
+
     -- MCP 服务器配置表
     CREATE TABLE IF NOT EXISTS mcp_servers (
         id TEXT PRIMARY KEY,
@@ -958,6 +978,9 @@ pub fn init_database() -> Result<()> {
     // SQLite 不支持 IF NOT EXISTS 用于 ALTER TABLE ADD COLUMN
     // 所以我们需要单独执行每条语句并忽略错误
     let migrations = [
+        // 文件变更追踪表（新表，幂等创建；旧库补建）
+        "CREATE TABLE IF NOT EXISTS file_change_traces (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, request_id TEXT NOT NULL, tool_call_id TEXT NOT NULL, file_path TEXT NOT NULL, relative_path TEXT NOT NULL, change_type TEXT NOT NULL, before_content TEXT, after_content TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL, seq INTEGER NOT NULL DEFAULT 0, UNIQUE(session_id, tool_call_id, file_path), FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE)",
+        "CREATE INDEX IF NOT EXISTS idx_file_changes_session ON file_change_traces(session_id, request_id, created_at)",
         "ALTER TABLE mcp_servers ADD COLUMN test_status TEXT",
         "ALTER TABLE mcp_servers ADD COLUMN test_message TEXT",
         "ALTER TABLE mcp_servers ADD COLUMN tool_count INTEGER",

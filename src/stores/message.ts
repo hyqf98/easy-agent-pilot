@@ -654,6 +654,14 @@ export const useMessageStore = defineStore('message', () => {
         isLoadingMore: false,
         oldestMessageCreatedAt: resolveRawMessageCreatedAt(oldestMessage)
       })
+
+      // 加载文件变更追踪（用于响应底部汇总条与右侧 diff 审查）
+      try {
+        const { useFileChangeStore } = await import('@/stores/fileChange')
+        void useFileChangeStore().load(sessionId)
+      } catch (err) {
+        console.error('[MessageStore] load file changes failed', err)
+      }
     } catch (error) {
       console.error('Failed to load messages:', error)
       updateGlobalMessagesForSession(sessionId, [])

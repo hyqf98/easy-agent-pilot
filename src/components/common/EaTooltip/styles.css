@@ -1,0 +1,83 @@
+.ea-tooltip-trigger {
+  display: inline-flex;
+}
+
+.ea-tooltip {
+  z-index: var(--z-tooltip);
+  padding: var(--spacing-2) var(--spacing-3);
+  background-color: var(--color-bg-elevated);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-normal);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  pointer-events: none;
+}
+
+.ea-tooltip__content {
+  word-wrap: break-word;
+}
+
+.ea-tooltip__arrow {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background-color: var(--color-bg-elevated);
+  transform: rotate(45deg);
+}
+
+.ea-tooltip--top .ea-tooltip__arrow {
+  bottom: -4px;
+  left: 50%;
+  margin-left: -4px;
+}
+
+.ea-tooltip--bottom .ea-tooltip__arrow {
+  top: -4px;
+  left: 50%;
+  margin-left: -4px;
+}
+
+.ea-tooltip--left .ea-tooltip__arrow {
+  right: -4px;
+  top: 50%;
+  margin-top: -4px;
+}
+
+.ea-tooltip--right .ea-tooltip__arrow {
+  left: -4px;
+  top: 50%;
+  margin-top: -4px;
+}
+
+/* 过渡动画 */
+.ea-tooltip-enter-active,
+.ea-tooltip-leave-active {
+  transition: opacity var(--transition-fast) var(--easing-default),
+              transform var(--transition-fast) var(--easing-default);
+}
+
+.ea-tooltip-enter-from,
+.ea-tooltip-leave-to {
+  opacity: 0;
+}
+
+.ea-tooltip--top.ea-tooltip-enter-from,
+.ea-tooltip--top.ea-tooltip-leave-to {
+  transform: translateY(4px);
+}
+
+.ea-tooltip--bottom.ea-tooltip-enter-from,
+.ea-tooltip--bottom.ea-tooltip-leave-to {
+  transform: translateY(-4px);
+}
+
+.ea-tooltip--left.ea-tooltip-enter-from,
+.ea-tooltip--left.ea-tooltip-leave-to {
+  transform: translateX(4px);
+}
+
+.ea-tooltip--right.ea-tooltip-enter-from,
+.ea-tooltip--right.ea-tooltip-leave-to {
+  transform: translateX(-4px);
+}

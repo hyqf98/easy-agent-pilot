@@ -1,0 +1,281 @@
+.modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.form-section {
+  margin-bottom: 24px;
+}
+
+.form-section:last-child {
+  margin-bottom: 0;
+}
+
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-secondary, #666);
+  margin: 0 0 16px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-border, #e0e0e0);
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group:last-child {
+  margin-bottom: 0;
+}
+
+.form-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 6px;
+  color: var(--color-text-primary, #1a1a1a);
+}
+
+.required {
+  color: var(--color-danger, #ef4444);
+}
+
+.form-input {
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 14px;
+  border: 1px solid var(--color-border, #e0e0e0);
+  border-radius: 8px;
+  background: var(--color-bg-primary, #ffffff);
+  color: var(--color-text-primary, #1a1a1a);
+  transition: all 0.2s;
+  box-sizing: border-box;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: var(--color-primary, #7c3aed);
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.15);
+}
+
+.form-input::placeholder {
+  color: var(--color-text-tertiary, #999);
+}
+
+.form-textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.form-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+  cursor: pointer;
+}
+
+.model-combobox {
+  position: relative;
+}
+
+.combobox-wrapper {
+  position: relative;
+}
+
+.combobox-input {
+  padding-right: 32px !important;
+}
+
+.combobox-toggle {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--color-text-tertiary, #999);
+  display: flex;
+  align-items: center;
+}
+
+.combobox-toggle:hover {
+  color: var(--color-text-secondary, #555);
+}
+
+.combobox-dropdown {
+  max-width: min(720px, calc(100vw - 32px));
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--color-bg-primary, #fff);
+  border: 1px solid var(--color-border, #e0e0e0);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.combobox-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--color-text-primary, #1a1a1a);
+}
+
+.combobox-option:hover {
+  background: var(--color-bg-secondary, #f5f5f5);
+}
+
+.combobox-option.active {
+  background: color-mix(in srgb, var(--color-primary, #7c3aed) 12%, transparent);
+  color: var(--color-primary, #7c3aed);
+  font-weight: 500;
+}
+
+.combobox-option-meta {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary, #999);
+  font-size: 12px;
+}
+
+.api-key-input-wrapper {
+  position: relative;
+}
+
+.api-key-input {
+  padding-right: 40px !important;
+}
+
+.api-key-toggle {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--color-text-tertiary, #999);
+  display: flex;
+  align-items: center;
+}
+
+.api-key-toggle:hover {
+  color: var(--color-text-secondary, #555);
+}
+
+.provider-mode-switch {
+  display: inline-flex;
+  width: 100%;
+  gap: 8px;
+}
+
+.provider-mode-btn {
+  flex: 1;
+  min-height: 40px;
+  border: 1px solid var(--color-border, #e0e0e0);
+  border-radius: 8px;
+  background: var(--color-bg-secondary, #f5f5f5);
+  color: var(--color-text-secondary, #666);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.provider-mode-btn.active {
+  border-color: var(--color-primary, #7c3aed);
+  background: color-mix(in srgb, var(--color-primary, #7c3aed) 10%, white);
+  color: var(--color-primary, #7c3aed);
+}
+
+.provider-model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.provider-model-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.provider-model-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.provider-model-action {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border: 1px solid var(--color-border, #e0e0e0);
+  border-radius: 8px;
+  background: var(--color-bg-secondary, #f5f5f5);
+  color: var(--color-text-secondary, #666);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.provider-model-action:hover {
+  border-color: var(--color-primary, #7c3aed);
+  color: var(--color-primary, #7c3aed);
+}
+
+.provider-model-action--danger:hover {
+  border-color: var(--color-danger, #ef4444);
+  color: var(--color-danger, #ef4444);
+}
+
+.form-hint,
+.form-error,
+.model-loading,
+.model-hint {
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.form-hint,
+.model-loading,
+.model-hint {
+  color: var(--color-text-tertiary, #999);
+}
+
+.form-error {
+  color: var(--color-danger, #ef4444);
+}
+
+.form-row {
+  display: flex;
+  gap: 16px;
+}
+
+.form-row .form-group {
+  flex: 1;
+}
+
+@media (max-width: 640px) {
+  .modal-body {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .form-row {
+    flex-direction: column;
+    gap: 0;
+  }
+}
+
+.provider-profile-form-modal {
+  width: min(560px, calc(100vw - 32px));
+}

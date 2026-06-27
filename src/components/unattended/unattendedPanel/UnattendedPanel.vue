@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import EaSelect from '@/components/common/EaSelect.vue'
+import EaSelect from '@/components/common/EaSelect/EaSelect.vue'
 import { useUnattendedPanel } from './useUnattendedPanel'
 
 const {

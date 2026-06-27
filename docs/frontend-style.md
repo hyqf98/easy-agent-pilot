@@ -8,28 +8,23 @@
 
 ### 1.1 单文件组件布局顺序
 
-统一使用 `<script setup lang="ts">` + `<template>` + `<style>` 三段式，**禁止 Options API**。
+统一使用 `<script setup lang="ts">` + `<template>` + `<style src>` 三段式，**禁止 Options API**。
+
+> **强制约定**：`.vue` 文件禁止内联 CSS 与业务逻辑，必须拆分为独立文件（见 1.3）。
 
 ```vue
 <script setup lang="ts">
-// 1. 外部依赖导入（Vue、Tauri、store、composable、子组件）
-// 2. Props 定义
-// 3. Emits 定义
-// 4. Composable 调用（解构返回值）
-// 5. 本地响应式状态
-// 6. 计算属性
-// 7. 方法定义
-// 8. 生命周期钩子
-// 9. defineExpose（按需）
+// 1. 导入 composable + 类型（业务逻辑全部在 useXxx.ts）
+// 2. defineProps / defineEmits（编译宏，有时）
+// 3. 解构调用 composable：const { ... } = useXxx(props, emit)
 </script>
 
 <template>
   <!-- 单根元素，BEM 风格 class 命名 -->
 </template>
 
-<style scoped>
-/* 小组件直接写在 <style scoped> */
-</style>
+<!-- 末行：样式全部外置到 styles.css -->
+<style scoped src="./styles.css"></style>
 ```
 
 ### 1.2 Props 与 Emits 类型定义
@@ -58,18 +53,21 @@ const emit = defineEmits<{
 }>()
 ```
 
-### 1.3 大组件拆分（Sidecar 模式）
+### 1.3 组件强制拆分（统一三段式）
 
-超过约 1000 行的组件必须拆分：
+**所有组件**（不论大小）必须按"每组件独占文件夹"拆分为三段式：
 
 ```
 src/components/plan/taskBoard/
-  TaskBoard.vue                 # 模板 + 最小化 script（仅解构 composable）
-  useTaskBoard.ts               # 核心业务逻辑
-  KanbanColumn.vue              # 子组件
-  TaskCard.vue                  # 子组件
-  styles.css                    # 提取的样式（非 scoped，靠 BEM 命名空间隔离）
+├── TaskBoard.vue        # 模板 + 极薄 script（仅解构 composable）
+├── useTaskBoard.ts      # 全部业务逻辑（Props/Emits 类型 + composable 工厂）
+└── styles.css           # 全部样式（固定文件名 styles.css）
 ```
+
+- **纯模板无逻辑件**（script 无实际逻辑）：建文件夹但无需 `use*.ts`，`.vue` 仅 `<template>` + `<style src>`。
+- **模态框全局样式**：teleport 到 `<body>` 的，用双 `<style>`：`<style src="./modalStyles.css"></style>` + `<style scoped src="./styles.css"></style>`。
+- **共享目录 vs 独占目录**：组件位于共享目录（多组件 + barrel `index.ts`）的迁入子文件夹并更新 barrel；已独占目录的原地补 `use*.ts` + `styles.css`，导入零改动。
+- **模块根共享工具**（如 `planListShared.ts`、`soloShared.ts`）留在模块根，不随单组件迁移。
 
 主组件仅做"装配"：
 
@@ -267,8 +265,8 @@ padding: 16px;
 
 | 场景 | 方式 | 说明 |
 |------|------|------|
-| 小型组件（< 200 行 CSS） | `<style scoped>` | 直接写在 .vue 文件 |
-| 大型组件（sidecar 拆分） | 独立 `styles.css` | BEM 命名空间隔离，不使用 scoped |
+| 所有组件 | 独立 `styles.css` | 样式全部外置，`.vue` 用 `<style scoped src="./styles.css">` 引用；scoped 与否照搬原标签 |
+| teleport 全局样式 | 独立 `modalStyles.css` | 模态框等需全局的，加非 scoped `<style src="./modalStyles.css">` |
 
 ### 4.4 BEM 命名约定
 

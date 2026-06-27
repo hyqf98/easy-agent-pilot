@@ -212,6 +212,7 @@ fn build_permission_event(
         model: None,
         external_session_id: None,
         permission_options: Some(super::super::permission::to_permission_option_views(options)),
+        file_edit: None,
     }
 }
 
@@ -267,10 +268,15 @@ fn build_done_event(session_id: &str, request_id: &str) -> AcpStreamEvent {
         model: None,
         external_session_id: None,
         permission_options: None,
+        file_edit: None,
     }
 }
 
-fn build_thinking_event(session_id: &str, request_id: &str, content: String) -> AcpStreamEvent {
+fn build_thinking_event(
+    session_id: &str,
+    request_id: &str,
+    content: String,
+) -> AcpStreamEvent {
     AcpStreamEvent {
         event_type: "thinking".to_string(),
         session_id: session_id.to_string(),
@@ -290,6 +296,7 @@ fn build_thinking_event(session_id: &str, request_id: &str, content: String) -> 
         model: None,
         external_session_id: None,
         permission_options: None,
+        file_edit: None,
     }
 }
 
@@ -319,6 +326,7 @@ fn build_tool_use_event(
         model: None,
         external_session_id: None,
         permission_options: None,
+        file_edit: None,
     }
 }
 
@@ -347,6 +355,7 @@ fn build_tool_result_event(
         model: None,
         external_session_id: None,
         permission_options: None,
+        file_edit: None,
     }
 }
 
@@ -370,6 +379,7 @@ fn build_session_started_event(session_id: &str, request_id: &str, external_sid:
         model: None,
         external_session_id: Some(external_sid),
         permission_options: None,
+        file_edit: None,
     }
 }
 
@@ -393,6 +403,7 @@ fn build_plan_event(session_id: &str, request_id: &str, plan_json: String) -> Ac
         model: None,
         external_session_id: None,
         permission_options: None,
+        file_edit: None,
     }
 }
 
@@ -445,6 +456,7 @@ fn build_usage_event(
         model: None,
         external_session_id: None,
         permission_options: None,
+        file_edit: None,
     }
 }
 
@@ -469,6 +481,85 @@ fn extract_text_from_tool_call_content(
         .collect::<Vec<_>>()
         .join("\n")
 }
+
+/// 从 ACP ToolCallContent 中捕获文件 Diff（path / old_text / new_text）。
+///
+/// ACP 协议会在工具调用更新中通过 `ToolCallContent::Diff` 精确下发文件修改前后的
+/// 完整内容；这里把它们抽取出来，用于持久化追踪与差异审查。
+fn extract_diffs_from_tool_call_content(
+    contents: &[agent_client_protocol::schema::ToolCallContent],
+) -> Vec<agent_client_protocol::schema::Diff> {
+    contents
+        .iter()
+        .filter_map(|c| match c {
+            agent_client_protocol::schema::ToolCallContent::Diff(diff) => Some(diff.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// 将 diff 的绝对路径转为相对工作目录的路径（用于展示），失败则回退原路径。
+fn relative_path_for(file_path: &str, working_directory: Option<&str>) -> String {
+    let path = std::path::Path::new(file_path);
+    if let Some(cwd) = working_directory {
+        let cwd = std::path::Path::new(cwd);
+        if let Ok(rel) = path.strip_prefix(cwd) {
+            return rel.to_string_lossy().into_owned();
+        }
+    }
+    // 兜底：取文件名作为相对展示
+    path.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| file_path.to_string())
+}
+
+/// 根据旧内容 / 新内容 / 工具类型推断变更类型：create / modify / delete。
+fn infer_change_type(
+    old_text: &Option<String>,
+    new_text: &str,
+    kind: Option<&agent_client_protocol::schema::ToolKind>,
+) -> &'static str {
+    use agent_client_protocol::schema::ToolKind;
+    if matches!(kind, Some(ToolKind::Delete)) {
+        return "delete";
+    }
+    let new_empty = new_text.trim().is_empty();
+    let has_old = old_text.as_ref().map(|t| !t.is_empty()).unwrap_or(false);
+    match (has_old, new_empty) {
+        (false, _) => "create",
+        (true, true) => "delete",
+        (true, false) => "modify",
+    }
+}
+
+fn build_file_edit_event(
+    session_id: &str,
+    request_id: &str,
+    edit: super::super::types::FileEditView,
+) -> AcpStreamEvent {
+    AcpStreamEvent {
+        event_type: "file_edit".to_string(),
+        session_id: session_id.to_string(),
+        request_id: Some(request_id.to_string()),
+        content: None,
+        tool_name: None,
+        tool_call_id: Some(edit.tool_call_id.clone()),
+        tool_input: None,
+        tool_result: None,
+        error: None,
+        input_tokens: None,
+        output_tokens: None,
+        raw_input_tokens: None,
+        raw_output_tokens: None,
+        cache_read_input_tokens: None,
+        cache_creation_input_tokens: None,
+        model: None,
+        external_session_id: None,
+        permission_options: None,
+        file_edit: Some(edit),
+    }
+}
+
 
 fn resolve_acp_command(raw_command: &str) -> String {
     let trimmed = raw_command.trim();
@@ -879,6 +970,39 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                                     result_text,
                                                                 ),
                                                             );
+
+                                                            // 文件变更追踪：从 ToolCallContent::Diff 捕获修改前/后内容
+                                                            let diffs = tool_update.fields.content
+                                                                .as_ref()
+                                                                .map(|blocks| extract_diffs_from_tool_call_content(blocks))
+                                                                .unwrap_or_default();
+                                                            let kind = tool_update.fields.kind.as_ref();
+                                                            for diff in diffs {
+                                                                let file_path = diff.path.to_string_lossy().into_owned();
+                                                                let relative_path = relative_path_for(&file_path, working_directory.as_deref());
+                                                                let change_type = infer_change_type(&diff.old_text, &diff.new_text, kind);
+                                                                let tool_call_id = tool_update.tool_call_id.to_string();
+                                                                let view = super::super::types::FileEditView {
+                                                                    tool_call_id: tool_call_id.clone(),
+                                                                    file_path: file_path.clone(),
+                                                                    relative_path: relative_path.clone(),
+                                                                    change_type: change_type.to_string(),
+                                                                    before_content: diff.old_text.clone(),
+                                                                    after_content: diff.new_text.clone(),
+                                                                };
+                                                                let _ = recorder_inner.record(&RecordableEvent::FileEdit {
+                                                                    tool_call_id: tool_call_id.clone(),
+                                                                    file_path: file_path.clone(),
+                                                                    relative_path: relative_path.clone(),
+                                                                    change_type: change_type.to_string(),
+                                                                    before_content: diff.old_text.clone(),
+                                                                    after_content: diff.new_text.clone(),
+                                                                });
+                                                                let _ = app.emit(
+                                                                    &event_name,
+                                                                    &build_file_edit_event(&session_id, &request_id, view),
+                                                                );
+                                                            }
                                                         }
                                                         SessionUpdate::Plan(plan) => {
                                                             let plan_json = serde_json::to_string(&plan)
@@ -917,6 +1041,7 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                                     model: None,
                                                                     external_session_id: None,
                                                                     permission_options: None,
+                                                                    file_edit: None,
                                                                 },
                                                             );
                                                         }
@@ -1021,8 +1146,14 @@ impl AgentExecutionStrategy for AcpStrategy {
                             );
                             break;
                         }
-                        _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
-                            continue;
+                        // 5s 保活间隔改为可中断的短轮询：
+                        // 中断标志置位时（用户取消）能尽快触发循环顶部的 should_abort 检查，
+                        // 避免被单一长 sleep 阻塞最多 5s。
+                        _ = tokio::time::sleep(std::time::Duration::from_millis(250)) => {
+                            // 期间检测到中断则提前结束 select 等待
+                            if should_abort(&session_id).await {
+                                break;
+                            }
                         }
                     }
                 }
@@ -1051,8 +1182,8 @@ mod tests {
     use crate::commands::conversation::types::MessageInput;
     use crate::commands::message::MessageAttachment;
     use agent_client_protocol::schema::{
-        Content, PermissionOption, PermissionOptionId, StopReason, TextContent, ToolCallContent,
-        Usage,
+        Content, Diff, PermissionOption, PermissionOptionId, StopReason, TextContent, ToolCall,
+        ToolCallContent, ToolKind, Usage,
     };
 
     // ---- resolve_acp_command ----
@@ -1478,5 +1609,106 @@ mod tests {
     #[test]
     fn extract_text_from_tool_call_empty_returns_empty() {
         assert_eq!(extract_text_from_tool_call_content(&[]), "");
+    }
+
+    // ---- extract_diffs_from_tool_call_content / infer_change_type / relative_path_for ----
+
+    fn diff_content(path: &str, old: Option<&str>, new: &str) -> ToolCallContent {
+        let mut diff = Diff::new(path, new);
+        if let Some(old_text) = old {
+            diff = diff.old_text(old_text);
+        }
+        ToolCallContent::Diff(diff)
+    }
+
+    #[test]
+    fn extract_diffs_collects_only_diff_variants() {
+        let contents = vec![
+            text_content_block("ignored"),
+            diff_content("src/a.ts", Some("old"), "new"),
+            diff_content("src/b.ts", None, "brand new"),
+        ];
+        let diffs = extract_diffs_from_tool_call_content(&contents);
+        assert_eq!(diffs.len(), 2);
+        assert_eq!(diffs[0].path.to_string_lossy(), "src/a.ts");
+        assert_eq!(diffs[1].old_text, None);
+    }
+
+    #[test]
+    fn extract_diffs_empty_when_no_diff() {
+        let contents = vec![text_content_block("only text")];
+        assert!(extract_diffs_from_tool_call_content(&contents).is_empty());
+    }
+
+    #[test]
+    fn infer_change_type_create_when_no_old() {
+        assert_eq!(infer_change_type(&None, "new content", None), "create");
+        // empty old_text also means create
+        assert_eq!(infer_change_type(&Some(String::new()), "new content", None), "create");
+    }
+
+    #[test]
+    fn infer_change_type_modify_when_both_present() {
+        assert_eq!(
+            infer_change_type(&Some("old".to_string()), "new", None),
+            "modify"
+        );
+    }
+
+    #[test]
+    fn infer_change_type_delete_when_old_present_new_empty() {
+        assert_eq!(
+            infer_change_type(&Some("old".to_string()), "", None),
+            "delete"
+        );
+        assert_eq!(
+            infer_change_type(&Some("old".to_string()), "   \n ", None),
+            "delete"
+        );
+    }
+
+    #[test]
+    fn infer_change_type_delete_when_kind_is_delete() {
+        // 即使 new_text 非空，kind=Delete 也判定为 delete
+        assert_eq!(
+            infer_change_type(&Some("old".to_string()), "new", Some(&ToolKind::Delete)),
+            "delete"
+        );
+    }
+
+    #[test]
+    fn relative_path_strips_working_directory() {
+        assert_eq!(
+            relative_path_for("/proj/src/a.ts", Some("/proj")),
+            "src/a.ts"
+        );
+    }
+
+    #[test]
+    fn relative_path_falls_back_to_filename_when_unrelated() {
+        assert_eq!(relative_path_for("/other/a.ts", Some("/proj")), "a.ts");
+    }
+
+    #[test]
+    fn relative_path_falls_back_to_filename_when_no_cwd() {
+        assert_eq!(relative_path_for("/anywhere/a.ts", None), "a.ts");
+    }
+
+    #[test]
+    fn build_file_edit_event_carries_view() {
+        let view = crate::commands::conversation::types::FileEditView {
+            tool_call_id: "tc-1".to_string(),
+            file_path: "/p/a.ts".to_string(),
+            relative_path: "a.ts".to_string(),
+            change_type: "modify".to_string(),
+            before_content: Some("old".to_string()),
+            after_content: "new".to_string(),
+        };
+        let ev = build_file_edit_event("s1", "req-1", view);
+        assert_eq!(ev.event_type, "file_edit");
+        assert_eq!(ev.session_id, "s1");
+        let edit = ev.file_edit.expect("file_edit set");
+        assert_eq!(edit.change_type, "modify");
+        assert_eq!(edit.tool_call_id, "tc-1");
     }
 }

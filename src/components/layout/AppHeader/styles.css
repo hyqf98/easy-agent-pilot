@@ -1,0 +1,51 @@
+.workspace-topbar {
+  display: inline-flex;
+  align-items: center;
+  height: var(--workspace-topbar-height);
+  padding: 4px;
+  background: color-mix(in srgb, var(--workspace-topbar-bg) 82%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  flex-shrink: 0;
+}
+
+.workspace-topbar__modes,
+.workspace-topbar__mode {
+  display: inline-flex;
+  align-items: center;
+}
+
+.workspace-topbar__modes {
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--workspace-control-border);
+  border-radius: 10px;
+  background: var(--workspace-segment-bg);
+}
+
+.workspace-topbar__mode {
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 7px;
+  color: var(--workspace-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.workspace-topbar__mode:hover {
+  background: var(--workspace-control-hover-bg);
+  color: var(--workspace-text-primary);
+}
+
+.workspace-topbar__mode-label {
+  line-height: 1;
+}
+
+.workspace-topbar__mode--active {
+  background: var(--workspace-control-active-bg);
+  color: var(--workspace-text-primary);
+  box-shadow: var(--workspace-control-active-shadow);
+}

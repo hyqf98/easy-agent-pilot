@@ -1,0 +1,190 @@
+/* 内容区：任务看板 + 按需展开的详情面板（左栏已由 WorkspaceShell 提供） */
+.plan-content {
+  display: flex;
+  height: 100%;
+  background-color: var(--workspace-stage-bg, var(--bg-primary, #fff));
+  position: relative;
+}
+
+.task-board-container {
+  flex: 1;
+  min-width: 0;
+  background: var(--workspace-stage-bg, var(--color-bg-secondary));
+  /* 顶部为浮动导航让出空间 */
+  padding-top: calc(var(--workspace-topbar-height, 44px) + 2px);
+}
+
+.task-board-container--with-right {
+  border-right: 1px solid var(--workspace-border, var(--border-color, #e5e7eb));
+}
+
+.task-detail-container {
+  --detail-panel-surface: var(--color-surface, #ffffff);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--workspace-border, var(--border-color, #e5e7eb));
+  position: relative;
+  min-width: 280px;
+  max-width: 600px;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--workspace-panel-bg, var(--detail-panel-surface));
+  /* 顶部为浮动导航让出空间（与任务看板一致） */
+  padding-top: calc(var(--workspace-topbar-height, 44px) + 2px);
+}
+
+.task-detail-container > :not(.resize-handle):not(.collapse-button) {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+/* 拖拽调整宽度手柄 */
+.resize-handle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: ew-resize;
+  z-index: 20;
+  background: transparent;
+  transition: background-color 0.15s ease;
+}
+
+.resize-handle:hover,
+.resize-handle--active {
+  background-color: color-mix(in srgb, var(--workspace-text-secondary, #64748b) 16%, transparent);
+}
+
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 32px;
+  background-color: var(--color-text-tertiary, #94a3b8);
+  border-radius: 1px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.resize-handle:hover::after,
+.resize-handle--active::after {
+  opacity: 1;
+  background-color: var(--workspace-text-tertiary, white);
+}
+
+.collapse-button {
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--workspace-panel-bg, var(--color-surface, #fff));
+  border: 1px solid var(--workspace-border, var(--border-color, #e5e7eb));
+  border-left: none;
+  border-radius: 0 6px 6px 0;
+  cursor: pointer;
+  z-index: 25;
+  color: var(--color-text-secondary, #64748b);
+  transition: all 0.15s ease;
+}
+
+.collapse-button:hover {
+  background-color: var(--workspace-control-hover-bg, var(--color-bg-secondary, #f8fafc));
+  color: var(--workspace-text-primary, var(--color-text-primary, #1e293b));
+  width: 24px;
+}
+
+.active-role-indicator {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 10;
+}
+
+:deep(.plan-list),
+:deep(.task-board) {
+  background: transparent;
+}
+
+:deep(.board-header),
+:deep(.plan-list__header),
+:deep(.plan-header) {
+  border-color: var(--workspace-border, var(--color-border));
+  background: var(--workspace-topbar-bg, var(--color-surface));
+}
+
+:deep(.title),
+:deep(.plan-title) {
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  font-size: 13px;
+}
+
+:deep(.stat-item),
+:deep(.btn) {
+  border-radius: 6px;
+}
+
+:deep(.board-columns) {
+  gap: 10px;
+  padding: 10px;
+}
+
+:deep(.kanban-column),
+:deep(.column),
+:deep(.task-column) {
+  border-color: var(--workspace-border, var(--color-border));
+  border-radius: 8px;
+  background: var(--workspace-panel-bg, var(--color-surface));
+  box-shadow: none;
+}
+
+:deep(.task-card),
+:deep(.plan-card),
+:deep(.plan-item) {
+  border-color: var(--workspace-border, var(--color-border));
+  border-radius: 8px;
+  background: var(--workspace-control-bg, var(--color-surface));
+  box-shadow: none;
+}
+
+[data-theme='dark'] .plan-mode-panel {
+  background-color: var(--workspace-stage-bg, rgba(2, 6, 23, 0.92));
+}
+
+[data-theme='dark'] .plan-list-container,
+[data-theme='dark'] .task-board-container--with-right,
+[data-theme='dark'] .task-detail-container {
+  border-color: rgba(148, 163, 184, 0.14);
+}
+
+[data-theme='dark'] .task-detail-container {
+  --detail-panel-surface: rgba(15, 23, 42, 0.96);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(15, 23, 42, 0.98) 0%,
+      rgba(2, 6, 23, 0.94) 100%
+    );
+}
+
+[data-theme='dark'] .collapse-button {
+  background-color: rgba(15, 23, 42, 0.96);
+  border-color: rgba(148, 163, 184, 0.18);
+  color: rgba(226, 232, 240, 0.78);
+}
+
+[data-theme='dark'] .collapse-button:hover {
+  background-color: rgba(30, 41, 59, 0.96);
+  color: #f8fafc;
+}

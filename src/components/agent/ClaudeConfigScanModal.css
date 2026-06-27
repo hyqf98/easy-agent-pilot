@@ -1,0 +1,104 @@
+.scan-modal {
+  display: flex;
+  flex-direction: column;
+  background-color: var(--color-surface);
+  border-radius: var(--radius-lg);
+  width: 560px;
+  max-height: 80vh;
+  overflow: hidden;
+}
+
+.scan-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-4) var(--spacing-5);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.scan-modal__title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.scan-modal__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast) var(--easing-default);
+}
+
+.scan-modal__close:hover {
+  background-color: var(--color-hover);
+  color: var(--color-text-primary);
+}
+
+.scan-modal__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-4) var(--spacing-5);
+}
+
+.scan-modal__loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-3);
+  padding: var(--spacing-8);
+  color: var(--color-text-secondary);
+}
+
+.scan-modal__error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-3);
+  padding: var(--spacing-8);
+  color: var(--color-error);
+}
+
+.scan-modal__info {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-3);
+  background-color: var(--color-background);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--spacing-4);
+}
+
+.scan-modal__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-4) var(--spacing-5);
+  border-top: 1px solid var(--color-border);
+}
+
+.scan-modal__selected-count {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+}
+
+.scan-modal__selected-count--empty {
+  color: var(--color-text-tertiary);
+}
+
+.scan-modal__actions {
+  display: flex;
+  gap: var(--spacing-3);
+}

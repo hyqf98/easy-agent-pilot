@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { EaIcon, EaButton, EaSkeleton, EaStateBlock } from '@/components/common'
-import PanelHeader from '../PanelHeader.vue'
+import type { Session } from '@/stores/session'
+import PanelHeader from '../PanelHeader/PanelHeader.vue'
 import SessionPanelDialogs from '../sessionPanelDialogs/SessionPanelDialogs.vue'
-import SessionPanelItem from '../SessionPanelItem.vue'
+import SessionPanelItem from '../SessionPanelItem/SessionPanelItem.vue'
 import type { SessionPanelProps } from './useSessionPanel'
 import { useSessionPanelView } from './useSessionPanel'
 
@@ -349,7 +350,7 @@ const {
           @cancel-edit="cancelEditSessionName"
           @update-name="editingSessionName = $event"
           @toggle-select="toggleSessionSelection"
-          @action="(key, targetSession) => sessionActionMap.get(targetSession.id)?.find(action => action.key === key)?.handler(targetSession)"
+          @action="(key: string, targetSession: Session) => sessionActionMap.get(targetSession.id)?.find(action => action.key === key)?.handler(targetSession)"
         />
       </div>
     </div>

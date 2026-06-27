@@ -2,7 +2,7 @@
 import { EaButton, EaIcon, EaSkeleton } from '@/components/common'
 import { FileTree } from '@/components/fileTree'
 import { ProjectCreateModal } from '@/components/project'
-import PanelHeader from '../PanelHeader.vue'
+import PanelHeader from '../PanelHeader/PanelHeader.vue'
 import {
   useProjectPanel,
   type ProjectPanelEmits,

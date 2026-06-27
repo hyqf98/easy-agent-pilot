@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { EaIcon } from '@/components/common'
-import AttachmentThumbnail from '@/components/common/AttachmentThumbnail.vue'
+import AttachmentThumbnail from '@/components/common/AttachmentThumbnail/AttachmentThumbnail.vue'
 import type { ConversationComposerViewState } from './useConversationComposerView'
 import { computed } from 'vue'
 

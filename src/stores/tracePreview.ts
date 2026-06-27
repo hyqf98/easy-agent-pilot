@@ -33,7 +33,7 @@ export const useTracePreviewStore = defineStore('tracePreview', () => {
     activeRelativePath.value = input.trace.relativePath
     currentTraceId.value = input.trace.id
     changeType.value = input.trace.changeType
-    highlightedRange.value = input.trace.range
+    highlightedRange.value = input.trace.range ?? null
     loadError.value = null
     beforeContent.value = input.trace.preview?.beforeContent ?? ''
     afterContent.value = input.trace.preview?.afterContent ?? ''

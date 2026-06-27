@@ -80,6 +80,25 @@ pub struct StreamEvent {
     /// ACP 权限询问时携带的可选项（仅 permission_request 事件使用）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permission_options: Option<Vec<PermissionOptionView>>,
+    /// 文件变更（仅 file_edit 事件使用）：ACP Diff 捕获到的修改前/后内容
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_edit: Option<FileEditView>,
+}
+
+/// 文件变更的前端视图（ACP Diff → create/modify/delete）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileEditView {
+    pub tool_call_id: String,
+    pub file_path: String,
+    pub relative_path: String,
+    /// create / modify / delete
+    pub change_type: String,
+    /// 修改前内容（新建文件为 None）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before_content: Option<String>,
+    /// 修改后内容（删除文件为空串）
+    pub after_content: String,
 }
 
 /// ACP 权限选项的前端视图（option_id / 名称 / 类型）

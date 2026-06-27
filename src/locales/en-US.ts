@@ -2259,6 +2259,34 @@ Rules:
     acceptRight: 'Accept Right'
   },
 
+  fileChange: {
+    modifiedFiles: '{count} file(s) modified',
+    pendingReview: '{count} pending',
+    reviewAll: 'Review',
+    expand: 'Expand',
+    collapse: 'Collapse',
+    accept: 'Accept',
+    rollback: 'Rollback',
+    acceptAll: 'Accept All',
+    rollbackAll: 'Rollback All',
+    acceptFailed: 'Accept failed',
+    rollbackFailed: 'Rollback failed',
+    pending: 'Pending',
+    accepted: 'Accepted',
+    rolledBack: 'Rolled back',
+    create: 'Created',
+    modify: 'Modified',
+    delete: 'Deleted',
+    batchHint: '{count} file(s) pending',
+    navigatePrev: 'Previous change',
+    navigateNext: 'Next change',
+    emptyReview: 'No file changes to review'
+  },
+
+  fileReview: {
+    changedFiles: 'Changed Files'
+  },
+
   reasoning: {
     label: 'Reasoning',
     default: 'Default',

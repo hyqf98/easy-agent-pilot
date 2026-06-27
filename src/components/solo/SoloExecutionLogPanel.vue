@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import DynamicForm from '@/components/plan/dynamicForm/DynamicForm.vue'
-import ExecutionTimeline from '@/components/message/ExecutionTimeline.vue'
+import ExecutionTimeline from '@/components/message/ExecutionTimeline/ExecutionTimeline.vue'
 import { useAgentConfigStore } from '@/stores/agentConfig'
 import { useAgentStore } from '@/stores/agent'
 import { formatTokenCount } from '@/stores/token'
@@ -644,80 +644,4 @@ onMounted(async () => {
     </div>
   </div>
 </template>
-
-<style scoped src="../plan/taskExecutionLog/styles.css"></style>
-
-<style scoped>
-.solo-execution-log {
-  --task-log-width: 100%;
-  --timeline-panel-width: 100%;
-  --timeline-panel-max-width: 100%;
-  height: 100%;
-  border: none;
-  border-radius: 0;
-  box-shadow: none;
-}
-
-.solo-execution-log__meta-chip {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.125rem 0.5rem;
-  border-radius: 999px;
-  background: var(--workspace-control-bg, rgba(38, 38, 38, 0.06));
-  color: var(--workspace-text-secondary, var(--color-text-secondary, #64748b));
-  font-size: 0.6875rem;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.solo-execution-log__summary {
-  display: flex;
-  flex-direction: column;
-  gap: 0.625rem;
-  padding: 0.875rem 1rem;
-  border-bottom: 1px solid var(--workspace-border, var(--color-border, #e2e8f0));
-  background: var(--workspace-control-bg, transparent);
-}
-
-.solo-execution-log__summary-eyebrow {
-  margin: 0;
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0;
-  text-transform: uppercase;
-  color: var(--workspace-text-tertiary, var(--color-text-secondary, #64748b));
-}
-
-.solo-execution-log__summary-text {
-  margin: 0;
-  color: var(--workspace-text-primary, var(--color-text-primary, #1e293b));
-  font-size: 0.8125rem;
-  line-height: 1.55;
-  white-space: pre-wrap;
-}
-
-.solo-execution-log__summary-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem 0.75rem;
-  font-size: 0.6875rem;
-  color: var(--workspace-text-secondary, var(--color-text-secondary, #64748b));
-}
-
-.solo-execution-log__summary-files {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.solo-execution-log__summary-files span {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.25rem 0.5rem;
-  border-radius: 999px;
-  background: var(--workspace-control-bg, rgba(38, 38, 38, 0.06));
-  color: var(--workspace-text-secondary, var(--color-text-secondary, #64748b));
-  font-size: 0.6875rem;
-  line-height: 1;
-}
-</style>
+<style scoped src="./SoloExecutionLogPanel.css"></style>

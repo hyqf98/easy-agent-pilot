@@ -1,0 +1,87 @@
+.plan-split-config-dialog {
+  width: 90%;
+  max-width: 32rem;
+}
+
+.dialog-title {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+.btn-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-1);
+  border: none;
+  background: transparent;
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary));
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+}
+
+.btn-close:hover {
+  background-color: var(--workspace-control-hover-bg, var(--color-surface-hover));
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+:deep(.ea-modal__header) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.split-config-desc {
+  margin: 0 0 1rem;
+  font-size: var(--font-size-sm);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+  line-height: 1.5;
+}
+
+.form-field {
+  margin-bottom: var(--spacing-4);
+}
+
+.form-field label {
+  display: block;
+  margin-bottom: var(--spacing-2);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+}
+
+.required {
+  color: var(--color-error);
+}
+
+.form-select {
+  width: 100%;
+  padding: var(--spacing-2) var(--spacing-8) var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--workspace-border, var(--color-border));
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  background-color: var(--workspace-panel-bg, var(--color-surface));
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--spacing-3) center;
+}
+
+.form-select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-light);
+}
+
+.form-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}

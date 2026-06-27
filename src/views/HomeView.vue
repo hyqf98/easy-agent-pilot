@@ -5,7 +5,4 @@ import { MainLayout } from '@/components/layout'
 <template>
   <MainLayout />
 </template>
-
-<style scoped>
-/* 布局样式已在 MainLayout 组件中定义 */
-</style>
+<style scoped src="./HomeView.css"></style>

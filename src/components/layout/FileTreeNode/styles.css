@@ -1,0 +1,88 @@
+.file-tree-node {
+  user-select: none;
+}
+
+.file-tree-node__content {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  padding: var(--spacing-1) var(--spacing-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background-color var(--transition-fast) var(--easing-default);
+}
+
+.file-tree-node__content:hover {
+  background-color: var(--color-surface-hover);
+}
+
+.file-tree-node__content--file {
+  cursor: pointer;
+}
+
+.file-tree-node__arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  transition: transform var(--transition-fast) var(--easing-default);
+}
+
+.file-tree-node__arrow--expanded {
+  transform: rotate(90deg);
+}
+
+.file-tree-node__arrow-placeholder {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.file-tree-node__icon {
+  flex-shrink: 0;
+}
+
+.file-tree-node__name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.file-tree-node__children {
+  /* 子节点容器 */
+}
+
+.file-tree-node__loading {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  padding: var(--spacing-1) var(--spacing-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.file-tree-node__loading-icon {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.file-tree-node__empty {
+  padding: var(--spacing-1) var(--spacing-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  font-style: italic;
+}

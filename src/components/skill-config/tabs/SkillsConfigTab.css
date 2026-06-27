@@ -1,0 +1,25 @@
+.skills-config-tab__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-4);
+}
+
+.skills-config-tab__title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.skills-config-tab__actions {
+  display: flex;
+  gap: var(--spacing-2);
+}
+
+.skills-config-tab__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+}

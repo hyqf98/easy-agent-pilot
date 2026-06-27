@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import type { Task } from '@/types/plan'
-import KanbanColumn from '../KanbanColumn.vue'
+import KanbanColumn from '../KanbanColumn/KanbanColumn.vue'
 import TaskEditModal from '../taskEditModal/TaskEditModal.vue'
 import { useTaskBoard } from './useTaskBoard'
 const { t } = useI18n()

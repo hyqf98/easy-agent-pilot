@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { EaButton, EaModal } from '@/components/common'
-import EaSelect, { type SelectOption } from '@/components/common/EaSelect.vue'
+import EaSelect from '@/components/common/EaSelect/EaSelect.vue'
+import type { SelectOption } from '@/components/common/EaSelect/useEaSelect'
 import { useAgentStore } from '@/stores/agent'
 import type { MemoryLibrary } from '@/types/memory'
 
@@ -112,39 +113,4 @@ function handleConfirm() {
     </template>
   </EaModal>
 </template>
-
-<style scoped>
-.memory-dialog__title {
-  margin: 0;
-  font-size: 22px;
-  font-family: var(--font-family-sans);
-}
-
-.memory-dialog__body {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.memory-dialog__field {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-}
-
-.memory-dialog__field span {
-  color: var(--color-text-primary);
-  font-weight: 600;
-}
-
-.memory-merge-note {
-  margin: 0;
-  padding: 14px 16px;
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--color-primary, #3b82f6) 8%, var(--workspace-control-bg, transparent));
-  color: var(--color-text-secondary);
-  line-height: 1.7;
-}
-</style>
+<style scoped src="./MemoryMergeModal.css"></style>

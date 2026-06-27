@@ -142,6 +142,35 @@
   box-shadow: inset 0 -2px 0 var(--color-primary);
 }
 
+/* 非激活 tab 的运行态指示：底部条着色，便于一眼看出后台仍在推进/已失败 */
+.dialog-tab--running:not(.dialog-tab--active) {
+  box-shadow: inset 0 -2px 0 var(--color-primary);
+}
+
+.dialog-tab--failed:not(.dialog-tab--active) {
+  color: var(--color-danger, var(--color-error));
+  box-shadow: inset 0 -2px 0 var(--color-danger, var(--color-error));
+}
+
+.dialog-tab__indicator {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 0.35rem;
+  vertical-align: middle;
+}
+
+.dialog-tab__indicator--running {
+  background: var(--color-primary);
+  animation: dialog-tab-pulse 1s ease-in-out infinite;
+}
+
+@keyframes dialog-tab-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
 .split-content {
   height: 100%;
   display: flex;

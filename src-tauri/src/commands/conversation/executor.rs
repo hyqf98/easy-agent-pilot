@@ -94,7 +94,26 @@ pub async fn execute_agent(app: AppHandle, request: ExecutionRequest) -> Result<
 
     let session_id = request.session_id.clone();
 
-    registry.execute(app, request).await.map_err(|error| {
+    // 注册会话级执行任务（execute_agent 仅用于主会话对话，plan_id 恒为空）。
+    // 与 abort::ABORT_FLAGS 共享同一个标志，便于 list/force_abort 枚举与取消。
+    let abort_flag = super::abort::get_abort_flag(&session_id).await;
+    super::running_tasks::register(
+        &session_id,
+        super::running_tasks::ExecutionHandle {
+            kind: super::running_tasks::ExecutionKind::Conversation,
+            plan_id: None,
+            abort_flag,
+            started_at: crate::commands::support::now_rfc3339(),
+        },
+    )
+    .await;
+
+    let result = registry.execute(app, request).await;
+
+    // 无论成功失败都注销，避免注册表残留
+    super::running_tasks::unregister(&session_id).await;
+
+    result.map_err(|error| {
         let message = error.to_string();
         crate::logging::write_log(
             "ERROR",

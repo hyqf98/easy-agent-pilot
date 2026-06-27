@@ -85,12 +85,4 @@ function handleSave(config: Partial<UnifiedMcpConfig>, originalId?: string) {
     />
   </div>
 </template>
-
-<style scoped>
-.mcp-config-tab {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-}
-</style>
+<style scoped src="./McpConfigTab.css"></style>

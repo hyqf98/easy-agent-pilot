@@ -281,17 +281,4 @@ onBeforeUnmount(() => {
     />
   </div>
 </template>
-
-<style scoped>
-.sheet-editor {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.sheet-editor__container {
-  flex: 1;
-  min-height: 0;
-}
-</style>
+<style scoped src="./SheetEditor.css"></style>

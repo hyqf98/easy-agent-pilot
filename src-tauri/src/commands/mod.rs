@@ -10,6 +10,7 @@ pub mod cli_installer;
 pub(crate) mod cli_support;
 pub mod conversation;
 pub mod file_editor;
+pub mod file_change;
 pub(crate) mod fs_shared;
 pub mod git;
 pub mod install;
