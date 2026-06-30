@@ -55,7 +55,7 @@ export function useRuntimeNoticeList(props: RuntimeNoticeListProps) {
   }
 
   function isUsageNotice(notice: RuntimeNotice) {
-    return notice.id === 'usage' || notice.title.toLowerCase().includes('model')
+    return notice.id === 'usage' || (notice.title ?? '').toLowerCase().includes('model')
   }
 
   function isEnvironmentNotice(notice: RuntimeNotice) {

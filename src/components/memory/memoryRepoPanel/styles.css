@@ -1,29 +1,9 @@
+/* 对齐「智能体会话」工作台左列表样式：透明行 + 8px 圆角 + workspace 选中态 */
 .repo-panel__sidebar {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--color-bg-secondary, #f9fafb);
-}
-
-.repo-panel__sidebar-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--spacing-3, 12px) var(--spacing-3, 12px) var(--spacing-2, 8px);
-}
-
-.repo-panel__sidebar-title {
-  font-size: var(--font-size-sm, 13px);
-  font-weight: var(--font-weight-semibold, 600);
-  color: var(--color-text-secondary, #6b7280);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.repo-panel__sidebar-actions {
-  display: flex;
-  gap: var(--spacing-2, 8px);
-  padding: 0 var(--spacing-3, 12px) var(--spacing-2, 8px);
+  background: transparent;
 }
 
 .repo-panel__list {
@@ -36,10 +16,20 @@
 }
 
 .repo-panel__list-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-3, 12px);
   padding: var(--spacing-6, 24px) var(--spacing-3, 12px);
   text-align: center;
-  font-size: var(--font-size-sm, 13px);
   color: var(--color-text-tertiary, #9ca3af);
+}
+
+.repo-panel__list-empty p {
+  margin: 0;
+  font-size: var(--font-size-sm, 13px);
 }
 
 .repo-panel__card {
@@ -47,23 +37,21 @@
   flex-direction: column;
   gap: 2px;
   width: 100%;
-  padding: var(--spacing-2, 8px) var(--spacing-3, 12px);
-  border: 1px solid transparent;
+  padding: 7px 8px;
+  border: none;
   border-radius: var(--radius-md, 8px);
   background: transparent;
   text-align: left;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background-color 0.15s ease;
 }
 
 .repo-panel__card:hover {
-  background: var(--color-bg-hover, #f3f4f6);
+  background: var(--workspace-list-hover-bg, rgba(229, 229, 225, 0.72));
 }
 
 .repo-panel__card--active {
-  background: var(--color-bg, #fff);
-  border-color: var(--color-border, #e5e7eb);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  background: var(--workspace-list-active-bg, #e9e9e5);
 }
 
 .repo-panel__card-header {

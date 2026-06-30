@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { EaIcon } from '@/components/common'
+
 defineProps<{
   title: string
 }>()
@@ -6,15 +8,11 @@ defineProps<{
 
 <template>
   <div class="empty-state">
-    <div class="empty-icon">
-      📝
-    </div>
-    <p class="empty-title">
-      {{ title }}
-    </p>
-    <p class="hint">
-      点击上方"新建"按钮创建计划
-    </p>
+    <EaIcon
+      name="clipboard-list"
+      :size="40"
+    />
+    <p>{{ title }}</p>
   </div>
 </template>
 

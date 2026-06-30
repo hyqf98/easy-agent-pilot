@@ -1,0 +1,45 @@
+/* 对齐「智能体会话」项目仓库管理侧栏 section-header 样式（UnifiedPanel.vue:60-108） */
+.ea-sidebar-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 11px 10px 7px;
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary));
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ea-sidebar-section-header__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ea-sidebar-section-header__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.ea-sidebar-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  color: var(--workspace-text-tertiary, var(--color-text-secondary));
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all var(--transition-fast, 150ms) var(--easing-default, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+.ea-sidebar-action-btn:hover {
+  background: var(--workspace-control-hover-bg, var(--color-surface-hover));
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}

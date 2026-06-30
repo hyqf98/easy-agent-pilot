@@ -10,8 +10,8 @@ import SettingsNav from '../SettingsNav/SettingsNav.vue'
     :sidebar-min="200"
     :sidebar-max="320"
   >
-    <template #sidebar>
-      <SettingsNav />
+    <template #sidebar="{ hide }">
+      <SettingsNav @hide="hide" />
     </template>
     <SettingsContent />
   </WorkspaceShell>

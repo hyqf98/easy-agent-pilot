@@ -10,7 +10,7 @@
 
 .message-list {
   --message-list-top-safe-space: 0px;
-  --message-list-bottom-safe-space: clamp(96px, 11vh, 132px);
+  --message-list-bottom-safe-space: clamp(20px, 3vh, 32px);
   --message-list-scroll-btn-gap: clamp(10px, 1.8vh, 18px);
   --message-list-scroll-btn-size: clamp(28px, 2.8vw, 34px);
   --conversation-stream-width: min(100%, 980px);

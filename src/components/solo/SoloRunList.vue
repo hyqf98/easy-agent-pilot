@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { SoloRun } from '@/types/solo'
+import { EaSidebarSectionHeader, EaIcon } from '@/components/common'
 
 const props = defineProps<{
   runs: SoloRun[]
@@ -10,6 +11,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [runId: string]
   create: []
+  hide: []
 }>()
 
 const groupedRuns = computed(() => {
@@ -51,24 +53,27 @@ function formatTime(value: string): string {
 
 <template>
   <div class="solo-run-list">
-    <div class="solo-run-list__header">
-      <div>
-        <p class="solo-run-list__eyebrow">
-          SOLO
-        </p>
-        <h3>全程自主规划</h3>
-      </div>
-      <button
-        class="solo-run-list__create"
-        @click="emit('create')"
-      >
-        新建
-      </button>
-    </div>
+    <EaSidebarSectionHeader
+      title="自主运行"
+      create-title="新建 SOLO 运行"
+      @create="emit('create')"
+      @hide="emit('hide')"
+    />
 
     <div
       class="solo-run-list__groups"
     >
+      <div
+        v-if="groupedRuns.length === 0"
+        class="solo-run-list__empty"
+      >
+        <EaIcon
+          name="route"
+          :size="40"
+        />
+        <p>暂无 SOLO 运行，点击"新建"开始</p>
+      </div>
+
       <section
         v-for="group in groupedRuns"
         :key="group.status"

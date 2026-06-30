@@ -44,8 +44,14 @@ export interface MessageListEmits {
 
 const sessionScrollSnapshots = new Map<string, SessionScrollSnapshot>()
 const sessionMessageHeights = new Map<string, Record<string, number>>()
-const DEFAULT_MESSAGE_HEIGHT = 220
-const VIRTUALIZE_THRESHOLD = 40
+// 未测量消息的估算高度：偏大/偏小都会让虚拟滚动的总高度与实际不符，表现为
+// 滚动条 thumb 在滚动过程中长短跳变（滚动经过的消息被实测后总高度变化）。
+// 取贴近真实样本中位/平均的值（实测多数文本消息 34~110px），使双向偏差最小。
+const DEFAULT_MESSAGE_HEIGHT = 90
+// 虚拟化阈值：低于此数量的会话全量渲染，所有消息高度由 ResizeObserver 一次性实测，
+// scrollHeight 立即确定、滚动条全程稳定。仅当消息量较大（带来明显性能压力）时才启用
+// 虚拟滚动（未测量消息用估算高度，滚动实测时总高度会变化、滚动条 thumb 长短跳变）。
+const VIRTUALIZE_THRESHOLD = 150
 const VIRTUAL_OVERSCAN_PX = 1200
 const SCROLL_THRESHOLD = 100
 const LOAD_MORE_THRESHOLD = 100
@@ -462,7 +468,10 @@ export function useMessageList(props: MessageListProps, emit: MessageListEmits) 
         finishRestoreGuard(sessionId)
         return
       }
-      scrollToBottom()
+      // 刷新/首次进入：消息由 SQLite 异步加载且 markdown 异步渲染，单次 scrollToBottom
+      // 时 scrollHeight 尚未稳定。改用 forceBottomAlignment：rAF + 定时器多次复滚，确保
+      // 渲染完成后仍锚定底部。
+      await forceBottomAlignment()
       updateViewportMetrics()
       finishRestoreGuard(sessionId)
       return

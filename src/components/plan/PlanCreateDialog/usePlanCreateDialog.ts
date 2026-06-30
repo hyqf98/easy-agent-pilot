@@ -1,6 +1,6 @@
 import EaModal from '@/components/common/EaModal/EaModal.vue'
 import EaButton from '@/components/common/EaButton/EaButton.vue'
-import { EaIcon } from '@/components/common'
+import { EaIcon, EaSelect } from '@/components/common'
 import MemoryLibraryPicker from '@/components/memory/MemoryLibraryPicker.vue'
 import type { AgentOption, ModelOption, PlanCreateFormState } from '../planListShared'
 
@@ -38,6 +38,7 @@ export function usePlanCreateDialog(props: PlanCreateDialogProps, emit: PlanCrea
     EaModal,
     EaButton,
     EaIcon,
+    EaSelect,
     MemoryLibraryPicker
   }
 }

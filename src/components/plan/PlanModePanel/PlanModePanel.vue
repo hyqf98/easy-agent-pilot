@@ -31,8 +31,11 @@ const {
     :sidebar-min="240"
     :sidebar-max="420"
   >
-    <template #sidebar>
-      <PlanList @plan-click="handlePlanClick" />
+    <template #sidebar="{ hide }">
+      <PlanList
+        @plan-click="handlePlanClick"
+        @hide="hide"
+      />
     </template>
 
     <div class="plan-content">

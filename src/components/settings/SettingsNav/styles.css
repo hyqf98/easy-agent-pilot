@@ -31,14 +31,42 @@
   margin-top: 12px;
 }
 
-.settings-nav__group-label {
+.settings-nav__group-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin: 0 0 4px;
   padding: 0 8px;
+}
+
+.settings-nav__group-label {
+  margin: 0;
   color: var(--workspace-text-tertiary, var(--color-text-tertiary));
   font-size: 11px;
   font-weight: var(--font-weight-semibold);
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+.settings-nav__group-hide {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: -4px -8px -4px 0;
+  border-radius: 7px;
+  color: var(--workspace-text-tertiary, var(--color-text-secondary));
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all var(--transition-fast) var(--easing-default);
+}
+
+.settings-nav__group-hide:hover {
+  background: var(--workspace-control-hover-bg, var(--color-surface-hover));
+  color: var(--workspace-text-primary, var(--color-text-primary));
 }
 
 .settings-nav__group-list {

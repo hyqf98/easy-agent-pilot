@@ -2,9 +2,6 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useMemoryRepoStore } from '@/stores/memoryRepo'
 import { useAgentStore } from '@/stores/agent'
-import { useNotificationStore } from '@/stores/notification'
-import { getErrorMessage } from '@/utils/api'
-import { migrateLegacyMemoryLibraries } from '@/services/memoryRepo'
 import { useRepoCreateModal, useRepoEditModal } from './useRepoModals'
 import type { CreateMemoryRepoInput, UpdateMemoryRepoInput } from '@/types/memoryRepo'
 
@@ -21,7 +18,6 @@ export function useMemoryRepoPanel() {
   const { t } = useI18n()
   const memoryRepoStore = useMemoryRepoStore()
   const agentStore = useAgentStore()
-  const notificationStore = useNotificationStore()
 
   const activeTab = ref<RepoDetailTab>('overview')
 
@@ -70,20 +66,6 @@ export function useMemoryRepoPanel() {
     await memoryRepoStore.deleteRepo(activeRepo.value.id)
   }
 
-  /** 一键迁移旧 Markdown 记忆库为单文件仓库。 */
-  async function handleMigrateLegacy() {
-    try {
-      const result = await migrateLegacyMemoryLibraries()
-      await memoryRepoStore.loadRepos()
-      notificationStore.success(
-        t('memoryRepo.migrateDone'),
-        `迁移 ${result.migrated} 个，跳过 ${result.skipped} 个`
-      )
-    } catch (error) {
-      notificationStore.databaseError('迁移旧记忆库', getErrorMessage(error))
-    }
-  }
-
   onMounted(() => {
     void memoryRepoStore.initialize()
     if (agentStore.agents.length === 0) {
@@ -110,7 +92,6 @@ export function useMemoryRepoPanel() {
     closeEditModal,
     handleCreate,
     handleEditSubmit,
-    handleDelete,
-    handleMigrateLegacy
+    handleDelete
   }
 }

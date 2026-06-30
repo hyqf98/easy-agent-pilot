@@ -16,6 +16,7 @@ import { compressionService } from '@/services/compression'
 import { conversationService } from '@/services/conversation'
 import { resolveSessionAgentId } from '@/utils/sessionAgent'
 import { useOverlayDismiss } from '@/composables/useOverlayDismiss'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 
 export function useMessageArea() {
   type ComposerExposed = ComponentPublicInstance & {
@@ -60,6 +61,10 @@ export function useMessageArea() {
   const workspaceRef = ref<HTMLElement | null>(null)
   const composerRef = ref<ComposerExposed | null>(null)
   const traceHistoryLoadToken = ref(0)
+  // Tauri 原生窗口 resize 监听卸载函数（onMounted 注册、onUnmounted 清理）
+  let unlistenWindowResized: (() => void) | null = null
+  // onMounted 后短延时复测视口模式的定时器句柄（覆盖窗口恢复动画）
+  let viewportRecheckTimeout: number | null = null
 
   const TRACE_PANE_MIN_WIDTH = 460
   const TRACE_PANE_MAX_WIDTH = 1080
@@ -494,15 +499,17 @@ export function useMessageArea() {
     return false
   })
 
+  // PRD 文档始终从主会话消息流隐藏：计划内容统一由右上角浮动面板承载，
+  // 面板默认收起，用户点击 handle 展开。不再依赖 isCurrentOpen，避免面板收起时
+  // PRD 又重复出现在主会话流中。
   const shouldHideLatestPlanDoc = computed(() =>
     Boolean(
       sessionStore.currentSessionId &&
-      hasPlanMarkdown.value &&
-      agentPlanStore.isCurrentOpen
+      hasPlanMarkdown.value
     )
   )
 
-  /** 桌面端浮动面板可见：非移动端 + 面板已展开 + 当前会话有计划文档 */
+  /** 桌面端浮动面板可见：非移动端 + 当前会话有计划文档 + 面板已展开且未缩小 */
   const showDesktopPlanPane = computed(() =>
     Boolean(
       sessionStore.currentSessionId &&
@@ -513,13 +520,22 @@ export function useMessageArea() {
     )
   )
 
-  /** 桌面端开关按钮可见：非移动端 + 面板未展开或已缩小 + 当前会话有计划文档 */
+  /**
+   * 桌面端开关按钮可见：
+   * - 非移动端 + 当前会话有计划文档，且
+   * - 面板未展开或已缩小（正常入口），或
+   * - 面板标记为已展开但实际未渲染（兜底）：当 isCurrentOpen 为 true 但
+   *   showDesktopPlanPane 因瞬态/竞态（如 isMobileViewport 闪烁、Transition 延迟）
+   *   仍为 false 时，避免出现"面板与按钮双双不显示"的死锁，保证至少有一个入口。
+   */
   const showDesktopPlanHandle = computed(() =>
     Boolean(
       sessionStore.currentSessionId &&
       !isMobileViewport.value &&
       hasPlanMarkdown.value &&
-      (!agentPlanStore.isCurrentOpen || agentPlanStore.isCurrentMinimized)
+      (!agentPlanStore.isCurrentOpen ||
+        agentPlanStore.isCurrentMinimized ||
+        !showDesktopPlanPane.value)
     )
   )
 
@@ -560,24 +576,40 @@ export function useMessageArea() {
     agentPlanStore.setActiveSession(sessionId)
   }, { immediate: true })
 
-  // 计划模式下出现 PRD 文档时自动打开浮动面板（从无→有触发一次），
-  // 使 PRD 进面板展示并从消息流隐藏，避免重复；用户手动关闭后不再自动弹回。
-  watch(hasPlanMarkdown, (has, prev) => {
-    if (has && !prev) {
-      const sessionId = sessionStore.currentSessionId
-      if (sessionId && !isMobileViewport.value) {
-        agentPlanStore.open(sessionId)
-      }
-    }
+  // 计划模式下出现 PRD 文档时默认收起浮动面板（仅显示右上角入口按钮），
+  // 由用户点击 handle 手动展开。PRD 文档在收起时仍保留在消息流中可见。
+  watch(hasPlanMarkdown, () => {
+    // 默认收起：不自动调用 agentPlanStore.open。
+    // 仅保留 watcher 以便未来在此挂接“有新计划”的提示逻辑。
   })
 
   onMounted(() => {
     updateViewportMode()
     window.addEventListener('resize', updateViewportMode)
+    // 兜底：Tauri 窗口刷新/恢复（最大化等）时，onMounted 执行瞬间 webview 可能尚未达到
+    // 最终尺寸，且原生窗口尺寸变化未必触发 webview 的 window.resize。
+    // 1) 下一帧复测一次（覆盖同步布局延迟）；
+    // 2) 短延时再复测一次（覆盖窗口 maximize/restore 动画期间尺寸持续变化）。
+    requestAnimationFrame(() => updateViewportMode())
+    viewportRecheckTimeout = window.setTimeout(() => updateViewportMode(), 240)
+    // 权威事件源：监听 Tauri 原生窗口 resize（与 stores/windowState.ts 用法一致）。
+    getCurrentWindow()
+      .onResized(() => updateViewportMode())
+      .then((unlisten) => {
+        unlistenWindowResized = unlisten
+      })
   })
 
   onUnmounted(() => {
     window.removeEventListener('resize', updateViewportMode)
+    if (unlistenWindowResized) {
+      unlistenWindowResized()
+      unlistenWindowResized = null
+    }
+    if (viewportRecheckTimeout != null) {
+      window.clearTimeout(viewportRecheckTimeout)
+      viewportRecheckTimeout = null
+    }
   })
 
   // 欢迎页：是否已有导入项目，以及触发导入项目弹窗的动作

@@ -18,6 +18,7 @@ export { default as EaActionMenu } from './EaActionMenu/EaActionMenu.vue'
 export type { ActionMenuItem } from './EaActionMenu/useEaActionMenu'
 export { default as ImageHoverPreview } from './ImageHoverPreview/ImageHoverPreview.vue'
 export { default as AgentIcon } from './AgentIcon/AgentIcon.vue'
+export { default as EaSidebarSectionHeader } from './EaSidebarSectionHeader/EaSidebarSectionHeader.vue'
 
 // 组件类型导出
 export type { EaButtonProps, ButtonType, ButtonSize } from './EaButton/useEaButton'

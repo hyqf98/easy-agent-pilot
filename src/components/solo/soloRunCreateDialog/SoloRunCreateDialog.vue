@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import EaButton from '@/components/common/EaButton/EaButton.vue'
-import { EaIcon } from '@/components/common'
+import { EaIcon, EaSelect } from '@/components/common'
 import MemoryLibraryPicker from '@/components/memory/MemoryLibraryPicker.vue'
 import {
   useSoloRunCreateDialog,
@@ -100,19 +100,12 @@ const isEditMode = computed(() => props.mode === 'edit')
 
           <div class="solo-create-dialog__field">
             <label>规划智能体</label>
-            <select
-              class="solo-create-dialog__select"
-              :value="form.coordinatorExpertId ?? ''"
-              @change="updateField('coordinatorExpertId', (($event.target as HTMLSelectElement).value || null))"
-            >
-              <option
-                v-for="option in coordinatorOptions"
-                :key="option.value"
-                :value="option.value"
-              >
-                {{ option.label }}
-              </option>
-            </select>
+            <EaSelect
+              :model-value="form.coordinatorExpertId ?? ''"
+              :options="coordinatorOptions"
+              placeholder="请选择规划智能体"
+              @update:model-value="updateField('coordinatorExpertId', ($event as string) || null)"
+            />
           </div>
 
           <div class="solo-create-dialog__field">

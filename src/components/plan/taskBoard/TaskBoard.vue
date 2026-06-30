@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import type { Task } from '@/types/plan'
+import { EaIcon } from '@/components/common'
 import KanbanColumn from '../KanbanColumn/KanbanColumn.vue'
 import TaskEditModal from '../taskEditModal/TaskEditModal.vue'
 import { useTaskBoard } from './useTaskBoard'
@@ -20,7 +21,6 @@ const {
   newTaskTemplate,
   tasks,
   tasksByStatus,
-  taskStats,
   columns,
   handleTaskDrop,
   handleTaskReorder,
@@ -57,14 +57,6 @@ const {
         >
           {{ t('taskBoard.actions.markSplitReady') }}
         </button>
-
-        <div class="task-stats">
-          <span class="stat-item completed">{{ t('taskBoard.stats.completed', { count: taskStats.completed }) }}</span>
-          <span class="stat-item in-progress">{{ t('taskBoard.stats.inProgress', { count: taskStats.inProgress }) }}</span>
-          <span class="stat-item blocked">{{ t('taskBoard.stats.blocked', { count: taskStats.blocked }) }}</span>
-          <span class="stat-item pending">{{ t('taskBoard.stats.pending', { count: taskStats.pending }) }}</span>
-          <span class="stat-item failed">{{ t('taskBoard.stats.failed', { count: taskStats.failed }) }}</span>
-        </div>
       </div>
     </div>
 
@@ -72,7 +64,11 @@ const {
       v-if="!currentPlanId && tasks.length === 0"
       class="empty-state"
     >
-      <span>{{ t('taskBoard.emptyNoPlan') }}</span>
+      <EaIcon
+        name="clipboard-list"
+        :size="40"
+      />
+      <p>{{ t('taskBoard.emptyNoPlan') }}</p>
     </div>
 
     <template v-else>

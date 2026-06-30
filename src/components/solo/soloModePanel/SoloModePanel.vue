@@ -3,6 +3,7 @@ import SoloExecutionLogPanel from '../SoloExecutionLogPanel.vue'
 import SoloRunCreateDialog from '../soloRunCreateDialog/SoloRunCreateDialog.vue'
 import SoloRunList from '../SoloRunList.vue'
 import WorkspaceShell from '@/components/layout/WorkspaceShell/WorkspaceShell.vue'
+import { EaIcon } from '@/components/common'
 import { useSoloModePanel } from './useSoloModePanel'
 
 const {
@@ -72,12 +73,13 @@ const {
     :sidebar-min="240"
     :sidebar-max="420"
   >
-    <template #sidebar>
+    <template #sidebar="{ hide }">
       <SoloRunList
         :runs="runs"
         :current-run-id="soloRunStore.currentRunId"
         @select="selectRun"
         @create="openCreateDialog"
+        @hide="hide"
       />
     </template>
 
@@ -324,9 +326,11 @@ const {
           v-else
           class="solo-mode-panel__placeholder"
         >
-          <div>
-            <h2>选择运行</h2>
-          </div>
+          <EaIcon
+            name="route"
+            :size="40"
+          />
+          <p>选择一个运行以查看执行详情</p>
         </div>
       </div>
 

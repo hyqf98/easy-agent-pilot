@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Plan } from '@/types/plan'
+import { EaSidebarSectionHeader } from '@/components/common'
 import PlanCreateDialog from '../PlanCreateDialog/PlanCreateDialog.vue'
 import PlanEditDialog from '../PlanEditDialog/PlanEditDialog.vue'
 import PlanListEmptyState from '../PlanListEmptyState/PlanListEmptyState.vue'
@@ -12,6 +13,7 @@ import { usePlanListView } from './usePlanList'
 
 const emit = defineEmits<{
   (e: 'plan-click', plan: Plan): void
+  (e: 'hide'): void
 }>()
 
 const {
@@ -41,7 +43,6 @@ const {
   projectOptions,
   saveEdit,
   selectPlan,
-  selectedListProject,
   selectedProjectIdForList,
   showCreateDialog,
   showEditDialog,
@@ -54,19 +55,22 @@ const {
   statusTabs,
   updateCreateForm,
   updateEditForm,
-  updateSplitConfigForm,
-  visiblePlanCount
+  updateSplitConfigForm
 } = usePlanListView(emit)
 </script>
 
 <template>
   <div class="plan-list">
-    <PlanListHeader
-      :visible-plan-count="visiblePlanCount"
-      :selected-project-id="selectedProjectIdForList"
-      :selected-project-path="selectedListProject?.path || ''"
-      :project-options="projectOptions"
+    <EaSidebarSectionHeader
+      title="计划列表"
+      create-title="新建计划"
       @create="openCreateDialog"
+      @hide="emit('hide')"
+    />
+
+    <PlanListHeader
+      :selected-project-id="selectedProjectIdForList"
+      :project-options="projectOptions"
       @update:selected-project-id="selectedProjectIdForList = $event; handleListProjectChange($event)"
     />
 

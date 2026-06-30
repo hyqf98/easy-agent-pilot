@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { useSettingsNav } from './useSettingsNav'
+import { useSettingsNav, type SettingsNavEmits } from './useSettingsNav'
 
-const { t, uiStore, EaIcon, groupedTabs } = useSettingsNav()
+const emit = defineEmits<SettingsNavEmits>()
+
+const { t, uiStore, EaIcon, groupedTabs, handleHide } = useSettingsNav(emit)
 </script>
 
 <template>
@@ -15,9 +17,24 @@ const { t, uiStore, EaIcon, groupedTabs } = useSettingsNav()
         :key="group.id"
         class="settings-nav__group"
       >
-        <h3 class="settings-nav__group-label">
-          {{ t(group.labelKey) }}
-        </h3>
+        <div class="settings-nav__group-label-row">
+          <h3 class="settings-nav__group-label">
+            {{ t(group.labelKey) }}
+          </h3>
+          <button
+            v-if="group.id === 'workspace'"
+            type="button"
+            class="settings-nav__group-hide"
+            title="隐藏侧栏"
+            aria-label="隐藏侧栏"
+            @click="handleHide"
+          >
+            <EaIcon
+              name="panel-left-close"
+              :size="13"
+            />
+          </button>
+        </div>
         <div class="settings-nav__group-list">
           <button
             v-for="item in group.items"

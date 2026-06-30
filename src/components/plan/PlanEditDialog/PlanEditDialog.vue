@@ -109,42 +109,22 @@ const {
           <div class="form-row">
             <div class="form-field">
               <label>拆分专家</label>
-              <select
-                :value="props.form.splitAgentId ?? ''"
-                class="form-select"
-                @change="updateField('splitAgentId', (($event.target as HTMLSelectElement).value || null))"
-              >
-                <option value="">
-                  请选择专家
-                </option>
-                <option
-                  v-for="option in props.agentOptions"
-                  :key="option.value"
-                  :value="option.value"
-                >
-                  {{ option.label }}
-                </option>
-              </select>
+              <EaSelect
+                :model-value="props.form.splitAgentId ?? ''"
+                :options="props.agentOptions"
+                placeholder="请选择专家"
+                @update:model-value="updateField('splitAgentId', ($event as string) || null)"
+              />
             </div>
             <div class="form-field">
               <label>拆分模型</label>
-              <select
-                :value="props.form.splitModelId"
-                class="form-select"
+              <EaSelect
+                :model-value="props.form.splitModelId"
+                :options="props.modelOptions"
+                placeholder="请选择模型"
                 :disabled="props.modelOptions.length === 0"
-                @change="updateField('splitModelId', ($event.target as HTMLSelectElement).value)"
-              >
-                <option value="">
-                  请选择模型
-                </option>
-                <option
-                  v-for="option in props.modelOptions"
-                  :key="option.value"
-                  :value="option.value"
-                >
-                  {{ option.label }}
-                </option>
-              </select>
+                @update:model-value="updateField('splitModelId', $event as string)"
+              />
               <span
                 v-if="props.modelOptions.length === 0"
                 class="field-hint"
@@ -197,18 +177,14 @@ const {
         class="form-field schedule-field"
       >
         <label>执行方式</label>
-        <select
-          :value="props.form.executionMode"
-          class="form-select"
-          @change="updateField('executionMode', ($event.target as HTMLSelectElement).value as PlanEditFormState['executionMode'])"
-        >
-          <option value="immediate">
-            立即执行
-          </option>
-          <option value="scheduled">
-            定时执行
-          </option>
-        </select>
+        <EaSelect
+          :model-value="props.form.executionMode"
+          :options="[
+            { value: 'immediate', label: '立即执行' },
+            { value: 'scheduled', label: '定时执行' }
+          ]"
+          @update:model-value="updateField('executionMode', $event as PlanEditFormState['executionMode'])"
+        />
         <div
           v-if="props.form.executionMode === 'scheduled'"
           class="schedule-datetime"

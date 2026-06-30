@@ -1,6 +1,6 @@
 import EaModal from '@/components/common/EaModal/EaModal.vue'
 import EaButton from '@/components/common/EaButton/EaButton.vue'
-import { EaIcon } from '@/components/common'
+import { EaIcon, EaSelect } from '@/components/common'
 import MemoryLibraryPicker from '@/components/memory/MemoryLibraryPicker.vue'
 import type { Plan, PlanStatus } from '@/types/plan'
 import type { AgentOption, ModelOption, PlanEditFormState } from '../planListShared'
@@ -42,6 +42,7 @@ export function usePlanEditDialog(_props: PlanEditDialogProps, emit: PlanEditDia
     EaModal,
     EaButton,
     EaIcon,
+    EaSelect,
     MemoryLibraryPicker
   }
 }

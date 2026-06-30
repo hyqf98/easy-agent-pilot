@@ -8,7 +8,11 @@ import {
   type SettingsTabGroup
 } from '../settingsTabs'
 
-export function useSettingsNav() {
+export interface SettingsNavEmits {
+  hide: []
+}
+
+export function useSettingsNav(emit: (event: 'hide') => void) {
   const { t } = useI18n()
   const uiStore = useUIStore()
 
@@ -21,10 +25,15 @@ export function useSettingsNav() {
     }))
   ))
 
+  function handleHide() {
+    emit('hide')
+  }
+
   return {
     t,
     uiStore,
     EaIcon,
-    groupedTabs
+    groupedTabs,
+    handleHide
   }
 }

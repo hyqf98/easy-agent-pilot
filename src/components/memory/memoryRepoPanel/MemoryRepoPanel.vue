@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useMemoryRepoPanel, type RepoDetailTab } from './useMemoryRepoPanel'
-import { EaButton, EaIcon } from '@/components/common'
+import { EaButton, EaIcon, EaSidebarSectionHeader } from '@/components/common'
 import WorkspaceShell from '@/components/layout/WorkspaceShell/WorkspaceShell.vue'
 import RepoOverviewTab from './overviewTab/RepoOverviewTab.vue'
 import RepoFilesTab from './filesTab/RepoFilesTab.vue'
@@ -23,8 +23,7 @@ const {
   openEditModal,
   handleCreate,
   handleEditSubmit,
-  handleDelete,
-  handleMigrateLegacy
+  handleDelete
 } = useMemoryRepoPanel()
 
 const tabs: Array<{ key: RepoDetailTab; label: string }> = [
@@ -40,51 +39,23 @@ const tabs: Array<{ key: RepoDetailTab; label: string }> = [
   <WorkspaceShell :sidebar-width="300">
     <template #sidebar="{ hide }">
       <div class="repo-panel__sidebar">
-        <div class="repo-panel__sidebar-header">
-          <span class="repo-panel__sidebar-title">{{ t('memoryRepo.title') }}</span>
-          <EaButton
-            variant="ghost"
-            size="small"
-            @click="hide"
-          >
-            <EaIcon
-              name="panel-left-close"
-              :size="15"
-            />
-          </EaButton>
-        </div>
-
-        <div class="repo-panel__sidebar-actions">
-          <EaButton
-            variant="primary"
-            size="small"
-            @click="openCreateModal"
-          >
-            <EaIcon
-              name="lucide:plus"
-              :size="14"
-            />
-            {{ t('memoryRepo.create') }}
-          </EaButton>
-          <EaButton
-            variant="ghost"
-            size="small"
-            @click="handleMigrateLegacy"
-          >
-            <EaIcon
-              name="lucide:download"
-              :size="14"
-            />
-            {{ t('memoryRepo.migrate') }}
-          </EaButton>
-        </div>
+        <EaSidebarSectionHeader
+          :title="t('memoryRepo.title')"
+          :create-title="t('memoryRepo.create')"
+          @create="openCreateModal"
+          @hide="hide"
+        />
 
         <div class="repo-panel__list">
           <div
             v-if="sortedRepos.length === 0 && !memoryRepoStore.isLoadingRepos"
             class="repo-panel__list-empty"
           >
-            {{ t('memoryRepo.empty') }}
+            <EaIcon
+              name="package"
+              :size="40"
+            />
+            <p>{{ t('memoryRepo.empty') }}</p>
           </div>
           <button
             v-for="repo in sortedRepos"
@@ -96,7 +67,7 @@ const tabs: Array<{ key: RepoDetailTab; label: string }> = [
           >
             <div class="repo-panel__card-header">
               <EaIcon
-                :name="repo.format === 'single' ? 'lucide:file-text' : 'lucide:package'"
+                :name="repo.format === 'single' ? 'file-text' : 'package'"
                 :size="14"
               />
               <span class="repo-panel__card-name">{{ repo.name }}</span>
@@ -118,7 +89,7 @@ const tabs: Array<{ key: RepoDetailTab; label: string }> = [
       class="repo-panel__placeholder"
     >
       <EaIcon
-        name="lucide:package"
+        name="package"
         :size="40"
       />
       <p>{{ t('memoryRepo.placeholder') }}</p>
@@ -148,7 +119,7 @@ const tabs: Array<{ key: RepoDetailTab; label: string }> = [
             @click="openEditModal"
           >
             <EaIcon
-              name="lucide:pencil"
+              name="pencil"
               :size="14"
             />
             {{ t('common.edit') }}
@@ -160,7 +131,7 @@ const tabs: Array<{ key: RepoDetailTab; label: string }> = [
             @click="handleDelete"
           >
             <EaIcon
-              name="lucide:trash-2"
+              name="trash-2"
               :size="14"
             />
           </EaButton>

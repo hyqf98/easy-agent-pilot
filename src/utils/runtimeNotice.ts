@@ -182,7 +182,7 @@ function extractListCount(value: string): number | null {
 const runtimeNoticeDescriptors: RuntimeNoticeDescriptor[] = [
   {
     id: 'context',
-    matches: (notice) => notice.id === 'context' || /上下文策略|context strategy/i.test(notice.title),
+    matches: (notice) => notice.id === 'context' || /上下文策略|context strategy/i.test(notice.title ?? ''),
     summarize: (lines) => lines
       .map((line) => {
         const normalized = line.label.trim().toLowerCase()
@@ -211,7 +211,7 @@ const runtimeNoticeDescriptors: RuntimeNoticeDescriptor[] = [
   },
   {
     id: 'environment',
-    matches: (notice) => notice.id === 'environment' || notice.title.includes('运行扩展'),
+    matches: (notice) => notice.id === 'environment' || (notice.title ?? '').includes('运行扩展'),
     summarize: (lines) => lines
       .map((line) => {
         const count = extractListCount(line.value)
@@ -226,7 +226,7 @@ const runtimeNoticeDescriptors: RuntimeNoticeDescriptor[] = [
   },
   {
     id: 'usage',
-    matches: (notice) => notice.id === 'usage' || notice.title.includes('用量'),
+    matches: (notice) => notice.id === 'usage' || (notice.title ?? '').includes('用量'),
     summarize: (lines) => lines
       .map((line) => {
         if (isModelLabel(line.label)) {
@@ -247,7 +247,7 @@ const runtimeNoticeDescriptors: RuntimeNoticeDescriptor[] = [
     id: 'processing-time',
     matches: (notice) =>
       notice.id === 'processing-time'
-      || /处理用时|processing time/i.test(notice.title),
+      || /处理用时|processing time/i.test(notice.title ?? ''),
     summarize: (lines) => lines
       .map((line) => line.value || `${line.label}`.trim())
       .filter(Boolean)
@@ -415,7 +415,7 @@ export function formatRuntimeNoticeAsSystemContent(notice: RuntimeNotice | null)
     return ''
   }
 
-  return `### ${notice.title}\n${notice.content}`.trim()
+  return `### ${notice.title ?? ''}\n${notice.content}`.trim()
 }
 
 export function summarizeRuntimeNotice(notice: RuntimeNotice): string[] {

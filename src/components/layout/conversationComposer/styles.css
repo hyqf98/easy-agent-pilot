@@ -23,7 +23,7 @@
   --conversation-composer-main-default-lines: 2;
   --conversation-composer-main-max-lines: 5;
   --conversation-composer-main-line-height: 1.5;
-  --conversation-composer-main-padding-y: 10px;
+  --conversation-composer-main-padding-y: 7px;
   --conversation-composer-main-padding-x: 13px;
   gap: 0;
   padding: 8px 18px 12px;
@@ -593,7 +593,7 @@
   justify-content: space-between;
   gap: 8px;
   flex-shrink: 0;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   padding: 6px 12px;
   border-radius: var(--radius-md);
   border: 1px solid color-mix(in srgb, var(--color-primary, #2563eb) 24%, var(--workspace-border, rgba(38, 38, 38, 0.1)));
@@ -617,7 +617,7 @@
 }
 
 .conversation-composer__plan-footer-label {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: #3b82f6;
   white-space: nowrap;
@@ -628,7 +628,7 @@
 }
 
 .conversation-composer__plan-footer-hint {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--color-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1248,7 +1248,7 @@
 }
 
 .conversation-composer--main .conversation-composer__send--main {
-  min-height: 30px;
+  min-height: 27px;
   padding: 0 14px;
   border: none;
   background: var(--color-primary);
@@ -2065,7 +2065,7 @@
 }
 
 .conversation-composer--main .conversation-composer__plan-footer {
-  padding: 8px 14px;
+  padding: 6px 10px;
   border-color: color-mix(in srgb, var(--color-primary, #2563eb) 22%, var(--workspace-border, rgba(38, 38, 38, 0.1)));
   background: color-mix(in srgb, var(--color-primary, #2563eb) 7%, var(--workspace-panel-bg, #ffffff));
 }
@@ -2123,7 +2123,7 @@
 
 /* ── Agent 工作台输入区精修：低对比浮层、紧凑工具栏、清晰发送态 ── */
 .conversation-composer--main {
-  padding: 0 var(--conversation-stream-side-padding, clamp(24px, 5%, 120px)) 14px;
+  padding: 0 var(--conversation-stream-side-padding, clamp(24px, 5%, 120px)) 10px;
   background: var(--workspace-stage-bg);
 }
 
@@ -2131,8 +2131,8 @@
   width: 100%;
   max-width: var(--conversation-stream-width, min(100%, 980px));
   margin: 0 auto;
-  gap: 8px;
-  padding: 8px 10px;
+  gap: 6px;
+  padding: 6px 8px;
   border: 1px solid color-mix(in srgb, var(--workspace-border, var(--color-border)) 92%, transparent);
   border-radius: 16px;
   background: color-mix(in srgb, var(--workspace-panel-bg, var(--color-surface)) 88%, transparent);
@@ -2181,7 +2181,7 @@
 .conversation-composer--main .conversation-composer__render,
 .conversation-composer--main .conversation-composer__textarea {
   max-height: calc(var(--font-size-sm) * var(--conversation-composer-main-line-height) * var(--conversation-composer-main-max-lines) + (var(--conversation-composer-main-padding-y) * 2));
-  padding: 7px 10px 5px;
+  padding: 5px 9px 4px;
   color: var(--workspace-text-primary, var(--color-text-primary)) !important;
   caret-color: var(--workspace-text-primary, var(--color-text-primary));
   transition: none;
@@ -2194,13 +2194,13 @@
 
 .conversation-composer__control-row {
   gap: 10px;
-  padding: 4px 4px 2px;
+  padding: 3px 4px 2px;
   background: transparent;
   border-radius: 0;
 }
 
 .conversation-composer--main .composer-chip {
-  min-height: 29px;
+  min-height: 27px;
   border-radius: 8px;
   border: none;
   background: transparent;
@@ -2217,7 +2217,7 @@
 }
 
 .conversation-composer--main .composer-chip__button {
-  min-height: 29px;
+  min-height: 27px;
   padding: 0 10px;
   gap: 6px;
 }
@@ -2231,8 +2231,8 @@
 .conversation-composer__send--main {
   width: 34px;
   min-width: 34px;
-  height: 29px;
-  min-height: 29px;
+  height: 27px;
+  min-height: 27px;
   padding: 0 !important;
   color: #ffffff !important;
   border-color: color-mix(in srgb, var(--color-primary) 72%, transparent) !important;
