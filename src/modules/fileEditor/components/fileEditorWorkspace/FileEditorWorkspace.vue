@@ -170,8 +170,9 @@ onBeforeUnmount(() => {
     >
       <EaIcon
         name="alert-circle"
-        :size="18"
+        :size="48"
       />
+      <span class="file-editor-workspace__unsupported-title">无法打开文件</span>
       <span>{{ fileEditorStore.loadError }}</span>
     </div>
 

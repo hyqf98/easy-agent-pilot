@@ -16,10 +16,5 @@ const { containerRef, renderedContent } = useMarkdownRenderer(props)
   />
 </template>
 
-<style>
-/* highlight.js 样式必须放在非 scoped 块中，否则 v-html 渲染的内容无法匹配 */
-@import 'highlight.js/styles/github-dark.css';
-</style>
-
 <style scoped src="./styles.css"></style>
 

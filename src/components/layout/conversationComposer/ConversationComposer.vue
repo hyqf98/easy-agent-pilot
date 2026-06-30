@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { EaIcon } from '@/components/common'
+import { EaButton, EaIcon } from '@/components/common'
 import TokenProgressBar from '@/components/common/TokenProgressBar/TokenProgressBar.vue'
 import CompressionConfirmDialog from '@/components/common/CompressionConfirmDialog/CompressionConfirmDialog.vue'
 import { ConversationTodoPanel } from '@/components/message'
@@ -61,6 +61,7 @@ const {
   clearMemoryPreview,
   dismissMemorySuggestion,
   executePlan,
+  executeCurrentPlan,
   cancelPlan,
   editingQueuedDraftId,
   fileInputRef,
@@ -160,7 +161,8 @@ defineExpose({
   focusInput,
   handleMessageFormSubmit,
   retryMessage,
-  openCompressionDialog: handleOpenCompress
+  openCompressionDialog: handleOpenCompress,
+  startPlanExecution: executeCurrentPlan
 })
 
 const hasDraftContent = computed(() => (
@@ -491,6 +493,45 @@ const sendButtonTitle = computed(() => {
 
       <div class="conversation-composer__editor-stack">
         <div
+          v-if="isPlanMode"
+          class="conversation-composer__plan-footer"
+        >
+          <div class="conversation-composer__plan-footer-info">
+            <EaIcon
+              name="eye"
+              :size="13"
+              class="conversation-composer__plan-footer-icon"
+            />
+            <span class="conversation-composer__plan-footer-label">{{ t('message.planModeBanner.title') }}</span>
+            <span class="conversation-composer__plan-footer-hint">{{ t('message.planModeBanner.hint') }}</span>
+          </div>
+          <div class="conversation-composer__plan-footer-actions">
+            <EaButton
+              type="secondary"
+              size="small"
+              @click="cancelPlan"
+            >
+              <EaIcon
+                name="x"
+                :size="12"
+              />
+              <span>{{ t('message.planModeBanner.cancel') }}</span>
+            </EaButton>
+            <EaButton
+              type="primary"
+              size="small"
+              @click="executePlan"
+            >
+              <EaIcon
+                name="play"
+                :size="12"
+              />
+              <span>{{ t('message.planModeBanner.execute') }}</span>
+            </EaButton>
+          </div>
+        </div>
+
+        <div
           class="conversation-composer__editor-shell"
           :class="{ 'conversation-composer__editor-shell--plan-mode': isPlanMode }"
           @contextmenu.prevent
@@ -520,7 +561,7 @@ const sendButtonTitle = computed(() => {
               :class="{
                 'conversation-composer__textarea--overlay': shouldUseRichTextOverlay
               }"
-              rows="4"
+              rows="2"
               :disabled="!sessionId"
               :placeholder="shouldUseRichTextOverlay ? '' : (inputPlaceholder || t('message.inputPlaceholder', { shortcut: t('message.shortcutEnter') }))"
               @compositionstart="handleCompositionStart"
@@ -531,45 +572,6 @@ const sendButtonTitle = computed(() => {
               @scroll="syncScroll"
               @focus="emit('focus')"
             />
-          </div>
-
-          <div
-            v-if="isPlanMode"
-            class="conversation-composer__plan-footer"
-          >
-            <div class="conversation-composer__plan-footer-info">
-              <EaIcon
-                name="eye"
-                :size="13"
-                class="conversation-composer__plan-footer-icon"
-              />
-              <span class="conversation-composer__plan-footer-label">{{ t('message.planModeBanner.title') }}</span>
-              <span class="conversation-composer__plan-footer-hint">{{ t('message.planModeBanner.hint') }}</span>
-            </div>
-            <div class="conversation-composer__plan-footer-actions">
-              <button
-                type="button"
-                class="conversation-composer__plan-btn conversation-composer__plan-btn--cancel"
-                @click="cancelPlan"
-              >
-                <EaIcon
-                  name="x"
-                  :size="12"
-                />
-                <span>{{ t('message.planModeBanner.cancel') }}</span>
-              </button>
-              <button
-                type="button"
-                class="conversation-composer__plan-btn conversation-composer__plan-btn--execute"
-                @click="executePlan"
-              >
-                <EaIcon
-                  name="play"
-                  :size="12"
-                />
-                <span>{{ t('message.planModeBanner.execute') }}</span>
-              </button>
-            </div>
           </div>
 
           <div
@@ -745,6 +747,10 @@ const sendButtonTitle = computed(() => {
                 >
                   {{ queuedMessages.length }}
                 </span>
+                <EaIcon
+                  name="send-horizontal"
+                  :size="14"
+                />
               </button>
             </div>
           </div>

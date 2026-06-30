@@ -152,6 +152,8 @@ interface BuildAgentExecutionRequestOptions {
   resumeSessionId?: string
   reasoningEffort?: ReasoningEffortLevel
   jsonSchema?: string
+  internalToolsEnabled?: boolean
+  repoId?: string
 }
 
 export function buildAgentExecutionRequest(
@@ -183,6 +185,8 @@ export function buildAgentExecutionRequest(
     executionMode: options.executionMode ?? 'chat',
     responseMode: options.responseMode ?? 'stream_text',
     resumeSessionId: options.resumeSessionId,
-    reasoningEffort: options.reasoningEffort
+    reasoningEffort: options.reasoningEffort,
+    internalToolsEnabled: options.internalToolsEnabled,
+    repoId: options.repoId
   }
 }

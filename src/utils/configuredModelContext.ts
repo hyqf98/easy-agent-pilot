@@ -63,8 +63,9 @@ export function findConfiguredModel(
 
   const matchById = (modelId?: string | null) => enabledModels.find(model => modelIdsMatch(model.modelId, modelId))
 
-  return matchById(options.runtimeModelId)
-    ?? matchById(options.selectedModelId)
+  // 输入框选中的模型优先（设置页配置的上下文窗口），其次运行时上报模型，再退回默认
+  return matchById(options.selectedModelId)
+    ?? matchById(options.runtimeModelId)
     ?? matchById(options.agentModelId)
     ?? enabledModels.find(model => model.isDefault)
     ?? enabledModels[0]
@@ -74,6 +75,17 @@ export function resolveConfiguredContextWindow(
   models: AgentModelConfig[],
   options: ResolveConfiguredContextWindowOptions = {}
 ): number {
+  // 输入框选中模型（设置页配置）优先命中，使容量上限反映用户当前选择
+  const selectedConfiguredModel = matchConfiguredModel(models, options.selectedModelId)
+  if (selectedConfiguredModel?.contextWindow) {
+    return selectedConfiguredModel.contextWindow
+  }
+
+  const selectedKnownContext = resolveKnownContextWindow(options.selectedModelId)
+  if (selectedKnownContext) {
+    return selectedKnownContext
+  }
+
   const runtimeConfiguredModel = matchConfiguredModel(models, options.runtimeModelId)
   if (runtimeConfiguredModel?.contextWindow) {
     return runtimeConfiguredModel.contextWindow
@@ -84,11 +96,8 @@ export function resolveConfiguredContextWindow(
     return runtimeKnownContext
   }
 
-  return matchConfiguredModel(models, options.selectedModelId)?.contextWindow
-    ?? matchConfiguredModel(models, options.agentModelId)?.contextWindow
+  return matchConfiguredModel(models, options.agentModelId)?.contextWindow
     ?? findConfiguredModel(models, options)?.contextWindow
-    ?? resolveKnownContextWindow(options.runtimeModelId)
-    ?? resolveKnownContextWindow(options.selectedModelId)
     ?? resolveKnownContextWindow(options.agentModelId)
     ?? options.fallbackContextWindow
     ?? DEFAULT_CONTEXT_WINDOW

@@ -43,6 +43,43 @@ macro_rules! log_error {
     };
 }
 
+/// 组装 ACP 会话的 MCP server 列表：用户配置的外部 server + 记忆库仓库内置工具。
+///
+/// 当请求启用内置工具（`internal_tools_enabled` 且携带 `repo_id`）时，追加一条 stdio 条目：
+/// 以本可执行文件自重入为 MCP server（`<exe> --mcp-stdio --repo <id>`）。该子进程由
+/// 被拉起的 CLI（ACP agent）按 stdio 启动，工具查询的数据源范围由仓库的
+/// `memory_repo_sources` 配置裁剪（见 `mcp_server` 模块）。
+fn build_session_mcp_servers(request: &ExecutionRequest) -> Vec<McpServerConfig> {
+    let mut servers: Vec<McpServerConfig> = request
+        .mcp_servers
+        .as_ref()
+        .map(|servers| servers.iter().cloned().collect())
+        .unwrap_or_default();
+
+    if request.internal_tools_enabled {
+        if let Some(repo_id) = request.repo_id.as_ref() {
+            if !repo_id.trim().is_empty() {
+                if let Ok(exe) = std::env::current_exe() {
+                    let exe_str = exe.to_string_lossy().to_string();
+                    let args = format!("--mcp-stdio --repo {repo_id}");
+                    servers.push(McpServerConfig {
+                        id: "__memory_internal__".to_string(),
+                        name: "easy-agent-memory".to_string(),
+                        transport_type: "stdio".to_string(),
+                        command: Some(exe_str),
+                        args: Some(args),
+                        env: None,
+                        url: None,
+                        headers: None,
+                    });
+                }
+            }
+        }
+    }
+
+    servers
+}
+
 fn convert_mcp_config(config: &McpServerConfig) -> Option<McpServer> {
     match config.transport_type.as_str() {
         "stdio" => {
@@ -407,6 +444,38 @@ fn build_plan_event(session_id: &str, request_id: &str, plan_json: String) -> Ac
     }
 }
 
+/// 构造 `available_commands` 事件：Agent 下发的可斜杠命令列表（JSON）。
+///
+/// 复用既有 `content` 字段承载 JSON，沿用 `plan` 事件的先例，避免改动
+/// `AcpStreamEvent` 结构与所有逐字段字面量。
+fn build_available_commands_event(
+    session_id: &str,
+    request_id: &str,
+    commands_json: String,
+) -> AcpStreamEvent {
+    AcpStreamEvent {
+        event_type: "available_commands".to_string(),
+        session_id: session_id.to_string(),
+        request_id: Some(request_id.to_string()),
+        content: Some(commands_json),
+        tool_name: None,
+        tool_call_id: None,
+        tool_input: None,
+        tool_result: None,
+        error: None,
+        input_tokens: None,
+        output_tokens: None,
+        raw_input_tokens: None,
+        raw_output_tokens: None,
+        cache_read_input_tokens: None,
+        cache_creation_input_tokens: None,
+        model: None,
+        external_session_id: None,
+        permission_options: None,
+        file_edit: None,
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 struct PromptUsageSnapshot {
     input_tokens: Option<u32>,
@@ -627,11 +696,10 @@ impl AgentExecutionStrategy for AcpStrategy {
             }
         };
 
-        let mcp_servers: Vec<McpServer> = request
-            .mcp_servers
-            .as_ref()
-            .map(|servers| servers.iter().filter_map(convert_mcp_config).collect())
-            .unwrap_or_default();
+        let mcp_servers: Vec<McpServer> = build_session_mcp_servers(&request)
+            .iter()
+            .filter_map(convert_mcp_config)
+            .collect();
 
         let prompt_text = build_prompt_from_messages(&request.messages);
         if prompt_text.trim().is_empty() {
@@ -1007,6 +1075,12 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                         SessionUpdate::Plan(plan) => {
                                                             let plan_json = serde_json::to_string(&plan)
                                                                 .unwrap_or_default();
+                                                            // 与所有 SessionUpdate 分支一致的 record + emit 双写：
+                                                            // 落库到 agent_plan_snapshots（同回合 UPSERT 为终态），
+                                                            // 同时下发 live 事件供右侧计划面板实时更新。
+                                                            let _ = recorder_inner.record(&RecordableEvent::AgentPlan {
+                                                                plan_json: plan_json.clone(),
+                                                            });
                                                             let _ = app.emit(
                                                                 &event_name,
                                                                 &build_plan_event(&session_id, &request_id, plan_json),
@@ -1054,10 +1128,33 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                         }
                                                         SessionUpdate::AvailableCommandsUpdate(cmds) => {
                                                             monitor.note_activity(false);
-                                                            log_info!(
-                                                                "ACP available commands | session_id={} | count={}",
-                                                                session_id, cmds.available_commands.len()
-                                                            );
+                                                            // 序列化为前端视图 JSON 下发，供 `/` 斜杠命令下拉合并
+                                                            // Agent 命令分组。序列化失败仅记日志，不阻断流。
+                                                            let cmds_json = serde_json::to_string(
+                                                                &cmds.available_commands.iter().map(|c| {
+                                                                    serde_json::json!({
+                                                                        "name": c.name,
+                                                                        "description": c.description,
+                                                                        "hint": c.input.as_ref().and_then(|i| match i {
+                                                                            agent_client_protocol::schema::AvailableCommandInput::Unstructured(u) => Some(u.hint.clone()),
+                                                                            // AvailableCommandInput 为非穷举枚举（SDK 未来可能新增变体），
+                                                                            // 未识别的输入类型无 hint 可展示，返回 None。
+                                                                            _ => None,
+                                                                        }),
+                                                                    })
+                                                                }).collect::<Vec<_>>(),
+                                                            ).unwrap_or_default();
+                                                            if !cmds_json.is_empty() {
+                                                                let _ = app.emit(
+                                                                    &event_name,
+                                                                    &build_available_commands_event(&session_id, &request_id, cmds_json),
+                                                                );
+                                                            } else {
+                                                                log_info!(
+                                                                    "ACP available commands | session_id={} | count={}",
+                                                                    session_id, cmds.available_commands.len()
+                                                                );
+                                                            }
                                                         }
                                                         SessionUpdate::CurrentModeUpdate(mode_update) => {
                                                             monitor.note_activity(false);

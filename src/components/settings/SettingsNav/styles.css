@@ -14,17 +14,11 @@
   padding: 10px 10px 14px;
   overflow-y: auto;
   overflow-x: hidden;
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
+/* 仅此处需要 thin 滚动条（6px，与全局 8px 不同）；thumb 沿用全局 */
 .settings-nav__scroll::-webkit-scrollbar {
   width: var(--scrollbar-size-thin, 6px);
-}
-
-.settings-nav__scroll::-webkit-scrollbar-thumb {
-  background-color: var(--scrollbar-thumb, var(--color-border));
-  border-radius: var(--radius-full);
 }
 
 .settings-nav__group {

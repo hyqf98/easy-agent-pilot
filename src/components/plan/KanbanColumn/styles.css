@@ -110,24 +110,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-2, 0.5rem);
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb, var(--color-border, #e2e8f0)) var(--scrollbar-track, transparent);
   min-height: 100px;
-}
-
-.column-body::-webkit-scrollbar {
-  width: var(--scrollbar-size, 6px);
-}
-
-.column-body::-webkit-scrollbar-track {
-  background: var(--scrollbar-track, transparent);
-}
-
-.column-body::-webkit-scrollbar-thumb {
-  background-color: var(--scrollbar-thumb, var(--color-border, #e2e8f0));
-  border-radius: var(--radius-full, 9999px);
-  border: 1px solid transparent;
-  background-clip: padding-box;
 }
 
 .drag-item {

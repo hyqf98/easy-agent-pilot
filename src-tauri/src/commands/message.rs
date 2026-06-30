@@ -271,10 +271,18 @@ fn uploads_root_contains(path: &Path) -> Result<bool, String> {
     Ok(contains_fallback || contains_project_root)
 }
 
-/// messages 查询使用的列（与 INIT_SQL 定义一致，按此顺序读取）
-const MESSAGE_COLUMNS: &str = "id, session_id, request_id, role, message_type, content, status, \
-     tool_call_id, tool_name, tool_input, tool_result, input_tokens, output_tokens, \
-     cache_read_tokens, cache_creation_tokens, model, cost_usd, attachments, error_message, \
+/// messages 查询使用的列（与 INIT_SQL 定义一致，按此顺序读取）。
+///
+/// 历史数据中个别 `content` 行可能因早期开发期写入为 BLOB（非 TEXT），
+/// 直接 `row.get` 为 `String` 会抛 `Invalid column type Blob`。
+/// 对承载文本的列统一 `CAST(... AS TEXT)`：BLOB 会被转成可读文本，正常 TEXT 行无变化，
+/// 从而在读取层兜底容忍脏数据，避免单行坏数据导致整段会话加载失败（页面空白）。
+const MESSAGE_COLUMNS: &str = "id, session_id, request_id, role, message_type, \
+     CAST(content AS TEXT) AS content, status, \
+     tool_call_id, tool_name, CAST(tool_input AS TEXT) AS tool_input, \
+     CAST(tool_result AS TEXT) AS tool_result, input_tokens, output_tokens, \
+     cache_read_tokens, cache_creation_tokens, model, cost_usd, \
+     CAST(attachments AS TEXT) AS attachments, CAST(error_message AS TEXT) AS error_message, \
      created_at, updated_at, seq";
 
 fn map_message_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Message> {
@@ -602,6 +610,70 @@ pub fn clear_session_messages(session_id: String) -> Result<(), String> {
     remove_session_uploads(&session_id)?;
 
     Ok(())
+}
+
+/// 删除会话内锚点消息之后的所有消息（编辑并重发场景）。
+///
+/// 按 (created_at, seq) 顺序，删除所有严格排在锚点消息之后的消息及其附件文件。
+/// 返回实际删除的行数。事务保证附件清理与行删除一致。
+#[tauri::command]
+pub fn delete_messages_after(
+    session_id: String,
+    anchor_message_id: String,
+) -> Result<usize, String> {
+    let mut conn = open_db_connection().map_err(|e| e.to_string())?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    let anchor: Option<(String, i64)> = tx
+        .query_row(
+            "SELECT created_at, seq FROM messages WHERE id = ?1 AND session_id = ?2",
+            [&anchor_message_id, &session_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .ok();
+
+    let Some((anchor_created_at, anchor_seq)) = anchor else {
+        // 锚点消息不存在（可能已被删除），按无后续处理
+        return Ok(0);
+    };
+
+    // 收集待删除消息的附件以便清理文件（查询完毕即释放语句借用，再执行删除/提交）
+    let attachments_json_list: Vec<Option<String>> = {
+        let mut attachments_stmt = tx
+            .prepare(
+                "SELECT attachments FROM messages \
+                 WHERE session_id = ?1 \
+                 AND (created_at > ?2 OR (created_at = ?2 AND seq > ?3))",
+            )
+            .map_err(|e| e.to_string())?;
+        let attachment_rows = attachments_stmt
+            .query_map(
+                rusqlite::params![&session_id, &anchor_created_at, anchor_seq],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .map_err(|e| e.to_string())?;
+        attachment_rows
+            .map(|row| row.map_err(|e| e.to_string()))
+            .collect::<Result<Vec<_>, _>>()?
+    };
+
+    for attachments_json in attachments_json_list {
+        if let Some(attachments) = parse_attachments(attachments_json) {
+            remove_attachment_files(&attachments)?;
+        }
+    }
+
+    let deleted = tx
+        .execute(
+            "DELETE FROM messages \
+             WHERE session_id = ?1 \
+             AND (created_at > ?2 OR (created_at = ?2 AND seq > ?3))",
+            rusqlite::params![&session_id, &anchor_created_at, anchor_seq],
+        )
+        .map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(deleted)
 }
 
 /// 上传当前会话的附件到本地持久化目录。

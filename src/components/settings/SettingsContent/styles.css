@@ -32,27 +32,11 @@
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
+/* 仅此处需要 thin 滚动条（6px，与全局 8px 不同）；track/thumb 沿用全局 */
 .settings-content__scroll::-webkit-scrollbar {
   width: var(--scrollbar-size-thin, 6px);
-}
-
-.settings-content__scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.settings-content__scroll::-webkit-scrollbar-thumb {
-  background-color: var(--scrollbar-thumb, var(--color-border));
-  border-radius: var(--radius-full);
-  border: 1px solid transparent;
-  background-clip: padding-box;
-}
-
-.settings-content__scroll::-webkit-scrollbar-thumb:hover {
-  background-color: var(--scrollbar-thumb-hover, var(--color-border-dark));
 }
 
 .settings-content__container {

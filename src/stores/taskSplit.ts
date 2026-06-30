@@ -20,6 +20,7 @@ import {
 } from '@/services/subAgent/runtime'
 import {
   appendPlanSplitInstructionGuard,
+  buildOutputCorrectionPrompt,
   buildPlanSplitJsonSchema,
   buildPlanSplitKickoffPrompt,
   buildPlanSplitSystemPrompt,
@@ -820,10 +821,41 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     })
   }
 
+  /**
+   * 判定一个拆分会话是否处于"可纠错重试"的异常终态：
+   * - status='failed'：CLI 异常完成（原有行为）
+   * - status='stopped' 且带 parseError：AI 输出了内容但结构化解析失败
+   *   （后端 refresh_session_after_turn 解析失败时落 stopped + parseError）。
+   * 这两类都应触发自动重试，并把具体错误反馈给 AI 重新输出。
+   */
+  function needsCorrectionRetry(snapshot: PlanSplitSessionRecord | null): boolean {
+    if (!snapshot) {
+      return false
+    }
+    if (snapshot.status === 'failed') {
+      return true
+    }
+    return snapshot.status === 'stopped' && Boolean(snapshot.parseError)
+  }
+
+  /**
+   * 拼装纠错重试时附带的 user prompt：输出格式纠正指引 + 本轮具体 parseError，
+   * 让 AI 在重新生成时修正 status:DONE、字段名、缺字段等问题。
+   */
+  function buildCorrectionRetryPrompt(snapshot: PlanSplitSessionRecord): string {
+    const correction = buildOutputCorrectionPrompt(snapshot.granularity ?? 1)
+    const parseError = snapshot.parseError?.trim()
+    return parseError
+      ? `${correction}\n\n上一轮输出解析失败：${parseError}\n请严格按标准结构重新输出。`
+      : correction
+  }
+
   function scheduleAutoRetry() {
     const currentContext = context.value
     const currentSession = session.value
-    if (!currentContext || !currentSession || currentSession.status !== 'failed') {
+    // 解析失败时后端会落 status='stopped' + parseError；这类情况同样需要自动纠错重试，
+    // 不能只认 'failed'。needsCorrectionRetry 统一判定"可重试的异常终态"。
+    if (!currentContext || !currentSession || !needsCorrectionRetry(currentSession)) {
       return
     }
 
@@ -833,7 +865,10 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
       createCliFailureFragment('error', currentSession.errorMessage),
       createCliFailureFragment('error', currentSession.parseError)
     ].filter((item): item is NonNullable<typeof item> => Boolean(item))
-    const abnormalCompletion = classifyCliFailureWithExplicitPriority(runtimeLabel, explicitFragments, [
+    // 解析失败（stopped + parseError）是确定性的结构化错误，不需要走 CLI 异常完成启发式判定，
+    // 直接允许重试；只有 CLI 异常（failed）才需要 abnormalCompletion 启发式过滤。
+    const isParseFailure = currentSession.status === 'stopped' && Boolean(currentSession.parseError)
+    const abnormalCompletion = isParseFailure || classifyCliFailureWithExplicitPriority(runtimeLabel, explicitFragments, [
       ...explicitFragments,
       createCliFailureFragment('content', currentSession.rawContent)
     ].filter((item): item is NonNullable<typeof item> => Boolean(item)))
@@ -868,13 +903,20 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
       autoRetryScheduled.value = false
       autoRetryTimer.value = null
       autoRetryNextRunAt.value = null
-      if (!context.value || !session.value || session.value.status !== 'failed') {
+      const currentSnapshot = session.value
+      if (!context.value || !currentSnapshot || !needsCorrectionRetry(currentSnapshot)) {
         return
       }
       try {
-        await restartFromPersistedContext(session.value, {
+        // 解析失败（stopped+parseError）时把纠错指引 + 具体 parseError 作为新一轮
+        // user prompt 反馈给 AI，让它按标准结构重新输出；CLI 异常（failed）则原样重试。
+        const extraUserPrompt = currentSnapshot.parseError
+          ? buildCorrectionRetryPrompt(currentSnapshot)
+          : undefined
+        await restartFromPersistedContext(currentSnapshot, {
           preserveAutoRetryState: true,
-          preserveRetryState: true
+          preserveRetryState: true,
+          extraUserPrompt
         })
       } catch (error) {
         logger.error('[TaskSplit] Auto-retry failed:', error)
@@ -930,13 +972,19 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
       recordPlanSplitUsage(snapshot)
     }
 
-    if (snapshot.status === 'completed' || snapshot.status === 'stopped') {
+    // completed 是正常终态，必须停止重试；stopped 若带 parseError 属于可纠错重试场景，
+    // 不在这里取消（交给下方 needsCorrectionRetry 分支触发自动重试）。
+    if (snapshot.status === 'completed') {
+      cancelAutoRetry()
+      autoRetryCount.value = 0
+      activeRetryState.value = null
+    } else if (snapshot.status === 'stopped' && !snapshot.parseError) {
       cancelAutoRetry()
       autoRetryCount.value = 0
       activeRetryState.value = null
     }
 
-    if (snapshot.status === 'failed' && context.value && !autoRetryScheduled.value) {
+    if (needsCorrectionRetry(snapshot) && context.value && !autoRetryScheduled.value) {
       scheduleAutoRetry()
     }
   }

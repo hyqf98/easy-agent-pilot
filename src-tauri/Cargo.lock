@@ -1194,6 +1194,7 @@ dependencies = [
  "tauri-plugin-shell",
  "tauri-plugin-sql",
  "tauri-plugin-updater",
+ "tempfile",
  "thiserror 2.0.18",
  "tiktoken-rs",
  "tokio",

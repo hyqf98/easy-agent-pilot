@@ -30,6 +30,11 @@ pub struct ExecutionRequest {
     pub reasoning_effort: Option<String>,
     /// 子代理/会话选定的模型 ID，经 ACP config option 回填给执行器。
     pub model_id: Option<String>,
+    /// 记忆库仓库运行时：是否向 ACP 会话注入内置 MCP 工具（查询对话历史）。
+    #[serde(default)]
+    pub internal_tools_enabled: bool,
+    /// 记忆库仓库 ID，决定内置工具查询的数据源范围（配合 internal_tools_enabled）。
+    pub repo_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

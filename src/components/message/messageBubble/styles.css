@@ -717,10 +717,6 @@
   justify-content: flex-end;
 }
 
-.message-bubble__time {
-  opacity: 0.8;
-}
-
 .message-bubble__status {
   display: flex;
   align-items: center;
@@ -813,19 +809,116 @@
 }
 
 .message-bubble__retry {
-  padding: 2px 8px;
-  font-size: var(--font-size-xs);
-  color: var(--color-primary);
-  background-color: transparent;
-  border: 1px solid var(--color-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
   border-radius: var(--radius-sm);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
   cursor: pointer;
   transition: all var(--transition-fast) var(--easing-default);
 }
 
 .message-bubble__retry:hover {
-  background-color: var(--color-primary);
-  color: var(--color-text-inverse);
+  background: var(--color-bg-tertiary);
+  color: var(--color-primary);
+}
+
+/* ── 用户消息内联编辑：编辑按钮 / 编辑态发送 + 取消 / 文本框 ─────────────── */
+.message-bubble__edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: all var(--transition-fast) var(--easing-default);
+}
+
+.message-bubble__edit:hover {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+}
+
+.message-bubble__edit-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast) var(--easing-default);
+}
+
+.message-bubble__edit-send:hover {
+  background: var(--color-bg-secondary);
+  color: var(--color-primary);
+}
+
+.message-bubble__edit-cancel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: all var(--transition-fast) var(--easing-default);
+}
+
+.message-bubble__edit-cancel:hover {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+}
+
+/* 编辑容器宽度需脱离父级 fit-content 收缩，与用户气泡宽度上限（34rem）对齐 */
+.message-bubble__edit-editor {
+  width: clamp(16rem, 32vw, 34rem);
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* 文本框无缝接管用户气泡：去边框/背景/内边距，继承气泡排版，宽度撑满气泡 */
+.message-bubble__edit-textarea {
+  width: 100%;
+  min-height: 0;
+  max-height: 200px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: inherit;
+  line-height: 1.55;
+  resize: none;
+  outline: none;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.message-bubble__edit-textarea:focus {
+  border-color: transparent;
+  outline: none;
 }
 
 .message-bubble__error {
@@ -986,13 +1079,233 @@
   margin-top: var(--spacing-1);
 }
 
-/* ── meta 行对齐优化：时间 / 状态 / 停止 / 重试 统一垂直居中 ─────────── */
+/* ── meta 行对齐优化：时间 / 状态 / 停止 / 重试 / 编辑 统一垂直居中 ─────────── */
 .message-bubble__stop,
-.message-bubble__retry {
+.message-bubble__retry,
+.message-bubble__edit,
+.message-bubble__edit-send,
+.message-bubble__edit-cancel {
   align-self: center;
 }
 
 .message-bubble__stop {
   width: 22px;
   height: 22px;
+}
+
+/* ── Agent 流式响应视觉：AI 无头像、正文轻量铺排、工具/思考 trace 化 ── */
+.message-bubble--assistant {
+  gap: 0;
+}
+
+.message-bubble--assistant .message-bubble__body,
+.message-bubble--tool .message-bubble__body--tool {
+  width: min(100%, var(--message-max-width));
+  max-width: min(100%, var(--message-max-width));
+}
+
+.message-bubble--assistant .message-bubble__content {
+  max-width: min(100%, var(--message-fixed-width));
+  min-height: 0;
+  padding: 0;
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+.message-bubble--assistant .message-bubble__content:empty {
+  display: none;
+}
+
+.message-bubble__thinking,
+.message-bubble--tool .message-bubble__body--tool {
+  width: var(--message-compact-max-width);
+  min-width: min(100%, var(--message-compact-max-width));
+  max-width: 100%;
+}
+
+.message-bubble__stream-segment + .message-bubble__stream-segment {
+  margin-top: 7px;
+}
+
+.message-bubble__work-divider {
+  display: grid;
+  grid-template-columns: minmax(20px, 1fr) auto auto auto;
+  align-items: center;
+  gap: 8px;
+  width: var(--message-compact-max-width);
+  min-width: min(100%, var(--message-compact-max-width));
+  max-width: 100%;
+  margin: 2px 0 9px;
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary));
+  font-size: 11px;
+  line-height: 1;
+}
+
+.message-bubble__work-line {
+  height: 1px;
+  min-width: 20px;
+  background:
+    linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in srgb, var(--workspace-border-strong, var(--color-border)) 72%, transparent) 18%,
+      color-mix(in srgb, var(--workspace-border, var(--color-border)) 86%, transparent)
+    );
+}
+
+.message-bubble__work-status,
+.message-bubble__work-duration {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--workspace-border, var(--color-border)) 82%, transparent);
+  background: color-mix(in srgb, var(--workspace-control-bg, var(--color-surface)) 72%, transparent);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+}
+
+.message-bubble__work-status {
+  gap: 5px;
+  padding: 4px 7px;
+  border-radius: 999px;
+  font-weight: 560;
+}
+
+.message-bubble__work-duration {
+  justify-content: center;
+  min-width: 42px;
+  padding: 4px 7px;
+  border-radius: 999px;
+  font-family: var(--font-family-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.message-bubble__work-stop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--workspace-border, var(--color-border)) 82%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--workspace-control-bg, var(--color-surface)) 72%, transparent);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+  cursor: pointer;
+  transition: all var(--transition-fast) var(--easing-default);
+}
+
+.message-bubble__work-stop:hover {
+  color: color-mix(in srgb, var(--color-error) 82%, var(--color-text-primary) 18%);
+  border-color: color-mix(in srgb, var(--color-error) 24%, var(--workspace-border, var(--color-border)));
+  background: color-mix(in srgb, var(--color-error) 8%, var(--workspace-control-bg, var(--color-surface)));
+}
+
+.message-bubble__work-divider--active .message-bubble__work-status {
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  border-color: color-mix(in srgb, var(--color-primary) 24%, var(--workspace-border, var(--color-border)));
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--workspace-control-bg, var(--color-surface)));
+}
+
+.message-bubble__work-divider--active .message-bubble__work-status :deep(svg) {
+  color: var(--color-primary);
+  animation: spin 1s linear infinite;
+}
+
+/* 已中断（停止/中断）配色 */
+.message-bubble__work-divider--interrupted .message-bubble__work-status {
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  border-color: color-mix(in srgb, var(--workspace-text-secondary, var(--color-text-secondary)) 24%, var(--workspace-border, var(--color-border)));
+  background: color-mix(in srgb, var(--workspace-text-secondary, var(--color-text-secondary)) 8%, var(--workspace-control-bg, var(--color-surface)));
+}
+
+.message-bubble__work-divider--interrupted .message-bubble__work-status :deep(svg) {
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+}
+
+/* 已失败配色 */
+.message-bubble__work-divider--failed .message-bubble__work-status {
+  color: color-mix(in srgb, var(--color-error) 82%, var(--color-text-primary) 18%);
+  border-color: color-mix(in srgb, var(--color-error) 24%, var(--workspace-border, var(--color-border)));
+  background: color-mix(in srgb, var(--color-error) 8%, var(--workspace-control-bg, var(--color-surface)));
+}
+
+.message-bubble__work-divider--failed .message-bubble__work-status :deep(svg) {
+  color: var(--color-error);
+}
+
+.message-bubble--assistant .message-bubble__meta,
+.message-bubble--tool .message-bubble__meta {
+  padding: 0;
+  margin-top: 5px;
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary));
+  font-size: 11px;
+}
+
+.message-bubble--assistant .status--completed {
+  opacity: 0.55;
+}
+
+.message-bubble--user {
+  gap: 0;
+}
+
+.message-bubble--user .message-bubble__content {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--workspace-panel-bg, #ffffff) 94%, transparent), color-mix(in srgb, var(--workspace-list-active-bg, #e9e9e5) 72%, transparent));
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  border-color: color-mix(in srgb, var(--workspace-border, var(--color-border)) 86%, transparent);
+  border-radius: 10px;
+  box-shadow: 0 8px 20px rgba(24, 24, 22, 0.035);
+}
+
+.message-bubble__avatar--user {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: var(--workspace-control-bg, var(--color-bg-tertiary));
+  border-color: var(--workspace-control-border, var(--color-border));
+}
+
+.message-bubble__cursor {
+  width: 2px;
+  height: 0.95em;
+  background-color: currentColor;
+  opacity: 0.72;
+}
+
+.file-mention {
+  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 86%, transparent);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+  border-color: color-mix(in srgb, var(--workspace-control-border, var(--color-border)) 88%, transparent);
+}
+
+:global([data-theme='dark']) .message-bubble--user .message-bubble__content,
+:global(.dark) .message-bubble--user .message-bubble__content {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.06)) 88%, transparent), color-mix(in srgb, var(--workspace-list-active-bg, rgba(255, 255, 255, 0.12)) 58%, transparent));
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  border-color: color-mix(in srgb, var(--workspace-border, rgba(255, 255, 255, 0.1)) 90%, transparent);
+  box-shadow: none;
+}
+
+:global([data-theme='dark']) .message-bubble--assistant .message-bubble__content,
+:global(.dark) .message-bubble--assistant .message-bubble__content {
+  color: var(--workspace-text-primary, #f4f4f0);
+}
+
+:global([data-theme='dark']) .message-bubble__work-status,
+:global([data-theme='dark']) .message-bubble__work-duration,
+:global(.dark) .message-bubble__work-status,
+:global(.dark) .message-bubble__work-duration {
+  border-color: color-mix(in srgb, var(--workspace-border, rgba(255, 255, 255, 0.1)) 88%, transparent);
+  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.06)) 78%, transparent);
+}
+
+@media (max-width: 768px) {
+  .message-bubble--assistant {
+    --message-fixed-width: min(100%, calc(100vw - 48px));
+    --message-min-width: 0;
+    --message-max-width: min(100%, calc(100vw - 48px));
+    --message-compact-max-width: min(100%, calc(100vw - 48px));
+    --thinking-display-width: min(100%, calc(100vw - 48px));
+  }
 }

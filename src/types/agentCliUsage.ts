@@ -106,3 +106,17 @@ export interface RepairAgentCliUsageHistoryResult {
   updatedCount: number
   skippedReason?: string | null
 }
+
+/**
+ * 单个会话的累计用量汇总（输入/输出/缓存 token 与调用次数）。
+ * 用于消息输入框上下文进度环浮层展示会话级累计用量。
+ */
+export interface SessionUsageSummary {
+  inputTokens: number
+  outputTokens: number
+  cacheReadInputTokens: number
+  cacheCreationInputTokens: number
+  totalTokens: number
+  callCount: number
+}
+

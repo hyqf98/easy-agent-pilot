@@ -1,6 +1,16 @@
+.message-list-shell {
+  --message-list-scroll-btn-gap: clamp(10px, 1.8vh, 18px);
+  --message-list-scroll-btn-size: clamp(28px, 2.8vw, 34px);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
 .message-list {
   --message-list-top-safe-space: 0px;
-  --message-list-bottom-safe-space: clamp(72px, 9vh, 112px);
+  --message-list-bottom-safe-space: clamp(96px, 11vh, 132px);
   --message-list-scroll-btn-gap: clamp(10px, 1.8vh, 18px);
   --message-list-scroll-btn-size: clamp(28px, 2.8vw, 34px);
   --conversation-stream-width: min(100%, 980px);
@@ -20,7 +30,6 @@
   flex-direction: column;
   gap: var(--spacing-3);
   min-height: 0;
-  position: relative;
 }
 
 .message-list__virtual {
@@ -43,25 +52,6 @@
 
 .message-list__virtual-spacer {
   flex-shrink: 0;
-}
-
-.message-list::-webkit-scrollbar {
-  width: var(--scrollbar-size);
-}
-
-.message-list::-webkit-scrollbar-track {
-  background: var(--scrollbar-track);
-}
-
-.message-list::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
-  border-radius: var(--radius-full);
-  border: 1px solid transparent;
-  background-clip: padding-box;
-}
-
-.message-list::-webkit-scrollbar-thumb:hover {
-  background: var(--scrollbar-thumb-hover);
 }
 
 .message-list__load-more {
@@ -90,13 +80,11 @@
 }
 
 .scroll-to-bottom-btn {
-  position: sticky;
-  bottom: calc(var(--message-list-scroll-btn-gap) - var(--message-list-bottom-safe-space));
+  position: absolute;
+  bottom: var(--message-list-scroll-btn-gap);
   left: 50%;
   transform: translateX(-50%);
-  z-index: 10;
-  align-self: center;
-  margin-top: auto;
+  z-index: 20;
   width: var(--message-list-scroll-btn-size);
   height: var(--message-list-scroll-btn-size);
   min-width: var(--message-list-scroll-btn-size);
@@ -232,7 +220,9 @@
 
 @media (max-width: 900px) {
   .message-list {
-    --message-list-bottom-safe-space: clamp(64px, 8vh, 92px);
+    --message-list-bottom-safe-space: clamp(80px, 9vh, 104px);
+  }
+  .message-list-shell {
     --message-list-scroll-btn-gap: clamp(8px, 1.4vh, 14px);
   }
 }

@@ -4,7 +4,8 @@ import { useThinkingDisplay, type ThinkingDisplayProps } from './useThinkingDisp
 
 const props = withDefaults(defineProps<ThinkingDisplayProps>(), {
   live: false,
-  defaultExpanded: false
+  defaultExpanded: false,
+  autoCollapseOnComplete: true
 })
 
 const {
@@ -18,7 +19,10 @@ const {
 </script>
 
 <template>
-  <div class="thinking-display">
+  <div
+    class="thinking-display"
+    :class="{ 'thinking-display--live': props.live, 'thinking-display--expanded': isExpanded }"
+  >
     <!-- 思考头部 -->
     <button
       class="thinking-display__header"
@@ -33,7 +37,10 @@ const {
             :size="13"
           />
         </span>
-        <span class="thinking-display__title">{{ titleText }}</span>
+        <span
+          class="thinking-display__title"
+          :class="{ 'thinking-display__title--sweep': props.live }"
+        >{{ titleText }}</span>
       </div>
       <div class="thinking-display__header-right">
         <span class="thinking-display__toggle">

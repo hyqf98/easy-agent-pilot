@@ -10,6 +10,14 @@ interface PromptSection {
   content: string
 }
 
+/** 记忆片段通用输入（库或仓库均适用）。 */
+export interface MemoryPromptInput {
+  id: string
+  name: string
+  description?: string
+  content: string
+}
+
 function normalizeContent(content: string): string {
   return content.replace(/\r\n/g, '\n').trim()
 }
@@ -23,38 +31,7 @@ function truncateContent(content: string, limit: number): string {
   return `${trimmed}\n\n[已截断剩余内容]`
 }
 
-export function buildProjectMemorySystemPrompt(libraries: MemoryLibrary[]): string | null {
-  const uniqueById = new Set<string>()
-  const sectionByContent = new Map<string, PromptSection>()
-
-  for (const library of libraries) {
-    if (uniqueById.has(library.id)) {
-      continue
-    }
-    uniqueById.add(library.id)
-
-    const content = normalizeContent(library.contentMd)
-    if (!content) {
-      continue
-    }
-
-    const existing = sectionByContent.get(content)
-    if (existing) {
-      existing.names.push(library.name)
-      if (library.description?.trim()) {
-        existing.descriptions.push(library.description.trim())
-      }
-      continue
-    }
-
-    sectionByContent.set(content, {
-      names: [library.name],
-      descriptions: library.description?.trim() ? [library.description.trim()] : [],
-      content
-    })
-  }
-
-  const sections = Array.from(sectionByContent.values())
+function buildPromptFromSections(sections: PromptSection[]): string | null {
   if (sections.length === 0) {
     return null
   }
@@ -95,4 +72,50 @@ export function buildProjectMemorySystemPrompt(libraries: MemoryLibrary[]): stri
   }
 
   return parts.join('\n\n').trim()
+}
+
+export function buildProjectMemorySystemPrompt(libraries: MemoryLibrary[]): string | null {
+  return buildMemoryPromptFromInputs(
+    libraries.map((library) => ({
+      id: library.id,
+      name: library.name,
+      description: library.description,
+      content: library.contentMd
+    }))
+  )
+}
+
+/** 通用版本：从任意记忆片段（库或仓库主文件）构建系统提示词块。 */
+export function buildMemoryPromptFromInputs(inputs: MemoryPromptInput[]): string | null {
+  const uniqueById = new Set<string>()
+  const sectionByContent = new Map<string, PromptSection>()
+
+  for (const input of inputs) {
+    if (uniqueById.has(input.id)) {
+      continue
+    }
+    uniqueById.add(input.id)
+
+    const content = normalizeContent(input.content)
+    if (!content) {
+      continue
+    }
+
+    const existing = sectionByContent.get(content)
+    if (existing) {
+      existing.names.push(input.name)
+      if (input.description?.trim()) {
+        existing.descriptions.push(input.description.trim())
+      }
+      continue
+    }
+
+    sectionByContent.set(content, {
+      names: [input.name],
+      descriptions: input.description?.trim() ? [input.description.trim()] : [],
+      content
+    })
+  }
+
+  return buildPromptFromSections(Array.from(sectionByContent.values()))
 }

@@ -147,7 +147,7 @@ pub fn list_sessions(project_id: String) -> Result<Vec<Session>, String> {
             FROM sessions s
             LEFT JOIN (
                 SELECT session_id,
-                       MAX(content) as last_message,
+                       MAX(CASE WHEN typeof(content) = 'text' THEN content END) as last_message,
                        COUNT(*) as message_count
                 FROM messages
                 GROUP BY session_id
@@ -390,7 +390,7 @@ fn get_session_by_id(conn: &Connection, id: &str) -> Result<Session, String> {
             FROM sessions s
             LEFT JOIN (
                 SELECT session_id,
-                       MAX(content) as last_message,
+                       MAX(CASE WHEN typeof(content) = 'text' THEN content END) as last_message,
                        COUNT(*) as message_count
                 FROM messages
                 GROUP BY session_id

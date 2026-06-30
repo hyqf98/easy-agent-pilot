@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ToolCall } from '@/stores/message'
 import { useTypewriterText } from '@/composables/useTypewriterText'
@@ -9,16 +9,19 @@ export interface ToolCallDisplayProps {
   compact?: boolean
   defaultExpanded?: boolean
   defaultResultExpanded?: boolean
+  autoCollapseOnComplete?: boolean
 }
 
 export function useToolCallDisplay(props: ToolCallDisplayProps) {
   const { t } = useI18n()
 
-  const isExpanded = ref(props.defaultExpanded ?? false)
+  const isRunning = computed(() => props.live || props.toolCall.status === 'running')
+  const isExpanded = ref(props.defaultExpanded ?? isRunning.value)
   const isResultExpanded = ref(props.defaultResultExpanded ?? false)
+  const hasUserToggled = ref(false)
 
-  // 切换展开状态
   const toggleExpand = () => {
+    hasUserToggled.value = true
     isExpanded.value = !isExpanded.value
   }
 
@@ -39,6 +42,20 @@ export function useToolCallDisplay(props: ToolCallDisplayProps) {
         return ''
     }
   })
+
+  watch(
+    isRunning,
+    (running, wasRunning) => {
+      if (running && !hasUserToggled.value) {
+        isExpanded.value = true
+        return
+      }
+
+      if (!running && wasRunning && (props.autoCollapseOnComplete ?? true) && !hasUserToggled.value) {
+        isExpanded.value = false
+      }
+    }
+  )
 
   // 状态图标
   const statusIcon = computed(() => {
@@ -93,6 +110,14 @@ export function useToolCallDisplay(props: ToolCallDisplayProps) {
     }
 
     return props.toolCall.name
+  })
+
+  const agentPrompt = computed(() => {
+    const prompt = props.toolCall.arguments?.prompt
+      ?? props.toolCall.arguments?.description
+      ?? props.toolCall.arguments?.task
+
+    return typeof prompt === 'string' ? prompt.trim() : ''
   })
 
   // 格式化参数
@@ -159,6 +184,7 @@ export function useToolCallDisplay(props: ToolCallDisplayProps) {
     agentExecutionTitle,
     animatedArguments,
     animatedResult,
+    agentPrompt,
     toolSummary
   }
 }

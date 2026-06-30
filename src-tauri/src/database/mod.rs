@@ -139,6 +139,21 @@ const INIT_SQL: &str = r#"
     );
     CREATE INDEX IF NOT EXISTS idx_file_changes_session ON file_change_traces(session_id, request_id, created_at);
 
+    -- ACP Agent Plan 快照表（Agent 流式下发的计划/Todo 全量快照）
+    -- 一个回合内多次 Plan 更新（全量替换语义）通过唯一键 UPSERT 为终态。
+    CREATE TABLE IF NOT EXISTS agent_plan_snapshots (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        request_id TEXT NOT NULL,
+        plan_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        seq INTEGER NOT NULL DEFAULT 0,
+        UNIQUE(session_id, request_id),
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_plans_session ON agent_plan_snapshots(session_id, updated_at);
+
     -- MCP 服务器配置表
     CREATE TABLE IF NOT EXISTS mcp_servers (
         id TEXT PRIMARY KEY,
@@ -592,6 +607,7 @@ const INIT_SQL: &str = r#"
     CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_agent_time ON agent_cli_usage_records(agent_id, occurred_at DESC);
     CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_model_time ON agent_cli_usage_records(model_id, occurred_at DESC);
     CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_mode_time ON agent_cli_usage_records(execution_mode, occurred_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_session_time ON agent_cli_usage_records(session_id, occurred_at DESC);
 
     -- 部门表
     CREATE TABLE IF NOT EXISTS departments (
@@ -1584,6 +1600,7 @@ pub fn init_database() -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_agent_time ON agent_cli_usage_records(agent_id, occurred_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_model_time ON agent_cli_usage_records(model_id, occurred_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_mode_time ON agent_cli_usage_records(execution_mode, occurred_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_session_time ON agent_cli_usage_records(session_id, occurred_at DESC)",
     ];
     for migration in agent_cli_usage_indexes {
         if let Err(e) = conn.execute(migration, []) {
@@ -1789,6 +1806,12 @@ pub fn init_database() -> Result<()> {
         }
     }
 
+    // ==================== Memory repos 2.0 ====================
+    // 记忆库重构为磁盘标准 Skills 包仓库：DB 仅存元数据，内容落到文件系统。
+    if let Err(e) = init_memory_repos_schema(&conn) {
+        println!("Memory repos schema migration warning: {}", e);
+    }
+
     println!("Database initialized successfully");
     Ok(())
 }
@@ -1805,5 +1828,109 @@ fn maybe_rebuild_fts_index(conn: &Connection, fts_table: &str, source_table: &st
 
     let rebuild_sql = format!("INSERT INTO {}({}) VALUES('rebuild')", fts_table, fts_table);
     conn.execute(&rebuild_sql, [])?;
+    Ok(())
+}
+
+/// 建表：记忆库仓库（memory_repos）及其数据源、定时任务、运行记录。
+///
+/// 幂等创建：新表用 `CREATE TABLE IF NOT EXISTS`；列以 `table_has_column` 守卫增量补加，
+/// 与本文件既有迁移风格保持一致（SQLite 不支持 IF NOT EXISTS 用于 ALTER）。
+fn init_memory_repos_schema(conn: &Connection) -> Result<()> {
+    let table_sql = [
+        // 记忆库仓库元数据（内容落到 repo_path 指向的磁盘目录）
+        r#"
+        CREATE TABLE IF NOT EXISTS memory_repos (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            slug TEXT NOT NULL UNIQUE,
+            description TEXT,
+            repo_path TEXT NOT NULL,
+            format TEXT NOT NULL DEFAULT 'skill',
+            system_prompt TEXT NOT NULL DEFAULT '',
+            agent_id TEXT,
+            model_id TEXT,
+            internal_tools_enabled INTEGER NOT NULL DEFAULT 1,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        "#,
+        // 内置 MCP 工具可见范围（projectIds / since / until / maxLimit 的上界裁剪）
+        r#"
+        CREATE TABLE IF NOT EXISTS memory_repo_sources (
+            id TEXT PRIMARY KEY,
+            repo_id TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            config TEXT NOT NULL DEFAULT '{}',
+            enabled INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (repo_id) REFERENCES memory_repos(id) ON DELETE CASCADE
+        )
+        "#,
+        // 独立记忆调度任务（与 Plan 体系解耦）
+        r#"
+        CREATE TABLE IF NOT EXISTS memory_jobs (
+            id TEXT PRIMARY KEY,
+            repo_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            instruction TEXT NOT NULL,
+            cron TEXT,
+            next_run_at TEXT,
+            schedule_status TEXT NOT NULL DEFAULT 'none',
+            last_run_at TEXT,
+            last_run_status TEXT,
+            last_run_summary TEXT,
+            agent_id TEXT,
+            model_id TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (repo_id) REFERENCES memory_repos(id) ON DELETE CASCADE
+        )
+        "#,
+        // 任务运行记录（含产物摘要与变更文件）
+        r#"
+        CREATE TABLE IF NOT EXISTS memory_job_runs (
+            id TEXT PRIMARY KEY,
+            job_id TEXT NOT NULL,
+            repo_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            summary TEXT,
+            files_changed TEXT,
+            started_at TEXT NOT NULL,
+            finished_at TEXT NOT NULL,
+            FOREIGN KEY (job_id) REFERENCES memory_jobs(id) ON DELETE CASCADE
+        )
+        "#,
+    ];
+    for sql in table_sql {
+        conn.execute(sql, [])?;
+    }
+
+    // 增量列守卫（兼容旧库升级到新表）
+    if !table_has_column(conn, "memory_repos", "internal_tools_enabled")? {
+        conn.execute("ALTER TABLE memory_repos ADD COLUMN internal_tools_enabled INTEGER NOT NULL DEFAULT 1", [])?;
+    }
+    if !table_has_column(conn, "memory_repos", "enabled")? {
+        conn.execute("ALTER TABLE memory_repos ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1", [])?;
+    }
+    if !table_has_column(conn, "memory_jobs", "agent_id")? {
+        conn.execute("ALTER TABLE memory_jobs ADD COLUMN agent_id TEXT", [])?;
+    }
+    if !table_has_column(conn, "memory_jobs", "model_id")? {
+        conn.execute("ALTER TABLE memory_jobs ADD COLUMN model_id TEXT", [])?;
+    }
+
+    let index_sql = [
+        "CREATE INDEX IF NOT EXISTS idx_memory_repos_updated ON memory_repos(updated_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_memory_repo_sources_repo ON memory_repo_sources(repo_id)",
+        "CREATE INDEX IF NOT EXISTS idx_memory_jobs_repo_status ON memory_jobs(repo_id, schedule_status)",
+        "CREATE INDEX IF NOT EXISTS idx_memory_jobs_next_run ON memory_jobs(schedule_status, next_run_at)",
+        "CREATE INDEX IF NOT EXISTS idx_memory_job_runs_job ON memory_job_runs(job_id, started_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_memory_job_runs_repo ON memory_job_runs(repo_id, started_at DESC)",
+    ];
+    for sql in index_sql {
+        conn.execute(sql, [])?;
+    }
+
     Ok(())
 }

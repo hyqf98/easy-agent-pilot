@@ -6,7 +6,8 @@ const props = withDefaults(defineProps<ToolCallDisplayProps>(), {
   live: false,
   compact: false,
   defaultExpanded: undefined,
-  defaultResultExpanded: undefined
+  defaultResultExpanded: undefined,
+  autoCollapseOnComplete: true
 })
 
 const {
@@ -23,6 +24,7 @@ const {
   agentExecutionTitle,
   animatedArguments,
   animatedResult,
+  agentPrompt,
   toolSummary
 } = useToolCallDisplay(props)
 </script>
@@ -50,7 +52,10 @@ const {
           v-if="isAgentExecutionTool"
           class="tool-call__agent-label"
         >子代理执行</span>
-        <span class="tool-call__name">{{ isAgentExecutionTool ? agentExecutionTitle : toolCall.name }}</span>
+        <span
+          class="tool-call__name"
+          :class="{ 'tool-call__name--sweep': toolCall.status === 'running' }"
+        >{{ isAgentExecutionTool ? agentExecutionTitle : toolCall.name }}</span>
         <span
           class="tool-call__status"
           :class="`tool-call__status--${toolCall.status}`"
@@ -83,6 +88,20 @@ const {
       v-show="isExpanded"
       class="tool-call__content"
     >
+      <div
+        v-if="isAgentExecutionTool && agentPrompt"
+        class="tool-call__section tool-call__section--agent-prompt"
+      >
+        <div class="tool-call__section-title">
+          <EaIcon
+            name="message-square-text"
+            :size="12"
+          />
+          <span>任务输入</span>
+        </div>
+        <pre class="tool-call__code">{{ agentPrompt }}</pre>
+      </div>
+
       <!-- 参数 -->
       <div class="tool-call__section">
         <div class="tool-call__section-title">
@@ -110,7 +129,7 @@ const {
               :name="isAgentExecutionTool ? 'scroll-text' : 'log-out'"
               :size="12"
             />
-            <span>{{ isAgentExecutionTool ? '执行日志' : t('message.result') }}</span>
+            <span>{{ isAgentExecutionTool ? '执行日志 / 结果' : t('message.result') }}</span>
           </div>
           <div class="tool-call__section-toggle">
             <span>{{ isResultExpanded ? t('message.collapse') : t('message.expand') }}</span>
@@ -152,6 +171,9 @@ const {
           {{ toolCall.errorMessage }}
         </div>
       </div>
+
+      <!-- 文件变更：嵌入工具气泡内部展开，复用同一气泡，宽度跟随工具气泡 -->
+      <slot name="fileChanges" />
     </div>
   </div>
 </template>

@@ -32,11 +32,21 @@ const MIN_HEIGHT = 480
 
 // 标记是否正在初始化窗口（初始化期间不保存状态）
 let isInitializing = false
+// 标记是否正在程序化调整窗口尺寸（dock 展开收缩期间不保存「加宽后」状态）
+let isProgrammaticResize = false
+
+// dock 展开收缩相关常量
+const FILE_DOCK_DEFAULT_WIDTH = 720
 
 export const useWindowStateStore = defineStore('windowState', () => {
   // State
   const isLoaded = ref(false)
   const saveTimeout: { value: ReturnType<typeof setTimeout> | null } = { value: null }
+
+  // dock 物理加宽：记录 dock 打开前的「基础宽度」，关闭时缩回该宽度
+  // key = dock 标识（便于多面板复用，当前仅 'file'）
+  const dockBaseWidth = ref<Record<string, number>>({})
+  const dockOpenWidth = ref<Record<string, number>>({})
 
   // 保存窗口状态到数据库
   async function saveWindowStateToDb(state: WindowState): Promise<void> {
@@ -149,6 +159,10 @@ export const useWindowStateStore = defineStore('windowState', () => {
     if (isInitializing) {
       return
     }
+    // dock 展开/收缩期间的程序化调整不保存（避免把「加宽后」状态持久化）
+    if (isProgrammaticResize) {
+      return
+    }
     if (saveTimeout.value) {
       clearTimeout(saveTimeout.value)
     }
@@ -229,12 +243,73 @@ export const useWindowStateStore = defineStore('windowState', () => {
     }
   }
 
+  /**
+   * 物理加宽窗口以容纳某个 dock（如文件预览面板）。
+   * 打开时记录当前「基础宽度」，并将窗口宽度 += dockWidth；关闭时缩回基础宽度。
+   * 展开收缩期间的 setSize 不触发持久化保存，避免把「加宽后」状态存库。
+   * @param key dock 标识，便于后续多面板复用
+   * @param dockWidth 该 dock 占用的逻辑像素宽度
+   */
+  async function expandForDock(key: string, dockWidth: number): Promise<void> {
+    // 已展开过该 dock：仅更新目标宽度差量
+    if (dockOpenWidth.value[key]) {
+      const prevWidth = dockOpenWidth.value[key]
+      if (prevWidth === dockWidth) return
+      dockOpenWidth.value[key] = dockWidth
+      await resizeBy(dockWidth - prevWidth)
+      return
+    }
+
+    const appWindow = getCurrentWindow()
+    const size = await appWindow.outerSize()
+    const monitor = await currentMonitor()
+    const scaleFactor = monitor?.scaleFactor || 1
+    const currentLogicalWidth = Math.floor(size.width / scaleFactor)
+
+    dockBaseWidth.value[key] = currentLogicalWidth
+    dockOpenWidth.value[key] = dockWidth
+    await resizeBy(dockWidth)
+  }
+
+  /** 关闭 dock 时把窗口缩回其打开前的基础宽度 */
+  async function collapseDock(key: string): Promise<void> {
+    const openWidth = dockOpenWidth.value[key]
+    if (!openWidth) return
+    delete dockOpenWidth.value[key]
+    delete dockBaseWidth.value[key]
+    await resizeBy(-openWidth)
+  }
+
+  /** 程序化增减窗口宽度（不触发持久化保存） */
+  async function resizeBy(deltaWidth: number): Promise<void> {
+    if (deltaWidth === 0) return
+    const appWindow = getCurrentWindow()
+    const size = await appWindow.outerSize()
+    const monitor = await currentMonitor()
+    const scaleFactor = monitor?.scaleFactor || 1
+    const currentLogicalWidth = Math.floor(size.width / scaleFactor)
+    const currentLogicalHeight = Math.floor(size.height / scaleFactor)
+
+    isProgrammaticResize = true
+    try {
+      await appWindow.setSize(
+        new LogicalSize(currentLogicalWidth + deltaWidth, currentLogicalHeight)
+      )
+    } finally {
+      // 延迟清除标记，确保 onResized 回调已跳过
+      setTimeout(() => { isProgrammaticResize = false }, 300)
+    }
+  }
+
   return {
     // State
     isLoaded,
     // Actions
     initWindowState,
     getCurrentWindowState,
-    saveWindowStateToDb
+    saveWindowStateToDb,
+    expandForDock,
+    collapseDock,
+    FILE_DOCK_DEFAULT_WIDTH
   }
 })

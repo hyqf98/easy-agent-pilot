@@ -11,6 +11,8 @@ import { useMemoryStore } from '@/stores/memory'
 import { usePermissionStore } from '@/stores/permission'
 import { useSubAgentStore } from '@/stores/subAgent'
 import { useFileChangeStore } from '@/stores/fileChange'
+import { useAgentPlanStore } from '@/stores/agentPlan'
+import { useAgentCapabilityStore } from '@/stores/agentCapability'
 import { agentExecutor } from './AgentExecutor'
 import type { ConversationContext, McpServerConfig, StreamEvent } from './strategies/types'
 import type { ReasoningEffortLevel } from '@/types/reasoning'
@@ -1145,6 +1147,8 @@ export class ConversationService {
         cacheCreationInputTokens: usageState.cacheCreationInputTokens,
         occurredAt: occurredAt || new Date().toISOString()
       })
+      // 本轮用量已落库，刷新会话累计用量缓存以即时更新浮层三指标
+      void tokenStore.loadSessionUsageSummary(sessionId)
     }
 
     const syncRealtimeUsageNotice = (_options?: { immediate?: boolean }) => {
@@ -1611,10 +1615,39 @@ export class ConversationService {
               options: permission.options
             })
           },
+          onPlan: (planJson) => {
+            // ACP Agent Plan 全量替换语义：整体覆盖该会话最新计划，驱动右侧面板
+            try {
+              useAgentPlanStore().ingestStreamPlan(sessionId, planJson)
+            } catch (err) {
+              console.error('[agentPlan] ingest stream plan failed', err)
+            }
+          },
+          onAvailableCommands: (commandsJson) => {
+            // Agent 下发的可斜杠命令列表，驱动 `/` 下拉的 Agent 命令分组
+            try {
+              useAgentCapabilityStore().setAvailableCommands(sessionId, commandsJson)
+            } catch (err) {
+              console.error('[agentCapability] set available commands failed', err)
+            }
+          },
           onDone: () => {
             markMetric('doneAt')
             // 兜底清理：执行结束时移除可能残留的权限询问（后端超时 / 非正常完成）
             usePermissionStore().clearPending(sessionId)
+            // 计划模式回合结束且 AI 已产出计划文档（最新 assistant text 非空）
+            // → 标记待确认，弹出「开始执行 / 继续修改」
+            if (sessionStore.isPlanMode(sessionId)) {
+              const sessionMessages = messageStore.messagesBySession(sessionId)
+              const hasPlanDoc = [...sessionMessages].reverse().some(
+                msg => msg.role === 'assistant'
+                  && msg.messageType === 'text'
+                  && !!msg.content?.trim()
+              )
+              if (hasPlanDoc) {
+                useAgentPlanStore().requestConfirm(sessionId)
+              }
+            }
             const finalizedToolCalls = finalizePendingToolCalls(toolCalls)
             if (finalizedToolCalls !== toolCalls) {
               toolCalls.splice(0, toolCalls.length, ...finalizedToolCalls)
@@ -1877,10 +1910,14 @@ export class ConversationService {
         toolInput?: Record<string, unknown>
         options: { optionId: string; name: string; kind: string }[]
       }) => void
+      /** ACP Agent Plan 全量快照（JSON 字符串），驱动右侧计划面板实时更新 */
+      onPlan: (planJson: string) => void
+      /** ACP Agent 下发的可斜杠命令列表（JSON 字符串），驱动 `/` 下拉 Agent 分组 */
+      onAvailableCommands: (commandsJson: string) => void
       onDone: () => void
     }
   ): void {
-    const { onContent, onThinking, onThinkingStart, onToolUse, onToolInputDelta, onToolResult, onFileEdit, onUsage, onSystem, onError, onPermissionRequest, onDone } = handlers
+    const { onContent, onThinking, onThinkingStart, onToolUse, onToolInputDelta, onToolResult, onFileEdit, onUsage, onSystem, onError, onPermissionRequest, onPlan, onAvailableCommands, onDone } = handlers
 
     switch (event.type) {
       case 'content':
@@ -1972,6 +2009,18 @@ export class ConversationService {
           toolInput: event.toolInput,
           options: event.permissionOptions ?? []
         })
+        break
+
+      case 'plan':
+        if (event.content) {
+          onPlan(event.content)
+        }
+        break
+
+      case 'available_commands':
+        if (event.content) {
+          onAvailableCommands(event.content)
+        }
         break
 
       case 'done':

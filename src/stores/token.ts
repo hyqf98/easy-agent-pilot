@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
 import { useAgentConfigStore } from './agentConfig'
 import { inferAgentProvider, useAgentStore } from './agent'
 import { useMessageStore } from './message'
@@ -12,6 +13,7 @@ import {
 import { formatContextWindowCount } from '@/utils/contextWindow'
 import { resolveSessionAgent } from '@/utils/sessionAgent'
 import { getUsageNoticeSummary, type RuntimeNotice } from '@/utils/runtimeNotice'
+import type { SessionUsageSummary } from '@/types/agentCliUsage'
 import type { Message } from './message'
 
 /**
@@ -197,6 +199,17 @@ function getLevel(percentage: number): TokenLevel {
   return 'safe'
 }
 
+function buildEmptySessionUsageSummary(): SessionUsageSummary {
+  return {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadInputTokens: 0,
+    cacheCreationInputTokens: 0,
+    totalTokens: 0,
+    callCount: 0
+  }
+}
+
 export function formatTokenCount(count: number): string {
   if (count <= 0) {
     return '0'
@@ -206,6 +219,12 @@ export function formatTokenCount(count: number): string {
 
 export const useTokenStore = defineStore('token', () => {
   const realtimeTokens = ref<Map<string, RealtimeTokenData>>(new Map())
+  // 输入框当前选中的模型（按会话）：用于解析上下文容量上限
+  const sessionSelectedModelId = ref<Map<string, string>>(new Map())
+  // 会话级累计用量缓存：聚合 agent_cli_usage_records（输入/输出/缓存 token）
+  const sessionUsageSummaries = ref<Map<string, SessionUsageSummary>>(new Map())
+  const loadingSessionUsage = ref<Set<string>>(new Set())
+  // 正在加载会话用量的 sessionId 集合，避免并发重复请求
 
   function buildEmptyTokenUsage(limit: number = DEFAULT_CONTEXT_WINDOW): TokenUsageDetails {
     return {
@@ -322,6 +341,7 @@ export const useTokenStore = defineStore('token', () => {
         configuredModels,
         {
           runtimeModelId: realtimeModel,
+          selectedModelId: sessionSelectedModelId.value.get(sessionId),
           agentModelId: agent.modelId
         }
       )
@@ -407,14 +427,86 @@ export const useTokenStore = defineStore('token', () => {
     }
 
     const nextRealtimeTokens = new Map(realtimeTokens.value)
+    const nextSelectedModelId = new Map(sessionSelectedModelId.value)
+    const nextUsageSummaries = new Map(sessionUsageSummaries.value)
     sessionIds.forEach((sessionId) => {
       nextRealtimeTokens.delete(sessionId)
+      nextSelectedModelId.delete(sessionId)
+      nextUsageSummaries.delete(sessionId)
+      loadingSessionUsage.value.delete(sessionId)
     })
     realtimeTokens.value = nextRealtimeTokens
+    sessionSelectedModelId.value = nextSelectedModelId
+    sessionUsageSummaries.value = nextUsageSummaries
+  }
+
+  /**
+   * 设置会话输入框当前选中的模型，用于解析上下文容量上限。
+   * 空字符串视为清除该会话的选中模型。
+   */
+  function setSessionSelectedModel(sessionId: string, modelId: string | null | undefined) {
+    const trimmed = modelId?.trim() ?? ''
+    const existing = sessionSelectedModelId.value.get(sessionId)
+    if (existing === trimmed || (!existing && !trimmed)) {
+      return
+    }
+
+    const next = new Map(sessionSelectedModelId.value)
+    if (trimmed) {
+      next.set(sessionId, trimmed)
+    } else {
+      next.delete(sessionId)
+    }
+    sessionSelectedModelId.value = next
+  }
+
+  /**
+   * 失效并重新加载会话累计用量缓存（每轮结束后调用，确保浮层三指标即时更新）。
+   */
+  async function loadSessionUsageSummary(sessionId: string): Promise<void> {
+    if (loadingSessionUsage.value.has(sessionId)) {
+      return
+    }
+
+    loadingSessionUsage.value = new Set(loadingSessionUsage.value).add(sessionId)
+    try {
+      const summary = await invoke<SessionUsageSummary>('query_session_usage_summary', { sessionId })
+      sessionUsageSummaries.value = replaceMapEntry(sessionUsageSummaries.value, sessionId, summary)
+    } catch (error) {
+      console.warn(`[TokenStore] Failed to load session usage summary for ${sessionId}:`, error)
+    } finally {
+      const next = new Set(loadingSessionUsage.value)
+      next.delete(sessionId)
+      loadingSessionUsage.value = next
+    }
+  }
+
+  /**
+   * 取会话累计用量缓存。无缓存时触发后台加载（返回空汇总占位），下次访问即可命中。
+   */
+  function getSessionUsageSummary(sessionId: string): SessionUsageSummary {
+    const cached = sessionUsageSummaries.value.get(sessionId)
+    if (cached) {
+      return cached
+    }
+
+    void loadSessionUsageSummary(sessionId)
+    return buildEmptySessionUsageSummary()
+  }
+
+  /**
+   * 失效会话用量缓存（删除消息、压缩会话后调用，下次访问重新拉取）。
+   */
+  function invalidateSessionUsageSummary(sessionId: string) {
+    if (!sessionUsageSummaries.value.has(sessionId)) {
+      return
+    }
+    sessionUsageSummaries.value = deleteMapEntry(sessionUsageSummaries.value, sessionId)
   }
 
   return {
     realtimeTokens,
+    sessionUsageSummaries,
     getTokenUsage,
     getTokenUsageDetails,
     updateRealtimeTokens,
@@ -422,6 +514,10 @@ export const useTokenStore = defineStore('token', () => {
     hardClearSessionTokens,
     clearProjectSessionTokenCaches,
     restorePersistedSessionTokens,
+    setSessionSelectedModel,
+    getSessionUsageSummary,
+    loadSessionUsageSummary,
+    invalidateSessionUsageSummary,
     formatTokenCount
   }
 })

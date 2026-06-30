@@ -56,6 +56,8 @@ export interface ConversationContext {
   /** 工作目录 */
   workingDirectory?: string
   mcpServers?: McpServerConfig[]
+  /** 模型 ID 覆盖（缺省取 agent.modelId） */
+  modelId?: string
   executionMode?: 'chat' | 'task_split' | 'task_execution' | 'solo_execution'
   responseMode?: 'stream_text' | 'json_once'
   cliOutputFormat?: 'text' | 'json' | 'stream-json'
@@ -63,6 +65,10 @@ export interface ConversationContext {
   extraCliArgs?: string[]
   resumeSessionId?: string
   reasoningEffort?: ReasoningEffortLevel
+  /** 记忆库仓库运行时：是否向 ACP 会话注入内置 MCP 工具（查询对话历史）。 */
+  internalToolsEnabled?: boolean
+  /** 记忆库仓库 ID，决定内置工具查询的数据源范围（配合 internalToolsEnabled）。 */
+  repoId?: string
 }
 
 /**
@@ -81,6 +87,7 @@ export type StreamEventType =
   | 'usage'
   | 'system'
   | 'plan'
+  | 'available_commands'
   | 'permission_request'
 
 /**
@@ -168,6 +175,10 @@ export interface ExecutionRequest {
   responseMode?: 'stream_text' | 'json_once'
   resumeSessionId?: string
   reasoningEffort?: ReasoningEffortLevel
+  /** 记忆库仓库运行时：是否向 ACP 会话注入内置 MCP 工具（查询对话历史）。 */
+  internalToolsEnabled?: boolean
+  /** 记忆库仓库 ID，决定内置工具查询的数据源范围（配合 internalToolsEnabled）。 */
+  repoId?: string
 }
 
 export interface MessageInput {
@@ -181,7 +192,7 @@ export interface MessageInput {
  */
 export interface BackendStreamEvent {
   /** 事件类型 */
-  type: 'content' | 'tool_use' | 'tool_input_delta' | 'tool_result' | 'error' | 'done' | 'thinking' | 'thinking_start' | 'reasoning' | 'reasoning_start' | 'file_edit' | 'usage' | 'message_start' | 'system' | 'plan' | 'session_started' | 'permission_request' | 'context_window'
+  type: 'content' | 'tool_use' | 'tool_input_delta' | 'tool_result' | 'error' | 'done' | 'thinking' | 'thinking_start' | 'reasoning' | 'reasoning_start' | 'file_edit' | 'usage' | 'message_start' | 'system' | 'plan' | 'available_commands' | 'session_started' | 'permission_request' | 'context_window'
   /** 会话 ID */
   sessionId: string
   /** 回合 ID（与触发它的 user 消息共享） */
@@ -222,4 +233,56 @@ export interface PermissionOption {
   optionId: string
   name: string
   kind: string
+}
+
+/**
+ * ACP Agent 下发的可斜杠命令（`AvailableCommand` 的前端视图）。
+ *
+ * 后端序列化为 `{ name, description, hint }` 的 JSON 数组，通过
+ * `available_commands` 流事件下发，供 `/` 斜杠下拉合并为「Agent 命令」分组。
+ */
+export interface AvailableCommandInfo {
+  name: string
+  description: string
+  /** 输入提示（UnstructuredCommandInput.hint），可能为 null */
+  hint?: string | null
+}
+
+/**
+ * ACP Agent 支持的模型信息（`ModelInfo` 的前端视图）。
+ */
+export interface ModelInfo {
+  id: string
+  name: string
+  description?: string
+}
+
+/**
+ * ACP 会话模型状态（`SessionModelState` 的前端视图）。
+ */
+export interface SessionModels {
+  currentModelId?: string
+  models: ModelInfo[]
+}
+
+/** ACP 计划条目优先级 */
+export type AgentPlanPriority = 'high' | 'medium' | 'low'
+
+/** ACP 计划条目状态 */
+export type AgentPlanStatus = 'pending' | 'in_progress' | 'completed'
+
+/** ACP Agent Plan 条目（`PlanEntry` 的前端视图） */
+export interface AgentPlanEntry {
+  content: string
+  priority: AgentPlanPriority
+  status: AgentPlanStatus
+}
+
+/**
+ * ACP Agent Plan（`Plan` 的前端视图）。
+ *
+ * 协议语义为「全量替换」：每次更新即整份计划，前端整体替换即可。
+ */
+export interface AgentPlan {
+  entries: AgentPlanEntry[]
 }

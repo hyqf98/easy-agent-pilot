@@ -62,6 +62,13 @@ pub enum RecordableEvent {
         before_content: Option<String>,
         after_content: String,
     },
+    /// ACP Agent Plan（Agent 流式下发的计划/Todo 全量快照，JSON 字符串）。
+    ///
+    /// 同一回合内多次 Plan 更新 UPSERT 到同一行（UNIQUE(session_id, request_id)），
+    /// 只保留最后一份。
+    AgentPlan {
+        plan_json: String,
+    },
 }
 
 /// 一个用户回合（request_id）的事件落库服务对象。
@@ -163,6 +170,10 @@ impl MessageRecorder {
                     before_content.clone(),
                     after_content,
                 )
+            }
+            RecordableEvent::AgentPlan { plan_json } => {
+                self.finalize_open_segments()?;
+                self.insert_agent_plan(plan_json)
             }
         }
     }
@@ -362,6 +373,28 @@ impl MessageRecorder {
                 &now,
                 seq,
             ],
+        )?;
+        Ok(())
+    }
+
+    /// 写入 ACP Agent Plan 快照行。
+    ///
+    /// 以 (session_id, request_id) 为唯一键做 UPSERT：一个回合内 Agent 可能多次
+    /// 下发 Plan（全量替换语义），用最后一次（终态）覆盖。
+    fn insert_agent_plan(&self, plan_json: &str) -> Result<()> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let now = now_rfc3339();
+        let seq = self.next_seq();
+        let conn = open_db_connection()?;
+        conn.execute(
+            "INSERT INTO agent_plan_snapshots \
+             (id, session_id, request_id, plan_json, created_at, updated_at, seq) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
+             ON CONFLICT(session_id, request_id) DO UPDATE SET \
+              plan_json = excluded.plan_json, \
+              updated_at = excluded.updated_at, \
+              seq = excluded.seq",
+            params![&id, &self.session_id, &self.request_id, plan_json, &now, &now, seq],
         )?;
         Ok(())
     }

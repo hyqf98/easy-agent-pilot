@@ -6,15 +6,21 @@ import type { FileEditChangeType, FileEditTrace } from '@/types/fileTrace'
 export interface FileChangeSummaryBarProps {
   sessionId: string
   requestId: string
+  /** 可选：仅展示该工具调用产生的文件变更（嵌入工具气泡时按 toolCallId 精确过滤） */
+  toolCallId?: string
 }
 
 export function useFileChangeSummaryBar(props: FileChangeSummaryBarProps) {
   const { t } = useI18n()
   const fileChangeStore = useFileChangeStore()
 
-  const traces = computed<FileEditTrace[]>(() =>
-    fileChangeStore.getTracesForRequest(props.sessionId, props.requestId)
-  )
+  const traces = computed<FileEditTrace[]>(() => {
+    const requestTraces = fileChangeStore.getTracesForRequest(props.sessionId, props.requestId)
+    if (!props.toolCallId) {
+      return requestTraces
+    }
+    return requestTraces.filter(trace => trace.toolCallId === props.toolCallId)
+  })
 
   const visible = computed(() => traces.value.length > 0)
 

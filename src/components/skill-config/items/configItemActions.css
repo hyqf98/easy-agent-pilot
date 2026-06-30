@@ -1,0 +1,34 @@
+/**
+ * ConfigItem 共享操作按钮样式
+ *
+ * 供 SkillConfigItem / PluginConfigItem / McpConfigItem 复用，
+ * 仅包含三个组件中逐字一致的按钮（.btn-edit / .btn-delete）。
+ * 各组件独有的按钮（如 .btn-view / .btn-test）仍保留在各自的 *.css 中。
+ *
+ * 注意：这里的按钮颜色为刻意区分语义的固定值（蓝=编辑、红=删除），
+ * 与设计令牌体系外的视觉约定，故保留原始硬编码值不做令牌化。
+ */
+
+/* 编辑按钮 - 蓝色 */
+.btn-edit {
+  background: rgba(59, 130, 246, 0.1) !important;
+  color: #2563eb !important;
+  border: 1px solid rgba(59, 130, 246, 0.2) !important;
+}
+
+.btn-edit:hover {
+  background: rgba(59, 130, 246, 0.18) !important;
+  border-color: rgba(59, 130, 246, 0.36) !important;
+}
+
+/* 删除按钮 - 红色 */
+.btn-delete {
+  background: rgba(239, 68, 68, 0.1) !important;
+  color: #dc2626 !important;
+  border: 1px solid rgba(239, 68, 68, 0.2) !important;
+}
+
+.btn-delete:hover {
+  background: rgba(239, 68, 68, 0.18) !important;
+  border-color: rgba(239, 68, 68, 0.36) !important;
+}

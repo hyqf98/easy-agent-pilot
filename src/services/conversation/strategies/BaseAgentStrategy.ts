@@ -214,7 +214,10 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
       executionMode: context.executionMode,
       responseMode: context.responseMode,
       resumeSessionId: context.resumeSessionId,
-      reasoningEffort: context.reasoningEffort
+      reasoningEffort: context.reasoningEffort,
+      modelId: context.modelId,
+      internalToolsEnabled: context.internalToolsEnabled,
+      repoId: context.repoId
     })
   }
 
@@ -312,6 +315,12 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
       case 'plan':
         return {
           type: 'plan',
+          content: event.content,
+          ...baseEvent
+        }
+      case 'available_commands':
+        return {
+          type: 'available_commands',
           content: event.content,
           ...baseEvent
         }

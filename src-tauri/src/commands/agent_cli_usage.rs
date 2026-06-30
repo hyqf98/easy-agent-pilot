@@ -90,6 +90,20 @@ pub struct AgentCliUsageSummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// 单个会话的累计用量汇总（输入/输出/缓存 token 与调用次数）。
+///
+/// 用于消息输入框上下文进度环浮层展示会话级累计用量。
+pub struct SessionUsageSummary {
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_input_tokens: i64,
+    pub cache_creation_input_tokens: i64,
+    pub total_tokens: i64,
+    pub call_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 /// 时间趋势图中的单个聚合点。
 pub struct AgentCliUsageTimelinePoint {
     pub bucket: String,
@@ -1001,6 +1015,42 @@ pub fn repair_agent_cli_usage_history(
     }
 
     repair_claude_usage_history(&conn)
+}
+
+/// 查询单个会话的累计用量汇总（输入/输出/缓存 token 与调用次数）。
+///
+/// 用途：为消息输入框上下文进度环浮层提供会话级累计用量指标。
+/// 关键副作用：无，仅执行只读查询。
+#[tauri::command]
+pub fn query_session_usage_summary(
+    session_id: String,
+) -> Result<SessionUsageSummary, String> {
+    let conn = open_db_connection().map_err(|error| error.to_string())?;
+    conn.query_row(
+        r#"
+        SELECT
+            COALESCE(SUM(input_tokens), 0),
+            COALESCE(SUM(output_tokens), 0),
+            COALESCE(SUM(total_tokens), 0),
+            COALESCE(SUM(cache_read_input_tokens), 0),
+            COALESCE(SUM(cache_creation_input_tokens), 0),
+            COALESCE(SUM(call_count), 0)
+        FROM agent_cli_usage_records
+        WHERE session_id = ?1
+        "#,
+        [&session_id],
+        |row| {
+            Ok(SessionUsageSummary {
+                input_tokens: row.get(0)?,
+                output_tokens: row.get(1)?,
+                total_tokens: row.get(2)?,
+                cache_read_input_tokens: row.get(3)?,
+                cache_creation_input_tokens: row.get(4)?,
+                call_count: row.get(5)?,
+            })
+        },
+    )
+    .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]

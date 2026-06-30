@@ -344,8 +344,6 @@
   overflow-x: hidden;
   overflow-y: auto;
   box-sizing: border-box;
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb, var(--color-border)) var(--scrollbar-track, transparent);
 }
 
 .tab-content--sessions {
@@ -376,25 +374,6 @@
   border-color: var(--color-border);
   background: var(--color-surface-hover);
   color: var(--color-text-primary);
-}
-
-.tab-content::-webkit-scrollbar {
-  width: var(--scrollbar-size, 6px);
-}
-
-.tab-content::-webkit-scrollbar-track {
-  background: var(--scrollbar-track, transparent);
-}
-
-.tab-content::-webkit-scrollbar-thumb {
-  background-color: var(--scrollbar-thumb, var(--color-border));
-  border-radius: var(--radius-full, 9999px);
-  border: 1px solid transparent;
-  background-clip: padding-box;
-}
-
-.tab-content::-webkit-scrollbar-thumb:hover {
-  background-color: var(--scrollbar-thumb-hover, var(--color-text-tertiary));
 }
 
 .tab-content--files {

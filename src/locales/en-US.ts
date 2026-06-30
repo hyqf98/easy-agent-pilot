@@ -401,6 +401,9 @@ export default {
     stop: 'Stop generating',
     stopped: 'Stopped',
     retry: 'Retry',
+    edit: 'Edit',
+    send: 'Send',
+    editCancel: 'Cancel',
     loadingMore: 'Loading history...',
     scrollUpLoadMore: 'Scroll up to load more messages',
     composerHint: "Supports files, {'@'}files, /commands",
@@ -451,6 +454,11 @@ export default {
       newUsage: 'Usage: /new [message]',
       planDesc: 'Send a message in plan mode (read-only), analyze without making changes',
       planUsage: 'Usage: /plan <message>',
+      modelDesc: 'Select the model used by the current agent',
+      modelUsage: 'Usage: /model',
+      agentGroup: 'Agent Commands',
+      agentCommandDesc: 'Command provided by the current agent',
+      agentCommandUsage: 'Usage: /<command> <args>',
       builtinGroup: 'Built-in Commands',
       pluginGroup: 'Plugin / Extension Commands'
     },
@@ -459,6 +467,27 @@ export default {
       hint: 'Responses are read-only. Type to refine the plan.',
       execute: 'Execute Plan',
       cancel: 'Exit'
+    },
+    agentPlan: {
+      title: 'Agent Plan',
+      empty: 'No agent plan for this session yet.',
+      progress: '{completed}/{total} done',
+      toggle: 'Plan',
+      minimize: 'Minimize',
+      close: 'Close',
+      ready: 'Plan is ready',
+      execute: 'Start execution',
+      modify: 'Keep editing',
+      status: {
+        pending: 'Pending',
+        in_progress: 'In Progress',
+        completed: 'Completed'
+      },
+      priority: {
+        high: 'High',
+        medium: 'Medium',
+        low: 'Low'
+      }
     },
     thinking: 'Thinking',
     toolCall: 'Tool Call',
@@ -496,12 +525,23 @@ export default {
       assistantError: 'Generation failed',
       assistantCompleted: 'Completed'
     },
+    // 分割线（回合状态机）文案
+    workDivider: {
+      working: 'Working',
+      completed: 'Work done',
+      interrupted: 'Interrupted',
+      failed: 'Failed'
+    },
     // Empty state
     emptyWelcome: 'Welcome to Easy Agent Pilot',
     emptyHint: 'Type your question in the input box below to start chatting with AI',
     emptyTip1: 'Press Enter to send, Shift+Enter for new line',
     emptyTip2: 'Use the left panel to switch projects or sessions',
     scrollToBottom: 'Scroll to bottom'
+  },
+  // 输入框（会话编辑器）
+  composer: {
+    selectClient: 'Select client'
   },
 
   // Settings navigation
@@ -1807,6 +1847,30 @@ export default {
     }
   },
 
+  memoryRepo: {
+    title: 'Memory Repos',
+    create: 'New Repo',
+    migrate: 'Migrate Legacy',
+    migrateDone: 'Migration done',
+    empty: 'No memory repos yet. Click "New Repo" to start.',
+    placeholder: 'Select a memory repo from the left, or create a new one.',
+    confirmDelete: 'Delete this memory repo? Its on-disk directory will be removed too.',
+    noFiles: 'No files in this repo yet',
+    editPlaceholder: 'Edit file content here',
+    phase1Hint: 'Repos are stored as standard Skills packages on disk. Files can be viewed/edited directly; AI summarization and scheduled tasks arrive in later phases.',
+    runNow: 'Summarize now',
+    running: 'Summarizing…',
+    output: 'Output',
+    noAgentBound: 'Bind an execution Agent first',
+    internalToolsOff: 'Internal tools disabled (enable in edit to query conversation history)',
+    sourcesHint: 'Configure the query scope for the built-in tool query_conversation_history. Empty means unlimited; the AI call is clamped to this scope.',
+    clearScope: 'Clear scope',
+    jobsHint: 'Scheduled jobs are triggered by an independent scheduler while the app runs. On due time or manual run-now, the frontend takes over execution (same flow as summarization) and records the result.',
+    export: 'Export as Skills package',
+    exportTitle: 'Choose export directory',
+    exportDone: 'Export done'
+  },
+
   taskBoard: {
     title: 'Task Board',
     emptyNoPlan: 'Select a plan first',
@@ -2297,5 +2361,9 @@ Rules:
     high: 'High',
     xhigh: 'Extra High',
     max: 'Max'
+  },
+
+  plan: {
+    executePrompt: 'Please start executing the plan above.'
   }
 }

@@ -1,0 +1,102 @@
+.repo-sources-tab {
+  padding: var(--spacing-5, 20px) var(--spacing-6, 24px);
+  max-width: 900px;
+}
+
+.repo-sources-tab__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3, 12px);
+}
+
+.repo-sources-tab__title {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2, 8px);
+  margin: 0;
+  font-size: var(--font-size-base, 14px);
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--color-text-primary, #1f2937);
+}
+
+.repo-sources-tab__desc {
+  margin: 0;
+  font-size: var(--font-size-sm, 13px);
+  color: var(--color-text-secondary, #6b7280);
+  line-height: 1.5;
+}
+
+.repo-sources-tab__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1, 4px);
+}
+
+.repo-sources-tab__label {
+  font-size: var(--font-size-xs, 12px);
+  font-weight: var(--font-weight-medium, 500);
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.repo-sources-tab__empty {
+  font-size: var(--font-size-xs, 12px);
+  color: var(--color-text-tertiary, #9ca3af);
+  padding: var(--spacing-2, 8px) 0;
+}
+
+.repo-sources-tab__checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2, 8px) var(--spacing-4, 16px);
+  padding: var(--spacing-2, 8px) 0;
+}
+
+.repo-sources-tab__check {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2, 8px);
+  font-size: var(--font-size-sm, 13px);
+  color: var(--color-text-primary, #1f2937);
+  cursor: pointer;
+}
+
+.repo-sources-tab__check input[type='checkbox'] {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
+.repo-sources-tab__row {
+  display: flex;
+  gap: var(--spacing-3, 12px);
+  flex-wrap: wrap;
+}
+
+.repo-sources-tab__row > .repo-sources-tab__field {
+  flex: 1;
+  min-width: 160px;
+}
+
+.repo-sources-tab__input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--spacing-2, 8px) var(--spacing-3, 12px);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-bg, #fff);
+  color: var(--color-text-primary, #1f2937);
+  font-size: var(--font-size-sm, 13px);
+  font-family: inherit;
+}
+
+.repo-sources-tab__input:focus {
+  outline: none;
+  border-color: var(--color-primary, #3b82f6);
+  box-shadow: 0 0 0 2px var(--color-primary-alpha, rgba(59, 130, 246, 0.15));
+}
+
+.repo-sources-tab__actions {
+  display: flex;
+  gap: var(--spacing-2, 8px);
+  margin-top: var(--spacing-1, 4px);
+}

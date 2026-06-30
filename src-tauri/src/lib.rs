@@ -1,12 +1,22 @@
 mod commands;
 mod database;
 mod logging;
+mod mcp_server;
 mod scheduler;
 mod unattended;
 
 fn log_bootstrap_error(tag: &str, message: &str) {
     eprintln!("{}: {}", tag, message);
     crate::logging::write_log("ERROR", "bootstrap", &format!("{}: {}", tag, message));
+}
+
+/// 以 stdio MCP server 模式运行（自重入入口）。
+///
+/// 当应用以 `--mcp-stdio [--repo <id>]` 启动时由 `main.rs` 调用：不启动 GUI，
+/// 而是作为 ACP 会话的内置 MCP server 子进程，暴露对话历史查询工具。返回时进程应退出。
+pub async fn run_mcp_server(argv: &[String]) -> Result<(), String> {
+    mcp_server::try_run_as_mcp_server(argv).await?;
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -68,12 +78,14 @@ pub fn run() {
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 scheduler::restore_scheduled_plans(&app_handle).await;
+                scheduler::memory_scheduler::restore_memory_jobs(&app_handle).await;
                 if let Err(error) = unattended::runtime::restore_runtime(&app_handle).await {
                     log_bootstrap_error("Unattended", &format!("Failed to restore unattended runtime: {}", error));
                 }
 
                 // 启动后台调度器（需要在 Tokio 运行时上下文中）
-                scheduler::start_scheduler(app_handle);
+                scheduler::start_scheduler(app_handle.clone());
+                scheduler::memory_scheduler::start_memory_scheduler(app_handle);
             });
 
             Ok(())
@@ -144,6 +156,7 @@ pub fn run() {
             commands::file_change::list_file_change_traces,
             commands::file_change::update_file_change_status,
             commands::file_change::rollback_file_change,
+            commands::agent_plan::list_agent_plans,
             commands::session::list_sessions,
             commands::session::create_session,
             commands::session::update_session,
@@ -157,6 +170,7 @@ pub fn run() {
             commands::message::update_message,
             commands::message::update_message_fields,
             commands::message::delete_message,
+            commands::message::delete_messages_after,
             commands::message::clear_session_messages,
             commands::message::upload_session_images,
             commands::message::resolve_uploaded_image_preview,
@@ -193,6 +207,7 @@ pub fn run() {
             commands::sub_agent::clear_sub_agent_files,
             commands::agent_cli_usage::record_agent_cli_usage,
             commands::agent_cli_usage::query_agent_cli_usage_stats,
+            commands::agent_cli_usage::query_session_usage_summary,
             commands::agent_cli_usage::repair_agent_cli_usage_history,
             // Agent MCP Config commands
             commands::agent_config::list_agent_mcp_configs,
@@ -380,6 +395,25 @@ pub fn run() {
             commands::memory::record_session_memory_references,
             commands::memory::list_memory_merge_runs,
             commands::memory::merge_raw_memories_into_library,
+            // Memory repo commands
+            commands::memory_repo::list_memory_repos,
+            commands::memory_repo::get_memory_repo,
+            commands::memory_repo::create_memory_repo,
+            commands::memory_repo::update_memory_repo,
+            commands::memory_repo::delete_memory_repo,
+            commands::memory_repo::scan_memory_repo_files,
+            commands::memory_repo::list_memory_repo_sources,
+            commands::memory_repo::upsert_memory_repo_source,
+            commands::memory_repo::migrate_legacy_memory_libraries,
+            commands::memory_repo::export_memory_repo,
+            // Memory job commands
+            commands::memory_job::list_memory_jobs,
+            commands::memory_job::create_memory_job,
+            commands::memory_job::update_memory_job,
+            commands::memory_job::delete_memory_job,
+            commands::memory_job::trigger_memory_job,
+            commands::memory_job::list_memory_job_runs,
+            commands::memory_job::record_memory_job_run,
             // App State commands
             commands::app_state::get_app_state,
             commands::app_state::set_app_state,

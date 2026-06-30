@@ -84,7 +84,9 @@ which = "7"
 futures = "0.3"
 
 # ACP (Agent Client Protocol)
-agent-client-protocol = { version = "0.11", features = ["unstable_session_usage"] }
+# unstable_session_usage: 读取 prompt 用量（input/output/cache tokens）
+# unstable_session_model: 读取 NewSessionResponse.models 发现 Agent 支持的模型清单
+agent-client-protocol = { version = "0.11", features = ["unstable_session_usage", "unstable_session_model"] }
 agent-client-protocol-tokio = "0.11"
 
 # MCP SDK (官方 Rust 实现)
@@ -111,6 +113,9 @@ windows-sys = { version = "0.59", features = [
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"
 core-graphics = "0.25"
+
+[dev-dependencies]
+tempfile = "3"
 
 [profile.dev]
 # Keep local debugging usable, but avoid huge symbol files in repeated tauri dev rebuilds.

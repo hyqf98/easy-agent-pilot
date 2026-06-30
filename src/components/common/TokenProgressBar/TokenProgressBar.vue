@@ -15,8 +15,7 @@ const {
   ringProgressStyle,
   levelClass,
   summaryText,
-  usageSegments,
-  detailRows,
+  usageMetrics,
   popoverStyle,
   handleMouseEnter,
   handleMouseLeave,
@@ -76,48 +75,18 @@ const {
             />
           </div>
 
-          <div
-            v-if="usageSegments.length > 0"
-            class="token-progress__segments"
-          >
-            <div class="token-progress__segment-bar">
-              <span
-                v-for="segment in usageSegments"
-                :key="segment.key"
-                class="token-progress__segment-fill"
-                :class="`token-progress__segment-fill--${segment.key}`"
-                :style="{ width: segment.width }"
-              />
-            </div>
-            <div class="token-progress__segment-list">
-              <div
-                v-for="segment in usageSegments"
-                :key="segment.key"
-                class="token-progress__segment-row"
-              >
-                <span
-                  class="token-progress__segment-dot"
-                  :class="`token-progress__segment-dot--${segment.key}`"
-                />
-                <span class="token-progress__segment-label">{{ segment.label }}</span>
-                <span class="token-progress__segment-value">{{ segment.percent < 1 && segment.percent > 0 ? segment.percent.toFixed(1) : Math.round(segment.percent) }}%</span>
-              </div>
-            </div>
-          </div>
-
           <div class="token-progress__rows">
-            <div
-              v-for="row in detailRows"
-              :key="row.label"
-              class="token-progress__row"
-            >
-              <span class="token-progress__row-label">{{ row.label }}</span>
-              <span
-                class="token-progress__row-value"
-                :class="{ 'token-progress__row-value--mono': row.mono }"
-              >
-                {{ row.value }}
-              </span>
+            <div class="token-progress__row">
+              <span class="token-progress__row-label">输入 token</span>
+              <span class="token-progress__row-value token-progress__row-value--mono">{{ usageMetrics.inputLabel }}</span>
+            </div>
+            <div class="token-progress__row">
+              <span class="token-progress__row-label">输出 token</span>
+              <span class="token-progress__row-value token-progress__row-value--mono">{{ usageMetrics.outputLabel }}</span>
+            </div>
+            <div class="token-progress__row">
+              <span class="token-progress__row-label">缓存命中率</span>
+              <span class="token-progress__row-value token-progress__row-value--mono">{{ usageMetrics.cacheHitRateLabel }}</span>
             </div>
           </div>
         </div>

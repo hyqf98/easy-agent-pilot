@@ -64,18 +64,4 @@
   gap: var(--spacing-3, 0.75rem);
   padding: var(--spacing-3, 0.75rem);
   overflow-x: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb, var(--color-border, #e2e8f0)) var(--scrollbar-track, transparent);
-}
-.board-columns::-webkit-scrollbar {
-  height: var(--scrollbar-size, 6px);
-}
-.board-columns::-webkit-scrollbar-track {
-  background: var(--scrollbar-track, transparent);
-}
-.board-columns::-webkit-scrollbar-thumb {
-  background-color: var(--scrollbar-thumb, var(--color-border, #e2e8f0));
-  border-radius: var(--radius-full, 9999px);
-  border: 1px solid transparent;
-  background-clip: padding-box;
 }

@@ -1,6 +1,6 @@
 .file-change-summary {
-  width: var(--message-compact-max-width, min(100%, 720px));
-  min-width: var(--message-min-width, 280px);
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
   display: flex;
   flex-direction: column;

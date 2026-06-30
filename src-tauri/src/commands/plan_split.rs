@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Listener, Event};
 
 use super::conversation::abort::get_abort_flag;
 use super::conversation::executor::{get_registry, is_execution_session_active_internal};
@@ -14,7 +14,7 @@ use super::conversation::set_abort_flag;
 use super::conversation::strategies::{
     classify_cli_completion, CliTextFragment, CliTextSource, lookup_claude_tool_use_usage,
 };
-use super::conversation::types::{ExecutionRequest, MessageInput};
+use super::conversation::types::{ExecutionRequest, MessageInput, StreamEvent};
 use super::message::MessageAttachment;
 use super::support::{now_rfc3339, open_db_connection};
 
@@ -1553,6 +1553,32 @@ pub fn mark_plan_split_failed(
     Ok(())
 }
 
+/// 把 ACP 策略在 `acp-stream-{sessionId}` 上发出的 `StreamEvent` 映射为
+/// `SplitStreamRecord`，供 `record_plan_split_event` 落库并转发到
+/// `plan-split-stream-{planId}`。
+///
+/// 字段一一对应；`StreamEvent` 独有的 `request_id` / `permission_options` /
+/// `file_edit` 在计划拆分流式场景不参与解析，这里有意忽略。
+fn stream_event_to_split_record(event: &StreamEvent) -> SplitStreamRecord {
+    SplitStreamRecord {
+        event_type: event.event_type.clone(),
+        content: event.content.clone(),
+        tool_name: event.tool_name.clone(),
+        tool_call_id: event.tool_call_id.clone(),
+        tool_input: event.tool_input.clone(),
+        tool_result: event.tool_result.clone(),
+        error: event.error.clone(),
+        input_tokens: event.input_tokens,
+        output_tokens: event.output_tokens,
+        raw_input_tokens: event.raw_input_tokens,
+        raw_output_tokens: event.raw_output_tokens,
+        cache_read_input_tokens: event.cache_read_input_tokens,
+        cache_creation_input_tokens: event.cache_creation_input_tokens,
+        model: event.model.clone(),
+        external_session_id: event.external_session_id.clone(),
+    }
+}
+
 fn run_split_turn(app: AppHandle, request: ExecutionRequest) {
     tauri::async_runtime::spawn(async move {
         let plan_id = match request.plan_id.clone() {
@@ -1577,7 +1603,53 @@ fn run_split_turn(app: AppHandle, request: ExecutionRequest) {
         )
         .await;
 
+        // 桥接 ACP 流式事件：ACP 策略把 content/thinking/tool_use/done 等事件发到
+        // `acp-stream-{sessionId}`，而前端计划拆分面板监听的是
+        // `plan-split-stream-{planId}`。这里订阅 ACP 通道，把每个事件转成
+        // `SplitStreamRecord` 后交给 `record_plan_split_event`（它会落库 +
+        // 重新发到 `plan-split-stream-{planId}` + 解析 form_request/task_split +
+        // done 时收尾会话）。落库是同步 DB I/O，放到 spawn_blocking 避免阻塞事件循环。
+        let acp_event_name = format!("acp-stream-{session_id}");
+        let listener_app = app.clone();
+        let listener_plan_id = plan_id.clone();
+        let listener_session_id = session_id.clone();
+        let handler_app = listener_app.clone();
+        let event_id = listener_app.listen(
+            acp_event_name.as_str(),
+            move |event: Event| {
+                let payload: StreamEvent = match serde_json::from_str(event.payload()) {
+                    Ok(value) => value,
+                    Err(_) => return,
+                };
+                let record = stream_event_to_split_record(&payload);
+                let app_for_record = handler_app.clone();
+                let plan_id_for_record = listener_plan_id.clone();
+                let session_id_for_record = listener_session_id.clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    if let Err(error) = record_plan_split_event(
+                        &app_for_record,
+                        &plan_id_for_record,
+                        &session_id_for_record,
+                        record,
+                    ) {
+                        crate::logging::write_log(
+                            "WARN",
+                            "plan_split",
+                            &format!(
+                                "record_plan_split_event failed | plan_id={} | session_id={} | {}",
+                                plan_id_for_record, session_id_for_record, error
+                            ),
+                        );
+                    }
+                });
+            },
+        );
+
         let result = registry.execute(app.clone(), request.clone()).await;
+
+        // 执行结束（成功/失败/被取消）后注销监听，避免残留监听器重复处理后续事件
+        app.unlisten(event_id);
+
         if let Err(error) = result {
             let _ = mark_plan_split_failed(&app, &plan_id, &session_id, &error.to_string());
         }

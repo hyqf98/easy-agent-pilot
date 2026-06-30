@@ -30,10 +30,13 @@ export interface MessageListProps {
   hideContextStrategyNotice?: boolean
   topSafeInset?: number
   forceScrollToBottomToken?: number
+  /** 计划模式 + 浮动面板展示时，隐藏最新一条 assistant text（PRD 文档），避免与面板重复 */
+  hideLatestPlanDoc?: boolean
 }
 
 export interface MessageListEmits {
   (event: 'retry', message: Message): void
+  (event: 'edit', message: Message, content: string): void
   (event: 'formSubmit', formId: string, values: Record<string, unknown>, assistantMessageId?: string): void
   (event: 'openEditTrace', messageId: string, traceId: string): void
   (event: 'stop', message: Message): void
@@ -108,7 +111,25 @@ export function useMessageList(props: MessageListProps, emit: MessageListEmits) 
       return []
     }
 
-    return messageStore.messagesBySession(resolvedSessionId.value)
+    const messages = messageStore.messagesBySession(resolvedSessionId.value)
+    // 计划模式 + 浮动面板展示时，隐藏最新一条 assistant text（PRD 文档），避免与面板重复
+    if (!props.hideLatestPlanDoc) {
+      return messages
+    }
+    const result = [...messages]
+    for (let i = result.length - 1; i >= 0; i -= 1) {
+      const msg = result[i]
+      if (
+        msg.role === 'assistant'
+        && msg.messageType === 'text'
+        && msg.content
+        && msg.content.trim().length > 0
+      ) {
+        result.splice(i, 1)
+        break
+      }
+    }
+    return result
   })
 
   const currentIsSending = computed(() => {
@@ -689,6 +710,10 @@ export function useMessageList(props: MessageListProps, emit: MessageListEmits) 
     emit('retry', message)
   }
 
+  function handleEdit(message: Message, content: string) {
+    emit('edit', message, content)
+  }
+
   function handleFormSubmit(
     formId: string,
     values: Record<string, unknown>,
@@ -920,6 +945,7 @@ export function useMessageList(props: MessageListProps, emit: MessageListEmits) 
     listStyle,
     bindMessageElement,
     handleRetry,
+    handleEdit,
     handleFormSubmit,
     handleOpenEditTrace,
     handleStop,

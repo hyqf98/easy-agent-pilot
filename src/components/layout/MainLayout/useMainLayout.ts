@@ -1,7 +1,9 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useLayoutStore } from '@/stores/layout'
 import { useUIStore } from '@/stores/ui'
 import { useProjectStore, type Project } from '@/stores/project'
+import { useRightFilePanelStore } from '@/stores/rightFilePanel'
 import { useSplitPaneStore } from '@/stores/splitPane'
 import WorkspaceShell from '../WorkspaceShell/WorkspaceShell.vue'
 import BottomTerminalPanel from '../BottomTerminalPanel/BottomTerminalPanel.vue'
@@ -10,7 +12,7 @@ import SessionTabs from '../SessionTabs/SessionTabs.vue'
 import MessageArea from '../messageArea/MessageArea/MessageArea.vue'
 import { SplitContainer } from '../splitPane'
 import { PlanModePanel } from '@/components/plan'
-import { MemoryModePanel } from '@/components/memory'
+import { MemoryRepoPanel } from '@/components/memory'
 import { SoloModePanel } from '@/components/solo'
 import { SettingsShell } from '@/components/settings'
 import { FileTree, refreshProjectFileTreeView } from '@/components/fileTree'
@@ -35,12 +37,15 @@ const splitPaneStore = useSplitPaneStore()
 const terminalStore = useTerminalStore()
 const sessionStore = useSessionStore()
 const fileChangeStore = useFileChangeStore()
+const rightFilePanelStore = useRightFilePanelStore()
+// 通过 storeToRefs 取响应式 ref，避免在 return 时传裸值丢失响应性
+const {
+  isRightFilePanelOpen,
+  rightDockWidth,
+  rightTreeWidth
+} = storeToRefs(rightFilePanelStore)
 
-const rightFileProjectId = ref<string | null>(null)
-const isRightFilePanelOpen = ref(false)
 const isRightTerminalVisible = ref(false)
-const rightDockWidth = ref(720)
-const rightTreeWidth = ref(220)
 const resizeTarget = ref<'rightDock' | 'rightTree' | null>(null)
 
 let resizeStartX = 0
@@ -48,7 +53,7 @@ let resizeStartWidth = 0
 let resizeTimeout: ReturnType<typeof setTimeout> | null = null
 
 const rightFileProject = computed(() => (
-  projectStore.projects.find(project => project.id === rightFileProjectId.value) ?? null
+  projectStore.projects.find(project => project.id === rightFilePanelStore.rightFileProjectId) ?? null
 ))
 
 const isFileWorkspaceActive = computed(() => (
@@ -64,9 +69,8 @@ watch(() => fileChangeStore.activeReviewRequestId, (requestId) => {
   }
   const session = sessionStore.currentSession
   if (session?.projectId) {
-    rightFileProjectId.value = session.projectId
+    rightFilePanelStore.openForProject(session.projectId)
   }
-  isRightFilePanelOpen.value = true
   uiStore.setMainContentMode('fileDiff')
 })
 
@@ -85,8 +89,7 @@ const handleWindowResize = () => {
 }
 
 async function handleOpenProjectFiles(project: Project) {
-  rightFileProjectId.value = project.id
-  isRightFilePanelOpen.value = true
+  rightFilePanelStore.openForProject(project.id)
   projectStore.setCurrentProject(project.id)
   uiStore.setAppMode('chat')
   await projectStore.refreshFileTree(project.id, project.path)
@@ -108,14 +111,8 @@ async function handleRightFileSelect(filePath: string) {
 }
 
 function closeRightFilePanel() {
-  isRightFilePanelOpen.value = false
+  rightFilePanelStore.close()
   isRightTerminalVisible.value = false
-  if (isFileWorkspaceActive.value) {
-    uiStore.setMainContentMode('chat')
-  }
-  if (fileChangeStore.activeReviewRequestId) {
-    fileChangeStore.closeReview()
-  }
 }
 
 async function toggleRightTerminal() {
@@ -137,19 +134,19 @@ function handleResizeMove(event: MouseEvent) {
 
   const deltaX = event.clientX - resizeStartX
   if (resizeTarget.value === 'rightDock') {
-    rightDockWidth.value = clamp(
+    rightFilePanelStore.setDockWidth(clamp(
       resizeStartWidth - deltaX,
       RIGHT_DOCK_MIN_WIDTH,
       Math.min(RIGHT_DOCK_MAX_WIDTH, Math.floor(window.innerWidth * 0.68))
-    )
+    ))
     return
   }
 
-  rightTreeWidth.value = clamp(
+  rightFilePanelStore.setTreeWidth(clamp(
     resizeStartWidth + deltaX,
     RIGHT_TREE_MIN_WIDTH,
-    Math.min(RIGHT_TREE_MAX_WIDTH, Math.floor(rightDockWidth.value * 0.48))
-  )
+    Math.min(RIGHT_TREE_MAX_WIDTH, Math.floor(rightFilePanelStore.rightDockWidth * 0.48))
+  ))
 }
 
 function stopResize() {
@@ -157,6 +154,9 @@ function stopResize() {
     return
   }
 
+  if (resizeTarget.value === 'rightDock') {
+    rightFilePanelStore.setDockResizing(false)
+  }
   resizeTarget.value = null
   document.body.style.cursor = ''
   document.body.style.userSelect = ''
@@ -167,7 +167,10 @@ function stopResize() {
 function startResize(target: 'rightDock' | 'rightTree', event: MouseEvent) {
   resizeTarget.value = target
   resizeStartX = event.clientX
-  resizeStartWidth = target === 'rightDock' ? rightDockWidth.value : rightTreeWidth.value
+  resizeStartWidth = target === 'rightDock' ? rightFilePanelStore.rightDockWidth : rightFilePanelStore.rightTreeWidth
+  if (target === 'rightDock') {
+    rightFilePanelStore.setDockResizing(true)
+  }
   document.body.style.cursor = 'col-resize'
   document.body.style.userSelect = 'none'
   document.addEventListener('mousemove', handleResizeMove, { passive: true })
@@ -214,7 +217,7 @@ watch(
     MessageArea,
     SplitContainer,
     PlanModePanel,
-    MemoryModePanel,
+    MemoryRepoPanel,
     SoloModePanel,
     SettingsShell,
     FileTree,

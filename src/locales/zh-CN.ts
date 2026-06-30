@@ -316,6 +316,9 @@ const zhCN = {
     stop: '停止生成',
     stopped: '已停止',
     retry: '重试',
+    edit: '编辑',
+    send: '发送',
+    editCancel: '取消',
     loadingMore: '加载更多历史消息...',
     scrollUpLoadMore: '向上滚动加载更多消息',
     composerHint: "支持附件、{'@'}文件、/命令",
@@ -366,6 +369,11 @@ const zhCN = {
       newUsage: '用法：/new [消息内容]',
       planDesc: '以计划模式（只读）发送消息，仅分析不执行修改',
       planUsage: '用法：/plan <消息内容>',
+      modelDesc: '选择当前智能体使用的模型',
+      modelUsage: '用法：/model',
+      agentGroup: 'Agent 命令',
+      agentCommandDesc: '由当前 Agent 提供的命令',
+      agentCommandUsage: '用法：/<命令> <参数>',
       builtinGroup: '内置命令',
       pluginGroup: '插件/扩展命令'
     },
@@ -374,6 +382,27 @@ const zhCN = {
       hint: '回复为只读，继续输入可调整计划。',
       execute: '执行计划',
       cancel: '退出'
+    },
+    agentPlan: {
+      title: 'Agent 计划',
+      empty: '当前会话还没有 Agent 计划。',
+      progress: '已完成 {completed}/{total}',
+      toggle: '计划',
+      minimize: '缩小',
+      close: '关闭',
+      ready: '计划已就绪',
+      execute: '开始执行',
+      modify: '继续修改',
+      status: {
+        pending: '待办',
+        in_progress: '进行中',
+        completed: '已完成'
+      },
+      priority: {
+        high: '高',
+        medium: '中',
+        low: '低'
+      }
     },
     emptyWelcome: '欢迎使用 Easy Agent Pilot',
     emptyHint: '在下方输入框中开始与 AI 对话',
@@ -414,7 +443,18 @@ const zhCN = {
       assistantStopped: '已停止',
       assistantError: '生成失败',
       assistantCompleted: '已完成'
+    },
+    // 分割线（回合状态机）文案
+    workDivider: {
+      working: '正在工作',
+      completed: '工作完成',
+      interrupted: '工作已中断',
+      failed: '工作失败'
     }
+  },
+  // 输入框（会话编辑器）
+  composer: {
+    selectClient: '选择客户端'
   },
   // 设置页面翻译
   settings: {
@@ -1371,6 +1411,31 @@ const zhCN = {
     }
   },
 
+  memoryRepo: {
+    ...enUS.memoryRepo,
+    title: '记忆库仓库',
+    create: '新建仓库',
+    migrate: '迁移旧库',
+    migrateDone: '迁移完成',
+    empty: '还没有记忆库仓库，点击「新建仓库」开始。',
+    placeholder: '从左侧选择一个记忆库仓库，或新建一个。',
+    confirmDelete: '确定删除这个记忆库仓库吗？磁盘目录也会一并移除。',
+    noFiles: '仓库内暂无文件',
+    editPlaceholder: '在此编辑文件内容',
+    phase1Hint: '仓库以磁盘标准 Skills 包存储。文件可直接查看/编辑；AI 归纳与定时任务将在后续阶段接入。',
+    runNow: '立即归纳',
+    running: '归纳中…',
+    output: '输出',
+    noAgentBound: '请先绑定执行 Agent',
+    internalToolsOff: '内置工具未启用（可在编辑里开启以查询对话历史）',
+    sourcesHint: '配置内置工具 query_conversation_history 的查询范围。留空表示不限；AI 调用时会按此范围做上界裁剪。',
+    clearScope: '清空范围',
+    jobsHint: '定时任务由独立调度器在应用运行时触发。到期或手动「立即运行」后，前端接管执行（复用归纳流程）并回写结果。',
+    export: '导出为 Skills 包',
+    exportTitle: '选择导出目录',
+    exportDone: '导出完成'
+  },
+
   taskBoard: {
     title: '任务看板',
     emptyNoPlan: '请先选择一个计划',
@@ -1883,6 +1948,10 @@ const zhCN = {
     high: '高',
     xhigh: '极高',
     max: '最大'
+  },
+
+  plan: {
+    executePrompt: '请按照上述计划开始执行。'
   }
 }
 

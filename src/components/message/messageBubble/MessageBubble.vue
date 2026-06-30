@@ -42,29 +42,36 @@ const {
   isSystemStatus,
   isTokenOnlyMessage,
   isStreaming,
-  isCurrentStreamingMessage,
   isError,
-  isInterrupted,
-  canRetryCurrentAssistant,
-  canRetryCurrentUser,
-  isAutoRetryPending,
-  formattedTime,
+  isUserTurnActive,
+  canRetryUserMessage,
+  canEditUserMessage,
+  isEditing,
+  editContent,
+  editTextareaRef,
   userFormResponseDisplay,
   processedUserMessage,
   hasUserText,
-  statusInfo,
-  assistantStatusInfo,
-  assistantElapsedLabel,
   shouldShowRuntimeNotices,
   displayRuntimeNotices,
-  hasFileChanges,
+  hasToolCallFileChanges,
+  shouldShowWorkDivider,
+  workDividerLabel,
+  workDividerIcon,
+    workDividerStatusClass,
+    workDurationLabel,
   errorMessage,
   isAssistantFormOnly,
   resolvedFormResponsesById,
   shouldRenderAsToolCall,
   toolCallForDisplay,
+  isMergedToolResult,
+  toolDisplayLive,
   handleStop,
   handleRetry,
+  startEdit,
+  cancelEdit,
+  handleEditSubmit,
   handleFormSubmit
 } = useMessageBubble(props, emit)
 </script>
@@ -76,6 +83,9 @@ const {
   <!-- 系统状态消息（如 "Connecting to agent via ACP…"）：不在会话流中展示，避免干扰 -->
   <template v-else-if="isSystemStatus" />
 
+  <!-- tool_result 已合并进对应 tool_use 行，避免同一工具调用重复渲染 -->
+  <template v-else-if="isMergedToolResult" />
+
   <!-- 压缩消息使用专用组件，右对齐 + 用户头像 -->
   <div
     v-else-if="isCompression"
@@ -84,12 +94,6 @@ const {
     <div class="message-bubble__body">
       <CompressionMessageBubble :message="message" />
     </div>
-    <div class="message-bubble__avatar message-bubble__avatar--user">
-      <EaIcon
-        name="user"
-        :size="15"
-      />
-    </div>
   </div>
 
   <!-- 工具调用（tool_use / tool_result）：独立行，使用 ToolCallDisplay 渲染 -->
@@ -97,21 +101,37 @@ const {
     v-else-if="shouldRenderAsToolCall && toolCallForDisplay"
     class="message-bubble message-bubble--assistant message-bubble--tool"
   >
-    <div class="message-bubble__avatar">
-      <EaIcon
-        name="bot"
-        :size="15"
-      />
-    </div>
     <div class="message-bubble__body message-bubble__body--tool">
+      <div
+        v-if="shouldShowWorkDivider"
+        class="message-bubble__work-divider"
+        :class="workDividerStatusClass"
+      >
+        <span class="message-bubble__work-line" />
+        <span class="message-bubble__work-status">
+          <EaIcon
+            :name="workDividerIcon"
+            :size="12"
+          />
+          <span>{{ workDividerLabel }}</span>
+        </span>
+        <span class="message-bubble__work-duration">{{ workDurationLabel }}</span>
+      </div>
       <ToolCallDisplay
         :tool-call="toolCallForDisplay"
-        :live="isStreaming"
+        :live="toolDisplayLive"
         :compact="true"
-      />
-      <div class="message-bubble__meta">
-        <span class="message-bubble__time">{{ formattedTime }}</span>
-      </div>
+      >
+        <template #fileChanges>
+          <FileChangeSummaryBar
+            v-if="hasToolCallFileChanges"
+            class="tool-call__file-changes"
+            :session-id="message.sessionId"
+            :request-id="message.requestId"
+            :tool-call-id="message.toolCallId"
+          />
+        </template>
+      </ToolCallDisplay>
     </div>
   </div>
 
@@ -127,17 +147,23 @@ const {
       }
     ]"
   >
-    <!-- AI 头像 -->
-    <div
-      v-if="isAssistant"
-      class="message-bubble__avatar"
-    >
-      <EaIcon
-        name="bot"
-        :size="15"
-      />
-    </div>
     <div class="message-bubble__body">
+      <div
+        v-if="shouldShowWorkDivider"
+        class="message-bubble__work-divider"
+        :class="workDividerStatusClass"
+      >
+        <span class="message-bubble__work-line" />
+        <span class="message-bubble__work-status">
+          <EaIcon
+            :name="workDividerIcon"
+            :size="12"
+          />
+          <span>{{ workDividerLabel }}</span>
+        </span>
+        <span class="message-bubble__work-duration">{{ workDurationLabel }}</span>
+      </div>
+
       <!-- 思考过程：新结构下 thinking 是独立消息行，单条 message 不再内嵌 thinking -->
       <div
         v-if="isAssistant && message.messageType === 'thinking' && message.content"
@@ -146,7 +172,7 @@ const {
         <ThinkingDisplay
           :thinking="message.content || ''"
           :live="isStreaming"
-          :default-expanded="false"
+          :default-expanded="isStreaming"
         />
       </div>
 
@@ -175,6 +201,16 @@ const {
             <span class="message-bubble__form-response-label">{{ line.split(': ')[0] }}</span>
             <span class="message-bubble__form-response-value">{{ line.split(': ').slice(1).join(': ') }}</span>
           </div>
+        </div>
+        <div
+          v-else-if="isEditing"
+          class="message-bubble__edit-editor"
+        >
+          <textarea
+            ref="editTextareaRef"
+            v-model="editContent"
+            class="message-bubble__edit-textarea"
+          />
         </div>
         <div
           v-else-if="hasUserText"
@@ -230,104 +266,36 @@ const {
       </div>
 
       <!-- 工具调用：新结构下 tool_use / tool_result 是独立消息行，此处不再内嵌渲染 -->
+      <!-- 文件变更追踪：已嵌入修改文件的工具气泡内部展开，不再在普通消息底部独立显示 -->
 
-      <!-- 文件变更追踪：响应底部修改文件列表，点击进入右侧 diff 审查 -->
-      <FileChangeSummaryBar
-        v-if="isAssistant && hasFileChanges"
-        class="message-bubble__stream-segment"
-        :session-id="message.sessionId"
-        :request-id="message.requestId"
-      />
-
-      <!-- 时间戳和状态信息 -->
+      <!-- 操作按钮区（停止/重试挂在用户消息下；状态文案已移除，改由各标题的扫光动画体现执行状态） -->
       <div class="message-bubble__meta">
-        <span class="message-bubble__time">{{ formattedTime }}</span>
-        <!-- 用户消息状态 -->
-        <span
-          v-if="statusInfo"
-          :class="['message-bubble__status', statusInfo.class]"
-        >
-          <span
-            v-if="statusInfo.icon === 'loading'"
-            class="status-icon status-icon--loading"
+        <!-- 编辑态：发送（箭头）+ 取消 -->
+        <template v-if="isUser && isEditing">
+          <button
+            class="message-bubble__edit-send"
+            :title="t('message.send')"
+            @click="handleEditSubmit"
           >
             <EaIcon
-              name="loader-circle"
-              :size="11"
+              name="arrow-up"
+              :size="12"
             />
-          </span>
-          <span
-            v-else-if="statusInfo.icon === 'error'"
-            class="status-icon"
+          </button>
+          <button
+            class="message-bubble__edit-cancel"
+            :title="t('common.cancel')"
+            @click="cancelEdit"
           >
             <EaIcon
-              name="triangle-alert"
-              :size="11"
+              name="x"
+              :size="12"
             />
-          </span>
-          <span
-            v-else-if="statusInfo.icon === 'check'"
-            class="status-icon"
-          >
-            <EaIcon
-              name="check"
-              :size="11"
-            />
-          </span>
-          <span class="status-text">{{ statusInfo.text }}</span>
-        </span>
-        <!-- AI 消息状态 -->
-        <span
-          v-if="assistantStatusInfo"
-          :class="['message-bubble__status', assistantStatusInfo.class]"
-        >
-          <span
-            v-if="assistantStatusInfo.icon === 'loading'"
-            class="status-icon status-icon--loading"
-          >
-            <EaIcon
-              name="loader-circle"
-              :size="11"
-            />
-          </span>
-          <span
-            v-else-if="assistantStatusInfo.icon === 'error'"
-            class="status-icon"
-          >
-            <EaIcon
-              name="triangle-alert"
-              :size="11"
-            />
-          </span>
-          <span
-            v-else-if="assistantStatusInfo.icon === 'check'"
-            class="status-icon"
-          >
-            <EaIcon
-              name="check"
-              :size="11"
-            />
-          </span>
-          <span
-            v-else-if="assistantStatusInfo.icon === 'square'"
-            class="status-icon status-icon--interrupted"
-          >
-            <EaIcon
-              name="square"
-              :size="11"
-            />
-          </span>
-          <span class="status-text">{{ assistantStatusInfo.text }}</span>
-          <span
-            v-if="assistantElapsedLabel"
-            class="message-bubble__elapsed"
-          >
-            {{ assistantElapsedLabel }}
-          </span>
-        </span>
-        <!-- 停止按钮 - 仅在流式输出时显示 -->
+          </button>
+        </template>
+        <!-- 停止按钮 - 用户消息下，中断本轮 AI 响应（保留已生成内容） -->
         <button
-          v-if="isAssistant && (isStreaming || isAutoRetryPending) && isCurrentStreamingMessage"
+          v-else-if="isUser && isUserTurnActive"
           class="message-bubble__stop"
           :title="t('common.stop')"
           @click="handleStop"
@@ -337,23 +305,29 @@ const {
             :size="12"
           />
         </button>
-        <!-- 重试按钮 - 用户消息失败/中断 -->
+        <!-- 编辑按钮 - 用户消息下：回合结束后可编辑并重发（清空下方 AI 响应重新生成） -->
         <button
-          v-if="canRetryCurrentUser"
-          class="message-bubble__retry"
-          :title="isInterrupted ? t('message.status.interrupted') : errorMessage"
-          @click="handleRetry"
+          v-else-if="isUser && canEditUserMessage"
+          class="message-bubble__edit"
+          :title="t('message.edit')"
+          @click="startEdit"
         >
-          {{ t('common.retry') }}
+          <EaIcon
+            name="square-pen"
+            :size="12"
+          />
         </button>
-        <!-- 重试按钮 - AI 消息 -->
+        <!-- 重试按钮 - 用户消息下：失败/中断/已有响应均可重试（已有响应则删除重建） -->
         <button
-          v-if="canRetryCurrentAssistant"
+          v-if="!isEditing && isUser && canRetryUserMessage"
           class="message-bubble__retry"
           :title="t('message.retry')"
           @click="handleRetry"
         >
-          {{ t('message.retry') }}
+          <EaIcon
+            name="refresh-cw"
+            :size="12"
+          />
         </button>
       </div>
       <!-- 错误消息提示 -->
@@ -363,15 +337,6 @@ const {
       >
         {{ errorMessage }}
       </div>
-    </div>
-    <div
-      v-if="isUser"
-      class="message-bubble__avatar message-bubble__avatar--user"
-    >
-      <EaIcon
-        name="user"
-        :size="15"
-      />
     </div>
   </div>
 </template>

@@ -1,11 +1,14 @@
-import { computed, onMounted, onUnmounted, ref, watch, toRef } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch, toRef } from 'vue'
 import MarkdownIt from 'markdown-it'
 import hljs from 'highlight.js'
+import mermaid from 'mermaid'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { useTypewriterText } from '@/composables/useTypewriterText'
 import { useProjectStore } from '@/stores/project'
 import { useUIStore } from '@/stores/ui'
 import { useNotificationStore } from '@/stores/notification'
+import { useRightFilePanelStore } from '@/stores/rightFilePanel'
+import { useThemeStore } from '@/stores/theme'
 import { openProjectFileInWorkspace } from '@/modules/fileEditor'
 
 export interface MarkdownRendererProps {
@@ -18,6 +21,8 @@ export function useMarkdownRenderer(props: MarkdownRendererProps) {
   const projectStore = useProjectStore()
   const uiStore = useUIStore()
   const notificationStore = useNotificationStore()
+  const rightFilePanelStore = useRightFilePanelStore()
+  const themeStore = useThemeStore()
 
   // 存储代码块原始内容，用于复制功能
   const codeBlockContents = ref(new Map<string, string>())
@@ -90,14 +95,29 @@ export function useMarkdownRenderer(props: MarkdownRendererProps) {
     return stripLineSuffix(withoutFileProtocol)
   }
 
+  // markdown-it linkify 会把 AI 写的裸文件名（如 main.py、README.md）误判成 URL
+  // （http://main.py）。这里识别这类伪 URL：host 段其实是带文件扩展名的文件名。
+  const FILE_EXTENSION_PATTERN = /\.[A-Za-z0-9]{1,8}$/
+
+  function extractFilenameFromPseudoUrl(href: string): string | null {
+    const match = /^(?:https?:)?\/\/([^/?#]+)/i.exec(href)
+    if (!match) return null
+    const host = match[1]
+    // 仅当 host 形如「文件名.扩展名」且无端口/路径/子域点时才视为文件名
+    if (/[:/?]/.test(host)) return null
+    if (host.split('.').length !== 2) return null
+    return FILE_EXTENSION_PATTERN.test(host) ? host : null
+  }
+
   function isLikelyLocalFileHref(href: string): boolean {
     const normalizedHref = normalizeFileLinkPath(href)
     if (!normalizedHref || normalizedHref.startsWith('#') || normalizedHref.startsWith('//')) {
       return false
     }
 
+    // linkify 误判的伪 URL（http://main.py）：按文件处理
     if (EXTERNAL_URL_SCHEME.test(normalizedHref)) {
-      return false
+      return extractFilenameFromPseudoUrl(href) !== null
     }
 
     if (href.toLowerCase().startsWith('file://')) {
@@ -123,11 +143,15 @@ export function useMarkdownRenderer(props: MarkdownRendererProps) {
       return null
     }
 
+    // linkify 伪 URL（http://main.py）：还原为裸文件名，在当前项目内解析
+    const pseudoFilename = extractFilenameFromPseudoUrl(href)
+    const effectiveHref = pseudoFilename ?? normalizedHref
+
     const sortedProjects = [...projectStore.projects]
       .sort((left, right) => normalizeComparablePath(right.path).length - normalizeComparablePath(left.path).length)
 
-    if (WINDOWS_ABSOLUTE_PATH.test(normalizedHref) || normalizedHref.startsWith('/')) {
-      const normalizedTarget = normalizeComparablePath(normalizedHref)
+    if (WINDOWS_ABSOLUTE_PATH.test(effectiveHref) || effectiveHref.startsWith('/')) {
+      const normalizedTarget = normalizeComparablePath(effectiveHref)
       const matchedProject = sortedProjects.find((project) => {
         const normalizedProjectPath = normalizeComparablePath(project.path)
         return normalizedTarget === normalizedProjectPath || normalizedTarget.startsWith(`${normalizedProjectPath}/`)
@@ -140,7 +164,7 @@ export function useMarkdownRenderer(props: MarkdownRendererProps) {
       return {
         projectId: matchedProject.id,
         projectPath: matchedProject.path,
-        filePath: normalizedHref
+        filePath: effectiveHref
       }
     }
 
@@ -152,7 +176,7 @@ export function useMarkdownRenderer(props: MarkdownRendererProps) {
     return {
       projectId: currentProject.id,
       projectPath: currentProject.path,
-      filePath: joinProjectPath(currentProject.path, normalizedHref)
+      filePath: joinProjectPath(currentProject.path, effectiveHref)
     }
   }
 
@@ -191,6 +215,29 @@ export function useMarkdownRenderer(props: MarkdownRendererProps) {
     const lang = (token.info || '').trim()
     const rawCode = token.content || ''
     const normalizedCode = trimCodeFencePadding(rawCode)
+
+    // mermaid 图表：输出占位容器，由渲染后处理（renderMermaidDiagrams）转为 SVG
+    if (lang === 'mermaid') {
+      const diagramId = `mermaid-${codeBlockCounter.value++}`
+      // 仍登记原始内容，便于复制按钮获取源码
+      codeBlockContents.value.set(diagramId, normalizedCode)
+      // data-mermaid-src 保留原始语法，data-processed 标记是否已渲染
+      return `<div class="mermaid-block" data-code-id="${diagramId}">
+      <div class="code-block-header">
+        <span class="code-block-language">mermaid</span>
+        <button class="code-block-copy-btn" data-code-id="${diagramId}" title="复制源码">
+          <svg class="copy-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+          </svg>
+          <svg class="check-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+        </button>
+      </div>
+      <div class="mermaid" data-mermaid-src="${md.utils.escapeHtml(normalizedCode)}"></div>
+    </div>`
+    }
 
     // 生成唯一 ID 并存储原始代码
     const blockId = `code-block-${codeBlockCounter.value++}`
@@ -292,12 +339,43 @@ export function useMarkdownRenderer(props: MarkdownRendererProps) {
         if (link.dataset.linkKind === 'file') {
           const fileTarget = resolveProjectFileTarget(href)
           if (!fileTarget) {
+            // linkify 伪 URL 文件名（http://main.py）：无项目时仍尝试用裸文件名打开预览，
+            // 由 openProjectFileInWorkspace / 编辑器展示「文件不存在」，绝不掉到浏览器
+            const pseudoFilename = extractFilenameFromPseudoUrl(href)
+            if (pseudoFilename) {
+              const currentProject = projectStore.currentProject
+              if (currentProject) {
+                projectStore.setCurrentProject(currentProject.id)
+                uiStore.setAppMode('chat')
+                rightFilePanelStore.openForProject(currentProject.id)
+                await openProjectFileInWorkspace({
+                  projectId: currentProject.id,
+                  projectPath: currentProject.path,
+                  filePath: joinProjectPath(currentProject.path, pseudoFilename)
+                })
+              } else {
+                notificationStore.warning('无法打开文件', '当前路径未匹配到已导入项目，请确认项目已导入。')
+              }
+              return
+            }
+            // 真正像域名（host.tld 且扩展名不是文件扩展名）时回退浏览器，避免误报
+            if (/^[^\s/]+\.[A-Za-z]{2,}([/?#]|$)/i.test(href) && !FILE_EXTENSION_PATTERN.test(href)) {
+              try {
+                await openUrl(href.startsWith('http') ? href : `https://${href}`)
+              } catch (error) {
+                console.error('Failed to open URL:', error)
+                window.open(href, '_blank', 'noopener,noreferrer')
+              }
+              return
+            }
             notificationStore.warning('无法打开文件', '当前路径未匹配到已导入项目，请确认项目已导入。')
             return
           }
 
           projectStore.setCurrentProject(fileTarget.projectId)
           uiStore.setAppMode('chat')
+          // 打开右侧文件面板，确保点击 AI 给出的文件名时面板可见
+          rightFilePanelStore.openForProject(fileTarget.projectId)
 
           await openProjectFileInWorkspace(fileTarget)
           return
@@ -346,6 +424,82 @@ export function useMarkdownRenderer(props: MarkdownRendererProps) {
     await handleCopyClick(e)
   }
 
+  // ── Mermaid 图表渲染 ──────────────────────────────────────────────────
+  // mermaid 只需初始化一次；主题跟随应用 isDark（dark / default），保持与消息配色一致
+  let mermaidInitialized = false
+  function ensureMermaidInitialized() {
+    if (mermaidInitialized) return
+    mermaidInitialized = true
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: themeStore.isDark ? 'dark' : 'default',
+      securityLevel: 'strict',
+      fontFamily: 'inherit',
+      themeVariables: themeStore.isDark
+        ? {
+            background: 'transparent',
+            primaryTextColor: '#f1f5f9',
+            primaryColor: '#1e293b',
+            primaryBorderColor: '#475569',
+            lineColor: '#94a3b8',
+            secondaryColor: '#334155',
+            tertiaryColor: '#475569'
+          }
+        : {
+            background: 'transparent',
+            primaryTextColor: '#1e293b',
+            primaryColor: '#eff6ff',
+            primaryBorderColor: '#60a5fa',
+            lineColor: '#475569',
+            secondaryColor: '#f1f5f9',
+            tertiaryColor: '#e2e8f0'
+          }
+    })
+  }
+
+  // 渲染容器内所有未处理的 mermaid 占位为 SVG；失败时回退显示源码 + 错误提示
+  async function renderMermaidDiagrams() {
+    const container = containerRef.value
+    if (!container) return
+    const nodes = Array.from(container.querySelectorAll<HTMLElement>('.mermaid'))
+    if (nodes.length === 0) return
+
+    ensureMermaidInitialized()
+
+    for (const node of nodes) {
+      // 跳过已渲染或已失败的节点（流式期间 watch 会重复触发）
+      if (node.dataset.processed === 'true' || node.dataset.failed === 'true') {
+        continue
+      }
+
+      const source = node.dataset.mermaidSrc ?? ''
+      const trimmedSource = source.trim()
+      if (!trimmedSource) {
+        node.dataset.processed = 'true'
+        continue
+      }
+
+      // 流式未闭合的图（最后一行可能不完整）跳过，待内容完整后再渲染
+      // 简单启发：图必须以合法图类型声明开头
+      if (!/^(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt|pie|journey|mindmap|timeline|gitGraph|C4Context|requirementDiagram)\b/i.test(trimmedSource)) {
+        continue
+      }
+
+      const renderId = `m-${Math.random().toString(36).slice(2, 10)}`
+      try {
+        const { svg } = await mermaid.render(renderId, trimmedSource)
+        node.innerHTML = svg
+        node.dataset.processed = 'true'
+      } catch (error) {
+        // 失败：显示源码作为回退，避免空白；标记 failed 避免重复尝试
+        node.dataset.failed = 'true'
+        node.classList.add('mermaid--error')
+        node.innerHTML = `<pre class="hljs"><code>${md.utils.escapeHtml(trimmedSource)}</code></pre>`
+        console.warn('[MarkdownRenderer] Failed to render mermaid diagram:', error)
+      }
+    }
+  }
+
   // 清理代码块内容缓存
   const clearCodeBlockContents = (): void => {
     codeBlockContents.value.clear()
@@ -357,11 +511,40 @@ export function useMarkdownRenderer(props: MarkdownRendererProps) {
     clearCodeBlockContents()
   })
 
+  // 渲染后处理 mermaid 图表（流式输出稳定后触发）
+  watch(renderedContent, () => {
+    void nextTick(() => {
+      void renderMermaidDiagrams()
+    })
+  })
+
+  // 主题切换时重新初始化 mermaid 并重绘已渲染的图（浅色 ↔ 深色）
+  watch(() => themeStore.isDark, () => {
+    mermaidInitialized = false
+    ensureMermaidInitialized()
+    const container = containerRef.value
+    if (!container) return
+    // 重置所有 mermaid 节点的渲染标记，触发重绘
+    for (const node of container.querySelectorAll<HTMLElement>('.mermaid')) {
+      node.dataset.processed = ''
+      node.dataset.failed = ''
+      node.classList.remove('mermaid--error')
+      node.innerHTML = ''
+    }
+    void nextTick(() => {
+      void renderMermaidDiagrams()
+    })
+  })
+
   onMounted(() => {
     // 添加事件委托处理链接点击和复制按钮点击
     if (containerRef.value) {
       containerRef.value.addEventListener('click', handleClick)
     }
+    // 首次挂载即渲染可能存在的 mermaid 图
+    void nextTick(() => {
+      void renderMermaidDiagrams()
+    })
   })
 
   onUnmounted(() => {

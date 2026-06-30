@@ -285,6 +285,20 @@ export const useFileEditorStore = defineStore('fileEditor', () => {
         return true
       }
 
+      // 文件不存在：保留目标路径并在预览面板展示「文件不存在」，不回滚到上一个文件
+      if (/not found|no such file|不存在|找不到/i.test(message)) {
+        activeProjectId.value = input.projectId
+        activeProjectPath.value = input.projectPath
+        activeFilePath.value = input.filePath
+        content.value = ''
+        originalContent.value = ''
+        fileSizeBytes.value = 0
+        lineCount.value = 0
+        previewMode.value = 'editor'
+        loadError.value = message
+        return true
+      }
+
       activeProjectId.value = previousState.activeProjectId
       activeProjectPath.value = previousState.activeProjectPath
       activeFilePath.value = previousState.activeFilePath

@@ -332,7 +332,7 @@
   --color-border-light: #1e293b;
   --color-border-dark: #475569;
   --color-border-focus: #60a5fa;
-  --scrollbar-track: rgba(15, 23, 42, 0.42);
+  --scrollbar-track: transparent;
   --scrollbar-thumb: rgba(100, 116, 139, 0.9);
   --scrollbar-thumb-hover: rgba(148, 163, 184, 0.96);
   --scrollbar-thumb-active: rgba(203, 213, 225, 0.98);

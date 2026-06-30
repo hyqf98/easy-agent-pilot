@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EaIcon } from '@/components/common'
 import { conversationService } from '@/services/conversation'
@@ -23,6 +23,7 @@ export interface MessageBubbleProps {
 
 export interface MessageBubbleEmits {
   (event: 'retry', message: Message): void
+  (event: 'edit', message: Message, content: string): void
   (event: 'formSubmit', formId: string, values: Record<string, unknown>, assistantMessageId?: string): void
   (event: 'openEditTrace', messageId: string, traceId: string): void
   (event: 'stop', message: Message): void
@@ -31,6 +32,19 @@ export interface MessageBubbleEmits {
 interface MessagePart {
   type: 'text' | 'file-mention'
   content: string
+}
+
+function toTimeMs(value?: string): number | null {
+  if (!value) return null
+  const time = new Date(value).getTime()
+  return Number.isFinite(time) ? time : null
+}
+
+function formatWorkDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000))
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
 /**
@@ -46,6 +60,12 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
   const sessionExecutionStore = useSessionExecutionStore()
   const nowTick = ref(Date.now())
   const areToolCallsExpanded = ref(false)
+  // 用户消息内联编辑态：进入编辑时填充原文，发送后由父组件刷新
+  const isEditing = ref(false)
+  const editContent = ref('')
+  const editTextareaRef = ref<HTMLTextAreaElement | null>(null)
+  // 点击编辑控件外部（textarea / 发送 / 取消按钮以外）时取消编辑
+  let editOutsideClickListener: ((event: PointerEvent) => void) | null = null
   let elapsedTimer: ReturnType<typeof setInterval> | null = null
 
   const isUser = computed(() => props.message.role === 'user')
@@ -65,6 +85,80 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
 
     return messageStore.messagesBySession(props.sessionId)
   })
+  const requestAssistantMessages = computed(() =>
+    resolvedSessionMessages.value.filter(message =>
+      message.requestId === props.message.requestId
+      && message.role === 'assistant'
+      && message.messageType !== 'usage'
+      && message.messageType !== 'context_window'
+      && message.messageType !== 'system'
+    )
+  )
+  const isRequestActive = computed(() =>
+    requestAssistantMessages.value.some(message => message.status === 'streaming')
+  )
+  // 回合终态推导：执行中 → 已完成 → 已中断 → 已失败
+  // streaming 优先（仍在工作）；其次 error（失败）；其次 interrupted（停止/中断）；否则 completed
+  type RequestTerminalStatus = 'active' | 'completed' | 'interrupted' | 'failed'
+  const requestTerminalStatus = computed<RequestTerminalStatus>(() => {
+    if (isRequestActive.value) return 'active'
+    if (requestAssistantMessages.value.some(message => message.status === 'error')) return 'failed'
+    if (requestAssistantMessages.value.some(message => message.status === 'interrupted')) return 'interrupted'
+    return 'completed'
+  })
+  const isFirstAssistantInRequest = computed(() => {
+    if (!isAssistant.value) return false
+
+    const firstVisibleAssistant = requestAssistantMessages.value.find(message => {
+      if (message.messageType !== 'tool_result' || !message.toolCallId) {
+        return true
+      }
+
+      return !resolvedSessionMessages.value.some(candidate =>
+        candidate.messageType === 'tool_use'
+        && candidate.toolCallId === message.toolCallId
+      )
+    })
+
+    return firstVisibleAssistant?.id === props.message.id
+  })
+  const shouldShowWorkDivider = computed(() =>
+    isFirstAssistantInRequest.value
+    && props.message.messageType !== 'usage'
+    && props.message.messageType !== 'context_window'
+    && !isSystemStatus.value
+  )
+  const workDurationLabel = computed(() => {
+    const times = requestAssistantMessages.value
+      .flatMap(message => [toTimeMs(message.createdAt), toTimeMs(message.updatedAt)])
+      .filter((value): value is number => value !== null)
+
+    if (times.length === 0) {
+      return '0:00'
+    }
+
+    const start = Math.min(...times)
+    const end = isRequestActive.value ? nowTick.value : Math.max(...times)
+    return formatWorkDuration(end - start)
+  })
+  const workDividerLabel = computed(() => {
+    switch (requestTerminalStatus.value) {
+      case 'active': return t('message.workDivider.working')
+      case 'interrupted': return t('message.workDivider.interrupted')
+      case 'failed': return t('message.workDivider.failed')
+      default: return t('message.workDivider.completed')
+    }
+  })
+  const workDividerIcon = computed(() => {
+    switch (requestTerminalStatus.value) {
+      case 'active': return 'loader-circle'
+      case 'interrupted': return 'square'
+      case 'failed': return 'triangle-alert'
+      default: return 'check'
+    }
+  })
+  // 分割线修饰类：active / interrupted / failed 各自配色，completed 不加修饰类
+  const workDividerStatusClass = computed(() => `message-bubble__work-divider--${requestTerminalStatus.value}`)
   const isCurrentStreamingMessage = computed(() => {
     if (typeof props.isCurrentStreamingMessageOverride === 'boolean') {
       return props.isCurrentStreamingMessageOverride
@@ -124,6 +218,43 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
     && canRetry.value
     && latestUserMessageId.value === props.message.id
   )
+  // 当前用户消息紧随其后第一条 assistant 消息（即本轮 AI 响应）
+  const followingAssistantMessage = computed(() => {
+    if (!isUser.value) return null
+    const messages = resolvedSessionMessages.value
+    const currentIndex = messages.findIndex(message => message.id === props.message.id)
+    if (currentIndex === -1) return null
+    for (let i = currentIndex + 1; i < messages.length; i += 1) {
+      if (messages[i].role === 'assistant') return messages[i]
+    }
+    return null
+  })
+  // 本轮 AI 正在响应（pending → streaming 全程）
+  const isUserTurnActive = computed(() => {
+    const following = followingAssistantMessage.value
+    if (!isUser.value || !following) return false
+    if (following.status === 'pending' || following.status === 'streaming') return true
+    if (props.sessionId) {
+      return sessionExecutionStore.getExecutionState(props.sessionId).currentStreamingMessageId === following.id
+    }
+    return false
+  })
+  // 用户消息可重试：是最新用户消息、且本轮不在进行中、且失败/中断/已有 AI 响应
+  const canRetryUserMessage = computed(() =>
+    isUser.value
+    && latestUserMessageId.value === props.message.id
+    && !isUserTurnActive.value
+    && (canRetry.value || Boolean(followingAssistantMessage.value))
+  )
+  // 用户消息可编辑：任意用户消息（不限最新），回合已结束（完成/失败/停止），无表单回填。
+  // 编辑后重发会清空该消息之下的全部 AI 响应并重新生成。
+  const canEditUserMessage = computed(() => {
+    if (!isUser.value || isEditing.value) return false
+    if (userFormResponseDisplay.value) return false
+    if (requestTerminalStatus.value === 'active') return false
+    if (!props.sessionId) return false
+    return !sessionExecutionStore.getIsSending(props.sessionId)
+  })
   const isAutoRetryPending = computed(() => {
     if (!props.sessionId || !isAssistant.value || isStreaming.value) return false
     const executionState = sessionExecutionStore.getExecutionState(props.sessionId)
@@ -131,14 +262,14 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
   })
 
   watch(
-    isStreaming,
-    streaming => {
+    isRequestActive,
+    active => {
       if (elapsedTimer) {
         clearInterval(elapsedTimer)
         elapsedTimer = null
       }
 
-      if (!streaming) {
+      if (!active) {
         nowTick.value = Date.now()
         return
       }
@@ -156,6 +287,7 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
       clearInterval(elapsedTimer)
       elapsedTimer = null
     }
+    stopListeningEditOutsideClick()
   })
 
   const formattedTime = computed(() => {
@@ -315,27 +447,6 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
     }
   })
 
-  const assistantElapsedLabel = computed(() => {
-    if (!isAssistant.value) {
-      return ''
-    }
-
-    if (!isStreaming.value) {
-      // 处理时长提示在新结构下不再从 runtimeNotices 读取
-      return ''
-    }
-
-    const startedAt = new Date(props.message.createdAt).getTime()
-    if (!Number.isFinite(startedAt)) {
-      return ''
-    }
-
-    const elapsedSeconds = Math.max(0, Math.floor((nowTick.value - startedAt) / 1000))
-    const minutes = Math.floor(elapsedSeconds / 60)
-    const seconds = elapsedSeconds % 60
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`
-  })
-
   const visibleRuntimeNotices = computed(() => {
     // 新结构下 runtimeNotices 不再折叠进 message
     return []
@@ -357,6 +468,18 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
   })
 
   const hasFileChanges = computed(() => assistantVisibleEditTraces.value.length > 0)
+
+  // 工具调用气泡内嵌的文件变更：按 toolCallId 精确匹配当前工具产生的文件修改，
+  // 用于在修改文件的工具气泡（Edit/Write 等）内部展开文件列表，复用同一气泡。
+  const toolCallFileTraces = computed(() => {
+    if (props.sessionMessages || !props.message.toolCallId) {
+      return []
+    }
+    return fileChangeStore.getTracesForSession(props.message.sessionId)
+      .filter(trace => trace.toolCallId === props.message.toolCallId)
+  })
+
+  const hasToolCallFileChanges = computed(() => toolCallFileTraces.value.length > 0)
 
   const errorMessage = computed(() => props.message.errorMessage || t('message.failed'))
 
@@ -386,6 +509,26 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
   // 新结构下 tool_use 与 tool_result 各自独立成行，按 toolCallId 关联。
   const isToolUse = computed(() => props.message.messageType === 'tool_use')
   const isToolResult = computed(() => props.message.messageType === 'tool_result')
+  const matchedToolUseMessage = computed(() => {
+    if (!props.message.toolCallId) return null
+    return resolvedSessionMessages.value.find(message =>
+      message.messageType === 'tool_use' && message.toolCallId === props.message.toolCallId
+    ) ?? null
+  })
+  const matchedToolResultMessage = computed(() => {
+    if (!props.message.toolCallId) return null
+    return resolvedSessionMessages.value.find(message =>
+      message.messageType === 'tool_result' && message.toolCallId === props.message.toolCallId
+    ) ?? null
+  })
+  const isRequestStreaming = computed(() => {
+    if (isStreaming.value) return true
+    return resolvedSessionMessages.value.some(message =>
+      message.requestId === props.message.requestId
+      && message.role === 'assistant'
+      && message.status === 'streaming'
+    )
+  })
 
   // tool_use 行解析入参，构造 ToolCall 供 ToolCallDisplay 渲染
   const toolUseParsed = computed<ToolCall | null>(() => {
@@ -398,13 +541,17 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
         parsedArguments = { raw: props.message.toolInput }
       }
     }
-    const status = isStreaming.value ? 'running' : 'success'
+    const resultMessage = matchedToolResultMessage.value
+    const hasResult = Boolean(resultMessage?.toolResult || props.message.toolResult)
+    const hasError = resultMessage?.status === 'error' || props.message.status === 'error'
+    const status = hasError ? 'error' : !hasResult && isRequestStreaming.value ? 'running' : 'success'
     return {
       id: props.message.toolCallId || props.message.id,
       name: props.message.toolName || 'tool',
       arguments: parsedArguments,
       status,
-      result: props.message.toolResult
+      result: resultMessage?.toolResult || props.message.toolResult,
+      errorMessage: hasError ? (resultMessage?.errorMessage || props.message.errorMessage) : undefined
     }
   })
 
@@ -412,11 +559,8 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
   // 组装成带结果的 ToolCall
   const toolResultParsed = computed<ToolCall | null>(() => {
     if (!isToolResult.value) return null
-    const sessionMessages = resolvedSessionMessages.value
     const toolCallId = props.message.toolCallId
-    const useMessage = toolCallId
-      ? sessionMessages.find(m => m.messageType === 'tool_use' && m.toolCallId === toolCallId)
-      : null
+    const useMessage = matchedToolUseMessage.value
     const name = useMessage?.toolName || props.message.toolName || 'tool'
     let parsedArguments: Record<string, unknown> = {}
     if (useMessage?.toolInput) {
@@ -441,8 +585,16 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
     toolUseParsed.value || toolResultParsed.value
   )
 
+  const isMergedToolResult = computed(() =>
+    isToolResult.value && matchedToolUseMessage.value !== null
+  )
+
   const shouldRenderAsToolCall = computed(() =>
     (isToolUse.value || isToolResult.value) && toolCallForDisplay.value !== null
+  )
+
+  const toolDisplayLive = computed(() =>
+    toolCallForDisplay.value?.status === 'running'
   )
 
   // ── 用量独立行渲染（usage / context_window） ───────────────────────────
@@ -530,6 +682,13 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
       return
     }
 
+    // 用户消息上的停止：中断本轮紧随其后的 AI 响应，保留已生成内容
+    const following = followingAssistantMessage.value
+    if (isUser.value && following && props.sessionId && isUserTurnActive.value) {
+      conversationService.abort(props.sessionId, following.id)
+      return
+    }
+
     if (props.message.status === 'streaming' && props.sessionId && isCurrentStreamingMessage.value) {
       conversationService.abort(props.sessionId, props.message.id)
       return
@@ -540,6 +699,81 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
 
   function handleRetry() {
     emit('retry', props.message)
+  }
+
+  // 进入内联编辑：用当前消息原文填充编辑框
+  // 按内容自适应文本框高度（无缝接管气泡，无固定行数）
+  function autoResizeEditTextarea() {
+    const textarea = editTextareaRef.value
+    if (!textarea) return
+    // 先归零再读 scrollHeight，得到内容的真实高度（撑开当前内容）
+    textarea.style.height = '0px'
+    const nextHeight = Math.min(textarea.scrollHeight, 200)
+    textarea.style.height = `${nextHeight}px`
+  }
+
+  // 编辑控件选择器：点击这些元素之内不触发取消
+  const EDIT_CONTROL_SELECTOR = '.message-bubble__edit-editor, .message-bubble__edit-send, .message-bubble__edit-cancel'
+
+  function stopListeningEditOutsideClick() {
+    if (editOutsideClickListener) {
+      document.removeEventListener('pointerdown', editOutsideClickListener)
+      editOutsideClickListener = null
+    }
+  }
+
+  // 进入编辑时绑定「点击空白处取消」监听（pointerdown 先于 click，避免误触按钮）
+  function startListeningEditOutsideClick() {
+    stopListeningEditOutsideClick()
+    editOutsideClickListener = (event: PointerEvent) => {
+      const target = event.target as Element | null
+      // 目标在编辑控件之外时取消编辑
+      if (target && !target.closest(EDIT_CONTROL_SELECTOR)) {
+        cancelEdit()
+      }
+    }
+    document.addEventListener('pointerdown', editOutsideClickListener)
+  }
+
+  function startEdit() {
+    editContent.value = props.message.content ?? ''
+    isEditing.value = true
+    startListeningEditOutsideClick()
+    // v-if 文本框需两帧后挂载，再用 rAF 等布局完成以读取准确的 scrollHeight
+    nextTick(() => {
+      nextTick(() => {
+        autoResizeEditTextarea()
+        editTextareaRef.value?.focus()
+      })
+    })
+  }
+
+  function cancelEdit() {
+    isEditing.value = false
+    editContent.value = ''
+    stopListeningEditOutsideClick()
+  }
+
+  // 编辑内容变化时自适应高度
+  watch(editContent, () => {
+    if (isEditing.value) {
+      autoResizeEditTextarea()
+    }
+  })
+
+  // 提交编辑：trim 非空后 emit，父组件负责持久化新内容并重发；成功后退出编辑态由父组件刷新
+  function handleEditSubmit() {
+    const nextContent = editContent.value.trim()
+    if (!nextContent || (props.message.attachments?.length ?? 0) === 0 && nextContent === (props.message.content ?? '').trim()) {
+      cancelEdit()
+      return
+    }
+    // 先捕获待发送内容，再退出编辑态并解绑外部点击监听，最后 emit
+    const contentToSend = editContent.value
+    isEditing.value = false
+    editContent.value = ''
+    stopListeningEditOutsideClick()
+    emit('edit', props.message, contentToSend)
   }
 
   function handleFormSubmit(formId: string, values: Record<string, unknown>) {
@@ -626,6 +860,13 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
     canRetry,
     canRetryCurrentAssistant,
     canRetryCurrentUser,
+    followingAssistantMessage,
+    isUserTurnActive,
+    canRetryUserMessage,
+    canEditUserMessage,
+    isEditing,
+    editContent,
+    editTextareaRef,
     isAutoRetryPending,
     formattedTime,
     userFormResponseDisplay,
@@ -633,12 +874,20 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
     hasUserText,
     statusInfo,
     assistantStatusInfo,
-    assistantElapsedLabel,
     visibleRuntimeNotices,
     displayRuntimeNotices,
     shouldShowRuntimeNotices,
     assistantVisibleEditTraces,
     hasFileChanges,
+    toolCallFileTraces,
+    hasToolCallFileChanges,
+    shouldShowWorkDivider,
+    workDividerLabel,
+    workDividerIcon,
+    workDividerStatusClass,
+    requestTerminalStatus,
+    workDurationLabel,
+    isRequestActive,
     errorMessage,
     toolCallCount,
     toolCallModelLabel,
@@ -649,12 +898,17 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
     isToolUse,
     isToolResult,
     toolCallForDisplay,
+    isMergedToolResult,
     shouldRenderAsToolCall,
+    toolDisplayLive,
     isUsage,
     isContextWindow,
     usageSummary,
     handleStop,
     handleRetry,
+    startEdit,
+    cancelEdit,
+    handleEditSubmit,
     handleFormSubmit,
     handleOpenEditTrace,
     formatTraceChangeType,

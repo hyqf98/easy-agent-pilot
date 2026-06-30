@@ -67,97 +67,27 @@ export function useTokenProgressBar(props: TokenProgressBarProps) {
 
   const summaryText = computed(() => `${formatTokenCount(tokenUsage.value.used)} / ${formatTokenCount(tokenUsage.value.limit)}`)
 
-  const usageSegments = computed(() => {
-    const knownToolTokens = (tokenUsage.value.cacheReadInputTokens ?? 0) + (tokenUsage.value.cacheCreationInputTokens ?? 0)
-    const knownMessageTokens = (tokenUsage.value.inputTokens ?? 0) + (tokenUsage.value.outputTokens ?? 0)
-    const otherTokens = Math.max(0, usageBasis.value - knownMessageTokens - knownToolTokens)
-    const rawSegments = [
-      {
-        key: 'input',
-        label: '消息',
-        value: knownMessageTokens
-      },
-      {
-        key: 'output',
-        label: 'MCP 工具',
-        value: tokenUsage.value.cacheReadInputTokens
-      },
-      {
-        key: 'cache-read',
-        label: '系统工具',
-        value: tokenUsage.value.cacheCreationInputTokens
-      },
-      {
-        key: 'cache-write',
-        label: '其他',
-        value: otherTokens
-      },
-      {
-        key: 'context',
-        label: '系统提示词',
-        value: 0
-      },
-      {
-        key: 'skill',
-        label: '技能',
-        value: 0
-      }
-    ]
-
-    return rawSegments.map(segment => ({
-      ...segment,
-      value: segment.value ?? 0,
-      valueLabel: formatTokenCount(segment.value ?? 0),
-      percent: usageBasis.value > 0 ? Math.min(100, Math.max(0, ((segment.value ?? 0) / usageBasis.value) * 100)) : 0,
-      width: usageBasis.value > 0 && (segment.value ?? 0) > 0 ? `${Math.max(1, ((segment.value ?? 0) / usageBasis.value) * 100)}%` : '0%'
-    }))
-  })
-
-  const cacheHitRateLabel = computed(() => {
-    const cacheRead = tokenUsage.value.cacheReadInputTokens
-    const inputTokens = tokenUsage.value.inputTokens
-    if (typeof cacheRead !== 'number' || typeof inputTokens !== 'number' || inputTokens <= 0) {
-      return null
+  // 会话累计用量三指标：输入 token / 输出 token / 缓存命中率（聚合 agent_cli_usage_records）
+  const usageMetrics = computed(() => {
+    const sessionId = targetSessionId.value
+    if (!sessionId) {
+      return { inputLabel: '0', outputLabel: '0', cacheHitRateLabel: '—' }
     }
 
-    return `${Math.round((cacheRead / inputTokens) * 100)}%`
-  })
+    const summary = tokenStore.getSessionUsageSummary(sessionId)
+    const cacheRead = summary.cacheReadInputTokens
+    const cacheCreation = summary.cacheCreationInputTokens
+    const input = summary.inputTokens
+    const denominator = input + cacheRead + cacheCreation
+    const cacheHitRateLabel = denominator > 0
+      ? `${Math.round((cacheRead / denominator) * 100)}%`
+      : '—'
 
-  const detailRows = computed(() => {
-    const rows: Array<{ label: string, value: string, mono?: boolean }> = [
-      {
-        label: '总占用',
-        value: formatTokenCount(usageBasis.value),
-        mono: true
-      },
-      {
-        label: '上下文上限',
-        value: formatTokenCount(tokenUsage.value.limit),
-        mono: true
-      },
-      {
-        label: '占比',
-        value: displayPercentage.value,
-        mono: true
-      }
-    ]
-
-    if (cacheHitRateLabel.value) {
-      rows.push({
-        label: '平均缓存命中率',
-        value: cacheHitRateLabel.value,
-        mono: true
-      })
+    return {
+      inputLabel: formatTokenCount(summary.inputTokens),
+      outputLabel: formatTokenCount(summary.outputTokens),
+      cacheHitRateLabel
     }
-
-    if (tokenUsage.value.model) {
-      rows.push({
-        label: '模型',
-        value: tokenUsage.value.model
-      })
-    }
-
-    return rows
   })
 
   const popoverStyle = computed(() => ({
@@ -261,8 +191,7 @@ export function useTokenProgressBar(props: TokenProgressBarProps) {
     ringProgressStyle,
     levelClass,
     summaryText,
-    usageSegments,
-    detailRows,
+    usageMetrics,
     popoverStyle,
     handleMouseEnter,
     handleMouseLeave,

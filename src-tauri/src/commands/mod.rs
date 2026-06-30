@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod agent_cli_usage;
 pub mod agent_config;
+pub mod agent_plan;
 pub mod sub_agent;
 pub mod app_state;
 pub mod builtin_mcp;
@@ -17,6 +18,8 @@ pub mod install;
 pub mod mcp;
 pub(crate) mod mcp_shared;
 pub mod memory;
+pub mod memory_job;
+pub mod memory_repo;
 pub mod message;
 pub mod mini_panel;
 #[cfg(target_os = "macos")]

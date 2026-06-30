@@ -51,6 +51,9 @@
   min-width: 0;
   min-height: 0;
   position: relative;
+  /* 消息列表与输入框之间留间距，使消息滚动条结束在输入框上方，
+     不再紧贴/压在输入框顶部，视觉更干净。 */
+  gap: 14px;
 }
 
 .message-area__conversation--trace-active {
@@ -95,11 +98,87 @@
   font-weight: 600;
 }
 
+/* ---- Agent Plan 悬浮面板：浮于会话上方，不占会话列宽 ---- */
+/* 中性玻璃令牌：不沿用带蓝调的 trace-handle，改用 workspace 中性色派生 */
+.message-area__workspace {
+  --ea-plan-pane-bg: color-mix(in srgb, var(--workspace-panel-bg, #ffffff) 85%, transparent);
+  --ea-plan-pane-border: var(--workspace-border, rgba(38, 38, 38, 0.1));
+  --ea-plan-pane-shadow: 0 16px 30px rgba(15, 23, 42, 0.1);
+}
+
+.message-area__plan-pane {
+  position: absolute;
+  top: 18px;
+  right: 14px;
+  z-index: 8;
+  flex: 0 0 auto;
+  max-height: 70vh;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--ea-plan-pane-border);
+  background: var(--ea-plan-pane-bg);
+  box-shadow: var(--ea-plan-pane-shadow);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.message-area__plan-handle {
+  position: absolute;
+  right: 14px;
+  top: 18px;
+  z-index: 8;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 15px;
+  border: 1px solid var(--ea-plan-pane-border);
+  border-radius: 16px;
+  background: var(--ea-plan-pane-bg);
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  box-shadow: var(--ea-plan-pane-shadow);
+  backdrop-filter: blur(18px);
+  cursor: pointer;
+  transition:
+    transform var(--transition-fast) var(--easing-default),
+    box-shadow var(--transition-fast) var(--easing-default),
+    border-color var(--transition-fast) var(--easing-default);
+}
+
+.message-area__plan-handle:hover {
+  transform: translateY(-1px);
+  border-color: var(--workspace-border-strong, var(--color-border-dark));
+}
+
+.message-area__plan-handle-badge {
+  min-width: 20px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* 悬浮计划面板进出场动画 */
+.agent-plan-pane-enter-active,
+.agent-plan-pane-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.agent-plan-pane-enter-from,
+.agent-plan-pane-leave-to {
+  opacity: 0;
+  transform: translateY(-8px) scale(0.98);
+}
+
 .message-area__list {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  /* 输入框已移入 .message-list 作为最后一个流式子元素（不再悬浮、不覆盖消息），
+     原本为外置输入框预留的底部安全区不再需要，置 0 避免输入框下方出现大段空白。 */
+  --message-list-bottom-safe-space: 8px;
 }
 
 /* 空状态 */
@@ -756,12 +835,14 @@
 }
 
 .message-area__conversation {
+  --conversation-stream-width: min(100%, 980px);
+  --conversation-stream-side-padding: clamp(24px, 5%, 120px);
   align-items: stretch;
 }
 
 .message-area__list {
   width: 100%;
-  padding: 22px clamp(24px, 5%, 120px) 0;
+  padding: 22px var(--conversation-stream-side-padding) 0;
 }
 
 .message-area__empty {

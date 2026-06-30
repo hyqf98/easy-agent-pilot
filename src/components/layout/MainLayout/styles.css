@@ -35,6 +35,22 @@
   overflow: hidden;
 }
 
+/* 文件 dock：main-layout__body 最外层独立列（与模式面板同级）。
+   打开时由 windowState 物理加宽窗口追加宽度，会话区维持默认宽度不被挤压。 */
+.main-layout__right-dock {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  width: 720px;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  border-left: 1px solid var(--workspace-border);
+  background: var(--workspace-sidebar-bg);
+  overflow: hidden;
+}
+
 .main-layout__chat-content {
   flex: 1;
   min-height: 0;
@@ -48,20 +64,6 @@
   height: 100%;
   min-width: 0;
   min-height: 0;
-}
-
-.main-layout__right-dock {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  width: 720px;
-  min-width: 0;
-  max-width: none;
-  min-height: 0;
-  border-left: 1px solid var(--workspace-border);
-  background: var(--workspace-sidebar-bg);
-  overflow: hidden;
-  box-shadow: none;
 }
 
 .main-layout__right-terminal {
@@ -243,24 +245,4 @@
 .main-layout__resizer--right-tree {
   height: 100%;
   align-self: stretch;
-}
-
-@media (max-width: 1240px) {
-  .main-layout__right-dock {
-    max-width: none;
-  }
-}
-
-@media (max-width: 1040px) {
-  .main-layout__right-dock {
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 8;
-    width: min(92vw, 720px);
-    min-width: 0;
-    max-width: none;
-    box-shadow: -16px 0 32px rgba(15, 23, 42, 0.14);
-  }
 }

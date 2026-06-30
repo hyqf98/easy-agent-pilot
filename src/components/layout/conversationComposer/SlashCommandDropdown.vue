@@ -76,12 +76,20 @@ const displayEntries = computed(() => {
   const entries: DisplayEntry[] = []
   let globalIdx = 0
 
-  const builtinCmds = props.commands.filter(c => c.source !== 'plugin')
+  const builtinCmds = props.commands.filter(c => c.source !== 'plugin' && c.source !== 'agent')
   const pluginCmds = props.commands.filter(c => c.source === 'plugin')
+  const agentCmds = props.commands.filter(c => c.source === 'agent')
 
   if (builtinCmds.length > 0) {
     entries.push({ type: 'group', label: t('message.slash.builtinGroup') })
     for (const cmd of builtinCmds) {
+      entries.push({ type: 'command', command: cmd, globalIndex: globalIdx++ })
+    }
+  }
+
+  if (agentCmds.length > 0) {
+    entries.push({ type: 'group', label: t('message.slash.agentGroup') })
+    for (const cmd of agentCmds) {
       entries.push({ type: 'command', command: cmd, globalIndex: globalIdx++ })
     }
   }
@@ -255,7 +263,11 @@ onUnmounted(() => {
               v-if="entry.command.source === 'plugin' && entry.command.pluginName"
               class="slash-command__item-badge"
             >{{ entry.command.pluginName }}</span>
-            <span class="slash-command__item-desc">{{ t(entry.command.descriptionKey) }}</span>
+            <span class="slash-command__item-desc">{{
+              entry.command.source === 'agent' && entry.command.agentDescription
+                ? entry.command.agentDescription
+                : t(entry.command.descriptionKey)
+            }}</span>
           </button>
         </template>
       </div>
@@ -268,10 +280,14 @@ onUnmounted(() => {
             :style="{ top: tipTop + 'px', left: tipLeft + 'px' }"
           >
             <div class="slash-command__tip-label">
-              {{ t(selectedCommand.descriptionKey) }}
+              {{ selectedCommand.source === 'agent' && selectedCommand.agentDescription
+                ? selectedCommand.agentDescription
+                : t(selectedCommand.descriptionKey) }}
             </div>
             <div class="slash-command__tip-usage">
-              {{ t(selectedCommand.usageKey) }}
+              {{ selectedCommand.source === 'agent' && selectedCommand.agentHint
+                ? selectedCommand.agentHint
+                : t(selectedCommand.usageKey) }}
             </div>
           </div>
         </Transition>

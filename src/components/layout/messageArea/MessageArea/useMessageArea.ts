@@ -11,6 +11,7 @@ import { useNotificationStore } from '@/stores/notification'
 import { useUIStore } from '@/stores/ui'
 import { useProjectStore } from '@/stores/project'
 import { useAgentStore } from '@/stores/agent'
+import { useAgentPlanStore } from '@/stores/agentPlan'
 import { compressionService } from '@/services/compression'
 import { conversationService } from '@/services/conversation'
 import { resolveSessionAgentId } from '@/utils/sessionAgent'
@@ -19,6 +20,7 @@ import { useOverlayDismiss } from '@/composables/useOverlayDismiss'
 export function useMessageArea() {
   type ComposerExposed = ComponentPublicInstance & {
     focusInput: () => void
+    startPlanExecution: () => void | Promise<void>
     handleMessageFormSubmit: (
       formId: string,
       values: Record<string, unknown>,
@@ -29,6 +31,11 @@ export function useMessageArea() {
       content: string,
       attachments?: Message['attachments'],
       replaceMessageId?: string
+    ) => Promise<boolean>
+    editAndResendMessage: (
+      messageId: string,
+      content: string,
+      attachments?: Message['attachments']
     ) => Promise<boolean>
   }
 
@@ -42,6 +49,7 @@ export function useMessageArea() {
   const notificationStore = useNotificationStore()
   const uiStore = useUIStore()
   const projectStore = useProjectStore()
+  const agentPlanStore = useAgentPlanStore()
 
   // 压缩相关状态
   const showCompressionDialog = ref(false)
@@ -80,9 +88,18 @@ export function useMessageArea() {
       )
     }
 
-    // 如果是用户消息的重试，将内容填回输入框
+    // 如果是用户消息的重试，将内容填回输入框；若已有 AI 响应则删除重建
     if (message.role === 'user') {
-      await retry(message)
+      const messages = messageStore.messagesBySession(sessionId)
+      const messageIndex = messages.findIndex(m => m.id === message.id)
+      let followingAssistantId: string | undefined
+      for (let i = messageIndex + 1; i < messages.length; i += 1) {
+        if (messages[i].role === 'assistant') {
+          followingAssistantId = messages[i].id
+          break
+        }
+      }
+      await retry(message, followingAssistantId)
       return
     }
 
@@ -97,6 +114,14 @@ export function useMessageArea() {
         }
       }
     }
+  }
+
+  // 编辑用户消息并重发：持久化新内容 → 删除该消息之后的所有消息 → 重新生成
+  const handleEdit = async (message: Message, content: string) => {
+    const sessionId = sessionStore.currentSessionId
+    const isSending = sessionId ? sessionExecutionStore.getIsSending(sessionId) : false
+    if (!sessionId || isSending) return
+    await composerRef.value?.editAndResendMessage(message.id, content, message.attachments ?? [])
   }
 
   const currentTraceState = computed(() => {
@@ -442,6 +467,110 @@ export function useMessageArea() {
     aiEditTraceStore.setPaneWidth(sessionId, clampTracePaneWidth(width))
   }
 
+  // ---- Agent Plan 悬浮面板（浮于会话上方，不占会话列宽） ----
+  const planPaneWidth = computed(() => agentPlanStore.paneWidth)
+  const planUnseenCount = computed(() => agentPlanStore.currentUnseen)
+
+  /**
+   * 当前活动会话是否存在可展示的计划文档：
+   * 处于计划模式（isPlanMode）且最新一条 assistant text 消息非空。
+   * 无计划文档时不展示面板/入口，避免空态。
+   */
+  const hasPlanMarkdown = computed(() => {
+    const sessionId = sessionStore.currentSessionId
+    if (!sessionId || !sessionStore.isPlanMode(sessionId)) return false
+    const messages = messageStore.messagesBySession(sessionId)
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const msg = messages[i]
+      if (
+        msg.role === 'assistant'
+        && msg.messageType === 'text'
+        && msg.content
+        && msg.content.trim().length > 0
+      ) {
+        return true
+      }
+    }
+    return false
+  })
+
+  const shouldHideLatestPlanDoc = computed(() =>
+    Boolean(
+      sessionStore.currentSessionId &&
+      hasPlanMarkdown.value &&
+      agentPlanStore.isCurrentOpen
+    )
+  )
+
+  /** 桌面端浮动面板可见：非移动端 + 面板已展开 + 当前会话有计划文档 */
+  const showDesktopPlanPane = computed(() =>
+    Boolean(
+      sessionStore.currentSessionId &&
+      !isMobileViewport.value &&
+      hasPlanMarkdown.value &&
+      agentPlanStore.isCurrentOpen &&
+      !agentPlanStore.isCurrentMinimized
+    )
+  )
+
+  /** 桌面端开关按钮可见：非移动端 + 面板未展开或已缩小 + 当前会话有计划文档 */
+  const showDesktopPlanHandle = computed(() =>
+    Boolean(
+      sessionStore.currentSessionId &&
+      !isMobileViewport.value &&
+      hasPlanMarkdown.value &&
+      (!agentPlanStore.isCurrentOpen || agentPlanStore.isCurrentMinimized)
+    )
+  )
+
+  const handleTogglePlanPane = () => {
+    const sessionId = sessionStore.currentSessionId
+    if (!sessionId) return
+    agentPlanStore.open(sessionId)
+  }
+
+  const handleHidePlanPane = () => {
+    const sessionId = sessionStore.currentSessionId
+    if (!sessionId) return
+    agentPlanStore.close(sessionId)
+  }
+
+  const handleMinimizePlanPane = () => {
+    const sessionId = sessionStore.currentSessionId
+    if (!sessionId) return
+    agentPlanStore.minimize(sessionId)
+  }
+
+  /** 计划就绪 → 开始执行：退出计划模式并自动发送执行消息 */
+  const handlePlanExecute = () => {
+    void composerRef.value?.startPlanExecution()
+  }
+
+  /** 计划就绪 → 继续修改：收起确认 CTA 并聚焦输入框，供用户继续对话细化 */
+  const handlePlanModify = () => {
+    const sessionId = sessionStore.currentSessionId
+    if (sessionId) {
+      agentPlanStore.clearConfirm(sessionId)
+    }
+    composerRef.value?.focusInput()
+  }
+
+  // 切换会话时同步 activeSessionId（清零未读 + 让 store 的 current* 计算生效）
+  watch(() => sessionStore.currentSessionId, (sessionId) => {
+    agentPlanStore.setActiveSession(sessionId)
+  }, { immediate: true })
+
+  // 计划模式下出现 PRD 文档时自动打开浮动面板（从无→有触发一次），
+  // 使 PRD 进面板展示并从消息流隐藏，避免重复；用户手动关闭后不再自动弹回。
+  watch(hasPlanMarkdown, (has, prev) => {
+    if (has && !prev) {
+      const sessionId = sessionStore.currentSessionId
+      if (sessionId && !isMobileViewport.value) {
+        agentPlanStore.open(sessionId)
+      }
+    }
+  })
+
   onMounted(() => {
     updateViewportMode()
     window.addEventListener('resize', updateViewportMode)
@@ -481,6 +610,7 @@ export function useMessageArea() {
     CONVERSATION_MIN_WIDTH,
     updateViewportMode,
     handleRetry,
+    handleEdit,
     currentTraceState,
     currentEditTraces,
     currentTraceDigest,
@@ -508,5 +638,16 @@ export function useMessageArea() {
     clampTracePaneWidth,
     handleTracePaneResize,
     handleTracePaneResizeEnd,
+    agentPlanStore,
+    showDesktopPlanPane,
+    showDesktopPlanHandle,
+    shouldHideLatestPlanDoc,
+    planPaneWidth,
+    planUnseenCount,
+    handleTogglePlanPane,
+    handleHidePlanPane,
+    handleMinimizePlanPane,
+    handlePlanExecute,
+    handlePlanModify,
   }
 }

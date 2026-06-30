@@ -662,6 +662,14 @@ export const useMessageStore = defineStore('message', () => {
       } catch (err) {
         console.error('[MessageStore] load file changes failed', err)
       }
+
+      // 加载 ACP Agent Plan 历史快照（用于右侧计划面板恢复展示）
+      try {
+        const { useAgentPlanStore } = await import('@/stores/agentPlan')
+        void useAgentPlanStore().load(sessionId)
+      } catch (err) {
+        console.error('[MessageStore] load agent plan failed', err)
+      }
     } catch (error) {
       console.error('Failed to load messages:', error)
       updateGlobalMessagesForSession(sessionId, [])
@@ -836,6 +844,60 @@ export const useMessageStore = defineStore('message', () => {
     }
   }
 
+  /**
+   * 删除会话内锚点消息之后的所有消息（编辑并重发场景）。
+   *
+   * 按 sessionMessages 中的顺序删除锚点之后的所有消息，并同步移除全局 messages
+   * 与分页缓冲。后端按 (created_at, seq) 判定顺序，这里复用已排序的会话消息快照。
+   */
+  async function deleteMessagesAfter(sessionId: string, anchorMessageId: string): Promise<number> {
+    const notificationStore = useNotificationStore()
+
+    try {
+      const deletedCount = await invoke<number>('delete_messages_after', { sessionId, anchorMessageId })
+      if (deletedCount <= 0) {
+        return 0
+      }
+
+      const currentSessionMessages = sessionMessages.value.get(sessionId) ?? EMPTY_MESSAGES
+      const anchorIndex = currentSessionMessages.findIndex(message => message.id === anchorMessageId)
+      if (anchorIndex !== -1) {
+        const remainingSessionMessages = currentSessionMessages.slice(0, anchorIndex + 1)
+        const removedIds = new Set(
+          currentSessionMessages.slice(anchorIndex + 1).map(message => message.id)
+        )
+
+        if (remainingSessionMessages.length === 0) {
+          clearSessionDerivedState(sessionId)
+        } else {
+          setSessionMessages(sessionId, remainingSessionMessages)
+        }
+
+        // 清理全局 messages 数组与缓冲写入状态
+        for (const messageId of removedIds) {
+          const timer = pendingMessageTimers.get(messageId)
+          if (timer) {
+            clearTimeout(timer)
+            pendingMessageTimers.delete(messageId)
+          }
+          pendingMessageUpdates.delete(messageId)
+          inFlightMessageFlushes.delete(messageId)
+        }
+        messages.value = messages.value.filter(message => !removedIds.has(message.id))
+      }
+
+      return deletedCount
+    } catch (error) {
+      console.error('Failed to delete messages after:', error)
+      notificationStore.databaseError(
+        '删除后续消息失败',
+        getErrorMessage(error),
+        () => { void deleteMessagesAfter(sessionId, anchorMessageId) }
+      )
+      throw error
+    }
+  }
+
   async function clearSessionMessages(sessionId: string) {
     const notificationStore = useNotificationStore()
 
@@ -895,6 +957,7 @@ export const useMessageStore = defineStore('message', () => {
     updateMessageBuffered,
     flushBufferedMessageUpdate,
     deleteMessage,
+    deleteMessagesAfter,
     clearSessionMessages,
     clearSessionMessagesCache,
     clearProjectMessages

@@ -1,4 +1,5 @@
 import { reactive } from 'vue'
+import { useAgentCapabilityStore } from '@/stores/agentCapability'
 
 export type SlashCommandPanelType = 'main' | 'mini'
 
@@ -9,11 +10,15 @@ export interface SlashCommandDescriptor {
   descriptionKey: string
   usageKey: string
   insertText: string
-  source?: 'builtin' | 'plugin'
+  source?: 'builtin' | 'plugin' | 'agent'
   pluginName?: string
   cliType?: string
   argumentHint?: string
   cliCommandName?: string
+  /** Agent 命令的动态描述（source==='agent' 时由 ACP AvailableCommand 填充，绕过 i18n） */
+  agentDescription?: string
+  /** Agent 命令的输入提示（ACP UnstructuredCommandInput.hint） */
+  agentHint?: string
 }
 
 export interface SlashCommandContext {
@@ -28,6 +33,8 @@ export interface SlashCommandContext {
   runProjectInit?: (extraPrompt?: string) => Promise<void>
   createSessionAndSend?: (message?: string, displayContent?: string) => Promise<void>
   sendWithPlanMode?: (message: string, options?: { persistPlanMode?: boolean; displayContent?: string }) => Promise<void>
+  /** 打开模型选择下拉（由 `/model` 触发，复用 Composer 既有模型选择器） */
+  openModelPicker?: () => void
   notifySuccess: (message: string) => void
   notifyWarning: (message: string) => void
   notifyError: (message: string) => void
@@ -101,6 +108,14 @@ const BUILTIN_COMMANDS: SlashCommandDescriptor[] = [
     insertText: '/plan ',
     argumentHint: 'message',
     source: 'builtin'
+  },
+  {
+    name: 'model',
+    scopes: ['main', 'mini'],
+    descriptionKey: 'message.slash.modelDesc',
+    usageKey: 'message.slash.modelUsage',
+    insertText: '/model',
+    source: 'builtin'
   }
 ]
 
@@ -120,8 +135,15 @@ function normalizeName(name: string): string {
   return name.trim().toLowerCase()
 }
 
-export function listSlashCommands(panelType: SlashCommandPanelType): SlashCommandDescriptor[] {
-  return [...BUILTIN_COMMANDS, ...pluginCommands].filter(command => command.scopes.includes(panelType))
+export function listSlashCommands(
+  panelType: SlashCommandPanelType,
+  sessionId?: string
+): SlashCommandDescriptor[] {
+  return [
+    ...BUILTIN_COMMANDS,
+    ...pluginCommands,
+    ...getAgentCommands(panelType, sessionId)
+  ].filter(command => command.scopes.includes(panelType))
 }
 
 export function listBuiltinCommands(panelType: SlashCommandPanelType): SlashCommandDescriptor[] {
@@ -132,12 +154,40 @@ export function listPluginCommands(panelType: SlashCommandPanelType): SlashComma
   return pluginCommands.filter(command => command.scopes.includes(panelType))
 }
 
+/**
+ * 取某会话 ACP Agent 下发的可斜杠命令，映射为 `source: 'agent'` 的描述符。
+ *
+ * 这些命令由 Agent 自身实现（如 `create_plan`、`research_codebase`），不注册
+ * 前端 handler，选中后以 `/name args` 形式作为 prompt 发给 Agent。
+ */
+export function getAgentCommands(
+  panelType: SlashCommandPanelType,
+  sessionId?: string
+): SlashCommandDescriptor[] {
+  if (!sessionId) return []
+  // 直接读取 agentCapability store；该 store 仅依赖 vue + 类型，无循环引用风险。
+  const commands = useAgentCapabilityStore().getCommands(sessionId)
+  return commands.map(cmd => ({
+    name: cmd.name,
+    scopes: [panelType],
+    // Agent 命令的描述走 agentDescription 字段，不进 i18n（key 仅占位）
+    descriptionKey: 'message.slash.agentCommandDesc',
+    usageKey: 'message.slash.agentCommandUsage',
+    insertText: `/${cmd.name} `,
+    source: 'agent' as const,
+    argumentHint: cmd.hint || undefined,
+    agentDescription: cmd.description,
+    agentHint: cmd.hint || undefined
+  }))
+}
+
 export function searchSlashCommands(
   panelType: SlashCommandPanelType,
-  query: string
+  query: string,
+  sessionId?: string
 ): SlashCommandDescriptor[] {
   const normalizedQuery = normalizeName(query)
-  return listSlashCommands(panelType).filter(command => {
+  return listSlashCommands(panelType, sessionId).filter(command => {
     if (!normalizedQuery) {
       return true
     }
@@ -296,6 +346,17 @@ const COMMAND_HANDLERS: Record<string, SlashCommandHandler> = {
       context.notifyError(message)
       return { handled: true }
     }
+  },
+
+  async model(_parsed, context) {
+    if (!context.openModelPicker) {
+      context.notifyWarning('当前环境不支持切换模型。')
+      return { handled: true }
+    }
+    // 复用 Composer 既有模型选择器（agentConfigStore 配置的模型列表），
+    // 不自建选择器；打开下拉后由用户点选，下一回合 model_id 生效。
+    context.openModelPicker()
+    return { handled: true, clearInput: true }
   }
 }
 

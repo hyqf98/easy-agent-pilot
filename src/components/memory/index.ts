@@ -1,1 +1,1 @@
-export { default as MemoryModePanel } from './memoryModePanel/MemoryModePanel.vue'
+export { default as MemoryRepoPanel } from './memoryRepoPanel/MemoryRepoPanel.vue'

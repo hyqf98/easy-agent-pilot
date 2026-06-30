@@ -23,6 +23,7 @@ import {
   type QueuedMessageDraft
 } from '@/stores/sessionExecution'
 import { useSessionStore } from '@/stores/session'
+import { useAgentPlanStore } from '@/stores/agentPlan'
 import { useSettingsStore } from '@/stores/settings'
 import { useTokenStore, type CompressionStrategy, type TokenLevel } from '@/stores/token'
 import { useMemoryStore } from '@/stores/memory'
@@ -325,6 +326,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
   const { t } = useI18n()
   const messageStore = useMessageStore()
   const sessionStore = useSessionStore()
+  const agentPlanStore = useAgentPlanStore()
   const settingsStore = useSettingsStore()
   const notificationStore = useNotificationStore()
   const projectStore = useProjectStore()
@@ -392,18 +394,17 @@ export function useConversationComposer(options: UseConversationComposerOptions)
   })
   const currentWorkingDirectory = computed(() => toValue(options.workingDirectory) || currentProjectPath.value)
 
+  // 左侧下拉：直接列出 设置→ACP客户端 里配置的 CLI 执行器（主会话不再走子代理/专家）
   const agentOptions = computed(() =>
-    agentTeamsStore.enabledSubAgents.map(expert => {
-      const runtime = resolveSubAgentExecutionWithFallback(expert, agentStore.agents)
-      const runtimeAgent = runtime?.agent
-      const provider = runtimeAgent?.provider || inferAgentProvider(runtimeAgent)
+    agentStore.agents.map(agent => {
+      const provider = agent.provider || inferAgentProvider(agent)
       return {
-        label: expert.name,
-        value: expert.id,
-        modelId: runtime?.modelId,
+        label: agent.name,
+        value: agent.id,
+        modelId: agent.modelId,
         provider,
         type: 'acp' as const,
-        isCustom: runtimeAgent?.customModelEnabled || false
+        isCustom: agent.customModelEnabled || false
       }
     })
   )
@@ -417,24 +418,20 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     resolveSubAgentById(currentExpertId.value, agentTeamsStore.subAgents)
   )
 
-  const currentAgentId = computed(() => currentExpertId.value || currentAgent.value?.id || null)
+  // 选中高亮基准：当前会话绑定的 ACP 客户端 id
+  const currentAgentId = computed(() => currentAgent.value?.id || null)
 
   const currentAgent = computed(() => {
-    const expertRuntime = resolveSubAgentExecutionWithFallback(currentExpert.value, agentStore.agents)
-    if (expertRuntime) {
-      return expertRuntime.agent
-    }
-    return resolveSessionAgent(currentSession.value, agentStore.agents) || resolveFallbackAgent(agentStore.agents)
+    // 主会话直接按会话绑定的 agentId 解析 ACP 执行器，找不到则回退首个
+    const resolved = resolveSessionAgent(currentSession.value, agentStore.agents)
+    return resolved || resolveFallbackAgent(agentStore.agents)
   })
 
   const currentAgentName = computed(() => {
-    if (currentExpert.value) {
-      return currentExpert.value.name
-    }
     if (currentAgent.value) {
       return currentAgent.value.name
     }
-    return '选择专家'
+    return t('composer.selectClient')
   })
 
   const modelOptions = computed(() => {
@@ -1148,7 +1145,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
   })
 
   const slashCommands = computed(() =>
-    searchSlashCommands(options.panelType, slashCommandQuery.value)
+    searchSlashCommands(options.panelType, slashCommandQuery.value, currentSessionId.value ?? undefined)
   )
 
   watch(() => currentAgent.value?.id, async (agentId) => {
@@ -1170,6 +1167,13 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     } else {
       selectedModelId.value = ''
       selectedReasoningEffort.value = ''
+    }
+  }, { immediate: true })
+
+  // 将输入框当前选中的模型写入 token store，用于解析上下文容量上限（设置页配置的 contextWindow）
+  watch([currentSessionId, selectedModelId], ([sessionId, modelId]) => {
+    if (sessionId) {
+      tokenStore.setSessionSelectedModel(sessionId, modelId.trim())
     }
   }, { immediate: true })
 
@@ -1304,7 +1308,8 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     }
   }
 
-  const selectAgent = async (expertId: string) => {
+  // 选中某个 ACP 客户端，绑定到当前会话（主会话不再使用专家/子代理）
+  const selectAgent = async (agentId: string) => {
     const sessionId = currentSessionId.value
     if (!sessionId) {
       isAgentDropdownOpen.value = false
@@ -1312,14 +1317,12 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     }
 
     try {
-      const expert = resolveSubAgentById(expertId, agentTeamsStore.subAgents)
-      const runtime = resolveSubAgentExecutionWithFallback(expert, agentStore.agents)
-      const agent = runtime?.agent
+      const agent = agentStore.agents.find(item => item.id === agentId)
       if (agent?.id) {
         await agentConfigStore.ensureModelsConfigs(agent.id, inferAgentProvider(agent))
       }
       await sessionStore.updateSession(sessionId, {
-        expertId,
+        expertId: '',
         agentId: agent?.id,
         agentType: agent?.provider || agent?.type || 'claude',
         cliSessionId: '',
@@ -1328,13 +1331,13 @@ export function useConversationComposer(options: UseConversationComposerOptions)
       const configs = agent?.id
         ? agentConfigStore.getModelsConfigs(agent.id).filter(config => config.enabled)
         : []
-      const matchedModel = configs.find(config => config.modelId === runtime?.modelId)
+      const matchedModel = configs.find(config => config.modelId === agent?.modelId)
         || configs.find(config => config.isDefault)
         || configs[0]
       selectedModelId.value = matchedModel?.modelId || ''
       isAgentDropdownOpen.value = false
     } catch (error) {
-      console.error('Failed to update session expert:', error)
+      console.error('Failed to update session agent:', error)
     }
   }
 
@@ -1387,7 +1390,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
   }
 
   const getReasoningEffortLabel = (effort: ReasoningEffortLevel | '') => {
-    if (!effort) return t('reasoning.label')
+    if (!effort) return t('reasoning.default')
     return t(`reasoning.${effort}`)
   }
 
@@ -2053,38 +2056,44 @@ export function useConversationComposer(options: UseConversationComposerOptions)
 
     const sessionStore = useSessionStore()
     const targetSession = sessionStore.sessions.find(session => session.id === sessionId) || null
-    const expert = resolveSubAgentById(draft.expertId, agentTeamsStore.subAgents)
-    const runtime = resolveSubAgentExecutionWithFallback(expert, agentStore.agents)
-    const executionAgent = runtime?.agent
+    const expert = draft.expertId ? resolveSubAgentById(draft.expertId, agentTeamsStore.subAgents) : null
+    // 优先按草稿 agentId 解析执行器，找不到则回退（兼容主会话不再绑定专家的场景）
+    const baseAgent = agentStore.agents.find(item => item.id === draft.agentId)
+      || resolveFallbackAgent(agentStore.agents)
+    const expertRuntime = expert ? resolveSubAgentExecutionWithFallback(expert, agentStore.agents) : null
+    const runtimeAgent = expertRuntime?.agent || baseAgent
+    const executionAgent = runtimeAgent
       ? {
-          ...runtime.agent,
-          modelId: draft.modelId || runtime.modelId || runtime.agent.modelId
+          ...runtimeAgent,
+          modelId: draft.modelId || expertRuntime?.modelId || runtimeAgent.modelId
         }
       : null
 
-    if (!expert || !executionAgent) {
-      sessionExecutionStore.restoreQueuedMessage(sessionId, { ...draft, status: 'failed', errorMessage: '未找到可用专家运行时' })
+    if (!executionAgent) {
+      sessionExecutionStore.restoreQueuedMessage(sessionId, { ...draft, status: 'failed', errorMessage: '未找到可用 ACP 客户端' })
       return
     }
 
     const availability = conversationService.isAgentAvailable(executionAgent)
     if (!availability.available) {
-      sessionExecutionStore.restoreQueuedMessage(sessionId, { ...draft, status: 'failed', errorMessage: availability.reason || '当前专家运行时不可用' })
+      sessionExecutionStore.restoreQueuedMessage(sessionId, { ...draft, status: 'failed', errorMessage: availability.reason || '当前 ACP 客户端不可用' })
       return
     }
 
     dispatchingSessionId.value = sessionId
 
     try {
-      if (targetSession?.expertId !== expert.id || targetSession?.agentId !== executionAgent.id) {
+      if (targetSession?.expertId !== (expert?.id ?? '') || targetSession?.agentId !== executionAgent.id) {
         await sessionStore.updateSession(sessionId, {
-          expertId: expert.id,
+          expertId: expert?.id || '',
           agentId: executionAgent.id,
           agentType: executionAgent.provider || executionAgent.type || 'claude',
           cliSessionId: '',
           cliSessionProvider: ''
         })
       }
+
+      const injectedSystemMessages = expert ? [buildSubAgentSystemPrompt(expert.prompt)] : []
 
       await conversationService.sendMessage(
         sessionId,
@@ -2095,7 +2104,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
         {
           workingDirectory: currentWorkingDirectory.value || currentProjectPath.value || undefined,
           modelId: draft.modelId || undefined,
-          injectedSystemMessages: [buildSubAgentSystemPrompt(expert.prompt)],
+          injectedSystemMessages,
           previewContent: draft.displayContent,
           memoryReferencesToPersist: draft.memoryReferences ?? []
         }
@@ -2139,13 +2148,13 @@ export function useConversationComposer(options: UseConversationComposerOptions)
   const validateCurrentAgentAvailability = () => {
     const executionAgent = getExecutionAgentConfig()
     if (!executionAgent) {
-      notificationStore.smartError('发送失败', new Error('未找到可用专家运行时'))
+      notificationStore.smartError('发送失败', new Error('未找到可用 ACP 客户端'))
       return false
     }
 
     const availability = conversationService.isAgentAvailable(executionAgent)
     if (!availability.available) {
-      notificationStore.smartError('发送失败', new Error(availability.reason || '当前专家运行时不可用'))
+      notificationStore.smartError('发送失败', new Error(availability.reason || '当前 ACP 客户端不可用'))
       return false
     }
 
@@ -2161,7 +2170,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
   ): Omit<QueuedMessageDraft, 'id' | 'createdAt' | 'status'> | null => {
     const queuedExpert = currentExpert.value
     const queuedAgent = currentAgent.value
-    if (!queuedExpert || !queuedAgent) {
+    if (!queuedAgent) {
       return null
     }
 
@@ -2169,7 +2178,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
       content: userInput,
       displayContent: displayPreviewContent || rawInput,
       attachments,
-      expertId: queuedExpert.id,
+      expertId: queuedExpert?.id || '',
       agentId: queuedAgent.id,
       modelId: selectedModelId.value.trim() || undefined,
       memoryReferences: orderedMemoryReferences
@@ -2207,27 +2216,30 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     const targetSession = sessionStore.sessions.find(session => session.id === sessionId) || null
     const expert = currentExpert.value
     const executionAgent = getExecutionAgentConfig()
-    if (!expert || !executionAgent) {
-      notificationStore.smartError('发送失败', new Error('未找到可用专家'))
+    if (!executionAgent) {
+      notificationStore.smartError('发送失败', new Error('未找到可用 ACP 客户端'))
       return false
     }
 
     const availability = conversationService.isAgentAvailable(executionAgent)
     if (!availability.available) {
-      notificationStore.smartError('发送失败', new Error(availability.reason || '当前专家运行时不可用'))
+      notificationStore.smartError('发送失败', new Error(availability.reason || '当前 ACP 客户端不可用'))
       return false
     }
 
     try {
-      if (targetSession?.expertId !== expert.id || targetSession?.agentId !== executionAgent.id) {
+      if (targetSession?.expertId !== (expert?.id ?? '') || targetSession?.agentId !== executionAgent.id) {
         await sessionStore.updateSession(sessionId, {
-          expertId: expert.id,
+          expertId: expert?.id || '',
           agentId: executionAgent.id,
           agentType: executionAgent.provider || executionAgent.type || 'claude',
           cliSessionId: '',
           cliSessionProvider: ''
         })
       }
+
+      // 仅当会话遗留专家 persona 时才注入其系统提示；主会话默认直接用 ACP 客户端
+      const injectedSystemMessages = expert ? [buildSubAgentSystemPrompt(expert.prompt)] : []
 
       await conversationService.sendMessage(
         sessionId,
@@ -2239,9 +2251,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
           workingDirectory: currentWorkingDirectory.value || undefined,
           modelId: selectedModelId.value.trim() || undefined,
           reasoningEffort: selectedReasoningEffort.value || undefined,
-          injectedSystemMessages: [
-            buildSubAgentSystemPrompt(expert.prompt)
-          ],
+          injectedSystemMessages,
           previewContent: options?.displayPreviewContent,
           memoryReferencesToPersist: options?.memoryReferences ?? [],
           reuseAssistantMessageId: options?.reuseAssistantMessageId
@@ -2256,7 +2266,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
       void writeFrontendRuntimeLog(
         'ERROR',
         'conversation-composer',
-        `sendWithCurrentAgent failed | sessionId=${sessionId} | projectId=${currentSession.value?.projectId || ''} | agentId=${executionAgent.id} | expertId=${expert.id} | error=${normalizedError.message}`,
+        `sendWithCurrentAgent failed | sessionId=${sessionId} | projectId=${currentSession.value?.projectId || ''} | agentId=${executionAgent.id} | expertId=${expert?.id || ''} | error=${normalizedError.message}`,
         error
       )
       notificationStore.smartError('发送失败', normalizedError)
@@ -2420,16 +2430,15 @@ export function useConversationComposer(options: UseConversationComposerOptions)
       agentStore.loadAgents(),
       agentTeamsStore.loadSubAgents(true)
     ])
-    const expert = agentTeamsStore.builtinGeneralSubAgent || agentTeamsStore.enabledSubAgents[0] || null
-    const runtime = resolveSubAgentExecutionWithFallback(expert, agentStore.agents)
+    // 主会话不再默认绑定通用代理/专家，直接用首个可用 ACP 客户端作为执行器
+    const fallbackAgent = resolveFallbackAgent(agentStore.agents)
 
     const titleSource = displayContent ?? message
     const newSession = await sessionStore.createSession({
       projectId: projectStore.currentProjectId,
       name: titleSource ? titleSource.replace(/\n/g, ' ').slice(0, 20).trim() + (titleSource.length > 20 ? '...' : '') : '未命名会话',
-      expertId: expert?.id,
-      agentId: runtime?.agent.id,
-      agentType: runtime?.agent.provider || runtime?.agent.type || 'claude',
+      agentId: fallbackAgent?.id,
+      agentType: fallbackAgent?.provider || fallbackAgent?.type || 'claude',
       status: 'idle'
     })
     projectStore.incrementSessionCount(projectStore.currentProjectId)
@@ -2437,17 +2446,17 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     await sessionStore.openSession(newSession.id)
 
     const contentToSend = displayContent ?? message?.trim()
-    if (contentToSend && runtime?.agent) {
+    if (contentToSend && fallbackAgent) {
       await conversationService.sendMessage(
         newSession.id,
         contentToSend,
-        runtime.agent.id,
+        fallbackAgent.id,
         projectStore.currentProjectId,
         [],
         {
           workingDirectory: currentWorkingDirectory.value || currentProjectPath.value || undefined,
-          modelId: runtime.modelId || runtime.agent.modelId || undefined,
-          injectedSystemMessages: expert ? [buildSubAgentSystemPrompt(expert.prompt)] : [],
+          modelId: fallbackAgent.modelId || undefined,
+          injectedSystemMessages: [],
         }
       )
     }
@@ -2527,6 +2536,42 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     await sessionStore.setPlanMode(sessionId, false)
   }
 
+  /**
+   * 计划就绪 →「开始执行」：
+   * 退出计划模式，并以普通模式（不带 --permission-mode plan / 只读）自动发送一条
+   * 执行指令，让 Agent 真正动手按计划落地；随后清除待确认状态。
+   */
+  const executeCurrentPlan = async (): Promise<void> => {
+    const sessionId = currentSessionId.value
+    if (!sessionId) return
+
+    const executionAgent = getExecutionAgentConfig()
+    if (!executionAgent) {
+      agentPlanStore.clearConfirm(sessionId)
+      return
+    }
+
+    await sessionStore.setPlanMode(sessionId, false)
+
+    try {
+      await conversationService.sendMessage(
+        sessionId,
+        t('plan.executePrompt'),
+        executionAgent.id,
+        projectStore.currentProjectId ?? undefined,
+        [],
+        {
+          workingDirectory: currentWorkingDirectory.value || currentProjectPath.value || undefined,
+          modelId: executionAgent.modelId?.trim() || undefined
+        }
+      )
+    } catch (err) {
+      console.error('[executeCurrentPlan] auto-send failed', err)
+    } finally {
+      agentPlanStore.clearConfirm(sessionId)
+    }
+  }
+
   const runSlashCommand = async (parsedSlashCommand: ParsedSlashCommand) => {
     const sessionId = currentSessionId.value
     if (!sessionId) {
@@ -2545,6 +2590,11 @@ export function useConversationComposer(options: UseConversationComposerOptions)
       runProjectInit,
       createSessionAndSend,
       sendWithPlanMode,
+      openModelPicker: () => {
+        isModelDropdownOpen.value = true
+        isAgentDropdownOpen.value = false
+        isReasoningDropdownOpen.value = false
+      },
       notifySuccess: message => notificationStore.success(message),
       notifyWarning: message => notificationStore.warning(message),
       notifyError: message => notificationStore.error(t('common.error'), message)
@@ -2710,7 +2760,71 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     content: string,
     attachments: MessageAttachment[] = [],
     replaceMessageId?: string
-  ) => {
+  ) => {    const sessionId = currentSessionId.value
+    const normalizedContent = content.trim()
+    if (!sessionId || isUploadingImages.value || isSending.value || isCurrentSessionDispatching.value) {
+      return false
+    }
+
+    if (!normalizedContent && attachments.length === 0) {
+      return false
+    }
+
+    if (!validateCurrentAgentAvailability()) {
+      return false
+    }
+
+    const executionAgent = getExecutionAgentConfig()
+    if (!executionAgent) {
+      return false
+    }
+
+    dispatchingSessionId.value = sessionId
+
+    try {
+      if (replaceMessageId && replaceMessageId !== messageId) {
+        await messageStore.deleteMessage(replaceMessageId)
+      }
+
+      // 主会话直接用选定的 ACP 客户端；仅当会话遗留了专家 persona 时才注入其系统提示
+      const expert = currentExpert.value
+      const injectedSystemMessages = expert
+        ? [buildSubAgentSystemPrompt(expert.prompt)]
+        : []
+
+      await conversationService.sendMessage(
+        sessionId,
+        normalizedContent,
+        executionAgent.id,
+        currentSession.value?.projectId,
+        attachments,
+        {
+          workingDirectory: currentWorkingDirectory.value || undefined,
+          modelId: selectedModelId.value.trim() || undefined,
+          injectedSystemMessages,
+          existingUserMessageId: messageId
+        }
+      )
+      focusInput()
+      return true
+    } catch (error) {
+      console.error('Failed to retry message:', error)
+      notificationStore.smartError('重试失败', error instanceof Error ? error : new Error(String(error)))
+      sessionExecutionStore.endSending(sessionId)
+      return false
+    } finally {
+      if (dispatchingSessionId.value === sessionId) {
+        dispatchingSessionId.value = null
+      }
+    }
+  }
+
+  // 编辑用户消息并重发：持久化新内容 → 删除该消息之后的所有消息 → 以既有用户消息重新生成
+  const editAndResendMessage = async (
+    messageId: string,
+    content: string,
+    attachments: MessageAttachment[] = []
+  ): Promise<boolean> => {
     const sessionId = currentSessionId.value
     const normalizedContent = content.trim()
     if (!sessionId || isUploadingImages.value || isSending.value || isCurrentSessionDispatching.value) {
@@ -2733,14 +2847,20 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     dispatchingSessionId.value = sessionId
 
     try {
-      const expert = currentExpert.value
-      if (!expert) {
-        throw new Error('未找到可用专家')
-      }
+      // 1. 持久化编辑后的用户消息内容
+      await messageStore.updateMessage(messageId, { content: normalizedContent })
 
-      if (replaceMessageId && replaceMessageId !== messageId) {
-        await messageStore.deleteMessage(replaceMessageId)
-      }
+      // 2. 删除该消息之后的所有消息（清空下方 AI 响应）
+      await messageStore.deleteMessagesAfter(sessionId, messageId)
+
+      // 3. 失效该会话用量缓存（删除的消息用量记录会被清除，需重新聚合）
+      tokenStore.invalidateSessionUsageSummary(sessionId)
+
+      // 4. 以既有用户消息重新发送（注入专家系统提示，与 retryMessage 一致）
+      const expert = currentExpert.value
+      const injectedSystemMessages = expert
+        ? [buildSubAgentSystemPrompt(expert.prompt)]
+        : []
 
       await conversationService.sendMessage(
         sessionId,
@@ -2751,17 +2871,15 @@ export function useConversationComposer(options: UseConversationComposerOptions)
         {
           workingDirectory: currentWorkingDirectory.value || undefined,
           modelId: selectedModelId.value.trim() || undefined,
-          injectedSystemMessages: [
-            buildSubAgentSystemPrompt(expert.prompt)
-          ],
+          injectedSystemMessages,
           existingUserMessageId: messageId
         }
       )
       focusInput()
       return true
     } catch (error) {
-      console.error('Failed to retry message:', error)
-      notificationStore.smartError('重试失败', error instanceof Error ? error : new Error(String(error)))
+      console.error('Failed to edit and resend message:', error)
+      notificationStore.smartError('编辑重发失败', error instanceof Error ? error : new Error(String(error)))
       sessionExecutionStore.endSending(sessionId)
       return false
     } finally {
@@ -2976,6 +3094,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     currentWorkingDirectory,
     dismissMemorySuggestion,
     executePlan,
+    executeCurrentPlan,
     fileInputRef,
     fileMentionPosition,
     focusInput,
@@ -3001,6 +3120,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     isMemorySuggestionLoading,
     isSearchingMemory,
     retryMessage,
+    editAndResendMessage,
     handleSend,
     handleSlashCommandSelect,
     inputPlaceholder,

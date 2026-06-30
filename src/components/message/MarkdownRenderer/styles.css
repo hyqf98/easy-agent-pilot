@@ -1,10 +1,13 @@
+/* 代码块 / mermaid 配色统一走 workspace 令牌（自带深色变体，自动跟随主题），
+ * 不再硬编码 hex，也不全局引入 highlight.js 的固定主题文件。 */
 .markdown-content {
-  --md-code-bg: linear-gradient(180deg, #f8fbff 0%, #edf4ff 100%);
-  --md-code-header-bg: rgba(219, 234, 254, 0.92);
-  --md-code-border: rgba(96, 165, 250, 0.28);
-  --md-code-fg: #1e293b;
-  --md-code-muted: #475569;
-  --md-code-hover-bg: rgba(191, 219, 254, 0.95);
+  --md-code-bg: var(--workspace-panel-bg, var(--color-bg-primary));
+  --md-code-header-bg: var(--workspace-control-bg, var(--color-bg-secondary));
+  --md-code-border: var(--workspace-border, var(--color-border));
+  --md-code-fg: var(--workspace-text-primary, var(--color-text-primary));
+  --md-code-muted: var(--workspace-text-tertiary, var(--color-text-tertiary));
+  --md-code-hover-bg: var(--workspace-control-hover-bg, var(--color-surface-hover));
+  --md-code-shadow: 0 1px 3px color-mix(in srgb, var(--workspace-text-primary, #1e293b) 8%, transparent);
   line-height: 1.55;
   color: var(--color-text-primary);
   width: 100%;
@@ -70,9 +73,9 @@
   width: 100%;
   max-width: 100%;
   border: 1px solid var(--md-code-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   background: var(--md-code-bg);
-  box-shadow: 0 4px 12px rgba(148, 163, 184, 0.12);
+  box-shadow: var(--md-code-shadow);
   overflow: hidden;
 }
 
@@ -121,7 +124,7 @@
 }
 
 .markdown-content :deep(.code-block-copy-btn.copied) {
-  color: #4ade80;
+  color: var(--color-success);
 }
 
 .markdown-content :deep(.code-block-copy-btn.copied .copy-icon) {
@@ -130,6 +133,54 @@
 
 .markdown-content :deep(.code-block-copy-btn.copied .check-icon) {
   display: block;
+}
+
+/* ── Mermaid 图表块：复用代码块外壳，SVG 居中显示，失败回退源码 ─────────── */
+.markdown-content :deep(.mermaid-block) {
+  margin: 0 0 0.15em;
+  width: 100%;
+  max-width: 100%;
+  border: 1px solid var(--md-code-border);
+  border-radius: var(--radius-lg);
+  background: var(--md-code-bg);
+  box-shadow: var(--md-code-shadow);
+  overflow: hidden;
+}
+
+.markdown-content :deep(.mermaid-block .code-block-header) {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.08rem 0.5rem;
+  background: var(--md-code-header-bg);
+  border-bottom: 1px solid var(--md-code-border);
+  line-height: 1.1;
+}
+
+.markdown-content :deep(.mermaid) {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 0.75rem;
+  background: var(--color-bg-primary);
+  overflow-x: auto;
+}
+
+.markdown-content :deep(.mermaid svg) {
+  max-width: 100%;
+  height: auto;
+}
+
+/* 渲染失败回退：以源码形式展示，带轻微错误提示底色 */
+.markdown-content :deep(.mermaid--error) {
+  justify-content: flex-start;
+  background: color-mix(in srgb, var(--color-error) 8%, var(--color-bg-primary));
+}
+
+.markdown-content :deep(.mermaid--error pre) {
+  width: 100%;
+  margin: 0;
+  padding: 0.5rem 0.75rem;
 }
 
 .markdown-content :deep(.hljs) {
@@ -152,16 +203,27 @@
   line-height: 1.38;
 }
 
+/* highlight.js 词法 token 颜色：基于语义令牌派生，跟随主题/主题色。
+ * 浅色用稍深的语义色保证对比度；深色在下方覆盖块里提亮。 */
+.markdown-content {
+  --hl-comment: color-mix(in srgb, var(--color-text-secondary) 85%, var(--color-text-tertiary));
+  --hl-keyword: var(--color-accent);
+  --hl-string: var(--color-success);
+  --hl-title: var(--color-primary);
+  --hl-number: var(--color-warning);
+  --hl-type: color-mix(in srgb, var(--color-accent) 75%, var(--color-warning));
+}
+
 .markdown-content :deep(.hljs-comment),
 .markdown-content :deep(.hljs-quote) {
-  color: #64748b;
+  color: var(--hl-comment);
   font-style: italic;
 }
 
 .markdown-content :deep(.hljs-keyword),
 .markdown-content :deep(.hljs-selector-tag),
 .markdown-content :deep(.hljs-subst) {
-  color: #7c3aed;
+  color: var(--hl-keyword);
 }
 
 .markdown-content :deep(.hljs-string),
@@ -169,14 +231,14 @@
 .markdown-content :deep(.hljs-template-variable),
 .markdown-content :deep(.hljs-variable),
 .markdown-content :deep(.hljs-regexp) {
-  color: #0f766e;
+  color: var(--hl-string);
 }
 
 .markdown-content :deep(.hljs-title),
 .markdown-content :deep(.hljs-section),
 .markdown-content :deep(.hljs-selector-id),
 .markdown-content :deep(.hljs-selector-class) {
-  color: #2563eb;
+  color: var(--hl-title);
 }
 
 .markdown-content :deep(.hljs-number),
@@ -184,13 +246,13 @@
 .markdown-content :deep(.hljs-symbol),
 .markdown-content :deep(.hljs-bullet),
 .markdown-content :deep(.hljs-attr) {
-  color: #c2410c;
+  color: var(--hl-number);
 }
 
 .markdown-content :deep(.hljs-type),
 .markdown-content :deep(.hljs-built_in),
 .markdown-content :deep(.hljs-class .hljs-title) {
-  color: #b45309;
+  color: var(--hl-type);
 }
 
 /* 链接样式 */
@@ -288,52 +350,18 @@
   margin: var(--spacing-2) 0;
 }
 
+/* 深色模式下微调代码 token 的亮度，使语义色在深底上更清晰。 */
 :global([data-theme='dark']) .markdown-content,
 :global(.dark) .markdown-content {
-  --md-code-bg: linear-gradient(180deg, #0f172a 0%, #111827 100%);
-  --md-code-header-bg: rgba(30, 41, 59, 0.92);
-  --md-code-border: rgba(148, 163, 184, 0.18);
-  --md-code-fg: #e2e8f0;
-  --md-code-muted: #94a3b8;
-  --md-code-hover-bg: rgba(51, 65, 85, 0.96);
-  color: #e5e7eb;
-}
-
-:global([data-theme='dark']) .markdown-content :deep(h1),
-:global(.dark) .markdown-content :deep(h1),
-:global([data-theme='dark']) .markdown-content :deep(h2),
-:global(.dark) .markdown-content :deep(h2),
-:global([data-theme='dark']) .markdown-content :deep(h3),
-:global(.dark) .markdown-content :deep(h3),
-:global([data-theme='dark']) .markdown-content :deep(h4),
-:global(.dark) .markdown-content :deep(h4),
-:global([data-theme='dark']) .markdown-content :deep(h5),
-:global(.dark) .markdown-content :deep(h5),
-:global([data-theme='dark']) .markdown-content :deep(h6),
-:global(.dark) .markdown-content :deep(h6),
-:global([data-theme='dark']) .markdown-content :deep(strong),
-:global(.dark) .markdown-content :deep(strong) {
-  color: #f8fafc;
+  --hl-comment: var(--color-text-tertiary);
+  --hl-keyword: var(--color-accent);
+  --hl-string: var(--color-success);
+  --hl-title: var(--color-primary);
+  --hl-number: var(--color-warning);
+  --hl-type: var(--color-accent);
 }
 
 :global([data-theme='dark']) .markdown-content :deep(code),
 :global(.dark) .markdown-content :deep(code) {
-  background-color: rgba(148, 163, 184, 0.14);
-}
-
-:global([data-theme='dark']) .markdown-content :deep(blockquote),
-:global(.dark) .markdown-content :deep(blockquote) {
-  border-left-color: rgba(148, 163, 184, 0.3);
-  background-color: rgba(30, 41, 59, 0.72);
-  color: #cbd5e1;
-}
-
-:global([data-theme='dark']) .markdown-content :deep(th),
-:global(.dark) .markdown-content :deep(th) {
-  background-color: rgba(30, 41, 59, 0.76);
-}
-
-:global([data-theme='dark']) .markdown-content :deep(tr:nth-child(even)),
-:global(.dark) .markdown-content :deep(tr:nth-child(even)) {
-  background-color: rgba(30, 41, 59, 0.42);
+  background-color: color-mix(in srgb, var(--color-primary) 10%, transparent);
 }

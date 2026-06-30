@@ -211,6 +211,119 @@ fn render_skill_markdown(
     sections.join("\n\n")
 }
 
+/// 标准 Skills 包脚手架请求（与 CLI 路径解耦，可写入任意目录）。
+#[derive(Debug, Clone)]
+pub struct SkillScaffoldRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub instructions: String,
+    pub references: Vec<CreateSkillReferenceInput>,
+    pub include_scripts_dir: bool,
+    pub include_assets_dir: bool,
+}
+
+impl From<&CreateCliSkillInput> for SkillScaffoldRequest {
+    fn from(input: &CreateCliSkillInput) -> Self {
+        Self {
+            name: input.name.clone(),
+            description: input.description.clone(),
+            instructions: input.instructions.clone(),
+            references: input.references.clone(),
+            include_scripts_dir: input.include_scripts_dir,
+            include_assets_dir: input.include_assets_dir,
+        }
+    }
+}
+
+/// 在指定目录下生成标准 Skills 包结构。
+///
+/// `skill_dir` 应为由调用方解析并创建好的目录；其最后一段作为 skill 目录名用于文件结构渲染。
+/// 返回生成的路径信息。供 CLI 脚手架命令与记忆库仓库（skill 格式）复用。
+pub fn scaffold_skill_package(
+    skill_dir: &Path,
+    request: &SkillScaffoldRequest,
+) -> Result<CreateCliSkillResult, String> {
+    let skill_dir_name = skill_dir
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("custom-skill")
+        .to_string();
+
+    let mut created_references: Vec<(String, String, Option<String>)> = Vec::new();
+    let references_path = if request.references.is_empty() {
+        None
+    } else {
+        let references_dir = skill_dir.join("references");
+        fs::create_dir_all(&references_dir)
+            .map_err(|e| format!("Failed to create references directory: {}", e))?;
+
+        for reference in &request.references {
+            let file_path = unique_markdown_path(&references_dir, &reference.title);
+            let file_name = file_path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("reference.md")
+                .to_string();
+            let summary = reference
+                .summary
+                .clone()
+                .filter(|text| !text.trim().is_empty());
+            let content = format!(
+                "# {}\n\n{}",
+                reference.title.trim(),
+                reference.content.trim()
+            );
+
+            fs::write(&file_path, content)
+                .map_err(|e| format!("Failed to write reference file: {}", e))?;
+
+            created_references.push((reference.title.trim().to_string(), file_name, summary));
+        }
+
+        Some(references_dir.to_string_lossy().to_string())
+    };
+
+    let scripts_path = if request.include_scripts_dir {
+        let scripts_dir = skill_dir.join("scripts");
+        fs::create_dir_all(&scripts_dir)
+            .map_err(|e| format!("Failed to create scripts directory: {}", e))?;
+        Some(scripts_dir.to_string_lossy().to_string())
+    } else {
+        None
+    };
+
+    let assets_path = if request.include_assets_dir {
+        let assets_dir = skill_dir.join("assets");
+        fs::create_dir_all(&assets_dir)
+            .map_err(|e| format!("Failed to create assets directory: {}", e))?;
+        Some(assets_dir.to_string_lossy().to_string())
+    } else {
+        None
+    };
+
+    let skill_markdown = render_skill_markdown(
+        &request.name,
+        request.description.as_deref(),
+        &request.instructions,
+        &created_references,
+        request.include_scripts_dir,
+        request.include_assets_dir,
+        &skill_dir_name,
+    );
+
+    let skill_file_path = skill_dir.join("SKILL.md");
+    fs::write(&skill_file_path, skill_markdown)
+        .map_err(|e| format!("Failed to write SKILL.md: {}", e))?;
+
+    Ok(CreateCliSkillResult {
+        skill_path: skill_dir.to_string_lossy().to_string(),
+        skill_file_path: skill_file_path.to_string_lossy().to_string(),
+        references_path,
+        scripts_path,
+        assets_path,
+    })
+}
+
 /// 创建 Skills 标准结构
 #[tauri::command]
 pub fn create_cli_skill_scaffold(
@@ -238,79 +351,7 @@ pub fn create_cli_skill_scaffold(
     fs::create_dir_all(&skill_dir)
         .map_err(|e| format!("Failed to create skill directory: {}", e))?;
 
-    let mut created_references: Vec<(String, String, Option<String>)> = Vec::new();
-    let references_path = if input.references.is_empty() {
-        None
-    } else {
-        let references_dir = skill_dir.join("references");
-        fs::create_dir_all(&references_dir)
-            .map_err(|e| format!("Failed to create references directory: {}", e))?;
-
-        for reference in &input.references {
-            let file_path = unique_markdown_path(&references_dir, &reference.title);
-            let file_name = file_path
-                .file_name()
-                .and_then(|value| value.to_str())
-                .unwrap_or("reference.md")
-                .to_string();
-            let summary = reference
-                .summary
-                .clone()
-                .filter(|text| !text.trim().is_empty());
-            let content = format!(
-                "# {}\n\n{}",
-                reference.title.trim(),
-                reference.content.trim()
-            );
-
-            fs::write(&file_path, content)
-                .map_err(|e| format!("Failed to write reference file: {}", e))?;
-
-            created_references.push((reference.title.trim().to_string(), file_name, summary));
-        }
-
-        Some(references_dir.to_string_lossy().to_string())
-    };
-
-    let scripts_path = if input.include_scripts_dir {
-        let scripts_dir = skill_dir.join("scripts");
-        fs::create_dir_all(&scripts_dir)
-            .map_err(|e| format!("Failed to create scripts directory: {}", e))?;
-        Some(scripts_dir.to_string_lossy().to_string())
-    } else {
-        None
-    };
-
-    let assets_path = if input.include_assets_dir {
-        let assets_dir = skill_dir.join("assets");
-        fs::create_dir_all(&assets_dir)
-            .map_err(|e| format!("Failed to create assets directory: {}", e))?;
-        Some(assets_dir.to_string_lossy().to_string())
-    } else {
-        None
-    };
-
-    let skill_markdown = render_skill_markdown(
-        &input.name,
-        input.description.as_deref(),
-        &input.instructions,
-        &created_references,
-        input.include_scripts_dir,
-        input.include_assets_dir,
-        &skill_dir_name,
-    );
-
-    let skill_file_path = skill_dir.join("SKILL.md");
-    fs::write(&skill_file_path, skill_markdown)
-        .map_err(|e| format!("Failed to write SKILL.md: {}", e))?;
-
-    Ok(CreateCliSkillResult {
-        skill_path: skill_dir.to_string_lossy().to_string(),
-        skill_file_path: skill_file_path.to_string_lossy().to_string(),
-        references_path,
-        scripts_path,
-        assets_path,
-    })
+    scaffold_skill_package(&skill_dir, &SkillScaffoldRequest::from(&input))
 }
 
 /// 解析 plugin.json 获取插件元信息
@@ -840,7 +881,7 @@ pub fn write_file_content(file_path: String, content: String) -> Result<(), Stri
         return Err(format!("Path is not a file: {}", file_path));
     }
 
-    // 安全检查：确保路径在允许的目录下
+    // 安全检查：确保路径在允许的目录下（CLI 配置目录 或 记忆库仓库目录）
     let home_dir = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
 
     let claude_dir = home_dir.join(".claude");
@@ -848,13 +889,17 @@ pub fn write_file_content(file_path: String, content: String) -> Result<(), Stri
     let qwen_dir = home_dir.join(".qwen");
     let opencode_dir = home_dir.join(".config").join("opencode");
 
+    let memory_repos_dir = crate::commands::memory_repo::get_memory_repos_dir()
+        .map_err(|e| format!("Failed to resolve memory repos directory: {}", e))?;
+
     let is_valid_path = path.starts_with(&claude_dir)
         || path.starts_with(&codex_dir)
         || path.starts_with(&qwen_dir)
-        || path.starts_with(&opencode_dir);
+        || path.starts_with(&opencode_dir)
+        || path.starts_with(&memory_repos_dir);
 
     if !is_valid_path {
-        return Err("Invalid file path: file must be in a valid CLI directory".to_string());
+        return Err("Invalid file path: file must be in a valid CLI directory or memory repo directory".to_string());
     }
 
     fs::write(&path, content).map_err(|e| format!("Failed to write file: {}", e))

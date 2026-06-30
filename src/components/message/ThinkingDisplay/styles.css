@@ -4,15 +4,22 @@
   min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--tool-call-bg, var(--color-surface)) 62%, transparent);
-  border: 1px solid color-mix(in srgb, var(--tool-call-border, var(--workspace-border, var(--color-border))) 78%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--workspace-control-bg, var(--tool-call-bg, var(--color-surface))) 76%, transparent);
+  border: 1px solid color-mix(in srgb, var(--workspace-border, var(--tool-call-border, var(--color-border))) 82%, transparent);
   overflow: hidden;
-  transition: border-color 0.16s ease, background 0.16s ease;
+  transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
 }
 
-.thinking-display:hover {
-  border-color: var(--tool-call-hover-border, var(--workspace-border-strong, var(--color-border)));
+.thinking-display:hover,
+.thinking-display--expanded {
+  border-color: color-mix(in srgb, var(--workspace-border-strong, var(--tool-call-hover-border, var(--color-border))) 86%, transparent);
+}
+
+.thinking-display--live {
+  border-color: color-mix(in srgb, var(--color-primary) 28%, var(--workspace-border, var(--color-border)));
+  background: color-mix(in srgb, var(--workspace-control-bg, var(--tool-call-running-bg, var(--color-surface))) 82%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-primary) 7%, transparent);
 }
 
 .thinking-display__header {
@@ -27,51 +34,98 @@
   cursor: pointer;
   user-select: none;
   text-align: left;
-  transition: background 0.2s ease;
+  transition: background 0.18s ease;
 }
 
 .thinking-display__header:hover {
-  background: var(--tool-call-header-hover, rgba(38, 38, 38, 0.04));
+  background: color-mix(in srgb, var(--workspace-control-hover-bg, var(--tool-call-header-hover, rgba(38, 38, 38, 0.04))) 62%, transparent);
 }
 
-.thinking-display__header-left {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  flex: 1;
-}
-
+.thinking-display__header-left,
 .thinking-display__header-right {
   display: flex;
   align-items: center;
-  gap: var(--spacing-2);
-  flex-shrink: 0;
+  min-width: 0;
+}
+
+.thinking-display__header-left {
+  flex: 1 1 auto;
+  gap: 7px;
+}
+
+.thinking-display__header-right {
+  flex: 0 0 auto;
+  gap: 7px;
 }
 
 .thinking-display__icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--tool-call-meta, var(--color-text-secondary));
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  color: var(--workspace-text-secondary, var(--tool-call-meta, var(--color-text-secondary)));
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.thinking-display--live .thinking-display__icon {
+  color: var(--color-primary);
+  animation: thinking-live-pulse 1.8s ease-in-out infinite;
+}
+
+.thinking-display--live .thinking-display__icon :deep(svg) {
+  animation: thinking-spin 1s linear infinite;
 }
 
 .thinking-display__title {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--tool-call-name, var(--color-text-primary));
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--workspace-text-secondary, var(--tool-call-name, var(--color-text-primary)));
+  font-size: 12px;
+  font-weight: 560;
+  letter-spacing: 0;
+}
+
+.thinking-display--live .thinking-display__title {
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+/* 执行中：标题文字从左到右的高亮扫光，循环到完成（live=false）后自动停止 */
+.thinking-display__title--sweep {
+  background: linear-gradient(
+    90deg,
+    var(--workspace-text-secondary, var(--color-text-secondary)) 0%,
+    var(--workspace-text-secondary, var(--color-text-secondary)) 35%,
+    var(--color-primary) 50%,
+    var(--workspace-text-secondary, var(--color-text-secondary)) 65%,
+    var(--workspace-text-secondary, var(--color-text-secondary)) 100%
+  );
+  background-size: 250% 100%;
+  background-position: 100% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: title-sweep 2.4s ease-in-out infinite;
+}
+
+@keyframes title-sweep {
+  0% { background-position: 100% 0; }
+  100% { background-position: -150% 0; }
 }
 
 .thinking-display__toggle {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
+  font-size: 11px;
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary));
 }
 
 .thinking-display__chevron {
   display: inline-flex;
-  color: var(--tool-call-meta, var(--color-text-tertiary));
-  transition: transform 0.2s ease;
+  color: var(--workspace-text-tertiary, var(--tool-call-meta, var(--color-text-tertiary)));
+  transition: transform 0.18s ease;
 }
 
 .thinking-display__chevron--expanded {
@@ -81,7 +135,7 @@
 .thinking-display__content {
   width: 100%;
   box-sizing: border-box;
-  border-top: 1px solid var(--tool-call-content-border, var(--workspace-border, var(--color-border)));
+  border-top: 1px solid color-mix(in srgb, var(--workspace-border, var(--tool-call-content-border, var(--color-border))) 74%, transparent);
   max-height: min(320px, calc(var(--message-compact-max-height, 20rem) - 44px));
   overflow: hidden;
 }
@@ -91,28 +145,14 @@
   max-height: min(320px, calc(var(--message-compact-max-height, 20rem) - 44px));
   overflow: auto;
   scrollbar-gutter: stable;
-  padding: 7px 8px 8px;
+  padding: 8px 9px 9px 12px;
   box-sizing: border-box;
+  border-left: 1px solid color-mix(in srgb, var(--color-primary) 22%, transparent);
 }
 
-/* 自定义滚动条 */
+/* 仅此处需要 thin 滚动条（6px，与全局 8px 不同）；track/thumb 沿用全局 */
 .thinking-display__scroll::-webkit-scrollbar {
   width: var(--scrollbar-size-thin);
-}
-
-.thinking-display__scroll::-webkit-scrollbar-track {
-  background: var(--scrollbar-track);
-}
-
-.thinking-display__scroll::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
-  border-radius: var(--radius-full);
-  border: 1px solid transparent;
-  background-clip: padding-box;
-}
-
-.thinking-display__scroll::-webkit-scrollbar-thumb:hover {
-  background: var(--scrollbar-thumb-hover);
 }
 
 .thinking-display__text {
@@ -121,32 +161,44 @@
   max-width: 100%;
   box-sizing: border-box;
   font-family: var(--font-family-mono);
-  font-size: var(--font-size-xs);
-  line-height: 1.5;
+  font-size: 12px;
+  line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
-  color: var(--color-text-secondary);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
 }
 
-/* 暗色模式适配 */
+@keyframes thinking-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes thinking-live-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary) 0%, transparent);
+  }
+
+  50% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 11%, transparent);
+  }
+}
+
 :global([data-theme='dark']) .thinking-display,
 :global(.dark) .thinking-display {
-  background: color-mix(in srgb, var(--tool-call-bg, rgba(255, 255, 255, 0.06)) 70%, transparent);
-  border-color: color-mix(in srgb, var(--tool-call-border, rgba(255, 255, 255, 0.1)) 84%, transparent);
+  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.06)) 78%, transparent);
+  border-color: color-mix(in srgb, var(--workspace-border, rgba(255, 255, 255, 0.1)) 88%, transparent);
 }
 
-:global([data-theme='dark']) .thinking-display__header:hover,
-:global(.dark) .thinking-display__header:hover {
-  background: var(--tool-call-header-hover, rgba(255, 255, 255, 0.07));
-}
-
-:global([data-theme='dark']) .thinking-display__content,
-:global(.dark) .thinking-display__content {
-  border-top-color: rgba(34, 211, 238, 0.14);
+:global([data-theme='dark']) .thinking-display--live,
+:global(.dark) .thinking-display--live {
+  border-color: color-mix(in srgb, var(--color-primary) 30%, var(--workspace-border, rgba(255, 255, 255, 0.1)));
+  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.08)) 86%, transparent);
 }
 
 :global([data-theme='dark']) .thinking-display__text,
 :global(.dark) .thinking-display__text {
-  color: #cbd5e1;
+  color: var(--workspace-text-secondary, #b7b7af);
 }
