@@ -34,9 +34,9 @@ const compressionThresholdOptions = computed(() => [
 ])
 
 const acpPermissionModeOptions = computed(() => [
-  { value: 'ask', label: '每次询问' },
-  { value: 'allow_always', label: '自动允许' },
-  { value: 'reject_always', label: '自动拒绝' }
+  { value: 'ask', label: t('permission.modes.ask') },
+  { value: 'allow_always', label: t('permission.modes.allowAlways') },
+  { value: 'reject_always', label: t('permission.modes.rejectAlways') }
 ])
 
   return {

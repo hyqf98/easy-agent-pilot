@@ -1,7 +1,8 @@
 .skill-detail {
   display: flex;
   flex-direction: column;
-  /* 详情视图嵌入在可滚动容器内，父级无固定高度，用视口相对的最小高度撑开编辑区 */
+  /* 分屏布局下撑满右侧容器；保留最小高度兜底，避免内容过短时编辑区过矮 */
+  height: 100%;
   min-height: min(70vh, 560px);
   border-radius: var(--radius-lg);
   background: var(--color-surface);

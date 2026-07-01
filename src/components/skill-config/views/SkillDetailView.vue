@@ -3,6 +3,8 @@ import { ref, onMounted, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { invoke } from '@tauri-apps/api/core'
 import type { UnifiedSkillConfig } from '@/stores/skillConfig'
+import { useNotificationStore } from '@/stores/notification'
+import { getErrorMessage } from '@/utils/api'
 import { EaButton, EaIcon } from '@/components/common'
 import ConfigFileWorkspace from '@/components/skill-config/common/ConfigFileWorkspace.vue'
 
@@ -25,12 +27,14 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const notificationStore = useNotificationStore()
 
 // 状态
 const isLoading = ref(true)
 const allEntries = ref<SkillFileEntry[]>([])
 const isEditMode = ref(false)
 const editContent = ref('')
+const isSaving = ref(false)
 
 // 当前选中的文件
 const selectedPath = ref<string | null>(null)
@@ -222,12 +226,30 @@ function toggleEditMode() {
   }
 }
 
-// 保存编辑
+// 保存编辑（写回磁盘）
 async function saveEdit() {
-  if (currentFile.value) {
-    currentFile.value.content = editContent.value
+  if (!currentFile.value || isSaving.value) {
+    return
   }
-  isEditMode.value = false
+
+  isSaving.value = true
+  try {
+    await invoke('write_file_content', {
+      filePath: currentFile.value.path,
+      content: editContent.value,
+    })
+    currentFileContent.value = editContent.value
+    isEditMode.value = false
+  } catch (error) {
+    console.error('Failed to save file:', error)
+    notificationStore.databaseError(
+      t('settings.skills.saveFailed', { defaultValue: '保存失败' }),
+      getErrorMessage(error),
+      async () => { await saveEdit() }
+    )
+  } finally {
+    isSaving.value = false
+  }
 }
 
 function handleBack() {
@@ -297,6 +319,7 @@ onMounted(() => {
           v-if="skill.source === 'file' && currentFile"
           :variant="isEditMode ? 'primary' : 'ghost'"
           size="small"
+          :disabled="isSaving"
           @click="toggleEditMode"
         >
           <EaIcon :name="isEditMode ? 'lucide:eye' : 'lucide:pencil'" />
@@ -307,6 +330,7 @@ onMounted(() => {
           v-if="isEditMode"
           variant="primary"
           size="small"
+          :loading="isSaving"
           @click="saveEdit"
         >
           <EaIcon name="lucide:save" />

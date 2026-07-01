@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { EaIcon } from '@/components/common'
 import type { PermissionOption } from '@/services/conversation/strategies/types'
 import { usePermissionStore } from '@/stores/permission'
@@ -12,6 +13,7 @@ const emit = defineEmits<{
   (e: 'resolved'): void
 }>()
 
+const { t } = useI18n()
 const permissionStore = usePermissionStore()
 
 const pending = computed(() => permissionStore.getPending(props.sessionId) ?? null)
@@ -67,13 +69,13 @@ const inputSummary = computed<string>(() => {
             :size="14"
             class="permission-popup__icon"
           />
-          <span class="permission-popup__label">工具权限请求</span>
+          <span class="permission-popup__label">{{ t('permission.title') }}</span>
         </div>
       </div>
 
       <div class="permission-popup__body">
         <div class="permission-popup__tool">
-          <span class="permission-popup__tool-name">{{ pending.toolName || '未知工具' }}</span>
+          <span class="permission-popup__tool-name">{{ pending.toolName || t('permission.unknownTool') }}</span>
           <p
             v-if="inputSummary"
             class="permission-popup__tool-input"

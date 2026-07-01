@@ -488,7 +488,7 @@ impl MessageRecorder {
         conn.execute(
             "INSERT INTO messages (id, session_id, request_id, role, message_type, content, status, \
              created_at, updated_at, seq) \
-             VALUES (?1, ?2, ?3, 'system', 'system', ?4, 'completed', ?5, ?6, ?7)",
+             VALUES (?1, ?2, ?3, 'assistant', 'system', ?4, 'completed', ?5, ?6, ?7)",
             params![
                 &id,
                 &self.session_id,

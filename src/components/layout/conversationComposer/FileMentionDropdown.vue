@@ -4,7 +4,6 @@ import { invoke } from '@tauri-apps/api/core'
 import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '@/stores/session'
 import { useProjectStore } from '@/stores/project'
-import { useThemeStore } from '@/stores/theme'
 import { resolveFileIcon } from '@/utils/fileIcon'
 import { EaIcon } from '@/components/common'
 import type { PendingImageAttachment } from '@/stores/sessionExecution'
@@ -52,10 +51,8 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const sessionStore = useSessionStore()
 const projectStore = useProjectStore()
-const themeStore = useThemeStore()
 
 const isOpen = computed(() => props.visible)
-const isDarkTheme = computed(() => themeStore.isDark)
 const isLoading = ref(false)
 const hasResolvedSearch = ref(false)
 const results = ref<FileMentionSearchResult[]>([])
@@ -120,7 +117,7 @@ const scopeOptions = computed(() => ([
 const dropdownStyle = computed(() => {
   if (!props.position.x || !props.position.y) return {}
 
-  const dropdownHeight = 360
+  const dropdownHeight = 300
   const spaceBelow = window.innerHeight - props.position.y
   const showAbove = spaceBelow < dropdownHeight
 
@@ -352,18 +349,15 @@ const getItemIconName = (item: MentionResultItem): string => {
   return getFileIconName(item.data)
 }
 
-const getItemName = (item: MentionResultItem): string => {
-  if (item.kind === 'attachment') {
-    return item.data.name
-  }
-  return item.data.name
-}
-
-const getItemSubtext = (item: MentionResultItem): string => {
+const getItemDisplayText = (item: MentionResultItem): string => {
   if (item.kind === 'attachment') {
     return item.data.placeholder
   }
-  return item.data.displayPath
+  const { displayPath, name } = item.data
+  if (displayPath === name) {
+    return name
+  }
+  return displayPath
 }
 
 const highlightMatch = (text: string) => {
@@ -423,7 +417,6 @@ onUnmounted(() => {
       v-if="isOpen"
       ref="dropdownRef"
       class="file-mention-dropdown"
-      :class="{ 'file-mention-dropdown--dark': isDarkTheme }"
       :style="dropdownStyle"
     >
       <div class="file-mention__header">
@@ -437,25 +430,17 @@ onUnmounted(() => {
           >
             <EaIcon
               :name="scope.icon"
-              :size="12"
+              :size="11"
             />
             <span>{{ scope.label }}</span>
           </button>
         </div>
-        <div class="file-mention__meta">
-          <EaIcon
-            :name="activeScope === 'global' ? 'sparkles' : 'search'"
-            :size="12"
-          />
-          <span v-if="trimmedSearchText">{{ t('fileMention.searchingFor', { query: trimmedSearchText }) }}</span>
-          <span v-else>{{ t('fileMention.scopeHint', { scope: activeScope === 'project' ? t('fileMention.scopeProject') : t('fileMention.scopeGlobal') }) }}</span>
-          <span
-            v-if="mergedResults.length > 0"
-            class="file-mention__count"
-          >
-            {{ t('fileMention.resultCount', { count: mergedResults.length }) }}
-          </span>
-        </div>
+        <span
+          v-if="mergedResults.length > 0"
+          class="file-mention__count"
+        >
+          {{ t('fileMention.resultCount', { count: mergedResults.length }) }}
+        </span>
       </div>
 
       <div
@@ -493,26 +478,9 @@ onUnmounted(() => {
           <div class="file-mention__item-body">
             <span
               class="file-mention__item-name"
-              v-html="highlightMatch(getItemName(item))"
-            />
-            <span
-              class="file-mention__item-path"
-              :class="{ 'file-mention__item-path--muted': item.kind === 'file' && item.data.displayPath === item.data.name }"
-              v-html="highlightMatch(getItemSubtext(item))"
+              v-html="highlightMatch(getItemDisplayText(item))"
             />
           </div>
-          <span
-            v-if="item.kind === 'attachment'"
-            class="file-mention__item-scope file-mention__item-scope--attachment"
-          >
-            {{ item.data.isImage ? t('fileMention.scopeImage') : t('fileMention.scopeFile') }}
-          </span>
-          <span
-            v-else
-            class="file-mention__item-scope"
-          >
-            {{ item.data.scope === 'project' ? t('fileMention.scopeProjectShort') : t('fileMention.scopeGlobalShort') }}
-          </span>
         </div>
 
         <div
@@ -527,17 +495,6 @@ onUnmounted(() => {
           <span>{{ t('fileMention.loading') }}</span>
         </div>
       </div>
-
-      <div class="file-mention__footer">
-        <kbd>Tab</kbd>
-        <span>{{ t('fileMention.switchScope') }}</span>
-        <kbd>↑↓</kbd>
-        <span>{{ t('fileMention.navigate') }}</span>
-        <kbd>Enter</kbd>
-        <span>{{ t('fileMention.select') }}</span>
-        <kbd>Esc</kbd>
-        <span>{{ t('fileMention.close') }}</span>
-      </div>
     </div>
   </Teleport>
 </template>
@@ -545,49 +502,47 @@ onUnmounted(() => {
 <style scoped>
 .file-mention-dropdown {
   position: fixed;
-  min-width: 360px;
-  max-width: 480px;
-  max-height: 380px;
+  width: min(380px, calc(100vw - 24px));
+  max-height: 300px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid rgba(148, 163, 184, 0.24);
-  border-radius: 18px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(248, 250, 252, 0.96));
-  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
-  backdrop-filter: blur(18px);
-  z-index: 10000;
+  border: 1px solid color-mix(in srgb, var(--color-border) 85%, transparent);
+  border-radius: 14px;
+  background: var(--color-bg-elevated);
+  box-shadow: 0 8px 28px color-mix(in srgb, var(--color-text-primary) 12%, transparent);
+  backdrop-filter: blur(12px);
+  z-index: var(--z-dropdown);
 }
 
 .file-mention__header {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--spacing-2);
-  padding: var(--spacing-3);
-  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
-  background: linear-gradient(180deg, rgba(226, 232, 240, 0.24), rgba(255, 255, 255, 0.3));
+  padding: 10px 12px 6px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 85%, transparent);
 }
 
 .file-mention__scope-switch {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  width: fit-content;
-  padding: 4px;
-  border-radius: 999px;
-  background: rgba(148, 163, 184, 0.1);
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-text-primary) 5%, transparent);
 }
 
 .file-mention__scope {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 10px;
+  gap: 4px;
+  padding: 3px 8px;
   border: none;
-  border-radius: 999px;
+  border-radius: 6px;
   background: transparent;
-  color: var(--color-text-secondary);
+  color: var(--color-text-tertiary);
+  font-size: 11px;
   cursor: pointer;
   transition: all var(--transition-fast) var(--easing-default);
 }
@@ -597,33 +552,17 @@ onUnmounted(() => {
 }
 
 .file-mention__scope--active {
-  background: rgba(14, 165, 233, 0.12);
-  color: #0369a1;
-  box-shadow: inset 0 0 0 1px rgba(14, 165, 233, 0.16);
-}
-
-.file-mention__meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
-}
-
-.file-mention__meta span:first-of-type {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  background: var(--color-active-bg);
+  color: var(--color-active-text);
 }
 
 .file-mention__count {
-  margin-left: auto;
-  padding: 3px 8px;
+  flex-shrink: 0;
+  padding: 2px 7px;
   border-radius: 999px;
-  background: rgba(14, 165, 233, 0.12);
-  color: #0369a1;
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: color-mix(in srgb, var(--color-primary) 75%, var(--color-text-primary));
+  font-size: 10px;
   font-weight: 600;
 }
 
@@ -631,7 +570,8 @@ onUnmounted(() => {
   flex: 1;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: rgba(148, 163, 184, 0.34) transparent;
+  scrollbar-color: color-mix(in srgb, var(--color-text-primary) 20%, transparent) transparent;
+  padding: 6px;
 }
 
 .file-mention__list::-webkit-scrollbar {
@@ -643,7 +583,7 @@ onUnmounted(() => {
 }
 
 .file-mention__list::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.34);
+  background: color-mix(in srgb, var(--color-text-primary) 20%, transparent);
   border-radius: 999px;
 }
 
@@ -653,218 +593,57 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   gap: var(--spacing-2);
-  padding: var(--spacing-6) var(--spacing-4);
+  padding: var(--spacing-4) var(--spacing-3);
   color: var(--color-text-tertiary);
   text-align: center;
 }
 
 .file-mention__item {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 11px 14px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 8px;
   cursor: pointer;
-  transition: background-color var(--transition-fast) var(--easing-default);
-  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
-}
-
-.file-mention__item:last-child {
-  border-bottom: none;
+  border: 1px solid transparent;
+  transition:
+    background-color var(--transition-fast) var(--easing-default),
+    border-color var(--transition-fast) var(--easing-default);
 }
 
 .file-mention__item:hover,
 .file-mention__item--selected {
-  background: rgba(14, 165, 233, 0.08);
+  background: var(--color-active-bg);
+  border-color: var(--color-active-border);
 }
 
 .file-mention__item-icon {
   width: 18px;
   display: inline-flex;
   justify-content: center;
-  padding-top: 2px;
+  flex-shrink: 0;
   color: var(--color-text-secondary);
 }
 
 .file-mention__item-body {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
 }
 
-.file-mention__item-name,
-.file-mention__item-path {
+.file-mention__item-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.file-mention__item-name {
   font-size: var(--font-size-sm);
   color: var(--color-text-primary);
 }
 
-.file-mention__item-path {
-  font-size: 11px;
-  color: var(--color-text-tertiary);
-}
-
-.file-mention__item-path--muted {
-  opacity: 0.5;
-}
-
-.file-mention__item-scope {
-  flex-shrink: 0;
-  margin-top: 1px;
-  padding: 3px 7px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.05);
-  color: var(--color-text-tertiary);
-  font-size: 10px;
-  font-weight: 600;
-}
-
-.file-mention__item-scope--attachment {
-  background: rgba(139, 92, 246, 0.12);
-  color: #7c3aed;
-}
-
-.file-mention__item--attachment {
-  background: rgba(139, 92, 246, 0.04);
-}
-
-.file-mention__item--attachment:hover,
-.file-mention__item--attachment.file-mention__item--selected {
-  background: rgba(139, 92, 246, 0.1);
-}
-
-.file-mention__item-name :deep(mark),
-.file-mention__item-path :deep(mark) {
-  background: rgba(251, 191, 36, 0.28);
+.file-mention__item-name :deep(mark) {
+  background: color-mix(in srgb, var(--color-primary) 28%, transparent);
   color: inherit;
   padding: 0 2px;
   border-radius: 4px;
-}
-
-.file-mention__footer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding: var(--spacing-2) var(--spacing-3);
-  border-top: 1px solid rgba(148, 163, 184, 0.16);
-  font-size: 11px;
-  color: var(--color-text-tertiary);
-  background: rgba(255, 255, 255, 0.72);
-}
-
-.file-mention__footer kbd {
-  padding: 2px 6px;
-  border: 1px solid rgba(148, 163, 184, 0.36);
-  border-radius: 6px;
-  background: rgba(248, 250, 252, 0.92);
-  color: var(--color-text-secondary);
-  font-family: inherit;
-  font-size: 10px;
-}
-
-.file-mention-dropdown--dark {
-  border-color: rgba(71, 85, 105, 0.72);
-  background:
-    linear-gradient(180deg, rgba(15, 23, 42, 0.97), rgba(2, 6, 23, 0.96));
-  box-shadow: 0 24px 60px rgba(2, 6, 23, 0.46);
-}
-
-.file-mention-dropdown--dark .file-mention__header {
-  border-bottom-color: rgba(71, 85, 105, 0.42);
-  background: linear-gradient(180deg, rgba(30, 41, 59, 0.72), rgba(15, 23, 42, 0.38));
-}
-
-.file-mention-dropdown--dark .file-mention__scope-switch {
-  background: rgba(51, 65, 85, 0.72);
-}
-
-.file-mention-dropdown--dark .file-mention__scope {
-  color: #94a3b8;
-}
-
-.file-mention-dropdown--dark .file-mention__scope:hover {
-  color: #e2e8f0;
-}
-
-.file-mention-dropdown--dark .file-mention__scope--active {
-  background: rgba(14, 165, 233, 0.18);
-  color: #bae6fd;
-  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.22);
-}
-
-.file-mention-dropdown--dark .file-mention__meta,
-.file-mention-dropdown--dark .file-mention__empty,
-.file-mention-dropdown--dark .file-mention__loading,
-.file-mention-dropdown--dark .file-mention__footer {
-  color: #94a3b8;
-}
-
-.file-mention-dropdown--dark .file-mention__count {
-  background: rgba(14, 165, 233, 0.18);
-  color: #bae6fd;
-}
-
-.file-mention-dropdown--dark .file-mention__item {
-  border-bottom-color: rgba(71, 85, 105, 0.28);
-}
-
-.file-mention-dropdown--dark .file-mention__item:hover,
-.file-mention-dropdown--dark .file-mention__item--selected {
-  background: rgba(14, 165, 233, 0.14);
-}
-
-.file-mention-dropdown--dark .file-mention__item-icon,
-.file-mention-dropdown--dark .file-mention__item-path,
-.file-mention-dropdown--dark .file-mention__item-scope {
-  color: #94a3b8;
-}
-
-.file-mention-dropdown--dark .file-mention__item-name {
-  color: #e2e8f0;
-}
-
-.file-mention-dropdown--dark .file-mention__item-scope {
-  background: rgba(51, 65, 85, 0.72);
-}
-
-.file-mention-dropdown--dark .file-mention__item-scope--attachment {
-  background: rgba(139, 92, 246, 0.22);
-  color: #c4b5fd;
-}
-
-.file-mention-dropdown--dark .file-mention__item--attachment {
-  background: rgba(139, 92, 246, 0.08);
-}
-
-.file-mention-dropdown--dark .file-mention__item--attachment:hover,
-.file-mention-dropdown--dark .file-mention__item--attachment.file-mention__item--selected {
-  background: rgba(139, 92, 246, 0.16);
-}
-
-.file-mention-dropdown--dark .file-mention__footer {
-  border-top-color: rgba(71, 85, 105, 0.42);
-  background: rgba(15, 23, 42, 0.78);
-}
-
-.file-mention-dropdown--dark .file-mention__footer kbd {
-  border-color: rgba(71, 85, 105, 0.76);
-  background: rgba(30, 41, 59, 0.9);
-  color: #cbd5e1;
-}
-
-.file-mention-dropdown--dark .file-mention__list {
-  scrollbar-color: rgba(100, 116, 139, 0.48) transparent;
-}
-
-.file-mention-dropdown--dark .file-mention__list::-webkit-scrollbar-thumb {
-  background: rgba(100, 116, 139, 0.48);
 }
 </style>

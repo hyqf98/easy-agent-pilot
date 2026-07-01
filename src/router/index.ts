@@ -27,6 +27,14 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/pet',
+    name: 'pet',
+    component: () => import('@/views/PetView/PetView.vue'),
+    meta: {
+      titleKey: 'routes.home'
+    }
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'not-found',
     redirect: '/'

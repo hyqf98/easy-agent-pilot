@@ -503,9 +503,11 @@ pub(crate) fn get_cli_config_paths_internal(
 
     let cli_name = resolve_cli_name(Some(cli_path), cli_type_hint, "claude");
 
+    // 配置根目录统一走跨平台解析（支持 $CODEX_HOME / $XDG_CONFIG_HOME / $OPENCODE_CONFIG_DIR）
+    let config_dir = crate::commands::scan_shared::resolve_cli_config_base_dir(&cli_name, &home_dir);
+
     match cli_name.as_str() {
         "claude" | "claude-code" => {
-            let config_dir = home_dir.join(".claude");
             let config_file = home_dir.join(".claude.json");
             Ok(CliConfigPaths {
                 config_dir: config_dir.to_string_lossy().to_string(),
@@ -515,8 +517,7 @@ pub(crate) fn get_cli_config_paths_internal(
             })
         }
         "codex" => {
-            let config_dir = home_dir.join(".codex");
-            let config_file = home_dir.join(".codex").join("config.toml");
+            let config_file = config_dir.join("config.toml");
             Ok(CliConfigPaths {
                 config_dir: config_dir.to_string_lossy().to_string(),
                 config_file: config_file.to_string_lossy().to_string(),
@@ -525,9 +526,6 @@ pub(crate) fn get_cli_config_paths_internal(
             })
         }
         "opencode" => {
-            let config_dir = dirs::home_dir()
-                .map(|h| h.join(".config").join("opencode"))
-                .ok_or_else(|| "Cannot determine home directory".to_string())?;
             let config_file = config_dir.join("opencode.json");
             Ok(CliConfigPaths {
                 config_dir: config_dir.to_string_lossy().to_string(),
@@ -538,7 +536,7 @@ pub(crate) fn get_cli_config_paths_internal(
         }
         "qwen" | "qwen-code" => {
             let config_dir = home_dir.join(".qwen");
-            let config_file = home_dir.join(".qwen").join("settings.json");
+            let config_file = config_dir.join("settings.json");
             Ok(CliConfigPaths {
                 config_dir: config_dir.to_string_lossy().to_string(),
                 config_file: config_file.to_string_lossy().to_string(),
@@ -548,7 +546,6 @@ pub(crate) fn get_cli_config_paths_internal(
         }
         _ => {
             // 默认使用 Claude 配置
-            let config_dir = home_dir.join(".claude");
             let config_file = home_dir.join(".claude.json");
             Ok(CliConfigPaths {
                 config_dir: config_dir.to_string_lossy().to_string(),
@@ -563,13 +560,14 @@ pub(crate) fn get_cli_config_paths_internal(
 fn resolve_default_cli_config_path(cli_type: &str) -> Result<PathBuf, String> {
     let home_dir = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
 
+    // 配置根目录统一走跨平台解析（支持 $CODEX_HOME / $XDG_CONFIG_HOME / $OPENCODE_CONFIG_DIR）
+    let config_dir = crate::commands::scan_shared::resolve_cli_config_base_dir(cli_type, &home_dir);
+
     let path = match cli_type {
-        "claude" => home_dir.join(".claude.json"),
-        "codex" => home_dir.join(".codex").join("config.toml"),
-        "opencode" => home_dir
-            .join(".config")
-            .join("opencode")
-            .join("opencode.json"),
+        // Claude 的主配置文件在 home 根（~/.claude.json），不在配置目录内
+        "claude" | "claude-code" => home_dir.join(".claude.json"),
+        "codex" => config_dir.join("config.toml"),
+        "opencode" => config_dir.join("opencode.json"),
         _ => return Err(format!("Unsupported cli type: {}", cli_type)),
     };
 

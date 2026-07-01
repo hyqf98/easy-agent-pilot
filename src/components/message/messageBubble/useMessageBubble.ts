@@ -74,6 +74,23 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
   // 系统状态消息（如 "Connecting to agent via ACP…"）：轻量状态条，不走完整气泡
   const isSystemStatus = computed(() => props.message.messageType === 'system' && props.message.role === 'assistant')
   const isStreaming = computed(() => props.message.status === 'streaming')
+  const isAssistantText = computed(() => isAssistant.value && props.message.messageType === 'text')
+  // 同回合是否已有思考行（思考行存在时，等待态由 ThinkingDisplay 的"正在思考"承担）
+  const hasRequestThinkingRow = computed(() =>
+    resolvedSessionMessages.value.some(message =>
+      message.requestId === props.message.requestId
+      && message.role === 'assistant'
+      && message.messageType === 'thinking'
+    )
+  )
+  // AI 文本回复等待首字：assistant text 行处于 streaming、内容为空、且同回合尚无思考行。
+  // 此时在气泡内渲染旋转圆环加载动画，首字/思考到达后自动让位。
+  const isAwaitingFirstToken = computed(() =>
+    isAssistantText.value
+    && isStreaming.value
+    && !props.message.content?.trim()
+    && !hasRequestThinkingRow.value
+  )
   const resolvedSessionMessages = computed(() => {
     if (props.sessionMessages) {
       return props.sessionMessages
@@ -551,7 +568,9 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
       arguments: parsedArguments,
       status,
       result: resultMessage?.toolResult || props.message.toolResult,
-      errorMessage: hasError ? (resultMessage?.errorMessage || props.message.errorMessage) : undefined
+      errorMessage: hasError ? (resultMessage?.errorMessage || props.message.errorMessage) : undefined,
+      kind: props.message.toolKind,
+      locations: props.message.toolLocations
     }
   })
 
@@ -577,7 +596,9 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
       arguments: parsedArguments,
       status: hasError ? 'error' : 'success',
       result: props.message.toolResult,
-      errorMessage: hasError ? props.message.errorMessage : undefined
+      errorMessage: hasError ? props.message.errorMessage : undefined,
+      kind: useMessage?.toolKind || props.message.toolKind,
+      locations: useMessage?.toolLocations || props.message.toolLocations
     }
   })
 
@@ -854,6 +875,7 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
     isSystemStatus,
     isTokenOnlyMessage,
     isStreaming,
+    isAwaitingFirstToken,
     isCurrentStreamingMessage,
     isError,
     isInterrupted,

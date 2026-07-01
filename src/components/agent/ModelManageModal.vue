@@ -4,11 +4,13 @@ import {
   useAgentConfigStore,
   type AgentModelConfig
 } from '@/stores/agentConfig'
+import { useNotificationStore } from '@/stores/notification'
 import { EaButton, EaIcon } from '@/components/common'
 import { formatContextWindowCount } from '@/utils/contextWindow'
 import ModelEditModal from './ModelEditModal.vue'
 
 const agentConfigStore = useAgentConfigStore()
+const notificationStore = useNotificationStore()
 
 const props = defineProps<{
   agentId: string
@@ -19,7 +21,20 @@ const emit = defineEmits<{
 }>()
 
 const models = computed(() => agentConfigStore.getModelsConfigs(props.agentId))
+// 模型名称筛选（按 displayName / modelId 模糊匹配，不区分大小写）
+const modelSearch = ref('')
+const filteredModels = computed(() => {
+  const keyword = modelSearch.value.trim().toLowerCase()
+  if (!keyword) {
+    return models.value
+  }
+  return models.value.filter(model =>
+    (model.displayName || '').toLowerCase().includes(keyword)
+    || (model.modelId || '').toLowerCase().includes(keyword)
+  )
+})
 const isLoading = ref(false)
+const isSyncing = ref(false)
 
 const showEditModal = ref(false)
 const editingModel = ref<AgentModelConfig | null>(null)
@@ -37,6 +52,28 @@ watch(() => props.agentId, async (newAgentId) => {
 const handleAdd = () => {
   editingModel.value = null
   showEditModal.value = true
+}
+
+// 通过 ACP 协议拉取 Agent 支持的模型清单，与现有配置按 modelId 去重合并
+const handleSync = async () => {
+  isSyncing.value = true
+  try {
+    const res = await agentConfigStore.syncModelsFromAgent(props.agentId)
+    if (res.syncedCount > 0) {
+      notificationStore.success(
+        '同步完成',
+        `新增 ${res.syncedCount} 个模型${res.skippedCount ? `，跳过 ${res.skippedCount} 个已存在` : ''}`
+      )
+    } else if (res.models.length === 0 && res.skippedCount === 0) {
+      notificationStore.info('同步模型', '该 Agent 未返回模型清单（可能不支持）')
+    } else {
+      notificationStore.info('同步完成', `${res.skippedCount} 个模型均已存在，无新增`)
+    }
+  } catch {
+    // store 内已通过 notificationStore.databaseError 提示
+  } finally {
+    isSyncing.value = false
+  }
 }
 
 const handleEdit = (model: AgentModelConfig) => {
@@ -98,6 +135,20 @@ const handleClose = () => {
       <div class="model-actions">
         <EaButton
           size="small"
+          type="ghost"
+          :loading="isSyncing"
+          :disabled="isSyncing"
+          title="通过 ACP 协议同步该 Agent 支持的模型清单"
+          @click="handleSync"
+        >
+          <EaIcon
+            name="refresh-cw"
+            :size="14"
+          />
+          同步模型
+        </EaButton>
+        <EaButton
+          size="small"
           @click="handleAdd"
         >
           <EaIcon
@@ -136,71 +187,89 @@ const handleClose = () => {
           </p>
         </div>
 
-        <div
-          v-else
-          class="model-items"
-        >
-          <div
-            v-for="model in models"
-            :key="model.id"
-            class="model-item"
-            :class="{ 'is-default': model.isDefault, 'is-disabled': !model.enabled }"
-          >
-            <div class="model-info">
-              <div class="model-name">
-                <span class="name">{{ model.displayName }}</span>
-                <span
-                  v-if="model.isDefault"
-                  class="badge default"
-                >默认</span>
-                <span
-                  v-if="!model.enabled"
-                  class="badge disabled"
-                >禁用</span>
-              </div>
-              <div class="model-id">
-                {{ model.modelId || `CLI 默认: ${model.displayName}` }}
-              </div>
-              <div class="model-meta">
-                上下文窗口 {{ formatContextWindowCount(model.contextWindow) }}
-              </div>
-            </div>
+        <template v-else>
+          <div class="model-search">
+            <input
+              v-model="modelSearch"
+              type="text"
+              class="model-search__input"
+              placeholder="筛选模型名称…"
+            >
+          </div>
 
-            <div class="model-actions-row">
-              <button
-                v-if="!model.isDefault"
-                class="action-btn"
-                title="设为默认"
-                @click="handleSetDefault(model)"
-              >
-                <EaIcon
-                  name="star"
-                  :size="14"
-                />
-              </button>
-              <button
-                class="action-btn"
-                title="编辑"
-                @click="handleEdit(model)"
-              >
-                <EaIcon
-                  name="pencil"
-                  :size="14"
-                />
-              </button>
-              <button
-                class="action-btn danger"
-                title="删除"
-                @click="handleDelete(model)"
-              >
-                <EaIcon
-                  name="trash-2"
-                  :size="14"
-                />
-              </button>
+          <div
+            v-if="filteredModels.length === 0"
+            class="empty-state"
+          >
+            <p>无匹配模型</p>
+          </div>
+
+          <div
+            v-else
+            class="model-items"
+          >
+            <div
+              v-for="model in filteredModels"
+              :key="model.id"
+              class="model-item"
+              :class="{ 'is-default': model.isDefault, 'is-disabled': !model.enabled }"
+            >
+              <div class="model-info">
+                <div class="model-name">
+                  <span class="name">{{ model.displayName }}</span>
+                  <span
+                    v-if="model.isDefault"
+                    class="badge default"
+                  >默认</span>
+                  <span
+                    v-if="!model.enabled"
+                    class="badge disabled"
+                  >禁用</span>
+                </div>
+                <div class="model-id">
+                  {{ model.modelId || `CLI 默认: ${model.displayName}` }}
+                </div>
+                <div class="model-meta">
+                  上下文窗口 {{ formatContextWindowCount(model.contextWindow) }}
+                </div>
+              </div>
+
+              <div class="model-actions-row">
+                <button
+                  v-if="!model.isDefault"
+                  class="action-btn"
+                  title="设为默认"
+                  @click="handleSetDefault(model)"
+                >
+                  <EaIcon
+                    name="star"
+                    :size="14"
+                  />
+                </button>
+                <button
+                  class="action-btn"
+                  title="编辑"
+                  @click="handleEdit(model)"
+                >
+                  <EaIcon
+                    name="pencil"
+                    :size="14"
+                  />
+                </button>
+                <button
+                  class="action-btn danger"
+                  title="删除"
+                  @click="handleDelete(model)"
+                >
+                  <EaIcon
+                    name="trash-2"
+                    :size="14"
+                  />
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        </template>
       </div>
     </div>
 

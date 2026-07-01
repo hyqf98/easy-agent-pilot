@@ -71,8 +71,22 @@ export function useToolCallDisplay(props: ToolCallDisplayProps) {
     }
   })
 
-  // 工具图标
+  // 工具图标：优先用 ACP ToolKind 精确匹配，回退到名称启发式
   const toolIcon = computed(() => {
+    const kind = props.toolCall.kind
+    if (kind) {
+      switch (kind) {
+        case 'read': return 'file-text'
+        case 'edit': return 'file-pen'
+        case 'delete': return 'file-x'
+        case 'move': return 'folder-input'
+        case 'search': return 'search'
+        case 'execute': return 'terminal'
+        case 'think': return 'brain'
+        case 'fetch': return 'globe'
+        default: break
+      }
+    }
     const name = props.toolCall.name.toLowerCase()
     if (name.includes('web') || name.includes('search')) return 'globe'
     if (name.includes('read') || name.includes('file')) return 'file-text'
@@ -80,6 +94,39 @@ export function useToolCallDisplay(props: ToolCallDisplayProps) {
     if (name.includes('bash') || name.includes('shell')) return 'terminal'
     if (name.includes('grep') || name.includes('search')) return 'search'
     return 'wrench'
+  })
+
+  // 文件位置徽标：按 ToolKind 分组，生成 { icon, tone, label }[]
+  // read → 中性蓝；edit/move → 琥珀；delete → 红；其他 → 灰
+  const locationBadges = computed<Array<{ icon: string; tone: string; label: string; title: string }>>(() => {
+    const locations = props.toolCall.locations
+    if (!locations || locations.length === 0) return []
+    const kind = props.toolCall.kind
+    let icon = 'file'
+    let tone = 'neutral'
+    if (kind) {
+      switch (kind) {
+        case 'read': icon = 'file-search'; tone = 'blue'; break
+        case 'edit': icon = 'file-pen'; tone = 'amber'; break
+        case 'move': icon = 'folder-input'; tone = 'amber'; break
+        case 'delete': icon = 'file-x'; tone = 'red'; break
+        default: icon = 'file'; tone = 'neutral'
+      }
+    }
+    const toBasename = (relativePath: string) => {
+      const parts = relativePath.split(/[/\\]/)
+      return parts[parts.length - 1] || relativePath
+    }
+    const badges = locations.slice(0, 2).map(loc => ({
+      icon,
+      tone,
+      label: toBasename(loc.relativePath),
+      title: loc.line != null ? `${loc.relativePath}:${loc.line}` : loc.relativePath
+    }))
+    if (locations.length > 2) {
+      badges.push({ icon: 'plus', tone, label: `+${locations.length - 2}`, title: locations.slice(2).map(l => l.relativePath).join('\n') })
+    }
+    return badges
   })
 
   const isTerminalLikeTool = computed(() => {
@@ -179,6 +226,7 @@ export function useToolCallDisplay(props: ToolCallDisplayProps) {
     statusClass,
     statusIcon,
     toolIcon,
+    locationBadges,
     isTerminalLikeTool,
     isAgentExecutionTool,
     agentExecutionTitle,

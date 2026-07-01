@@ -249,7 +249,9 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
       cacheCreationInputTokens: event.cacheCreationInputTokens,
       model: event.model,
       externalSessionId: event.externalSessionId,
-      permissionOptions: event.permissionOptions
+      permissionOptions: event.permissionOptions,
+      toolKind: event.toolKind,
+      toolLocations: event.toolLocations
     }
 
     switch (event.type) {
@@ -299,6 +301,16 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
         return {
           type: 'usage',
           ...baseEvent
+        }
+      case 'context_window':
+        // ACP UsageUpdate{used,size}：语义为上下文窗口占用，与计费用 usage 通道分离。
+        // 后端把 used/size 临时塞进 inputTokens/outputTokens 下发（见 acp.rs），
+        // 这里归一为独立字段，避免被 onUsage 当成累计 token 覆盖进度环之外的指标。
+        return {
+          type: 'context_window',
+          contextWindowUsed: event.inputTokens,
+          contextWindowSize: event.outputTokens,
+          model: event.model
         }
       case 'system':
         return {

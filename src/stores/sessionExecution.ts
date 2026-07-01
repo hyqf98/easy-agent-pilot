@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { MessageAttachment } from './message'
-import type { MemorySuggestion, MemorySuggestionSourceType, SearchMemorySuggestionsResult } from '@/types/memory'
 
 export interface PendingImageAttachment extends MessageAttachment {
   previewUrl: string
@@ -15,21 +14,6 @@ export interface ComposerFileMention {
   insertText?: string
 }
 
-export interface ComposerMemoryReference {
-  sourceType: MemorySuggestionSourceType
-  sourceId: string
-  title: string
-  fullContent: string
-  snippet: string
-  libraryId?: string
-  libraryName?: string
-  sessionId?: string
-  sessionName?: string
-  projectId?: string
-  projectName?: string
-  createdAt?: string
-}
-
 export interface QueuedMessageDraft {
   id: string
   content: string
@@ -38,7 +22,6 @@ export interface QueuedMessageDraft {
   expertId?: string
   agentId: string
   modelId?: string
-  memoryReferences?: ComposerMemoryReference[]
   createdAt: string
   status: 'queued' | 'failed'
   errorMessage?: string
@@ -59,16 +42,6 @@ export interface SessionExecutionState {
   inputText: string
   /** 输入框中的文件引用映射 */
   fileMentions: ComposerFileMention[]
-  /** 当前草稿中的记忆引用 */
-  memoryReferences: ComposerMemoryReference[]
-  /** 当前草稿已忽略的建议 */
-  dismissedMemorySuggestionKeys: string[]
-  /** 最近一次触发检索的草稿内容 */
-  lastMemoryQuery: string
-  /** 最近一次记忆建议结果 */
-  memorySuggestions: SearchMemorySuggestionsResult
-  /** 是否正在检索记忆 */
-  isSearchingMemory: boolean
   /** 待发送图片 */
   pendingImages: PendingImageAttachment[]
   /** 是否正在上传图片 */
@@ -96,10 +69,6 @@ export interface SessionExecutionState {
 interface ComposerStateSnapshot {
   inputText: string
   fileMentions: ComposerFileMention[]
-  memoryReferences: ComposerMemoryReference[]
-  dismissedMemorySuggestionKeys: string[]
-  lastMemoryQuery: string
-  memorySuggestions: SearchMemorySuggestionsResult
   pendingImages: PendingImageAttachment[]
 }
 
@@ -205,14 +174,6 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
     return {
       inputText: '',
       fileMentions: [],
-      memoryReferences: [],
-      dismissedMemorySuggestionKeys: [],
-      lastMemoryQuery: '',
-      memorySuggestions: {
-        librarySuggestions: [],
-        rawSuggestions: []
-      },
-      isSearchingMemory: false,
       pendingImages: [],
       isUploadingImages: false,
       isSending: false,
@@ -242,97 +203,6 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
   function setFileMentions(sessionId: string, mentions: ComposerFileMention[]) {
     const state = getExecutionState(sessionId)
     state.fileMentions = mentions
-  }
-
-  function getMemoryReferences(sessionId: string) {
-    return getExecutionState(sessionId).memoryReferences
-  }
-
-  function dedupeMemoryReferences(references: ComposerMemoryReference[]) {
-    const seen = new Set<string>()
-    return references.filter(reference => {
-      const key = `${reference.sourceType}:${reference.sourceId}`
-      if (seen.has(key)) {
-        return false
-      }
-      seen.add(key)
-      return true
-    })
-  }
-
-  function setMemoryReferences(sessionId: string, references: ComposerMemoryReference[]) {
-    const state = getExecutionState(sessionId)
-    state.memoryReferences = dedupeMemoryReferences(references)
-  }
-
-  function appendMemoryReference(sessionId: string, reference: ComposerMemoryReference) {
-    const state = getExecutionState(sessionId)
-    if (state.memoryReferences.some(item => item.sourceType === reference.sourceType && item.sourceId === reference.sourceId)) {
-      return
-    }
-    state.memoryReferences = [...state.memoryReferences, reference]
-  }
-
-  function removeMemoryReference(sessionId: string, sourceType: MemorySuggestionSourceType, sourceId: string) {
-    const state = getExecutionState(sessionId)
-    state.memoryReferences = state.memoryReferences.filter(reference =>
-      !(reference.sourceType === sourceType && reference.sourceId === sourceId)
-    )
-  }
-
-  function clearMemoryReferences(sessionId: string) {
-    const state = getExecutionState(sessionId)
-    state.memoryReferences = []
-  }
-
-  function getMemorySuggestions(sessionId: string) {
-    return getExecutionState(sessionId).memorySuggestions
-  }
-
-  function getLastMemoryQuery(sessionId: string) {
-    return getExecutionState(sessionId).lastMemoryQuery
-  }
-
-  function setMemorySuggestions(sessionId: string, suggestions: SearchMemorySuggestionsResult, query: string) {
-    const state = getExecutionState(sessionId)
-    state.memorySuggestions = suggestions
-    state.lastMemoryQuery = query
-  }
-
-  function clearMemorySuggestions(sessionId: string) {
-    const state = getExecutionState(sessionId)
-    state.memorySuggestions = {
-      librarySuggestions: [],
-      rawSuggestions: []
-    }
-    state.lastMemoryQuery = ''
-  }
-
-  function setIsSearchingMemory(sessionId: string, searching: boolean) {
-    const state = getExecutionState(sessionId)
-    state.isSearchingMemory = searching
-  }
-
-  function getIsSearchingMemory(sessionId: string) {
-    return getExecutionState(sessionId).isSearchingMemory
-  }
-
-  function dismissMemorySuggestion(sessionId: string, suggestion: Pick<MemorySuggestion, 'sourceType' | 'sourceId'>) {
-    const state = getExecutionState(sessionId)
-    const key = `${suggestion.sourceType}:${suggestion.sourceId}`
-    if (state.dismissedMemorySuggestionKeys.includes(key)) {
-      return
-    }
-    state.dismissedMemorySuggestionKeys = [...state.dismissedMemorySuggestionKeys, key]
-  }
-
-  function getDismissedMemorySuggestionKeys(sessionId: string) {
-    return getExecutionState(sessionId).dismissedMemorySuggestionKeys
-  }
-
-  function clearDismissedMemorySuggestionKeys(sessionId: string) {
-    const state = getExecutionState(sessionId)
-    state.dismissedMemorySuggestionKeys = []
   }
 
   function setPendingImages(sessionId: string, images: PendingImageAttachment[]) {
@@ -369,22 +239,11 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
     const snapshot: ComposerStateSnapshot = {
       inputText: sourceState.inputText,
       fileMentions: [...sourceState.fileMentions],
-      memoryReferences: dedupeMemoryReferences(sourceState.memoryReferences),
-      dismissedMemorySuggestionKeys: [...sourceState.dismissedMemorySuggestionKeys],
-      lastMemoryQuery: sourceState.lastMemoryQuery,
-      memorySuggestions: {
-        librarySuggestions: [...sourceState.memorySuggestions.librarySuggestions],
-        rawSuggestions: [...sourceState.memorySuggestions.rawSuggestions]
-      },
       pendingImages: [...sourceState.pendingImages]
     }
 
     targetState.inputText = snapshot.inputText
     targetState.fileMentions = snapshot.fileMentions
-    targetState.memoryReferences = snapshot.memoryReferences
-    targetState.dismissedMemorySuggestionKeys = snapshot.dismissedMemorySuggestionKeys
-    targetState.lastMemoryQuery = snapshot.lastMemoryQuery
-    targetState.memorySuggestions = snapshot.memorySuggestions
     targetState.pendingImages = snapshot.pendingImages
   }
 
@@ -416,7 +275,7 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
   function updateQueuedMessage(
     sessionId: string,
     draftId: string,
-    updates: Partial<Pick<QueuedMessageDraft, 'content' | 'displayContent' | 'attachments' | 'expertId' | 'agentId' | 'modelId' | 'memoryReferences' | 'status' | 'errorMessage'>>
+    updates: Partial<Pick<QueuedMessageDraft, 'content' | 'displayContent' | 'attachments' | 'expertId' | 'agentId' | 'modelId' | 'status' | 'errorMessage'>>
   ) {
     const state = getExecutionState(sessionId)
     state.queuedMessages = state.queuedMessages.map(draft => {
@@ -656,11 +515,6 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
     // Getters
     getInputText,
     getFileMentions,
-    getMemoryReferences,
-    getMemorySuggestions,
-    getLastMemoryQuery,
-    getIsSearchingMemory,
-    getDismissedMemorySuggestionKeys,
     getPendingImages,
     getQueuedMessages,
     getIsUploadingImages,
@@ -677,15 +531,6 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
     getExecutionState,
     setInputText,
     setFileMentions,
-    setMemoryReferences,
-    appendMemoryReference,
-    removeMemoryReference,
-    clearMemoryReferences,
-    setMemorySuggestions,
-    clearMemorySuggestions,
-    setIsSearchingMemory,
-    dismissMemorySuggestion,
-    clearDismissedMemorySuggestionKeys,
     setPendingImages,
     appendPendingImages,
     removePendingImage,

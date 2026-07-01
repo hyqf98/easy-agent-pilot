@@ -1053,6 +1053,8 @@ pub fn init_database() -> Result<()> {
         "ALTER TABLE agents ADD COLUMN provider TEXT",
         "ALTER TABLE agents ADD COLUMN model_id TEXT",
         "ALTER TABLE agents ADD COLUMN custom_model_enabled INTEGER DEFAULT 0",
+        // ACP 运行时命令：旧库（早于 acp_command 引入）补列，否则 list_agents 的 SELECT 会报错
+        "ALTER TABLE agents ADD COLUMN acp_command TEXT",
     ];
 
     for migration in unified_agent_migrations {

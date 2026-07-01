@@ -1,0 +1,12 @@
+{
+  "id": "trump",
+  "displayName": "Trump",
+  "description": "The 45th & 47th President of the United States as a desktop pet.",
+  "kind": "person",
+  "tags": ["celeb"],
+  "source": "builtin",
+  "spritesheetFile": "spritesheet.webp",
+  "posterFile": null,
+  "spritesheetUrl": "https://codex-pets.net/assets/pets/v/1777710226289/trump/spritesheet.webp",
+  "version": 1777710226289
+}

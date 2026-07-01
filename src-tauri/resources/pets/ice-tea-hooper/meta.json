@@ -1,0 +1,12 @@
+{
+  "id": "ice-tea-hooper",
+  "displayName": "LAODA",
+  "description": "MAN! What Can I Say? A tribute legend in a T-shirt with a mysterious flavored drink style.",
+  "kind": "person",
+  "tags": ["animated", "celeb", "chaotic", "utility"],
+  "source": "builtin",
+  "spritesheetFile": "spritesheet.webp",
+  "posterFile": null,
+  "spritesheetUrl": "https://codex-pets.net/assets/pets/v/1778230693812/ice-tea-hooper/spritesheet.webp",
+  "version": 1778230693812
+}

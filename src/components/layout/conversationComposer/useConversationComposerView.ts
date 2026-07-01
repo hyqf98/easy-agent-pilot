@@ -52,7 +52,7 @@ export function useConversationComposerView(props: Readonly<ConversationComposer
   })
 
   const shouldUseRichTextOverlay = computed(() => (
-    composer.parsedInputText.value.some(segment => segment.type === 'file' || segment.type === 'slash' || segment.type === 'memory' || segment.type === 'attachment')
+    composer.parsedInputText.value.some(segment => segment.type === 'file' || segment.type === 'slash' || segment.type === 'attachment')
   ))
 
   const composerSendShortcutHint = computed(() => (
@@ -132,8 +132,7 @@ export function useConversationComposerView(props: Readonly<ConversationComposer
 
     composer.updateQueuedMessage(draftId, {
       content: normalized,
-      displayContent: normalized,
-      memoryReferences: []
+      displayContent: normalized
     })
     cancelQueuedMessageEdit()
   }

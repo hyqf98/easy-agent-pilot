@@ -18,7 +18,7 @@ export function useThinkingDisplay(props: ThinkingDisplayProps) {
     { charsPerSecond: 120, maxChunkSize: 16 }
   )
 
-  const isExpanded = ref(props.live ? true : props.defaultExpanded ?? false)
+  const isExpanded = ref(props.live ? true : (props.defaultExpanded ?? true))
   const hasUserToggled = ref(false)
   const placeholderText = computed(() => props.live ? '正在思考...' : '')
   const titleText = computed(() => props.live ? '正在思考' : '思考过程')

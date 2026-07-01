@@ -139,9 +139,13 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
     const notificationStore = useNotificationStore()
 
     try {
-      await loadSdkConfigs(agent.id)
+      // CLI 智能体（claude/codex/opencode 等）：配置存储在磁盘，走 loadCliConfigs
+      // （内部已含 loadCliCapabilities，并经 read_cli_config 读 MCP、scan_cli_config 读 skills/plugins）
+      // SDK 智能体：配置存储在 SQLite，走 loadSdkConfigs
       if (agent.cliPath || agent.acpCommand) {
-        await loadCliCapabilities(agent.acpCommand || agent.cliPath || '', agent.provider)
+        await loadCliConfigs(agent)
+      } else {
+        await loadSdkConfigs(agent.id)
       }
     } catch (error) {
       console.error('Failed to load agent configs:', error)

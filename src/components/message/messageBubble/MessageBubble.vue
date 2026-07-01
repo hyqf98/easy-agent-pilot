@@ -42,6 +42,7 @@ const {
   isSystemStatus,
   isTokenOnlyMessage,
   isStreaming,
+  isAwaitingFirstToken,
   isError,
   isUserTurnActive,
   canRetryUserMessage,
@@ -177,11 +178,24 @@ const {
       </div>
 
       <div
+        v-if="!(isAssistant && message.messageType === 'thinking')"
         class="message-bubble__content message-bubble__stream-segment"
         :class="{ 'message-bubble__content--form-only': isAssistantFormOnly }"
       >
+        <!-- 等待首字：AI 文本回复 streaming 且内容为空时，渲染旋转圆环加载动画 -->
+        <div
+          v-if="isAwaitingFirstToken"
+          class="message-bubble__awaiting"
+        >
+          <EaIcon
+            name="loader-circle"
+            :size="16"
+            class="message-bubble__awaiting-spinner"
+          />
+          <span class="message-bubble__awaiting-text">{{ t('message.status.assistantAwaiting') }}</span>
+        </div>
         <StructuredContentRenderer
-          v-if="!isUser"
+          v-else-if="!isUser"
           :content="message.content || ''"
           :interactive-forms="isAssistant"
           :form-disabled="false"
@@ -251,7 +265,7 @@ const {
           />
         </div>
         <span
-          v-if="isStreaming"
+          v-if="isStreaming && !isAwaitingFirstToken"
           class="message-bubble__cursor"
         />
       </div>
@@ -268,8 +282,11 @@ const {
       <!-- 工具调用：新结构下 tool_use / tool_result 是独立消息行，此处不再内嵌渲染 -->
       <!-- 文件变更追踪：已嵌入修改文件的工具气泡内部展开，不再在普通消息底部独立显示 -->
 
-      <!-- 操作按钮区（停止/重试挂在用户消息下；状态文案已移除，改由各标题的扫光动画体现执行状态） -->
-      <div class="message-bubble__meta">
+      <!-- 操作按钮区：仅用户消息渲染（停止/重试/编辑），assistant 消息无 meta -->
+      <div
+        v-if="isUser"
+        class="message-bubble__meta"
+      >
         <!-- 编辑态：发送（箭头）+ 取消 -->
         <template v-if="isUser && isEditing">
           <button

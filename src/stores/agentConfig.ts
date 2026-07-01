@@ -135,6 +135,20 @@ interface RawAgentModelConfig {
   updated_at: string
 }
 
+/** 同步模型结果（camelCase，后端已 rename_all） */
+export interface SyncAgentModelsResult {
+  syncedCount: number
+  skippedCount: number
+  models: AgentModelConfig[]
+}
+
+// 后端 sync_agent_models 返回的原始结构（models 为 snake_case 原始数组）
+interface RawSyncAgentModelsResult {
+  syncedCount: number
+  skippedCount: number
+  models: RawAgentModelConfig[]
+}
+
 // ============================================================================
 // 转换函数
 // ============================================================================
@@ -709,6 +723,28 @@ export const useAgentConfigStore = defineStore('agentConfig', () => {
     return modelConfigs.value.get(agentId) || []
   }
 
+  // 通过 ACP 协议同步 Agent 支持的模型清单，与现有配置按 modelId 去重合并
+  async function syncModelsFromAgent(agentId: string): Promise<SyncAgentModelsResult> {
+    const notificationStore = useNotificationStore()
+    isLoading.value = true
+    try {
+      const raw = await invoke<RawSyncAgentModelsResult>('sync_agent_models', { agentId })
+      const models = raw.models.map(transformModelConfig)
+      modelConfigs.value.set(agentId, models)
+      return { syncedCount: raw.syncedCount, skippedCount: raw.skippedCount, models }
+    } catch (error) {
+      console.error('Failed to sync models from agent:', error)
+      notificationStore.databaseError(
+        '同步模型失败',
+        getErrorMessage(error),
+        async () => { void await syncModelsFromAgent(agentId) }
+      )
+      throw error
+    } finally {
+      isLoading.value = false
+    }
+  }
+
   // 加载所有配置
   async function loadAllConfigs(agentId: string) {
     await Promise.all([
@@ -759,6 +795,7 @@ export const useAgentConfigStore = defineStore('agentConfig', () => {
     updateModelConfig,
     deleteModelConfig,
     getModelsConfigs,
+    syncModelsFromAgent,
     // General
     loadAllConfigs,
     clearConfigs

@@ -7,7 +7,9 @@ import { useSessionExecutionStore } from './sessionExecution'
 import { useTokenStore, type CompressionStrategy } from './token'
 import { readSessionCliUsageSnapshot } from '@/services/usage/cliSessionUsageSnapshot'
 import { getErrorMessage } from '@/utils/api'
+import { dedupeMessagesById, dedupeRequestTextRows } from '@/utils/messageDedupe'
 import type { FileEditTrace } from '@/types/fileTrace'
+import type { ToolLocation } from '@/services/conversation/strategies/types'
 
 export type MessageRole = 'user' | 'assistant' | 'system'
 export type MessageStatus = 'pending' | 'streaming' | 'completed' | 'error' | 'interrupted'
@@ -31,6 +33,10 @@ export interface ToolCall {
   status: ToolCallStatus
   result?: string
   errorMessage?: string
+  /** 工具语义类别（read/edit/delete/move/search/execute/...），透传 ACP ToolKind */
+  kind?: string
+  /** 工具访问/修改的文件位置，透传 ACP ToolCallLocation */
+  locations?: ToolLocation[]
 }
 
 // 工具调用摘要
@@ -88,6 +94,9 @@ export interface Message {
   toolName?: string
   toolInput?: string
   toolResult?: string
+  // 工具语义类别（read/edit/delete/move/search/execute/...）与文件位置（跟随 Agent）
+  toolKind?: string
+  toolLocations?: ToolLocation[]
   // token / 用量（仅 usage / context_window 有值）
   inputTokens?: number
   outputTokens?: number
@@ -153,17 +162,18 @@ function compareMessageOrder(left: Pick<Message, 'createdAt' | 'seq'>, right: Pi
 /** @deprecated 旧名保留兼容，内部改用 compareMessageOrder */
 const compareMessageCreatedAt = compareMessageOrder
 
-function dedupeMessagesById(items: Message[]): Message[] {
-  const map = new Map<string, Message>()
-
-  for (const message of items) {
-    map.set(message.id, message)
-  }
-
-  return Array.from(map.values())
-}
-
 const EMPTY_MESSAGES: Message[] = []
+
+/**
+ * 生成仅存在于内存的本地消息 id（带 `local_` 前缀，与 DB uuid 区分）。
+ * 用于实时思考行等"前端渲染用、不落库"的消息。
+ */
+function generateLocalMessageId(): string {
+  const uuid = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  return `local_${uuid}`
+}
 const EMPTY_ASSISTANT_EDIT_TRACES: SessionEditTrace[] = []
 const EMPTY_TRACE_MAP = new Map<string, { traceId: string, messageId: string, timestamp: string }>()
 const EMPTY_VISIBLE_MESSAGE_TRACES: SessionEditTrace[] = []
@@ -303,6 +313,9 @@ export const useMessageStore = defineStore('message', () => {
   const pendingMessageUpdates = new Map<string, Partial<Message>>()
   const pendingMessageTimers = new Map<string, ReturnType<typeof setTimeout>>()
   const inFlightMessageFlushes = new Map<string, Promise<void>>()
+  // 仅存在于内存、不落库的消息 id 集合（如实时思考行：后端 MessageRecorder 已落库，
+  // 前端仅用本地行做流式渲染，避免双写）。这些消息的更新操作会跳过 DB 写入。
+  const localOnlyMessageIds = new Set<string>()
 
   // 默认分页大小
   const PAGE_SIZE = 20
@@ -358,7 +371,7 @@ export const useMessageStore = defineStore('message', () => {
   }
 
   function setSessionMessages(sessionId: string, nextMessages: Message[]): void {
-    const normalizedMessages = dedupeMessagesById(nextMessages).sort(compareMessageCreatedAt)
+    const normalizedMessages = dedupeRequestTextRows(dedupeMessagesById(nextMessages)).sort(compareMessageCreatedAt)
     const assistantEditTraces = buildAssistantEditTraces(normalizedMessages)
     const latestAssistantTraceMap = buildLatestAssistantTraceMap(normalizedMessages)
     sessionMessages.value.set(sessionId, normalizedMessages)
@@ -453,6 +466,11 @@ export const useMessageStore = defineStore('message', () => {
   }
 
   async function persistMessageUpdates(id: string, updates: Partial<Message>): Promise<void> {
+    // 仅内存消息（如实时思考行）不落库：避免与后端 MessageRecorder 双写
+    if (localOnlyMessageIds.has(id)) {
+      return
+    }
+
     const input = buildUpdateMessageInput(updates)
 
     if (Object.keys(input).length === 0) {
@@ -757,7 +775,31 @@ export const useMessageStore = defineStore('message', () => {
     }
   }
 
-  async function addMessage(message: Omit<Message, 'id' | 'createdAt' | 'updatedAt'>) {
+  async function addMessage(
+    message: Omit<Message, 'id' | 'createdAt' | 'updatedAt'>,
+    options: { persist?: boolean; createdAt?: string } = {}
+  ) {
+    const persist = options.persist !== false
+
+    // 仅内存消息：生成本地 id + 时间戳，不落库（后端已落库对应行，前端只用于实时渲染）
+    if (!persist) {
+      const id = generateLocalMessageId()
+      // 允许调用方指定 createdAt（如 live thinking 行需对齐同回合 text 行的时间，
+      // 使排序反映「先思考后回复」的自然顺序，而非前端创建时刻）
+      const now = options.createdAt ?? new Date().toISOString()
+      const newMessage: Message = {
+        ...message,
+        id,
+        createdAt: now,
+        updatedAt: now
+      } as Message
+      localOnlyMessageIds.add(id)
+      messages.value.push(newMessage)
+      const currentSessionMessages = sessionMessages.value.get(newMessage.sessionId) ?? EMPTY_MESSAGES
+      setSessionMessages(newMessage.sessionId, [...currentSessionMessages, newMessage])
+      return newMessage
+    }
+
     const notificationStore = useNotificationStore()
     const input: CreateMessageInput = {
       sessionId: message.sessionId,
@@ -793,7 +835,7 @@ export const useMessageStore = defineStore('message', () => {
       notificationStore.databaseError(
         '添加消息失败',
         getErrorMessage(error),
-        async () => { await addMessage(message) }
+        async () => { await addMessage(message, options) }
       )
       throw error
     }

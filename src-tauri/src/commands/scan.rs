@@ -145,34 +145,33 @@ fn get_cli_config_dir(
 
     let cli_name = resolve_cli_name(cli_path, cli_type_hint, "claude");
 
+    // 配置根目录统一走跨平台解析（支持 $CODEX_HOME / $XDG_CONFIG_HOME / $OPENCODE_CONFIG_DIR）
+    let config_dir = crate::commands::scan_shared::resolve_cli_config_base_dir(&cli_name, &home_dir);
+
     match cli_name.as_str() {
         "claude" | "claude-code" => {
-            // Claude CLI: 配置在 ~/.claude/ 目录，配置文件是 ~/.claude.json
-            let config_dir = home_dir.join(".claude");
+            // Claude CLI: 配置目录 ~/.claude/，主配置文件是 home 根的 ~/.claude.json（非目录内）
             let config_file = home_dir.join(".claude.json");
             Ok((config_dir, config_file, "claude".to_string()))
         }
         "codex" => {
-            // Codex CLI: 配置在 ~/.codex/config.toml
-            let config_dir = home_dir.join(".codex");
-            let config_file = home_dir.join(".codex").join("config.toml");
+            // Codex CLI: 配置在 $CODEX_HOME/config.toml（默认 ~/.codex/config.toml）
+            let config_file = config_dir.join("config.toml");
             Ok((config_dir, config_file, "codex".to_string()))
         }
         "opencode" => {
-            // OpenCode CLI: 配置在 ~/.config/opencode/opencode.json
-            let config_dir = home_dir.join(".config").join("opencode");
+            // OpenCode CLI: 配置在 $XDG_CONFIG_HOME/opencode/opencode.json
             let config_file = config_dir.join("opencode.json");
             Ok((config_dir, config_file, "opencode".to_string()))
         }
         "qwen" | "qwen-code" => {
             // Qwen Code: 配置在 ~/.qwen/settings.json
             let config_dir = home_dir.join(".qwen");
-            let config_file = home_dir.join(".qwen").join("settings.json");
+            let config_file = config_dir.join("settings.json");
             Ok((config_dir, config_file, "qwen".to_string()))
         }
         _ => {
             // 默认使用 Claude 配置
-            let config_dir = home_dir.join(".claude");
             let config_file = home_dir.join(".claude.json");
             Ok((config_dir, config_file, "claude".to_string()))
         }
@@ -462,9 +461,18 @@ fn scan_mcp_config(
 ) -> Result<Vec<ScannedMcpServer>> {
     let mut servers = Vec::new();
 
-    // 1. 首先尝试从 ~/.claude.json (或对应 CLI 的配置文件) 读取用户级 MCP 配置 (user scope)
+    // 1. 首先尝试从用户级配置文件读取 MCP 配置 (user scope)
+    //    - claude: ~/.claude.json (JSON, mcpServers)
+    //    - codex:  ~/.codex/config.toml (TOML, mcp_servers)
+    //    - opencode: ~/.config/opencode/opencode.json (JSON, mcp)
     if cli_name == "opencode" {
         scan_opencode_mcp_source_file(config_file, McpConfigScope::User, &mut servers);
+    } else if cli_name == "codex" {
+        crate::commands::scan_shared::scan_mcp_toml_source_file(
+            config_file,
+            McpConfigScope::User,
+            &mut servers,
+        );
     } else {
         crate::commands::scan_shared::scan_mcp_source_file(
             config_file,
@@ -495,6 +503,15 @@ fn scan_mcp_config(
             "opencode" => {
                 let project_config_path = project_root.join("opencode.json");
                 scan_opencode_mcp_source_file(
+                    &project_config_path,
+                    McpConfigScope::Project,
+                    &mut servers,
+                );
+            }
+            "codex" => {
+                // 项目级 codex 配置：~/.codex/config.toml 的项目等价物
+                let project_config_path = project_root.join(".codex").join("config.toml");
+                crate::commands::scan_shared::scan_mcp_toml_source_file(
                     &project_config_path,
                     McpConfigScope::Project,
                     &mut servers,
@@ -663,16 +680,24 @@ fn scan_skills_directory(
     cli_name: &str,
     project_path: Option<&Path>,
 ) -> Result<Vec<ScannedSkill>> {
-    let mut skills = scan_skills_directory_at(&config_dir.join("skills"))?;
+    // 各 CLI 的 skills 目录名拼写：opencode 源码用 {skill,skills} glob，两种都接受。
+    // 这里先扫复数 skills，不存在时回退单数 skill。
+    let mut skills = scan_skills_dir_with_fallback(config_dir, "skills", "skill")?;
 
     if let Some(project_root) = project_path {
-        let project_skills_dir = match cli_name {
-            "claude" => Some(project_root.join(".claude").join("skills")),
-            "opencode" => Some(project_root.join(".opencode").join("skills")),
-            _ => None,
+        // 项目级 skills 目录
+        let project_skills_dirs: Vec<PathBuf> = match cli_name {
+            "claude" => vec![project_root.join(".claude").join("skills")],
+            "opencode" => vec![
+                project_root.join(".opencode").join("skills"),
+                // opencode 兼容：项目级 .claude/skills、.agents/skills
+                project_root.join(".claude").join("skills"),
+                project_root.join(".agents").join("skills"),
+            ],
+            _ => vec![],
         };
 
-        if let Some(skills_dir) = project_skills_dir {
+        for skills_dir in project_skills_dirs {
             for skill in scan_skills_directory_at(&skills_dir)? {
                 if skills.iter().any(|existing| existing.path == skill.path) {
                     continue;
@@ -682,7 +707,40 @@ fn scan_skills_directory(
         }
     }
 
+    // opencode 多根发现：额外扫描全局兼容目录 ~/.claude/skills、~/.agents/skills
+    // （opencode 源码 OPENCODE_SKILL_PATTERN + EXTERNAL_SKILL_PATTERN 会读这些位置）
+    if cli_name == "opencode" {
+        if let Some(home_dir) = dirs::home_dir() {
+            let compat_dirs = [
+                home_dir.join(".claude").join("skills"),
+                home_dir.join(".agents").join("skills"),
+            ];
+            for skills_dir in compat_dirs {
+                for skill in scan_skills_directory_at(&skills_dir)? {
+                    if skills.iter().any(|existing| existing.path == skill.path) {
+                        continue;
+                    }
+                    skills.push(skill);
+                }
+            }
+        }
+    }
+
     Ok(skills)
+}
+
+/// 扫描指定名字的 skills 目录；若不存在则尝试备选拼写（如 skills → skill）。
+fn scan_skills_dir_with_fallback(
+    parent: &Path,
+    primary: &str,
+    fallback: &str,
+) -> Result<Vec<ScannedSkill>> {
+    let primary_dir = parent.join(primary);
+    if primary_dir.exists() {
+        return scan_skills_directory_at(&primary_dir);
+    }
+    let fallback_dir = parent.join(fallback);
+    scan_skills_directory_at(&fallback_dir)
 }
 
 /// 解析 plugin.json 文件

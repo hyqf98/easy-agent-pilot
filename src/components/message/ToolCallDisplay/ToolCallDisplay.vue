@@ -19,6 +19,7 @@ const {
   statusClass,
   statusIcon,
   toolIcon,
+  locationBadges,
   isTerminalLikeTool,
   isAgentExecutionTool,
   agentExecutionTitle,
@@ -34,7 +35,7 @@ const {
     class="tool-call"
     :class="[statusClass, { 'tool-call--compact': compact, 'tool-call--agent-run': isAgentExecutionTool }]"
   >
-    <!-- 工具调用头部 -->
+    <!-- 工具调用头部：图标 → 类型 → 文件位置徽标 → 展开符号 -->
     <button
       type="button"
       class="tool-call__header"
@@ -56,6 +57,20 @@ const {
           class="tool-call__name"
           :class="{ 'tool-call__name--sweep': toolCall.status === 'running' }"
         >{{ isAgentExecutionTool ? agentExecutionTitle : toolCall.name }}</span>
+        <!-- 文件位置徽标：读取/写入/修改了哪些文件 -->
+        <span
+          v-for="(badge, index) in locationBadges"
+          :key="index"
+          class="tool-call__loc-badge"
+          :class="`tool-call__loc-badge--${badge.tone}`"
+          :title="badge.title"
+        >
+          <EaIcon
+            :name="badge.icon"
+            :size="11"
+          />
+          <span class="tool-call__loc-label">{{ badge.label }}</span>
+        </span>
         <span
           class="tool-call__status"
           :class="`tool-call__status--${toolCall.status}`"
@@ -68,9 +83,6 @@ const {
       </div>
       <div class="tool-call__header-right">
         <span class="tool-call__summary">{{ toolSummary }}</span>
-        <span class="tool-call__toggle">
-          {{ isExpanded ? t('message.collapse') : t('message.expand') }}
-        </span>
         <span
           class="tool-call__chevron"
           :class="{ 'tool-call__chevron--expanded': isExpanded }"

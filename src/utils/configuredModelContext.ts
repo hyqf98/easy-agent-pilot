@@ -39,6 +39,20 @@ interface ResolveConfiguredContextWindowOptions {
   fallbackContextWindow?: number
 }
 
+/**
+ * 在多条同 modelId 配置中选出最合适的一条。
+ * 当 sync/历史导致重复 modelId 时，优先取 contextWindow 最大的（通常是用户特意配置的准确值），
+ * 保证底部容量上限反映最新配置而非顺序碰巧命中的旧记录。
+ */
+function pickBestMatchedModel(matched: AgentModelConfig[]): AgentModelConfig | undefined {
+  if (matched.length <= 1) {
+    return matched[0]
+  }
+  return matched.reduce((best, current) =>
+    (current.contextWindow ?? 0) > (best.contextWindow ?? 0) ? current : best
+  )
+}
+
 function matchConfiguredModel(
   models: AgentModelConfig[],
   modelId?: string | null
@@ -47,9 +61,8 @@ function matchConfiguredModel(
     return undefined
   }
 
-  return models
-    .filter(model => model.enabled)
-    .find(model => modelIdsMatch(model.modelId, modelId))
+  const matched = models.filter(model => model.enabled && modelIdsMatch(model.modelId, modelId))
+  return pickBestMatchedModel(matched)
 }
 
 export function findConfiguredModel(
@@ -61,7 +74,8 @@ export function findConfiguredModel(
     return undefined
   }
 
-  const matchById = (modelId?: string | null) => enabledModels.find(model => modelIdsMatch(model.modelId, modelId))
+  const matchById = (modelId?: string | null) =>
+    pickBestMatchedModel(enabledModels.filter(model => modelIdsMatch(model.modelId, modelId)))
 
   // 输入框选中的模型优先（设置页配置的上下文窗口），其次运行时上报模型，再退回默认
   return matchById(options.selectedModelId)

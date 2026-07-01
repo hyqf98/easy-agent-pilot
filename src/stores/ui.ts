@@ -10,6 +10,7 @@ export type SettingsTab =
   | 'logs'
   | 'usageStats'
   | 'unattended'
+  | 'desktopPet'
 
 // 工作区模式：chat/plan/solo/memory/settings 均为主区域内的模式面板（顶部浮动导航在所有模式下常驻）
 export type AppMode = 'chat' | 'plan' | 'solo' | 'memory' | 'settings'

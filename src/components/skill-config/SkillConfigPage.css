@@ -6,6 +6,66 @@
   padding: clamp(8px, 1vw, 14px);
 }
 
+/* ---------- CLI 类型 Tab（下划线风格，与子代理页保持一致） ---------- */
+.cli-type-tabs {
+  flex-shrink: 0;
+}
+
+.tabs-wrapper {
+  display: inline-flex;
+  gap: var(--spacing-1);
+  border-bottom: 1px solid var(--workspace-border, var(--color-border));
+}
+
+.tab-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-3);
+  margin-bottom: -1px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.tab-btn:hover {
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+.tab-btn.active {
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  font-weight: var(--font-weight-semibold);
+  border-bottom-color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+.cli-type-tabs__hint {
+  margin: var(--spacing-2) 0 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+}
+
+/* 无可用 CLI 智能体时的空态提示 */
+.skill-config-page__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-6) 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+.skill-config-page__empty-icon {
+  width: 28px;
+  height: 28px;
+  opacity: 0.5;
+}
+
 /* 次级 Tab：下划线风格，与外层胶囊 Tab 形成层级区分 */
 .skill-config-page__tabs {
   display: flex;
@@ -50,5 +110,38 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-3);
+  min-height: 0;
+}
+
+/* ---------- skills tab：列表 + 详情左右分屏 ---------- */
+.skill-config-page__skills-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+  min-height: 0;
+}
+
+/* 选中技能后切换为左右分屏：左列表固定窄、右详情撑满，整体给足高度 */
+.skill-config-page__skills-panel--split {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  gap: var(--spacing-3);
+  align-items: stretch;
+  min-height: min(72vh, 640px);
+}
+
+.skill-config-page__skills-list {
+  min-width: 0;
+  min-height: 0;
+}
+
+/* 分屏下列表限定高度并内部滚动，避免无限拉长 */
+.skill-config-page__skills-panel--split .skill-config-page__skills-list {
+  overflow: hidden;
+  max-height: min(72vh, 640px);
+}
+
+.skill-config-page__skills-detail {
+  min-width: 0;
   min-height: 0;
 }

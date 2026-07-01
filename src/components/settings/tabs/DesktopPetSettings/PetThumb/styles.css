@@ -1,0 +1,14 @@
+/* 单格精灵图缩略图。容器按 192:208 比例，背景图按 800%×900% 放大后用 position 切到单格。 */
+
+.pet-thumb {
+  width: 100%;
+  aspect-ratio: 192 / 208;
+  background-color: var(--color-bg-tertiary);
+  background-position: 0% 0%;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.pet-thumb--round {
+  border-radius: var(--radius-full);
+}

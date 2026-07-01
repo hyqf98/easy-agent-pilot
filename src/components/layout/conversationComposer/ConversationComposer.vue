@@ -8,7 +8,6 @@ import type { ConversationComposerProps } from './useConversationComposerView'
 import { useConversationComposerView } from './useConversationComposerView'
 import CdPathDropdown from './CdPathDropdown.vue'
 import ConversationComposerAttachments from './ConversationComposerAttachments.vue'
-import ConversationComposerMemoryAssist from './ConversationComposerMemoryAssist.vue'
 import ConversationComposerRichTextOverlay from './ConversationComposerRichTextOverlay.vue'
 import ActiveFormPopup from './ActiveFormPopup.vue'
 import PermissionPromptPopup from './PermissionPromptPopup.vue'
@@ -54,12 +53,8 @@ const {
   currentAgent,
   currentAgentId,
   currentAgentName,
-  currentMemoryPreview,
-  currentMemoryReferences,
   currentProjectPath,
   currentWorkingDirectory,
-  clearMemoryPreview,
-  dismissMemorySuggestion,
   executePlan,
   executeCurrentPlan,
   cancelPlan,
@@ -80,24 +75,16 @@ const {
   handleKeyDown,
   handleMessageFormSubmit,
   handleSend,
-  handleMemorySuggestionPointerEnter,
-  handleMemorySuggestionPointerLeave,
-  handleMemoryPreviewPointerEnter,
-  handleMemoryPreviewPointerLeave,
   handleOpenCompress,
   handlePaste,
-  hasVisibleMemorySuggestions,
-  insertMemoryReference,
   handleSlashCommandSelect,
   inputPlaceholder,
   inputText,
-  isActiveMemorySuggestion,
   isAgentDropdownOpen,
   isCompressing,
   isDarkTheme,
   isDragOver,
   isMainPanel,
-  isMemorySuggestionLoading,
   isMiniPanel,
   isModelDropdownOpen,
   isPlanMode,
@@ -112,15 +99,12 @@ const {
   openAttachmentPicker,
   parsedInputText,
   pendingImages,
-  previewMemoryReference,
-  previewMemorySuggestion,
-  scheduleClearMemoryPreview,
-  presetModelOptions,
+  modelFilterText,
+  filteredModelOptions,
   reasoningEffortOptions,
   queuedDraftEditText,
   queuedMessages,
   removeImage,
-  removeMemoryReferenceFromDraft,
   removeQueuedMessage,
   renderLayerRef,
   retryMessage,
@@ -134,9 +118,6 @@ const {
   selectModel,
   selectReasoningEffort,
   setQueuedDraftEditorRef,
-  shouldShowMemorySuggestionEmptyState,
-  shouldShowMemorySuggestionIdleHint,
-  shouldShowMemorySuggestions,
   shouldUseRichTextOverlay,
   showCdPathSuggestions,
   showCompressionDialog,
@@ -153,8 +134,7 @@ const {
   toggleModelDropdown,
   toggleReasoningDropdown,
   toggleQueueCollapsed,
-  tokenUsage,
-  visibleMemorySuggestions
+  tokenUsage
 } = useConversationComposerView(props)
 
 defineExpose({
@@ -168,7 +148,6 @@ defineExpose({
 const hasDraftContent = computed(() => (
   inputText.value.trim().length > 0
   || pendingImages.value.length > 0
-  || currentMemoryReferences.value.length > 0
 ))
 
 const sendButtonDisabled = computed(() => (
@@ -438,31 +417,6 @@ const sendButtonTitle = computed(() => {
         :remove-attachment="removeImage"
       />
 
-      <ConversationComposerMemoryAssist
-        :t="t"
-        :is-main-panel="isMainPanel"
-        :current-memory-references="currentMemoryReferences"
-        :current-memory-preview="currentMemoryPreview"
-        :should-show-memory-suggestions="shouldShowMemorySuggestions"
-        :has-visible-memory-suggestions="hasVisibleMemorySuggestions"
-        :is-memory-suggestion-loading="isMemorySuggestionLoading"
-        :should-show-memory-suggestion-empty-state="shouldShowMemorySuggestionEmptyState"
-        :should-show-memory-suggestion-idle-hint="shouldShowMemorySuggestionIdleHint"
-        :visible-memory-suggestions="visibleMemorySuggestions"
-        :is-active-memory-suggestion="isActiveMemorySuggestion"
-        :preview-memory-reference="previewMemoryReference"
-        :preview-memory-suggestion="previewMemorySuggestion"
-        :clear-memory-preview="clearMemoryPreview"
-        :schedule-clear-memory-preview="scheduleClearMemoryPreview"
-        :handle-memory-preview-pointer-enter="handleMemoryPreviewPointerEnter"
-        :handle-memory-preview-pointer-leave="handleMemoryPreviewPointerLeave"
-        :handle-memory-suggestion-pointer-enter="handleMemorySuggestionPointerEnter"
-        :handle-memory-suggestion-pointer-leave="handleMemorySuggestionPointerLeave"
-        :dismiss-memory-suggestion="dismissMemorySuggestion"
-        :insert-memory-reference="insertMemoryReference"
-        :remove-memory-reference-from-draft="removeMemoryReferenceFromDraft"
-      />
-
       <input
         ref="fileInputRef"
         type="file"
@@ -672,14 +626,29 @@ const sendButtonTitle = computed(() => {
                     v-if="isModelDropdownOpen"
                     class="composer-chip__menu composer-chip__menu--right"
                   >
+                    <div class="composer-chip__search">
+                      <input
+                        v-model="modelFilterText"
+                        type="text"
+                        class="composer-chip__search-input"
+                        :placeholder="t('composer.searchModelPlaceholder')"
+                        @click.stop
+                      >
+                    </div>
                     <div
-                      v-for="model in presetModelOptions"
+                      v-for="model in filteredModelOptions"
                       :key="model.value"
                       class="composer-chip__option"
                       :class="{ 'composer-chip__option--selected': model.value === selectedModelId }"
                       @click="selectModel(model.value)"
                     >
                       {{ model.label }}
+                    </div>
+                    <div
+                      v-if="filteredModelOptions.length === 0"
+                      class="composer-chip__empty"
+                    >
+                      {{ t('composer.noModelMatch') }}
                     </div>
                   </div>
                 </Transition>
@@ -800,14 +769,29 @@ const sendButtonTitle = computed(() => {
                 v-if="isModelDropdownOpen"
                 class="composer-chip__menu"
               >
+                <div class="composer-chip__search">
+                  <input
+                    v-model="modelFilterText"
+                    type="text"
+                    class="composer-chip__search-input"
+                    :placeholder="t('composer.searchModelPlaceholder')"
+                    @click.stop
+                  >
+                </div>
                 <div
-                  v-for="model in presetModelOptions"
+                  v-for="model in filteredModelOptions"
                   :key="model.value"
                   class="composer-chip__option"
                   :class="{ 'composer-chip__option--selected': model.value === selectedModelId }"
                   @click="selectModel(model.value)"
                 >
                   {{ model.label }}
+                </div>
+                <div
+                  v-if="filteredModelOptions.length === 0"
+                  class="composer-chip__empty"
+                >
+                  {{ t('composer.noModelMatch') }}
                 </div>
               </div>
             </Transition>

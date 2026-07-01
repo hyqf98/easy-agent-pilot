@@ -89,6 +89,9 @@ export type StreamEventType =
   | 'plan'
   | 'available_commands'
   | 'permission_request'
+  // 上下文窗口占用（ACP UsageUpdate{used,size}），仅用于刷新进度条占用，
+  // 不参与 input/output token 计费统计（与 usage 事件通道分离）。
+  | 'context_window'
 
 /**
  * 流式事件
@@ -120,13 +123,22 @@ export interface StreamEvent {
   cacheCreationInputTokens?: number
   /** 模型名称 */
   model?: string
+  /** 上下文窗口已用 token（仅 context_window 事件，对应 ACP UsageUpdate.used） */
+  contextWindowUsed?: number
+  /** 上下文窗口总大小（仅 context_window 事件，对应 ACP UsageUpdate.size） */
+  contextWindowSize?: number
   fileEdit?: FileEditTrace
   externalSessionId?: string
   /** ACP 权限询问时携带的可选项（仅 permission_request 事件使用） */
   permissionOptions?: PermissionOption[]
+  /** 工具语义类别（read/edit/delete/move/search/execute/think/fetch/switch_mode/other） */
+  toolKind?: string
+  /** 工具访问/修改的文件位置（透传 ACP ToolCallLocation） */
+  toolLocations?: ToolLocation[]
 }
 
 /**
+ * 流式事件回调集合（Agent 策略执行器通过 onEvent 上报，ConversationService 分发）
  */
 export interface AgentStrategy {
   /** 策略名称 */
@@ -222,6 +234,22 @@ export interface BackendStreamEvent {
   externalSessionId?: string
   /** ACP 权限询问时携带的可选项（仅 permission_request 事件使用） */
   permissionOptions?: PermissionOption[]
+  /** 工具语义类别（read/edit/delete/move/search/execute/think/fetch/switch_mode/other） */
+  toolKind?: string
+  /** 工具访问/修改的文件位置（透传 ACP ToolCallLocation） */
+  toolLocations?: ToolLocation[]
+}
+
+/**
+ * 工具访问/修改的文件位置（对应后端 ToolLocationView）
+ */
+export interface ToolLocation {
+  /** 绝对路径 */
+  path: string
+  /** 相对工作目录的展示路径 */
+  relativePath: string
+  /** 可选行号 */
+  line?: number
 }
 
 export type CliStreamEvent = BackendStreamEvent

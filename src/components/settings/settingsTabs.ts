@@ -8,6 +8,7 @@ import LogSettings from './tabs/LogSettings.vue'
 import AppUpdateSettings from './tabs/AppUpdateSettings.vue'
 import UnattendedSettings from './tabs/UnattendedSettings/UnattendedSettings.vue'
 import AgentCliUsageSettings from './tabs/agentCliUsageSettings/AgentCliUsageSettings.vue'
+import DesktopPetSettings from './tabs/DesktopPetSettings/DesktopPetSettings.vue'
 
 /**
  * 设置项所属分组。
@@ -50,6 +51,15 @@ export const SETTINGS_TAB_DESCRIPTORS: SettingsTabDescriptor[] = [
     descriptionKey: 'settings.desc.theme',
     icon: 'palette',
     component: markRaw(ThemeSettings),
+    layout: 'wide',
+    group: 'workspace'
+  },
+  {
+    id: 'desktopPet',
+    labelKey: 'settings.nav.desktopPet',
+    descriptionKey: 'settings.desc.desktopPet',
+    icon: 'paw-print',
+    component: markRaw(DesktopPetSettings),
     layout: 'wide',
     group: 'workspace'
   },

@@ -88,6 +88,12 @@ pub struct StreamEvent {
     /// 文件变更（仅 file_edit 事件使用）：ACP Diff 捕获到的修改前/后内容
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_edit: Option<FileEditView>,
+    /// 工具语义类别（read/edit/delete/move/search/execute/...），透传 ACP ToolKind
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_kind: Option<String>,
+    /// 工具访问/修改的文件位置列表，透传 ACP ToolCallLocation（跟随 Agent）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_locations: Option<Vec<ToolLocationView>>,
 }
 
 /// 文件变更的前端视图（ACP Diff → create/modify/delete）
@@ -113,6 +119,19 @@ pub struct PermissionOptionView {
     pub option_id: String,
     pub name: String,
     pub kind: String,
+}
+
+/// 工具访问/修改的文件位置（透传 ACP ToolCallLocation）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolLocationView {
+    /// 绝对路径
+    pub path: String,
+    /// 相对工作目录的展示路径（失败时回退为文件名）
+    pub relative_path: String,
+    /// 可选行号
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
 }
 
 pub type AcpStreamEvent = StreamEvent;

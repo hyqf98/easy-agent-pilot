@@ -1,0 +1,12 @@
+{
+  "id": "fat-guga",
+  "displayName": "胖咕嘎",
+  "description": "A chubby bird pet that waddles across your desktop.",
+  "kind": "creature",
+  "tags": ["cute", "animal"],
+  "source": "builtin",
+  "spritesheetFile": "spritesheet.webp",
+  "posterFile": null,
+  "spritesheetUrl": "https://codex-pets.net/assets/pets/v/1781147599977/fat-guga/spritesheet.webp",
+  "version": 1781147599977
+}

@@ -871,3 +871,94 @@ pub fn delete_agent_model(id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// 同步模型结果：本次新增数量、跳过（已存在）数量、合并后的完整列表。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncAgentModelsResult {
+    pub synced_count: usize,
+    pub skipped_count: usize,
+    pub models: Vec<AgentModelConfig>,
+}
+
+/// 通过 ACP 标准协议同步 Agent 支持的模型清单。
+///
+/// 流程：读取 agent 的 `acp_command`（fallback `cli_path`）→ 建立短命探测会话
+/// 读取 `NewSessionResponse.models.available_models` → 按 `model_id` 去重合并进
+/// `agent_models`（已存在的跳过、不覆盖用户配置，缺失的新增）。探测会话不发送任何 prompt。
+#[tauri::command]
+pub async fn sync_agent_models(agent_id: String) -> Result<SyncAgentModelsResult, String> {
+    use crate::commands::conversation::strategies::{
+        probe_acp_models, probe_opencode_models, resolve_acp_command,
+    };
+
+    // 1. 读取 agent 的 ACP 命令（与 test_acp_connection 同款取值优先级）
+    let mut conn = open_conn()?;
+    let raw_command = conn
+        .query_row(
+            "SELECT acp_command, cli_path FROM agents WHERE id = ?1",
+            [&agent_id],
+            |row| {
+                let acp_command: Option<String> = row.get(0)?;
+                let cli_path: Option<String> = row.get(1)?;
+                Ok(acp_command.or(cli_path))
+            },
+        )
+        .map_err(|e| e.to_string())?;
+    let raw_command = raw_command
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| "该 Agent 未配置 ACP 命令".to_string())?;
+
+    // 2. 按 provider 选择探测方式：
+    //    - opencode 不通过 ACP 暴露模型，走原生 `opencode models` CLI
+    //    - 其他（claude/codex/custom）走 ACP session/new 协议路径
+    let provider = get_agent_provider(&conn, &agent_id)?;
+    let probed_ids = if provider.as_deref() == Some("opencode") {
+        probe_opencode_models().await?
+    } else {
+        let resolved = resolve_acp_command(&raw_command);
+        probe_acp_models(&resolved).await?
+    };
+
+    // 3. 事务内按 model_id 去重合并：已存在的跳过，缺失的新增
+    let existing = list_models_for_agent(&conn, &agent_id)?;
+    let existing_ids: std::collections::HashSet<&str> =
+        existing.iter().map(|m| m.model_id.as_str()).collect();
+
+    let mut synced_count = 0usize;
+    let mut skipped_count = 0usize;
+
+    if !probed_ids.is_empty() {
+        let now = now_rfc3339();
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+        for model_id in &probed_ids {
+            if existing_ids.contains(model_id.as_str()) {
+                skipped_count += 1;
+                continue;
+            }
+
+            let id = uuid::Uuid::new_v4().to_string();
+            tx.execute(
+                "INSERT INTO agent_models (id, agent_id, model_id, display_name, is_builtin, is_default, sort_order, enabled, context_window, input_cost_per_million_usd, output_cost_per_million_usd, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, 0, 0, 0, 1, 128000, NULL, NULL, ?5, ?5)",
+                rusqlite::params![&id, &agent_id, model_id, model_id, &now],
+            )
+            .map_err(|e| e.to_string())?;
+            synced_count += 1;
+        }
+
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
+    // 4. 返回合并后的完整列表（复用 list_models_for_agent 保留 codex 旧模型过滤逻辑）
+    let models = list_models_for_agent(&conn, &agent_id)?;
+
+    Ok(SyncAgentModelsResult {
+        synced_count,
+        skipped_count,
+        models,
+    })
+}
+

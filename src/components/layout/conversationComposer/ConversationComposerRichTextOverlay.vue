@@ -30,21 +30,6 @@ defineProps<{
           :title="segment.titleContent"
         >{{ segment.displayContent || segment.content }}</span>
       </template>
-      <template v-else-if="segment.type === 'memory'">
-        <span
-          class="conversation-composer__memory-tag"
-          :title="segment.titleContent"
-        >
-          <span class="conversation-composer__memory-tag-ghost">{{ segment.content }}</span>
-          <span class="conversation-composer__memory-tag-surface">
-            <span
-              v-if="segment.memorySourceLabel"
-              class="conversation-composer__memory-tag-kind"
-            >{{ segment.memorySourceLabel }}</span>
-            <span class="conversation-composer__memory-tag-text">{{ segment.displayContent || segment.content }}</span>
-          </span>
-        </span>
-      </template>
       <template v-else-if="segment.type === 'attachment'">
         <span
           class="conversation-composer__attachment-placeholder"

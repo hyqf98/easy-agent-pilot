@@ -26,6 +26,16 @@ function findLatestUsageMessage(messages: Message[]): Message | undefined {
     .find(message => message.role === 'assistant' && message.messageType === 'usage')
 }
 
+/**
+ * 查找最新的 context_window 行（ACP UsageUpdate 落库），用于刷新后恢复上下文窗口占用与大小。
+ * 后端约定：used → input_tokens 列，size → output_tokens 列（见 message_recorder.rs::insert_context_window）。
+ */
+function findLatestContextWindowMessage(messages: Message[]): Message | undefined {
+  return [...messages]
+    .reverse()
+    .find(message => message.role === 'assistant' && message.messageType === 'context_window')
+}
+
 function usageMessageToRuntimeNotice(message: Message): RuntimeNotice {
   const lines: string[] = []
   if (message.inputTokens !== undefined) {
@@ -87,6 +97,8 @@ export interface RealtimeTokenData {
   outputTokens: number
   model?: string
   contextWindowOccupancy?: number
+  /** 运行时上报的上下文窗口总大小（ACP UsageUpdate.size），用于校验/覆盖配置上限 */
+  contextWindowSize?: number
 }
 
 export type CompressionStrategy = 'simple' | 'smart' | 'summary'
@@ -320,7 +332,12 @@ export const useTokenStore = defineStore('token', () => {
     const latestUsageMessage = findLatestUsageMessage(sessionMessages)
     const { counts: persistedUsageCounts, summary: persistedUsageSummary } =
       extractPersistedUsageFromMessage(latestUsageMessage)
+    // 刷新后从 context_window 行恢复窗口占用(used)与大小(size)，避免进度环回退到 usage 行的累计值
+    const latestContextWindowMessage = findLatestContextWindowMessage(sessionMessages)
+    const persistedContextWindowUsed = latestContextWindowMessage?.inputTokens
+    const persistedContextWindowSize = latestContextWindowMessage?.outputTokens
     const persistedOccupancy = persistedUsageCounts.contextWindowOccupancy
+      ?? persistedContextWindowUsed
       ?? (
         persistedUsageCounts.inputTokens !== undefined || persistedUsageCounts.outputTokens !== undefined
           ? (persistedUsageCounts.inputTokens ?? 0) + (persistedUsageCounts.outputTokens ?? 0)
@@ -345,6 +362,13 @@ export const useTokenStore = defineStore('token', () => {
           agentModelId: agent.modelId
         }
       )
+    }
+
+    // 运行时上报的上下文窗口大小（ACP UsageUpdate.size）最贴近真实限制：
+    // 当可用且为正时，覆盖配置推导出的 limit，避免重复/过时配置导致进度环分母不准。
+    const runtimeContextWindowSize = realtimeData?.contextWindowSize ?? persistedContextWindowSize
+    if (typeof runtimeContextWindowSize === 'number' && runtimeContextWindowSize > 0) {
+      contextWindow = runtimeContextWindowSize
     }
 
     const hasCompressionPlaceholderOnly = sessionMessages.length > 0
@@ -400,16 +424,24 @@ export const useTokenStore = defineStore('token', () => {
     inputTokens: number | undefined,
     outputTokens: number | undefined,
     model?: string,
-    contextWindowOccupancy?: number
+    contextWindowOccupancy?: number,
+    contextWindowSize?: number
   ) {
-    if (inputTokens === undefined && outputTokens === undefined && !model && contextWindowOccupancy === undefined) return
+    if (
+      inputTokens === undefined
+      && outputTokens === undefined
+      && !model
+      && contextWindowOccupancy === undefined
+      && contextWindowSize === undefined
+    ) return
     const existing = realtimeTokens.value.get(sessionId) || { inputTokens: 0, outputTokens: 0 }
 
     realtimeTokens.value = replaceMapEntry(realtimeTokens.value, sessionId, {
       inputTokens: inputTokens ?? existing.inputTokens,
       outputTokens: outputTokens ?? existing.outputTokens,
       model: model ?? existing.model,
-      contextWindowOccupancy: contextWindowOccupancy ?? existing.contextWindowOccupancy
+      contextWindowOccupancy: contextWindowOccupancy ?? existing.contextWindowOccupancy,
+      contextWindowSize: contextWindowSize ?? existing.contextWindowSize
     })
   }
 

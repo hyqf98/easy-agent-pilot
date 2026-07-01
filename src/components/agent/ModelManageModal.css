@@ -59,6 +59,33 @@
   min-height: 0;
 }
 
+.model-search {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.model-search__input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.model-search__input:focus {
+  border-color: var(--color-primary);
+}
+
+.model-search__input::placeholder {
+  color: var(--color-text-tertiary);
+}
+
 .loading-state,
 .empty-state {
   display: flex;

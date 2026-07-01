@@ -24,6 +24,10 @@ export interface AppSettings {
   retryIntervalMinutes: number
   cliTimeoutMinutes: number
   acpPermissionMode: string
+  desktopPetEnabled: boolean
+  desktopPetActiveId: string | null
+  desktopPetAlwaysOnTop: boolean
+  desktopPetScale: number
 }
 
 type SettingsValue = AppSettings[keyof AppSettings]
@@ -51,7 +55,11 @@ export const defaultSettings: AppSettings = {
   cliFailureMaxRetries: 5,
   retryIntervalMinutes: 5,
   cliTimeoutMinutes: 0,
-  acpPermissionMode: 'ask'
+  acpPermissionMode: 'ask',
+  desktopPetEnabled: false,
+  desktopPetActiveId: null,
+  desktopPetAlwaysOnTop: true,
+  desktopPetScale: 75
 }
 
 export interface SettingsFieldCodec {
@@ -144,7 +152,11 @@ export const settingsFieldCodecs: SettingsFieldCodec[] = [
   integerCodec('cliFailureMaxRetries', defaultSettings.cliFailureMaxRetries),
   integerCodec('retryIntervalMinutes', defaultSettings.retryIntervalMinutes),
   integerCodec('cliTimeoutMinutes', defaultSettings.cliTimeoutMinutes),
-  stringCodec('acpPermissionMode')
+  stringCodec('acpPermissionMode'),
+  booleanCodec('desktopPetEnabled'),
+  nullableStringCodec('desktopPetActiveId'),
+  booleanCodec('desktopPetAlwaysOnTop'),
+  integerCodec('desktopPetScale', defaultSettings.desktopPetScale)
 ]
 
 const settingsFieldCodecMap = new Map(

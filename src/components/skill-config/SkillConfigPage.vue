@@ -1,14 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useAgentStore, type AgentConfig } from '@/stores/agent'
+import { useAgentStore, type AgentConfig, inferAgentProvider, type AgentProvider } from '@/stores/agent'
 import { useProjectStore } from '@/stores/project'
 import { useSkillConfigStore, type UnifiedMcpConfig, type UnifiedSkillConfig, type UnifiedPluginConfig } from '@/stores/skillConfig'
 import type { CliType } from '@/stores/providerProfile'
 import {
   useDefaultCliConfigEditor
 } from '@/composables/useDefaultCliConfigEditor'
-import AgentSelector from './AgentSelector.vue'
 import McpConfigTab from './tabs/McpConfigTab.vue'
 import SkillsConfigTab from './tabs/SkillsConfigTab.vue'
 import PluginsConfigTab from './tabs/PluginsConfigTab.vue'
@@ -23,6 +22,26 @@ import { EaIcon } from '@/components/common'
 import { useConfirmDialog } from '@/composables/useConfirmDialog'
 import type { CliSyncResult, CreateVisualSkillInput, SyncConfigType } from '@/stores/skillConfig'
 
+/** 仅这三个 CLI 类型用 Tab 切换（与子代理页保持一致，无下拉框）。 */
+type CliTabProvider = Extract<AgentProvider, 'claude' | 'codex' | 'opencode'>
+
+/** 固定展示顺序。 */
+const CLI_TAB_ORDER: CliTabProvider[] = ['claude', 'codex', 'opencode']
+
+/** provider → Tab 标签。 */
+const CLI_TAB_LABEL: Record<CliTabProvider, string> = {
+  claude: 'Claude',
+  codex: 'Codex',
+  opencode: 'OpenCode',
+}
+
+/** provider → 配置目录（cliConfigPaths 缺省时的静态回退）。 */
+const CLI_CONFIG_DIR_FALLBACK: Record<CliTabProvider, string> = {
+  claude: '~/.claude',
+  codex: '~/.codex',
+  opencode: '~/.config/opencode',
+}
+
 const { t } = useI18n()
 const agentStore = useAgentStore()
 const projectStore = useProjectStore()
@@ -32,6 +51,78 @@ const confirmDialog = useConfirmDialog()
 const activeTab = ref<'mcp' | 'skills' | 'plugins'>('mcp')
 
 const showPluginsTab = computed(() => skillConfigStore.supportsPlugins)
+
+/**
+ * 按 provider 去重的 CLI 智能 Tab 列表。
+ * CLI 配置读盘路径由 provider 决定，与同 provider 内具体哪个 agent 无关，
+ * 故每个 provider 只取首个代表 agent 即可。
+ */
+const cliAgentTabs = computed<Array<{ provider: CliTabProvider; label: string; agent: AgentConfig }>>(() => {
+  const byProvider = new Map<CliTabProvider, AgentConfig>()
+  for (const agent of agentStore.agents) {
+    if (!(agent.acpCommand || agent.cliPath)) {
+      continue
+    }
+    const provider = inferAgentProvider(agent)
+    if (provider !== 'claude' && provider !== 'codex' && provider !== 'opencode') {
+      continue
+    }
+    if (!byProvider.has(provider)) {
+      byProvider.set(provider, agent)
+    }
+  }
+
+  return CLI_TAB_ORDER
+    .filter(provider => byProvider.has(provider))
+    .map(provider => ({
+      provider,
+      label: CLI_TAB_LABEL[provider],
+      agent: byProvider.get(provider)!,
+    }))
+})
+
+const hasCliAgents = computed(() => cliAgentTabs.value.length > 0)
+
+/** 当前选中的 CLI 类型（取所选 agent 的 provider，inferAgentProvider 兜底）。 */
+const activeCliType = computed<CliTabProvider | null>(() => {
+  const agent = skillConfigStore.selectedAgent
+  if (!agent) {
+    return null
+  }
+  const provider = inferAgentProvider(agent)
+  if (provider === 'claude' || provider === 'codex' || provider === 'opencode') {
+    return provider
+  }
+  return null
+})
+
+/** 当前 provider 的配置目录预览（优先用真实路径，缺省回退静态映射）。 */
+const currentConfigDir = computed(() => {
+  const provider = activeCliType.value
+  if (!provider) {
+    return ''
+  }
+  return skillConfigStore.cliConfigPaths?.configDir
+    || CLI_CONFIG_DIR_FALLBACK[provider]
+})
+
+function handleCliTypeChange(provider: CliTabProvider) {
+  const tab = cliAgentTabs.value.find(item => item.provider === provider)
+  if (!tab || tab.agent.id === skillConfigStore.selectedAgent?.id) {
+    return
+  }
+  void handleSelectAgent(tab.agent)
+}
+
+const selectedCliType = computed<CliType | null>(() => {
+  const provider = skillConfigStore.selectedAgent?.provider
+  if (provider === 'claude' || provider === 'codex' || provider === 'opencode') {
+    return provider
+  }
+  return null
+})
+
+const canOpenCliConfigEditor = computed(() => selectedCliType.value !== null)
 
 // 内容区域引用，用于重置滚动位置
 const contentRef = ref<HTMLElement | null>(null)
@@ -62,16 +153,6 @@ const {
   }
 })
 
-const selectedCliType = computed<CliType | null>(() => {
-  const provider = skillConfigStore.selectedAgent?.provider
-  if (provider === 'claude' || provider === 'codex' || provider === 'opencode') {
-    return provider
-  }
-  return null
-})
-
-const canOpenCliConfigEditor = computed(() => selectedCliType.value !== null)
-
 watch(activeTab, () => {
   if (activeTab.value !== 'skills') {
     showSkillBuilder.value = false
@@ -101,6 +182,13 @@ watch(
 watch(showSkillModal, (value) => {
   if (!value) {
     editingSkill.value = null
+  }
+})
+
+// 守卫：当前 Agent 不支持插件（如 codex）时，若停留在已隐藏的 plugins Tab，回退到 mcp
+watch(showPluginsTab, (visible) => {
+  if (!visible && activeTab.value === 'plugins') {
+    activeTab.value = 'mcp'
   }
 })
 
@@ -154,10 +242,26 @@ async function requestDelete(
   }
 }
 
-// 加载智能体列表
+// 加载智能体列表，并自动选中首个 CLI Tab（若无选中）
 onMounted(async () => {
   await agentStore.loadAgents()
+  autoSelectFirstCliTab()
 })
+
+// 兜底：异步加载完成后，若仍无选中，自动选中首个 CLI Tab
+watch(() => agentStore.agents, () => {
+  autoSelectFirstCliTab()
+})
+
+function autoSelectFirstCliTab() {
+  if (skillConfigStore.selectedAgent) {
+    return
+  }
+  const first = cliAgentTabs.value[0]
+  if (first) {
+    void handleSelectAgent(first.agent)
+  }
+}
 
 // 选择智能体
 async function handleSelectAgent(agent: any) {
@@ -367,22 +471,43 @@ function handleSyncCompleted(payload: { targetAgentId: string; result: CliSyncRe
 
 <template>
   <div class="skill-config-page">
-    <!-- 智能体选择器 -->
-    <AgentSelector
-      :model-value="skillConfigStore.selectedAgent"
-      @update:model-value="handleSelectAgent"
-    />
+    <!-- CLI 类型 Tab（下划线风格，与子代理页保持一致） -->
+    <section
+      v-if="hasCliAgents"
+      class="cli-type-tabs"
+    >
+      <div class="tabs-wrapper">
+        <button
+          v-for="option in cliAgentTabs"
+          :key="option.provider"
+          :class="['tab-btn', { active: activeCliType === option.provider }]"
+          @click="handleCliTypeChange(option.provider)"
+        >
+          <EaIcon
+            name="terminal"
+            :size="14"
+          />
+          <span>{{ option.label }}</span>
+        </button>
+      </div>
+      <p class="cli-type-tabs__hint">
+        {{ t('settings.agentConfig.cliConfigDirHint', { dir: currentConfigDir }) }}
+      </p>
+    </section>
+    <div
+      v-else
+      class="skill-config-page__empty"
+    >
+      <EaIcon
+        name="lucide:inbox"
+        class="skill-config-page__empty-icon"
+      />
+      <span>{{ t('settings.agentConfig.noAgents') }}</span>
+    </div>
 
-    <!-- Skill 详情视图 -->
-    <SkillDetailView
-      v-if="skillConfigStore.selectedSkill && activeTab === 'skills'"
-      :skill="skillConfigStore.selectedSkill"
-      @back="handleBackFromSkill"
-      @delete="handleDeleteSkillFromDetail"
-    />
-
+    <!-- Skill 创建视图（全屏，命中时替换整个面板） -->
     <SkillCreateView
-      v-else-if="showSkillBuilder && activeTab === 'skills'"
+      v-if="showSkillBuilder && activeTab === 'skills'"
       :agent="skillConfigStore.selectedAgent"
       :cli-config-paths="skillConfigStore.cliConfigPaths"
       :is-saving="isCreatingSkill"
@@ -445,18 +570,32 @@ function handleSyncCompleted(payload: { targetAgentId: string; result: CliSyncRe
           @save="handleSaveMcp"
           @delete="handleDeleteMcp"
         />
-        <SkillsConfigTab
-          v-else-if="activeTab === 'skills'"
-          :configs="skillConfigStore.skillsConfigs"
-          :is-read-only="skillConfigStore.isReadOnly"
-          :is-loading="skillConfigStore.isLoading"
-          :can-sync="canSyncCliConfigs"
-          @add="handleAddSkill"
-          @sync="openSyncModal('skills')"
-          @detail="handleViewSkillDetail"
-          @edit="handleEditSkill"
-          @delete="handleDeleteSkill"
-        />
+        <!-- skills tab：选中技能时左右分屏（列表常驻 + 详情撑满），否则单列列表 -->
+        <div
+          v-if="activeTab === 'skills'"
+          class="skill-config-page__skills-panel"
+          :class="{ 'skill-config-page__skills-panel--split': !!skillConfigStore.selectedSkill }"
+        >
+          <SkillsConfigTab
+            class="skill-config-page__skills-list"
+            :configs="skillConfigStore.skillsConfigs"
+            :is-read-only="skillConfigStore.isReadOnly"
+            :is-loading="skillConfigStore.isLoading"
+            :can-sync="canSyncCliConfigs"
+            @add="handleAddSkill"
+            @sync="openSyncModal('skills')"
+            @detail="handleViewSkillDetail"
+            @edit="handleEditSkill"
+            @delete="handleDeleteSkill"
+          />
+          <SkillDetailView
+            v-if="skillConfigStore.selectedSkill"
+            class="skill-config-page__skills-detail"
+            :skill="skillConfigStore.selectedSkill"
+            @back="handleBackFromSkill"
+            @delete="handleDeleteSkillFromDetail"
+          />
+        </div>
         <PluginsConfigTab
           v-else-if="activeTab === 'plugins' && showPluginsTab"
           :configs="skillConfigStore.pluginsConfigs"

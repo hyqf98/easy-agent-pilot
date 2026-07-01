@@ -299,14 +299,13 @@ onUnmounted(() => {
 <style scoped>
 .slash-command-dropdown {
   position: fixed;
-  z-index: calc(var(--z-dropdown) + 2);
+  z-index: var(--z-dropdown);
   width: min(380px, calc(100vw - 24px));
-  border: 1px solid color-mix(in srgb, var(--color-border) 78%, rgba(15, 23, 42, 0.08));
-  border-radius: 16px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(248, 250, 252, 0.95));
-  box-shadow: 0 18px 34px rgba(15, 23, 42, 0.14);
-  backdrop-filter: blur(16px);
+  border: 1px solid color-mix(in srgb, var(--color-border) 85%, transparent);
+  border-radius: 14px;
+  background: var(--color-bg-elevated);
+  box-shadow: 0 8px 28px color-mix(in srgb, var(--color-text-primary) 12%, transparent);
+  backdrop-filter: blur(12px);
   overflow: hidden;
 }
 
@@ -316,7 +315,7 @@ onUnmounted(() => {
   justify-content: space-between;
   gap: var(--spacing-3);
   padding: 12px 14px 8px;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 85%, transparent);
 }
 
 .slash-command__title {
@@ -331,8 +330,8 @@ onUnmounted(() => {
 .slash-command__query {
   padding: 2px 8px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
-  color: color-mix(in srgb, var(--color-warning) 78%, var(--color-text-primary));
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: color-mix(in srgb, var(--color-primary) 75%, var(--color-text-primary));
   font-family: var(--font-family-mono);
   font-size: 11px;
   font-weight: var(--font-weight-semibold);
@@ -362,7 +361,7 @@ onUnmounted(() => {
   gap: 6px;
   width: 100%;
   padding: 8px 10px;
-  border-radius: 10px;
+  border-radius: 8px;
   text-align: left;
   border: 1px solid transparent;
   transition:
@@ -371,8 +370,8 @@ onUnmounted(() => {
 }
 
 .slash-command__item--selected {
-  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
-  border-color: color-mix(in srgb, var(--color-warning) 24%, transparent);
+  background: var(--color-active-bg);
+  border-color: var(--color-active-border);
 }
 
 .slash-command__item-name {
@@ -381,8 +380,8 @@ onUnmounted(() => {
   flex-shrink: 0;
   padding: 1px 8px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
-  color: color-mix(in srgb, var(--color-warning) 76%, var(--color-text-primary));
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: color-mix(in srgb, var(--color-primary) 75%, var(--color-text-primary));
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
   font-weight: 700;
@@ -393,8 +392,8 @@ onUnmounted(() => {
   flex-shrink: 0;
   padding: 1px 6px;
   border-radius: 999px;
-  background: color-mix(in srgb, #10B981 14%, transparent);
-  color: #10B981;
+  background: color-mix(in srgb, var(--color-accent, #8b5cf6) 14%, transparent);
+  color: var(--color-accent, #8b5cf6);
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -423,47 +422,15 @@ onUnmounted(() => {
   color: var(--color-text-secondary);
 }
 
-:global([data-theme='dark']) .slash-command-dropdown,
-:global(.dark) .slash-command-dropdown {
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.98));
-  border-color: rgba(148, 163, 184, 0.22);
-  box-shadow: 0 18px 36px rgba(2, 6, 23, 0.42);
-}
-
-:global([data-theme='dark']) .slash-command__title,
-:global(.dark) .slash-command__title {
-  color: #f8fafc;
-}
-
-:global([data-theme='dark']) .slash-command__query,
-:global(.dark) .slash-command__query,
-:global([data-theme='dark']) .slash-command__item-name,
-:global(.dark) .slash-command__item-name {
-  background: rgba(245, 158, 11, 0.16);
-  color: #fbbf24;
-}
-
-:global([data-theme='dark']) .slash-command__item-badge,
-:global(.dark) .slash-command__item-badge {
-  background: rgba(16, 185, 129, 0.18);
-  color: #34d399;
-}
-
-:global([data-theme='dark']) .slash-command__item--selected,
-:global(.dark) .slash-command__item--selected {
-  background: rgba(245, 158, 11, 0.09);
-  border-color: rgba(245, 158, 11, 0.22);
-}
-
 .slash-command__tip {
   position: fixed;
-  z-index: calc(var(--z-dropdown) + 3);
+  z-index: calc(var(--z-dropdown) + 1);
   max-width: 280px;
   padding: 8px 12px;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--color-bg-elevated) 98%, rgba(15, 23, 42, 0.04));
+  background: var(--color-bg-elevated);
   border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--color-text-primary) 10%, transparent);
   backdrop-filter: blur(12px);
   transform: translateY(-50%);
   pointer-events: none;
@@ -495,12 +462,5 @@ onUnmounted(() => {
 .slash-tip-enter-from,
 .slash-tip-leave-to {
   opacity: 0;
-}
-
-:global([data-theme='dark']) .slash-command__tip,
-:global(.dark) .slash-command__tip {
-  background: rgba(30, 41, 59, 0.98);
-  border-color: rgba(148, 163, 184, 0.2);
-  box-shadow: 0 8px 20px rgba(2, 6, 23, 0.35);
 }
 </style>

@@ -10,6 +10,7 @@ pub mod cli_config;
 pub mod cli_installer;
 pub(crate) mod cli_support;
 pub mod conversation;
+pub mod desktop_pet;
 pub mod file_editor;
 pub mod file_change;
 pub(crate) mod fs_shared;
@@ -54,7 +55,7 @@ use std::sync::Mutex;
 
 static CUSTOM_PERSISTENCE_PATH: Lazy<Mutex<Option<PathBuf>>> = Lazy::new(|| Mutex::new(None));
 
-const PERSISTENCE_SUB_DIRS: &[&str] = &["data", "logs", "cache", "tools", "data/session-uploads"];
+const PERSISTENCE_SUB_DIRS: &[&str] = &["data", "logs", "cache", "tools", "data/session-uploads", "data/pets"];
 
 /// 获取开发模式下默认的持久化路径（当前项目下的 data 目录）
 #[cfg(debug_assertions)]

@@ -250,6 +250,8 @@ fn build_permission_event(
         external_session_id: None,
         permission_options: Some(super::super::permission::to_permission_option_views(options)),
         file_edit: None,
+        tool_kind: None,
+        tool_locations: None,
     }
 }
 
@@ -306,6 +308,8 @@ fn build_done_event(session_id: &str, request_id: &str) -> AcpStreamEvent {
         external_session_id: None,
         permission_options: None,
         file_edit: None,
+        tool_kind: None,
+        tool_locations: None,
     }
 }
 
@@ -334,6 +338,8 @@ fn build_thinking_event(
         external_session_id: None,
         permission_options: None,
         file_edit: None,
+        tool_kind: None,
+        tool_locations: None,
     }
 }
 
@@ -343,6 +349,8 @@ fn build_tool_use_event(
     tool_call_id: String,
     title: String,
     tool_input: String,
+    tool_kind: Option<String>,
+    tool_locations: Option<Vec<super::super::types::ToolLocationView>>,
 ) -> AcpStreamEvent {
     AcpStreamEvent {
         event_type: "tool_use".to_string(),
@@ -364,6 +372,8 @@ fn build_tool_use_event(
         external_session_id: None,
         permission_options: None,
         file_edit: None,
+        tool_kind,
+        tool_locations,
     }
 }
 
@@ -372,6 +382,8 @@ fn build_tool_result_event(
     request_id: &str,
     tool_call_id: String,
     tool_result: Option<String>,
+    tool_kind: Option<String>,
+    tool_locations: Option<Vec<super::super::types::ToolLocationView>>,
 ) -> AcpStreamEvent {
     AcpStreamEvent {
         event_type: "tool_result".to_string(),
@@ -393,6 +405,8 @@ fn build_tool_result_event(
         external_session_id: None,
         permission_options: None,
         file_edit: None,
+        tool_kind,
+        tool_locations,
     }
 }
 
@@ -417,6 +431,8 @@ fn build_session_started_event(session_id: &str, request_id: &str, external_sid:
         external_session_id: Some(external_sid),
         permission_options: None,
         file_edit: None,
+        tool_kind: None,
+        tool_locations: None,
     }
 }
 
@@ -441,6 +457,8 @@ fn build_plan_event(session_id: &str, request_id: &str, plan_json: String) -> Ac
         external_session_id: None,
         permission_options: None,
         file_edit: None,
+        tool_kind: None,
+        tool_locations: None,
     }
 }
 
@@ -473,6 +491,8 @@ fn build_available_commands_event(
         external_session_id: None,
         permission_options: None,
         file_edit: None,
+        tool_kind: None,
+        tool_locations: None,
     }
 }
 
@@ -526,6 +546,8 @@ fn build_usage_event(
         external_session_id: None,
         permission_options: None,
         file_edit: None,
+        tool_kind: None,
+        tool_locations: None,
     }
 }
 
@@ -563,6 +585,39 @@ fn extract_diffs_from_tool_call_content(
         .filter_map(|c| match c {
             agent_client_protocol::schema::ToolCallContent::Diff(diff) => Some(diff.clone()),
             _ => None,
+        })
+        .collect()
+}
+
+/// 将 ACP ToolKind 转为稳定的 snake_case 字符串（read/edit/delete/...）。
+///
+/// ToolKind 本身 `#[serde(rename_all = "snake_case")]`，这里复用 serde 序列化，
+/// 失败时回退为 "other"。
+fn tool_kind_to_string(kind: &agent_client_protocol::schema::ToolKind) -> String {
+    serde_json::to_value(kind)
+        .ok()
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .unwrap_or_else(|| "other".to_string())
+}
+
+/// 将 ACP ToolCallLocation 列表转为前端视图（绝对路径 + 相对路径 + 可选行号）。
+///
+/// `locations` 来自 `ToolCall`（Vec）或 `ToolCallUpdateFields`（Option<Vec>），
+/// 用于"跟随 Agent"特性——展示工具正在读/写/改的文件位置。
+fn extract_locations(
+    locations: &[agent_client_protocol::schema::ToolCallLocation],
+    working_directory: Option<&str>,
+) -> Vec<super::super::types::ToolLocationView> {
+    locations
+        .iter()
+        .map(|loc| {
+            let file_path = loc.path.to_string_lossy().into_owned();
+            let relative_path = relative_path_for(&file_path, working_directory);
+            super::super::types::ToolLocationView {
+                path: file_path,
+                relative_path,
+                line: loc.line,
+            }
         })
         .collect()
 }
@@ -626,11 +681,15 @@ fn build_file_edit_event(
         external_session_id: None,
         permission_options: None,
         file_edit: Some(edit),
+        tool_kind: None,
+        tool_locations: None,
     }
 }
 
 
-fn resolve_acp_command(raw_command: &str) -> String {
+/// 把短名 ACP 命令展开为实际命令（claude/codex/opencode → npx/子命令）。
+/// `pub(crate)` 供 `sync_agent_models` 探测会话复用。
+pub(crate) fn resolve_acp_command(raw_command: &str) -> String {
     let trimmed = raw_command.trim();
 
     if trimmed.contains(' ') || trimmed.contains("npx") || trimmed.contains("node") {
@@ -677,13 +736,9 @@ impl AgentExecutionStrategy for AcpStrategy {
             working_directory.as_deref().unwrap_or("-")
         );
 
-        let _ = recorder.record(&RecordableEvent::System(
-            "Connecting to agent via ACP...".to_string(),
-        ));
-        let _ = app.emit(
-            &event_name,
-            &build_system_event(&session_id, &request_id, "Connecting to agent via ACP...".to_string()),
-        );
+        // 不再下发/入库 "Connecting to agent via ACP…" 系统状态消息：
+        // 1) 等待反馈由前端 AI 气泡内的加载动画（旋转圆环/正在思考）承担，更直观；
+        // 2) 该瞬态消息落库会导致刷新后出现一条无意义的 system 行，影响消息列表整洁。
 
         let agent = match AcpAgent::from_str(&acp_command) {
             Ok(agent) => agent,
@@ -1005,6 +1060,12 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                                 .as_ref()
                                                                 .map(|v| serde_json::to_string(v).unwrap_or_default())
                                                                 .unwrap_or_default();
+                                                            // 透传 ACP ToolKind / ToolCallLocation（跟随 Agent）
+                                                            let tool_kind = Some(tool_kind_to_string(&tool_call.kind));
+                                                            let tool_locations = Some(extract_locations(
+                                                                &tool_call.locations,
+                                                                working_directory.as_deref(),
+                                                            ));
                                                             let _ = recorder_inner.record(&RecordableEvent::ToolUse {
                                                                 tool_call_id: tool_call.tool_call_id.to_string(),
                                                                 name: tool_call.title.clone(),
@@ -1018,6 +1079,8 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                                     tool_call.tool_call_id.to_string(),
                                                                     tool_call.title,
                                                                     tool_input_str,
+                                                                    tool_kind,
+                                                                    tool_locations,
                                                                 ),
                                                             );
                                                         }
@@ -1025,6 +1088,13 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                             let result_text = tool_update.fields.content
                                                                 .as_ref()
                                                                 .map(|blocks| extract_text_from_tool_call_content(blocks));
+                                                            // 透传 ACP ToolKind / ToolCallLocation（跟随 Agent）
+                                                            let tool_kind = tool_update.fields.kind
+                                                                .as_ref()
+                                                                .map(tool_kind_to_string);
+                                                            let tool_locations = tool_update.fields.locations
+                                                                .as_ref()
+                                                                .map(|locs| extract_locations(locs, working_directory.as_deref()));
                                                             let _ = recorder_inner.record(&RecordableEvent::ToolResult {
                                                                 tool_call_id: tool_update.tool_call_id.to_string(),
                                                                 result: result_text.clone(),
@@ -1036,6 +1106,8 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                                     &request_id,
                                                                     tool_update.tool_call_id.to_string(),
                                                                     result_text,
+                                                                    tool_kind,
+                                                                    tool_locations,
                                                                 ),
                                                             );
 
@@ -1116,6 +1188,8 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                                     external_session_id: None,
                                                                     permission_options: None,
                                                                     file_edit: None,
+                                                                    tool_kind: None,
+                                                                    tool_locations: None,
                                                                 },
                                                             );
                                                         }
@@ -1271,6 +1345,99 @@ impl AgentExecutionStrategy for AcpStrategy {
 
         result.map_err(|e| anyhow::anyhow!("ACP execution failed: {}", e))
     }
+}
+
+/// 探测某 ACP Agent 支持的模型清单。
+///
+/// 建立一个**短命探测会话**：发 `session/new` 拿原始 `NewSessionResponse`，
+/// 读取其 `models.available_models` 后立即返回，不发送任何 prompt。
+///
+/// 关键：**必须绕过 `start_session`**——`attach_session`（crate session.rs）
+/// 会解构丢弃 `NewSessionResponse.models`，`ActiveSession::response()` 重建时 models 恒为 None。
+/// 这里直接用底层 `send_request_to(Agent, NewSessionRequest).block_task()` 拿原始响应。
+///
+/// 子进程清理：`connect_with` 闭包返回后连接 future 被 drop → `ChildGuard::drop` 触发
+/// `start_kill()`，子进程被自动回收。外层 `tokio::time::timeout(30s)` 防止 agent 卡死。
+pub(crate) async fn probe_acp_models(acp_command: &str) -> Result<Vec<String>, String> {
+    use std::time::Duration;
+
+    let agent = AcpAgent::from_str(acp_command)
+        .map_err(|e| format!("ACP 命令解析失败: {}", e))?;
+
+    let probe = async {
+        Client
+            .builder()
+            .connect_with(agent, async move |connection| {
+                let req = NewSessionRequest::new(
+                    std::env::current_dir().unwrap_or_default(),
+                );
+
+                let resp: agent_client_protocol::schema::NewSessionResponse = connection
+                    .send_request_to(Agent, req)
+                    .block_task()
+                    .await?;
+
+                // models 为 None 表示该 agent 未声明模型能力（feature gate 字段）
+                let models = resp
+                    .models
+                    .map(|s| s.available_models)
+                    .unwrap_or_default();
+
+                // ModelInfo.model_id 是 Arc<str> newtype，转 String 供落库去重
+                let model_ids = models
+                    .into_iter()
+                    .map(|m| m.model_id.to_string())
+                    .collect::<Vec<String>>();
+
+                Ok::<_, agent_client_protocol::Error>(model_ids)
+            })
+            .await
+            .map_err(|e| format!("ACP 探测连接失败: {}", e))
+    };
+
+    tokio::time::timeout(Duration::from_secs(30), probe)
+        .await
+        .map_err(|_| "同步模型超时（30s）".to_string())?
+}
+
+/// 探测 opencode 支持的模型清单（原生 CLI 路径）。
+///
+/// opencode 不通过 ACP `session/new.models` 暴露模型（实测返回空），
+/// 而是用独立的 `opencode models` 子命令列出所有可用模型（每行一个 `provider/model`）。
+/// 这里直接执行该命令并解析 stdout，去重去空行/可能的表头。
+pub(crate) async fn probe_opencode_models() -> Result<Vec<String>, String> {
+    let output = tokio::process::Command::new("opencode")
+        .arg("models")
+        // opencode models 不依赖 cwd，但显式指定避免继承可疑的工作目录
+        .current_dir(std::env::temp_dir())
+        .output()
+        .await
+        .map_err(|e| format!("执行 opencode models 失败（是否已安装？）: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("opencode models 执行失败: {}", stderr.trim()));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut seen = std::collections::BTreeSet::new();
+    let mut models = Vec::new();
+    for line in stdout.lines() {
+        let m = line.trim();
+        // 跳过空行、表头（含 Provider/Model 等标题）、分隔线
+        if m.is_empty()
+            || m.starts_with('-')
+            || m.eq_ignore_ascii_case("provider")
+            || m.eq_ignore_ascii_case("model")
+        {
+            continue;
+        }
+        if seen.insert(m.to_string()) {
+            models.push(m.to_string());
+        }
+    }
+
+    Ok(models)
 }
 
 #[cfg(test)]
@@ -1655,7 +1822,7 @@ mod tests {
 
     #[test]
     fn build_tool_use_event_fields() {
-        let ev = build_tool_use_event("s1", "req-1", "call-1".to_string(), "Bash".to_string(), "{}".to_string());
+        let ev = build_tool_use_event("s1", "req-1", "call-1".to_string(), "Bash".to_string(), "{}".to_string(), None, None);
         assert_eq!(ev.event_type, "tool_use");
         assert_eq!(ev.tool_name.as_deref(), Some("Bash"));
         assert_eq!(ev.tool_call_id.as_deref(), Some("call-1"));
@@ -1665,11 +1832,37 @@ mod tests {
 
     #[test]
     fn build_tool_result_event_fields() {
-        let ev = build_tool_result_event("s1", "req-1", "call-1".to_string(), Some("ok".to_string()));
+        let ev = build_tool_result_event("s1", "req-1", "call-1".to_string(), Some("ok".to_string()), None, None);
         assert_eq!(ev.event_type, "tool_result");
         assert_eq!(ev.tool_call_id.as_deref(), Some("call-1"));
         assert_eq!(ev.tool_result.as_deref(), Some("ok"));
         assert!(ev.tool_name.is_none());
+    }
+
+    #[test]
+    fn tool_kind_to_string_serializes_snake_case() {
+        use agent_client_protocol::schema::ToolKind;
+        assert_eq!(tool_kind_to_string(&ToolKind::Read), "read");
+        assert_eq!(tool_kind_to_string(&ToolKind::Edit), "edit");
+        assert_eq!(tool_kind_to_string(&ToolKind::Delete), "delete");
+        assert_eq!(tool_kind_to_string(&ToolKind::Execute), "execute");
+        assert_eq!(tool_kind_to_string(&ToolKind::Other), "other");
+    }
+
+    #[test]
+    fn extract_locations_builds_relative_paths() {
+        use agent_client_protocol::schema::{ToolCallLocation};
+        use std::path::PathBuf;
+        let locs = vec![
+            ToolCallLocation::new(PathBuf::from("/home/user/project/src/main.rs")).line(Some(42)),
+            ToolCallLocation::new(PathBuf::from("/home/user/project/README.md")),
+        ];
+        let views = extract_locations(&locs, Some("/home/user/project"));
+        assert_eq!(views.len(), 2);
+        assert_eq!(views[0].relative_path, "src/main.rs");
+        assert_eq!(views[0].line, Some(42));
+        assert_eq!(views[1].relative_path, "README.md");
+        assert_eq!(views[1].line, None);
     }
 
     #[test]
@@ -1807,5 +2000,20 @@ mod tests {
         let edit = ev.file_edit.expect("file_edit set");
         assert_eq!(edit.change_type, "modify");
         assert_eq!(edit.tool_call_id, "tc-1");
+    }
+
+    // 手动集成测试：opencode 不通过 ACP 暴露模型，走原生 `opencode models` CLI。
+    // 运行：cargo test --lib probe_opencode_models_live -- --ignored --nocapture
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "需要本地安装 opencode，会真实执行子进程并联网"]
+    async fn probe_opencode_models_live() {
+        let models = probe_opencode_models().await.expect("probe should succeed");
+        println!("opencode models ({}): {:?}", models.len(), models);
+        assert!(!models.is_empty(), "opencode models 应返回非空清单");
+        // opencode model_id 形如 provider/model
+        assert!(
+            models.iter().any(|m| m.contains('/')),
+            "应包含 provider/model 格式的模型"
+        );
     }
 }

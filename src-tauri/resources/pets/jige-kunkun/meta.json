@@ -1,0 +1,12 @@
+{
+  "id": "jige-kunkun",
+  "displayName": "鸡哥（坤坤）",
+  "description": "Hand-drawn mascot inspired by the ikun meme (唱跳rap篮球).",
+  "kind": "person",
+  "tags": ["celeb", "cute", "hand-drawn", "mascot"],
+  "source": "builtin",
+  "spritesheetFile": "spritesheet.webp",
+  "posterFile": null,
+  "spritesheetUrl": "https://codex-pets.net/assets/pets/v/1778940106334/jige-kunkun/spritesheet.webp",
+  "version": 1778940106334
+}

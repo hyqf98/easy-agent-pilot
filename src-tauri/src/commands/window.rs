@@ -53,6 +53,8 @@ pub fn get_window_context(window: tauri::Window) -> WindowContext {
 
     let window_type = if label == crate::commands::mini_panel::MINI_PANEL_WINDOW_LABEL {
         "mini-panel".to_string()
+    } else if label == crate::commands::desktop_pet::PET_WINDOW_LABEL {
+        "pet".to_string()
     } else if label.starts_with("project-") {
         "project".to_string()
     } else {

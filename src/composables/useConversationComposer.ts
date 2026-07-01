@@ -17,7 +17,6 @@ import { useNotificationStore } from '@/stores/notification'
 import { useProjectStore } from '@/stores/project'
 import {
   useSessionExecutionStore,
-  type ComposerMemoryReference,
   type ComposerFileMention,
   type PendingImageAttachment,
   type QueuedMessageDraft
@@ -26,7 +25,6 @@ import { useSessionStore } from '@/stores/session'
 import { useAgentPlanStore } from '@/stores/agentPlan'
 import { useSettingsStore } from '@/stores/settings'
 import { useTokenStore, type CompressionStrategy, type TokenLevel } from '@/stores/token'
-import { useMemoryStore } from '@/stores/memory'
 import { useSubAgentStore } from '@/stores/subAgent'
 import { compressionService } from '@/services/compression'
 import { conversationService } from '@/services/conversation'
@@ -50,7 +48,6 @@ import { createComposerFileMention, formatMentionLiteral } from '@/utils/compose
 import { resolveSessionAgent, resolveSessionAgentId } from '@/utils/sessionAgent'
 import { resolveAttachmentPreviewUrl } from '@/utils/attachmentPreview'
 import { formatAgentModelLabel } from '@/utils/agentModelLabel'
-import type { MemorySuggestion, MemorySuggestionSourceType } from '@/types/memory'
 import { getProviderReasoningEfforts, type ReasoningEffortLevel, type ReasoningEffortOption } from '@/types/reasoning'
 import {
   buildSubAgentSystemPrompt,
@@ -60,12 +57,11 @@ import {
 } from '@/services/subAgent/runtime'
 
 interface TextSegment {
-  type: 'text' | 'file' | 'slash' | 'memory' | 'attachment'
+  type: 'text' | 'file' | 'slash' | 'attachment'
   content: string
   displayContent?: string
   fullPath?: string
   titleContent?: string
-  memorySourceLabel?: string
   attachmentType?: 'image' | 'file'
   attachmentIndex?: number
   trailingSpace?: boolean
@@ -81,14 +77,6 @@ interface UploadSessionImagesResponse {
   attachments: MessageAttachment[]
 }
 
-interface MemoryPreviewPayload {
-  key: string
-  sourceType: MemorySuggestionSourceType
-  title: string
-  sourceLabel: string
-  fullContent: string
-}
-
 interface UseConversationComposerOptions {
   panelType: SlashCommandPanelType
   sessionId: MaybeRefOrGetter<string | null | undefined>
@@ -98,9 +86,7 @@ interface UseConversationComposerOptions {
   setWorkingDirectory?: (path: string) => Promise<string>
 }
 
-const MEMORY_REFERENCE_TOKEN_PATTERN = /\[\[memory-ref:(library_chunk|raw_record):([^\]]+)\]\]/g
 const ATTACHMENT_PLACEHOLDER_PATTERN = /\[(Image|File)(\d+)\]/g
-const MEMORY_SUGGESTION_DEBOUNCE_MS = 350
 
 const COMPOSER_DEBUG = false
 
@@ -109,102 +95,7 @@ function composerDebug(tag: string, payload: Record<string, unknown>) {
   const ts = performance.now().toFixed(1)
   logger.log(`%c[composer:${tag}] @${ts}ms`, 'color:#0ea5e9;font-weight:600', payload)
 }
-const MEMORY_SUGGESTION_AUTO_HIDE_MS = 3000
-const MEMORY_SUGGESTION_EMPTY_STATE_DELAY_MS = 3000
-const MEMORY_SUGGESTION_EMPTY_STATE_RECHECK_MS = 240
-const MEMORY_SUGGESTION_KEYBOARD_ACTIVE_MS = 800
-const MEMORY_PREVIEW_HIDE_DELAY_MS = 120
 const PROJECT_INIT_SECTION_TITLE = '## Project Architecture Analysis (Auto Generated)'
-
-function buildMemoryReferenceToken(sourceType: MemorySuggestionSourceType, sourceId: string): string {
-  return `[[memory-ref:${sourceType}:${sourceId}]]`
-}
-
-function buildMemoryReferenceKey(sourceType: MemorySuggestionSourceType, sourceId: string): string {
-  return `${sourceType}:${sourceId}`
-}
-
-function reconcileMemoryReferences(text: string, references: ComposerMemoryReference[]): ComposerMemoryReference[] {
-  const buckets = new Map<string, ComposerMemoryReference[]>()
-
-  references.forEach(reference => {
-    const key = buildMemoryReferenceKey(reference.sourceType, reference.sourceId)
-    const bucket = buckets.get(key) ?? []
-    bucket.push(reference)
-    buckets.set(key, bucket)
-  })
-
-  const next: ComposerMemoryReference[] = []
-  MEMORY_REFERENCE_TOKEN_PATTERN.lastIndex = 0
-  let match: RegExpExecArray | null
-  while ((match = MEMORY_REFERENCE_TOKEN_PATTERN.exec(text)) !== null) {
-    const key = buildMemoryReferenceKey(match[1] as MemorySuggestionSourceType, match[2] || '')
-    const mapped = buckets.get(key)?.shift()
-    if (mapped) {
-      next.push(mapped)
-    }
-  }
-
-  return next
-}
-
-function sanitizeMemorySearchText(value: string): string {
-  const withoutTokens = value.replace(MEMORY_REFERENCE_TOKEN_PATTERN, ' ')
-  const withoutMentions = withoutTokens.replace(FILE_MENTION_PATTERN, ' ')
-  const withoutCommands = withoutMentions.replace(/^\/[^\n]*$/m, ' ')
-  return withoutCommands.replace(/\s+/g, ' ').trim()
-}
-
-function removeMemoryReferenceTokens(text: string): string {
-  return text.replace(MEMORY_REFERENCE_TOKEN_PATTERN, ' ').replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
-}
-
-function formatMemoryReferenceSource(reference: ComposerMemoryReference): string {
-  if (reference.sourceType === 'library_chunk') {
-    return reference.libraryName ? `记忆库《${reference.libraryName}》` : reference.title
-  }
-
-  if (reference.sessionName) {
-    return `原始记忆（${reference.sessionName}）`
-  }
-
-  return reference.title
-}
-
-function buildMemoryAnnotatedMessage(
-  expandedInput: string,
-  references: ComposerMemoryReference[]
-): { content: string; previewContent: string } {
-  const orderedReferences = reconcileMemoryReferences(expandedInput, references)
-  const cleanInput = removeMemoryReferenceTokens(expandedInput)
-
-  if (orderedReferences.length === 0) {
-    return {
-      content: cleanInput,
-      previewContent: cleanInput
-    }
-  }
-
-  const memoryBlock = orderedReferences.map((reference, index) => {
-    return [
-      `${index + 1}. 来源：${formatMemoryReferenceSource(reference)}`,
-      `内容：${reference.fullContent.trim()}`
-    ].join('\n')
-  }).join('\n\n')
-
-  const content = [
-    '[用户主动引用的历史记忆]',
-    memoryBlock,
-    '',
-    '[用户当前输入]',
-    cleanInput
-  ].join('\n')
-
-  return {
-    content,
-    previewContent: cleanInput || orderedReferences[0]?.snippet || orderedReferences[0]?.title || ''
-  }
-}
 
 function sanitizeComposerText(value: string): string {
   let sanitized = ''
@@ -334,7 +225,6 @@ export function useConversationComposer(options: UseConversationComposerOptions)
   const agentConfigStore = useAgentConfigStore()
   const sessionExecutionStore = useSessionExecutionStore()
   const tokenStore = useTokenStore()
-  const memoryStore = useMemoryStore()
   const agentTeamsStore = useSubAgentStore()
 
   const showCompressionDialog = ref(false)
@@ -361,19 +251,6 @@ export function useConversationComposer(options: UseConversationComposerOptions)
   const cdPathPosition = ref({ x: 0, y: 0, width: 0, height: 0 })
   const cdPathQuery = ref('')
   const isInputComposing = ref(false)
-  const activeMemorySuggestionIndex = ref(-1)
-  const hoveredMemoryPreview = ref<MemoryPreviewPayload | null>(null)
-  const isMemorySuggestionPanelActive = ref(false)
-  const isMemorySuggestionPending = ref(false)
-  const memorySuggestionEmptyStateVisible = ref(false)
-  const memorySuggestionPendingEmptyQuery = ref('')
-  const isMemorySuggestionPointerActive = ref(false)
-  const lastMemorySuggestionKeyboardAt = ref(0)
-  let memorySuggestionTimer: ReturnType<typeof setTimeout> | null = null
-  let memorySuggestionAutoHideTimer: ReturnType<typeof setTimeout> | null = null
-  let memorySuggestionEmptyTimer: ReturnType<typeof setTimeout> | null = null
-  let memoryPreviewHideTimer: ReturnType<typeof setTimeout> | null = null
-  let memorySuggestionRequestId = 0
 
   const currentSessionId = computed(() => toValue(options.sessionId) || null)
   const currentSession = computed(() =>
@@ -454,6 +331,19 @@ export function useConversationComposer(options: UseConversationComposerOptions)
 
   const presetModelOptions = computed(() => modelOptions.value)
 
+  // 模型下拉的名称筛选（支持 displayName / modelId 模糊匹配，不区分大小写）
+  const modelFilterText = ref('')
+  const filteredModelOptions = computed(() => {
+    const keyword = modelFilterText.value.trim().toLowerCase()
+    if (!keyword) {
+      return presetModelOptions.value
+    }
+    return presetModelOptions.value.filter(option =>
+      option.label.toLowerCase().includes(keyword)
+      || option.value.toLowerCase().includes(keyword)
+    )
+  })
+
   const reasoningEffortOptions = computed<ReasoningEffortOption[]>(() => {
     const provider = currentAgent.value?.provider || inferAgentProvider(currentAgent.value) || currentAgent.value?.type || 'acp'
     if (!provider) return []
@@ -495,60 +385,10 @@ export function useConversationComposer(options: UseConversationComposerOptions)
   const currentFileMentions = computed(() =>
     currentSessionId.value ? sessionExecutionStore.getFileMentions(currentSessionId.value) : []
   )
-  const currentMemoryReferences = computed(() =>
-    currentSessionId.value ? sessionExecutionStore.getMemoryReferences(currentSessionId.value) : []
-  )
-  const memorySuggestions = computed(() =>
-    currentSessionId.value ? sessionExecutionStore.getMemorySuggestions(currentSessionId.value) : {
-      librarySuggestions: [],
-      rawSuggestions: []
-    }
-  )
-  const isSearchingMemory = computed(() =>
-    currentSessionId.value ? sessionExecutionStore.getIsSearchingMemory(currentSessionId.value) : false
-  )
-  const dismissedMemorySuggestionKeys = computed(() =>
-    currentSessionId.value ? sessionExecutionStore.getDismissedMemorySuggestionKeys(currentSessionId.value) : []
-  )
 
   const createComposerMention = (fullPath: string): ComposerFileMention => {
     return createComposerFileMention({ fullPath })
   }
-
-  const createComposerMemoryReference = (suggestion: MemorySuggestion): ComposerMemoryReference => ({
-    sourceType: suggestion.sourceType,
-    sourceId: suggestion.sourceId,
-    title: suggestion.title,
-    fullContent: suggestion.fullContent,
-    snippet: suggestion.snippet,
-    libraryId: suggestion.libraryId,
-    libraryName: suggestion.libraryName,
-    sessionId: suggestion.sessionId,
-    sessionName: suggestion.sessionName,
-    projectId: suggestion.projectId,
-    projectName: suggestion.projectName,
-    createdAt: suggestion.createdAt
-  })
-
-  const buildMemoryPreviewFromSuggestion = (suggestion: MemorySuggestion): MemoryPreviewPayload => ({
-    key: buildMemoryReferenceKey(suggestion.sourceType, suggestion.sourceId),
-    sourceType: suggestion.sourceType,
-    title: suggestion.title,
-    sourceLabel: suggestion.sourceType === 'library_chunk'
-      ? t('message.memorySourceLibrary')
-      : t('message.memorySourceRaw'),
-    fullContent: suggestion.fullContent.trim()
-  })
-
-  const buildMemoryPreviewFromReference = (reference: ComposerMemoryReference): MemoryPreviewPayload => ({
-    key: buildMemoryReferenceKey(reference.sourceType, reference.sourceId),
-    sourceType: reference.sourceType,
-    title: reference.title,
-    sourceLabel: reference.sourceType === 'library_chunk'
-      ? t('message.memorySourceLibrary')
-      : t('message.memorySourceRaw'),
-    fullContent: reference.fullContent.trim()
-  })
 
   const countMentionsInText = (text: string) => {
     let count = 0
@@ -646,21 +486,14 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     }
 
     FILE_MENTION_PATTERN.lastIndex = 0
-    MEMORY_REFERENCE_TOKEN_PATTERN.lastIndex = 0
     ATTACHMENT_PLACEHOLDER_PATTERN.lastIndex = 0
     const tokenMatches: Array<
       { kind: 'file'; match: RegExpExecArray } |
-      { kind: 'memory'; match: RegExpExecArray } |
       { kind: 'attachment'; match: RegExpExecArray }
     > = []
 
     while ((match = FILE_MENTION_PATTERN.exec(text)) !== null) {
       tokenMatches.push({ kind: 'file', match })
-    }
-
-    let memoryMatch: RegExpExecArray | null
-    while ((memoryMatch = MEMORY_REFERENCE_TOKEN_PATTERN.exec(text)) !== null) {
-      tokenMatches.push({ kind: 'memory', match: memoryMatch })
     }
 
     let attachmentMatch: RegExpExecArray | null
@@ -706,31 +539,6 @@ export function useConversationComposer(options: UseConversationComposerOptions)
         continue
       }
 
-      if (entry.kind === 'memory') {
-        memoryMatch = entry.match
-        const sourceType = memoryMatch[1] as MemorySuggestionSourceType
-        const sourceId = memoryMatch[2] || ''
-        const mappedReference = currentMemoryReferences.value.find(reference =>
-          reference.sourceType === sourceType && reference.sourceId === sourceId
-        )
-        const memorySourceLabel = sourceType === 'library_chunk'
-          ? t('message.memorySourceLibrary')
-          : t('message.memorySourceRaw')
-        const { trailingSpace, nextIndex } = consumeTokenGap(text, memoryMatch.index + memoryMatch[0].length)
-
-        segments.push({
-          type: 'memory',
-          content: memoryMatch[0],
-          displayContent: mappedReference?.title?.trim() || memorySourceLabel,
-          titleContent: mappedReference?.snippet ?? mappedReference?.fullContent ?? mappedReference?.title ?? '',
-          memorySourceLabel,
-          trailingSpace
-        })
-
-        lastIndex = nextIndex
-        continue
-      }
-
       if (entry.kind === 'attachment') {
         attachmentMatch = entry.match
         const attachmentIndex = parseInt(attachmentMatch[2], 10)
@@ -762,364 +570,6 @@ export function useConversationComposer(options: UseConversationComposerOptions)
 
     return segments
   })
-
-  const visibleMemorySuggestions = computed(() => {
-    const selectedKeys = new Set(
-      currentMemoryReferences.value.map(reference => buildMemoryReferenceKey(reference.sourceType, reference.sourceId))
-    )
-    const dismissedKeys = new Set(dismissedMemorySuggestionKeys.value)
-    const filterGroup = (items: MemorySuggestion[]) => items.filter(item => {
-      const key = buildMemoryReferenceKey(item.sourceType, item.sourceId)
-      return !selectedKeys.has(key) && !dismissedKeys.has(key)
-    })
-
-    return {
-      librarySuggestions: filterGroup(memorySuggestions.value.librarySuggestions),
-      rawSuggestions: filterGroup(memorySuggestions.value.rawSuggestions)
-    }
-  })
-
-  const flatVisibleMemorySuggestions = computed(() => [
-    ...visibleMemorySuggestions.value.librarySuggestions,
-    ...visibleMemorySuggestions.value.rawSuggestions
-  ])
-  const hasVisibleMemorySuggestions = computed(() => flatVisibleMemorySuggestions.value.length > 0)
-
-  const activeMemorySuggestion = computed(() => {
-    if (activeMemorySuggestionIndex.value < 0) {
-      return null
-    }
-
-    return flatVisibleMemorySuggestions.value[activeMemorySuggestionIndex.value] ?? null
-  })
-
-  const activeMemorySuggestionKey = computed(() => (
-    activeMemorySuggestion.value
-      ? buildMemoryReferenceKey(activeMemorySuggestion.value.sourceType, activeMemorySuggestion.value.sourceId)
-      : ''
-  ))
-
-  const currentMemoryPreview = computed(() => (
-    hoveredMemoryPreview.value
-    ?? (activeMemorySuggestion.value ? buildMemoryPreviewFromSuggestion(activeMemorySuggestion.value) : null)
-  ))
-
-  const shouldShowMemorySuggestions = computed(() => {
-    return options.panelType === 'main' && isMemorySuggestionPanelActive.value
-  })
-
-  const isMemorySuggestionLoading = computed(() => (
-    shouldShowMemorySuggestions.value && (isMemorySuggestionPending.value || isSearchingMemory.value)
-  ))
-
-  const shouldShowMemorySuggestionEmptyState = computed(() => (
-    shouldShowMemorySuggestions.value
-    && memorySuggestionEmptyStateVisible.value
-    && !!memorySuggestionPendingEmptyQuery.value
-    && !hasVisibleMemorySuggestions.value
-    && !isMemorySuggestionLoading.value
-  ))
-
-  const shouldShowMemorySuggestionIdleHint = computed(() => false)
-
-  const setActiveMemorySuggestionIndex = (index: number) => {
-    const total = flatVisibleMemorySuggestions.value.length
-    if (total === 0) {
-      activeMemorySuggestionIndex.value = -1
-      return
-    }
-
-    const normalized = ((index % total) + total) % total
-    activeMemorySuggestionIndex.value = normalized
-  }
-
-  const moveActiveMemorySuggestion = (step: number) => {
-    const total = flatVisibleMemorySuggestions.value.length
-    if (total === 0) {
-      activeMemorySuggestionIndex.value = -1
-      return
-    }
-
-    if (activeMemorySuggestionIndex.value < 0) {
-      activeMemorySuggestionIndex.value = step > 0 ? 0 : total - 1
-      return
-    }
-
-    setActiveMemorySuggestionIndex(activeMemorySuggestionIndex.value + step)
-  }
-
-  const isActiveMemorySuggestion = (suggestion: MemorySuggestion) => (
-    activeMemorySuggestionKey.value === buildMemoryReferenceKey(suggestion.sourceType, suggestion.sourceId)
-  )
-
-  const previewMemorySuggestion = (suggestion: MemorySuggestion) => {
-    if (memoryPreviewHideTimer) {
-      clearTimeout(memoryPreviewHideTimer)
-      memoryPreviewHideTimer = null
-    }
-    hoveredMemoryPreview.value = buildMemoryPreviewFromSuggestion(suggestion)
-    armMemorySuggestionAutoHide()
-  }
-
-  const previewMemoryReference = (reference: ComposerMemoryReference) => {
-    if (memoryPreviewHideTimer) {
-      clearTimeout(memoryPreviewHideTimer)
-      memoryPreviewHideTimer = null
-    }
-    hoveredMemoryPreview.value = buildMemoryPreviewFromReference(reference)
-  }
-
-  const clearMemoryPreview = () => {
-    if (memoryPreviewHideTimer) {
-      clearTimeout(memoryPreviewHideTimer)
-      memoryPreviewHideTimer = null
-    }
-    hoveredMemoryPreview.value = null
-  }
-
-  const scheduleClearMemoryPreview = () => {
-    if (memoryPreviewHideTimer) {
-      clearTimeout(memoryPreviewHideTimer)
-    }
-
-    memoryPreviewHideTimer = setTimeout(() => {
-      hoveredMemoryPreview.value = null
-      memoryPreviewHideTimer = null
-    }, MEMORY_PREVIEW_HIDE_DELAY_MS)
-  }
-
-  const handleMemoryPreviewPointerEnter = () => {
-    if (memoryPreviewHideTimer) {
-      clearTimeout(memoryPreviewHideTimer)
-      memoryPreviewHideTimer = null
-    }
-  }
-
-  const handleMemoryPreviewPointerLeave = () => {
-    scheduleClearMemoryPreview()
-  }
-
-  const clearMemorySuggestionTimer = () => {
-    if (memorySuggestionTimer) {
-      clearTimeout(memorySuggestionTimer)
-      memorySuggestionTimer = null
-    }
-  }
-
-  const clearMemorySuggestionAutoHideTimer = () => {
-    if (memorySuggestionAutoHideTimer) {
-      clearTimeout(memorySuggestionAutoHideTimer)
-      memorySuggestionAutoHideTimer = null
-    }
-  }
-
-  const clearMemorySuggestionEmptyTimer = () => {
-    if (memorySuggestionEmptyTimer) {
-      clearTimeout(memorySuggestionEmptyTimer)
-      memorySuggestionEmptyTimer = null
-    }
-  }
-
-  const isMemorySuggestionKeyboardActive = () => (
-    Date.now() - lastMemorySuggestionKeyboardAt.value < MEMORY_SUGGESTION_KEYBOARD_ACTIVE_MS
-  )
-
-  const hideMemorySuggestionPanel = () => {
-    clearMemorySuggestionAutoHideTimer()
-    clearMemoryPreview()
-    activeMemorySuggestionIndex.value = -1
-    isMemorySuggestionPanelActive.value = false
-    isMemorySuggestionPending.value = false
-    memorySuggestionEmptyStateVisible.value = false
-    memorySuggestionPendingEmptyQuery.value = ''
-    isMemorySuggestionPointerActive.value = false
-    lastMemorySuggestionKeyboardAt.value = 0
-  }
-
-  const armMemorySuggestionAutoHide = () => {
-    clearMemorySuggestionAutoHideTimer()
-
-    if (!shouldShowMemorySuggestions.value) {
-      return
-    }
-
-    memorySuggestionAutoHideTimer = setTimeout(() => {
-      if (!shouldShowMemorySuggestions.value) {
-        return
-      }
-
-      if (isMemorySuggestionPointerActive.value || isMemorySuggestionKeyboardActive()) {
-        armMemorySuggestionAutoHide()
-        return
-      }
-
-      hideMemorySuggestionPanel()
-    }, MEMORY_SUGGESTION_AUTO_HIDE_MS)
-  }
-
-  const markMemorySuggestionKeyboardInteraction = () => {
-    lastMemorySuggestionKeyboardAt.value = Date.now()
-    if (shouldShowMemorySuggestions.value) {
-      armMemorySuggestionAutoHide()
-    }
-  }
-
-  const handleMemorySuggestionPointerEnter = () => {
-    isMemorySuggestionPointerActive.value = true
-    if (shouldShowMemorySuggestions.value) {
-      armMemorySuggestionAutoHide()
-    }
-  }
-
-  const handleMemorySuggestionPointerLeave = () => {
-    isMemorySuggestionPointerActive.value = false
-    if (shouldShowMemorySuggestions.value) {
-      armMemorySuggestionAutoHide()
-    }
-  }
-
-  const beginMemorySuggestionSearchCycle = () => {
-    if (options.panelType !== 'main') {
-      return
-    }
-
-    isMemorySuggestionPanelActive.value = true
-    isMemorySuggestionPending.value = true
-    memorySuggestionEmptyStateVisible.value = false
-    memorySuggestionPendingEmptyQuery.value = ''
-    clearMemorySuggestionEmptyTimer()
-    armMemorySuggestionAutoHide()
-  }
-
-  const settleMemorySuggestionResults = (suggestionCount: number) => {
-    isMemorySuggestionPending.value = false
-    memorySuggestionEmptyStateVisible.value = false
-    memorySuggestionPendingEmptyQuery.value = ''
-    clearMemorySuggestionEmptyTimer()
-
-    if (suggestionCount === 0) {
-      activeMemorySuggestionIndex.value = -1
-    }
-
-    armMemorySuggestionAutoHide()
-  }
-
-  const armMemorySuggestionEmptyState = (
-    sessionId: string,
-    searchText: string,
-    requestId: number,
-    delay = MEMORY_SUGGESTION_EMPTY_STATE_DELAY_MS
-  ) => {
-    clearMemorySuggestionEmptyTimer()
-    memorySuggestionPendingEmptyQuery.value = searchText
-    memorySuggestionEmptyStateVisible.value = false
-    isMemorySuggestionPending.value = true
-
-    memorySuggestionEmptyTimer = setTimeout(() => {
-      if (requestId !== memorySuggestionRequestId || currentSessionId.value !== sessionId) {
-        return
-      }
-
-      if (sanitizeMemorySearchText(inputText.value) !== searchText) {
-        return
-      }
-
-      if (isSearchingMemory.value) {
-        armMemorySuggestionEmptyState(sessionId, searchText, requestId, MEMORY_SUGGESTION_EMPTY_STATE_RECHECK_MS)
-        return
-      }
-
-      sessionExecutionStore.setMemorySuggestions(sessionId, {
-        librarySuggestions: [],
-        rawSuggestions: []
-      }, searchText)
-      hideMemorySuggestionPanel()
-    }, delay)
-  }
-
-  const resetMemorySuggestionState = () => {
-    const sessionId = currentSessionId.value
-    if (!sessionId) {
-      return
-    }
-
-    clearMemorySuggestionTimer()
-    clearMemorySuggestionAutoHideTimer()
-    clearMemorySuggestionEmptyTimer()
-    memorySuggestionRequestId += 1
-    hideMemorySuggestionPanel()
-    sessionExecutionStore.setIsSearchingMemory(sessionId, false)
-    sessionExecutionStore.clearMemorySuggestions(sessionId)
-    sessionExecutionStore.clearDismissedMemorySuggestionKeys(sessionId)
-  }
-
-  const searchMemorySuggestions = async (draftText: string, requestId: number) => {
-    const sessionId = currentSessionId.value
-    if (!sessionId || options.panelType !== 'main') {
-      return
-    }
-
-    const searchText = sanitizeMemorySearchText(draftText)
-    if (searchText.length < 4) {
-      if (requestId === memorySuggestionRequestId) {
-        resetMemorySuggestionState()
-      }
-      return
-    }
-
-    const suggestions = await memoryStore.searchSuggestions({
-      sessionId,
-      projectId: currentSession.value?.projectId,
-      draftText: searchText,
-      limit: 6
-    })
-
-    if (requestId !== memorySuggestionRequestId || currentSessionId.value !== sessionId) {
-      return
-    }
-
-    if (sanitizeMemorySearchText(inputText.value) !== searchText) {
-      return
-    }
-
-    sessionExecutionStore.setIsSearchingMemory(sessionId, false)
-    clearMemorySuggestionEmptyTimer()
-
-    const hasSuggestions = suggestions.librarySuggestions.length > 0 || suggestions.rawSuggestions.length > 0
-    if (hasSuggestions) {
-      sessionExecutionStore.setMemorySuggestions(sessionId, suggestions, searchText)
-      settleMemorySuggestionResults(suggestions.librarySuggestions.length + suggestions.rawSuggestions.length)
-      return
-    }
-
-    armMemorySuggestionEmptyState(sessionId, searchText, requestId)
-  }
-
-  const scheduleMemorySuggestionSearch = (draftText: string) => {
-    const sessionId = currentSessionId.value
-    if (!sessionId || options.panelType !== 'main') {
-      return
-    }
-
-    const searchText = sanitizeMemorySearchText(draftText)
-    if (searchText.length < 4) {
-      resetMemorySuggestionState()
-      return
-    }
-
-    beginMemorySuggestionSearchCycle()
-    clearMemorySuggestionTimer()
-    clearMemorySuggestionEmptyTimer()
-    const requestId = ++memorySuggestionRequestId
-    memorySuggestionTimer = setTimeout(() => {
-      if (requestId !== memorySuggestionRequestId || currentSessionId.value !== sessionId) {
-        return
-      }
-
-      sessionExecutionStore.setIsSearchingMemory(sessionId, true)
-      void searchMemorySuggestions(draftText, requestId)
-    }, MEMORY_SUGGESTION_DEBOUNCE_MS)
-  }
 
   const tokenUsage = computed(() => {
     if (!currentSessionId.value) {
@@ -1200,15 +650,8 @@ export function useConversationComposer(options: UseConversationComposerOptions)
   }
 
   watch(currentSessionId, (sessionId) => {
-    clearMemorySuggestionTimer()
-    clearMemorySuggestionAutoHideTimer()
-    clearMemorySuggestionEmptyTimer()
-    memorySuggestionRequestId += 1
-    hideMemorySuggestionPanel()
     if (sessionId) {
       focusInput()
-      sessionExecutionStore.clearMemorySuggestions(sessionId)
-      sessionExecutionStore.clearDismissedMemorySuggestionKeys(sessionId)
       if (currentProvider.value) {
         clearPluginCommandsCache()
         loadPluginSlashCommands(currentProvider.value, currentProjectPath.value ?? undefined)
@@ -1226,41 +669,6 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     }
 
     syncFileMentions(sanitizedValue)
-    const nextMemoryReferences = reconcileMemoryReferences(sanitizedValue, currentMemoryReferences.value)
-    if (currentSessionId.value) {
-      sessionExecutionStore.setMemoryReferences(currentSessionId.value, nextMemoryReferences)
-    }
-
-    if (isInputComposing.value) {
-      clearMemorySuggestionTimer()
-      if (currentSessionId.value) {
-        sessionExecutionStore.setIsSearchingMemory(currentSessionId.value, false)
-      }
-      if (isMemorySuggestionPanelActive.value) {
-        isMemorySuggestionPending.value = true
-        memorySuggestionEmptyStateVisible.value = false
-        clearMemorySuggestionEmptyTimer()
-      }
-      return
-    }
-
-    if (!sanitizedValue.trim()) {
-      resetMemorySuggestionState()
-      return
-    }
-
-    scheduleMemorySuggestionSearch(sanitizedValue)
-  })
-
-  watch(flatVisibleMemorySuggestions, (items) => {
-    if (items.length === 0) {
-      activeMemorySuggestionIndex.value = -1
-      return
-    }
-
-    if (activeMemorySuggestionIndex.value >= items.length) {
-      activeMemorySuggestionIndex.value = items.length - 1
-    }
   })
 
   onMounted(async () => {
@@ -1279,10 +687,6 @@ export function useConversationComposer(options: UseConversationComposerOptions)
   })
 
   onUnmounted(() => {
-    clearMemorySuggestionTimer()
-    clearMemorySuggestionAutoHideTimer()
-    clearMemorySuggestionEmptyTimer()
-    clearMemoryPreview()
   })
 
   useSafeOutsideClick(
@@ -1346,6 +750,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     if (isModelDropdownOpen.value) {
       isAgentDropdownOpen.value = false
       isReasoningDropdownOpen.value = false
+      modelFilterText.value = ''
     }
   }
 
@@ -1528,104 +933,11 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     })
   }
 
-  const insertMemoryReference = (suggestion: MemorySuggestion) => {
-    const sessionId = currentSessionId.value
-    const textarea = textareaRef.value
-    if (!sessionId || !textarea) {
-      return
-    }
-
-    const reference = createComposerMemoryReference(suggestion)
-    const token = buildMemoryReferenceToken(reference.sourceType, reference.sourceId)
-    if (
-      currentMemoryReferences.value.some(item => item.sourceType === reference.sourceType && item.sourceId === reference.sourceId)
-      || inputText.value.includes(token)
-    ) {
-      return
-    }
-
-    const selectionStart = textarea.selectionStart ?? inputText.value.length
-    const selectionEnd = textarea.selectionEnd ?? inputText.value.length
-    const lastMemoryQuery = sessionExecutionStore.getLastMemoryQuery(sessionId).trim()
-    let replaceStart = selectionStart
-    let replaceEnd = selectionEnd
-
-    if (selectionStart === selectionEnd && lastMemoryQuery) {
-      const beforeCursor = inputText.value.slice(0, selectionStart)
-      const queryStart = beforeCursor.lastIndexOf(lastMemoryQuery)
-      if (queryStart >= 0) {
-        replaceStart = queryStart
-        replaceEnd = queryStart + lastMemoryQuery.length
-      }
-    }
-
-    const before = inputText.value.slice(0, replaceStart)
-    const after = inputText.value.slice(replaceEnd)
-    const { newText, newPosition } = buildTokenInsertPayload(before, token, after)
-
-    textarea.value = newText
-    inputText.value = newText
-    sessionExecutionStore.appendMemoryReference(sessionId, reference)
-    sessionExecutionStore.clearMemorySuggestions(sessionId)
-    sessionExecutionStore.clearDismissedMemorySuggestionKeys(sessionId)
-    hideMemorySuggestionPanel()
-    hoveredMemoryPreview.value = buildMemoryPreviewFromReference(reference)
-    composerDebug('memory-insert', { token, replaceStart, replaceEnd, newPosition })
-
-    requestAnimationFrame(() => {
-      syncTextareaCaret(textarea, newPosition, renderLayerRef.value)
-    })
-  }
-
-  const dismissMemorySuggestion = (suggestion: MemorySuggestion) => {
-    if (!currentSessionId.value) {
-      return
-    }
-
-    if (isActiveMemorySuggestion(suggestion)) {
-      activeMemorySuggestionIndex.value = -1
-    }
-    if (hoveredMemoryPreview.value?.key === buildMemoryReferenceKey(suggestion.sourceType, suggestion.sourceId)) {
-      clearMemoryPreview()
-    }
-    sessionExecutionStore.dismissMemorySuggestion(currentSessionId.value, suggestion)
-    if (!hasVisibleMemorySuggestions.value) {
-      hideMemorySuggestionPanel()
-      return
-    }
-
-    armMemorySuggestionAutoHide()
-  }
-
-  const removeMemoryReferenceFromDraft = (reference: ComposerMemoryReference) => {
-    const sessionId = currentSessionId.value
-    if (!sessionId) {
-      return
-    }
-
-    const token = buildMemoryReferenceToken(reference.sourceType, reference.sourceId)
-    const tokenIndex = inputText.value.indexOf(token)
-    const { newText } = tokenIndex >= 0
-      ? deleteTokenRange(inputText.value, tokenIndex, tokenIndex + token.length)
-      : { newText: inputText.value }
-
-    if (textareaRef.value) {
-      textareaRef.value.value = newText
-    }
-
-    inputText.value = newText
-    sessionExecutionStore.removeMemoryReference(sessionId, reference.sourceType, reference.sourceId)
-    composerDebug('memory-remove', { token, tokenIndex, newTextLen: newText.length })
-    if (hoveredMemoryPreview.value?.key === buildMemoryReferenceKey(reference.sourceType, reference.sourceId)) {
-      clearMemoryPreview()
-    }
-    focusInput()
-  }
-
   const handleSlashCommandSelect = (command: SlashCommandDescriptor) => {
     const textarea = textareaRef.value
-    const { newText, newPosition } = buildTokenInsertPayload('', command.insertText, '')
-    composerDebug('slash-select', { commandName: command.name, insertText: command.insertText, newPosition })
+    const normalizedInsertText = `${command.insertText.trimEnd()} `
+    const { newText, newPosition } = buildTokenInsertPayload('', normalizedInsertText, '')
+    composerDebug('slash-select', { commandName: command.name, insertText: normalizedInsertText, newPosition })
 
     if (textarea) {
       textarea.value = newText
@@ -1807,23 +1119,10 @@ export function useConversationComposer(options: UseConversationComposerOptions)
 
   const handleCompositionStart = () => {
     isInputComposing.value = true
-    clearMemorySuggestionTimer()
-    if (options.panelType === 'main' && sanitizeMemorySearchText(inputText.value).length >= 4) {
-      beginMemorySuggestionSearchCycle()
-    }
-    if (currentSessionId.value) {
-      sessionExecutionStore.setIsSearchingMemory(currentSessionId.value, false)
-    }
   }
 
   const handleCompositionEnd = () => {
     isInputComposing.value = false
-    if (!inputText.value.trim()) {
-      resetMemorySuggestionState()
-      return
-    }
-
-    scheduleMemorySuggestionSearch(inputText.value)
   }
 
   const toPendingAttachment = async (attachment: MessageAttachment): Promise<PendingImageAttachment> => ({
@@ -1998,7 +1297,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
   }
 
   const buildQueuedMessagePreview = (draft: Pick<QueuedMessageDraft, 'content' | 'displayContent' | 'attachments'>) => {
-    const trimmed = removeMemoryReferenceTokens(draft.displayContent ?? draft.content).trim()
+    const trimmed = (draft.displayContent ?? draft.content).trim()
     if (trimmed) {
       return trimmed
     }
@@ -2016,7 +1315,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
 
   const updateQueuedMessage = (
     draftId: string,
-    updates: Partial<Pick<QueuedMessageDraft, 'content' | 'displayContent' | 'attachments' | 'expertId' | 'agentId' | 'modelId' | 'memoryReferences' | 'status' | 'errorMessage'>>
+    updates: Partial<Pick<QueuedMessageDraft, 'content' | 'displayContent' | 'attachments' | 'expertId' | 'agentId' | 'modelId' | 'status' | 'errorMessage'>>
   ) => {
     if (!currentSessionId.value) {
       return
@@ -2105,8 +1404,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
           workingDirectory: currentWorkingDirectory.value || currentProjectPath.value || undefined,
           modelId: draft.modelId || undefined,
           injectedSystemMessages,
-          previewContent: draft.displayContent,
-          memoryReferencesToPersist: draft.memoryReferences ?? []
+          previewContent: draft.displayContent
         }
       )
     } catch (error) {
@@ -2165,7 +1463,6 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     userInput: string,
     rawInput: string,
     attachments: MessageAttachment[],
-    orderedMemoryReferences: ComposerMemoryReference[],
     displayPreviewContent?: string
   ): Omit<QueuedMessageDraft, 'id' | 'createdAt' | 'status'> | null => {
     const queuedExpert = currentExpert.value
@@ -2180,24 +1477,16 @@ export function useConversationComposer(options: UseConversationComposerOptions)
       attachments,
       expertId: queuedExpert?.id || '',
       agentId: queuedAgent.id,
-      modelId: selectedModelId.value.trim() || undefined,
-      memoryReferences: orderedMemoryReferences
+      modelId: selectedModelId.value.trim() || undefined
     }
   }
 
   const clearComposerDraft = (sessionId: string) => {
     inputText.value = ''
-    sessionExecutionStore.clearMemoryReferences(sessionId)
-    sessionExecutionStore.clearMemorySuggestions(sessionId)
-    sessionExecutionStore.clearDismissedMemorySuggestionKeys(sessionId)
     sessionExecutionStore.clearPendingImages(sessionId)
     closeFileMention()
     closeSlashCommand()
     closeCdPathSuggestions()
-    clearMemorySuggestionTimer()
-    clearMemorySuggestionAutoHideTimer()
-    clearMemorySuggestionEmptyTimer()
-    hideMemorySuggestionPanel()
   }
 
   const sendWithCurrentAgent = async (
@@ -2205,7 +1494,6 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     attachments: MessageAttachment[],
     options?: {
       displayPreviewContent?: string
-      memoryReferences?: ComposerMemoryReference[]
       reuseAssistantMessageId?: string
       targetSessionId?: string
     }
@@ -2253,7 +1541,6 @@ export function useConversationComposer(options: UseConversationComposerOptions)
           reasoningEffort: selectedReasoningEffort.value || undefined,
           injectedSystemMessages,
           previewContent: options?.displayPreviewContent,
-          memoryReferencesToPersist: options?.memoryReferences ?? [],
           reuseAssistantMessageId: options?.reuseAssistantMessageId
         }
       )
@@ -2614,20 +1901,17 @@ export function useConversationComposer(options: UseConversationComposerOptions)
 
     const rawInput = inputText.value
     const expandedInput = expandComposerMentions(rawInput, currentFileMentions.value).trim()
-    const orderedMemoryReferences = reconcileMemoryReferences(expandedInput, currentMemoryReferences.value)
-    const annotatedMessage = buildMemoryAnnotatedMessage(expandedInput, orderedMemoryReferences)
-    const userInput = annotatedMessage.content.trim()
-    const displayInput = removeMemoryReferenceTokens(rawInput).trim()
-    const hasMemoryReferences = orderedMemoryReferences.length > 0
+    const userInput = expandedInput
+    const displayInput = rawInput.trim()
     const attachments = pendingImages.value.map((image) => {
       const { previewUrl, ...attachment } = image
       void previewUrl
       return attachment
     })
 
-    composerDebug('send', { rawLen: rawInput.length, expandedLen: expandedInput.length, attachCount: attachments.length, memoryRefCount: orderedMemoryReferences.length })
+    composerDebug('send', { rawLen: rawInput.length, expandedLen: expandedInput.length, attachCount: attachments.length })
 
-    if (!displayInput && !hasMemoryReferences && attachments.length === 0) return
+    if (!displayInput && attachments.length === 0) return
 
     const parsedSlashCommand = attachments.length === 0 ? parseSlashCommandInput(userInput) : null
     if (parsedSlashCommand) {
@@ -2650,8 +1934,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
         userInput,
         rawInput,
         attachments,
-        orderedMemoryReferences,
-        annotatedMessage.previewContent
+        expandedInput
       )
       if (!queuedDraft) {
         return
@@ -2678,8 +1961,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
           userInput,
           rawInput,
           attachments,
-          orderedMemoryReferences,
-          annotatedMessage.previewContent
+          expandedInput
         )
         if (!queuedDraft) {
           return
@@ -2702,7 +1984,6 @@ export function useConversationComposer(options: UseConversationComposerOptions)
         if (!result.success) {
           sessionExecutionStore.removeQueuedMessage(sessionId, queuedMessage.id)
           inputText.value = rawInput
-          sessionExecutionStore.setMemoryReferences(sessionId, orderedMemoryReferences)
           await restorePendingImages(attachments)
           notificationStore.error(t('compression.failed'), result.error)
           focusInput()
@@ -2726,7 +2007,6 @@ export function useConversationComposer(options: UseConversationComposerOptions)
           focusInput()
         } catch (error) {
           inputText.value = rawInput
-          sessionExecutionStore.setMemoryReferences(sessionId, orderedMemoryReferences)
           await restorePendingImages(attachments)
           const normalizedError = error instanceof Error ? error : new Error(getErrorMessage(error, '发送失败'))
           notificationStore.smartError('发送失败', normalizedError)
@@ -2734,15 +2014,13 @@ export function useConversationComposer(options: UseConversationComposerOptions)
         }
       } else {
         const success = await sendWithCurrentAgent(userInput, attachments, {
-          displayPreviewContent: annotatedMessage.previewContent,
-          memoryReferences: orderedMemoryReferences,
+          displayPreviewContent: expandedInput,
           targetSessionId: sessionId
         })
         if (success) {
           focusInput()
         } else {
           inputText.value = rawInput
-          sessionExecutionStore.setMemoryReferences(sessionId, orderedMemoryReferences)
           await restorePendingImages(attachments)
           focusInput()
         }
@@ -2963,53 +2241,11 @@ export function useConversationComposer(options: UseConversationComposerOptions)
             })
             return
           }
-
-          const memoryMatch = before.match(/\[\[memory-ref:[^\]]+\]\]\s*$/)
-          if (memoryMatch) {
-            event.preventDefault()
-            const deleteStart = cursorPos - memoryMatch[0].length
-            const { newText, newPosition } = deleteTokenRange(text, deleteStart, cursorPos)
-            textarea.value = newText
-            inputText.value = newText
-            composerDebug('backspace', { matchType: 'memory-ref', deleteStart, deleteEnd: cursorPos })
-            requestAnimationFrame(() => {
-              syncTextareaCaret(textarea, newPosition, renderLayerRef.value)
-            })
-            return
-          }
         }
       }
     }
 
     if (showFileMention.value || showSlashCommand.value || showCdPathSuggestions.value) {
-      return
-    }
-
-    if (shouldShowMemorySuggestions.value && flatVisibleMemorySuggestions.value.length > 0) {
-      if (event.key === 'ArrowDown') {
-        event.preventDefault()
-        markMemorySuggestionKeyboardInteraction()
-        moveActiveMemorySuggestion(1)
-        return
-      }
-
-      if (event.key === 'ArrowUp') {
-        event.preventDefault()
-        markMemorySuggestionKeyboardInteraction()
-        moveActiveMemorySuggestion(-1)
-        return
-      }
-
-      if (event.key === 'Enter' && !event.shiftKey && activeMemorySuggestion.value) {
-        event.preventDefault()
-        insertMemoryReference(activeMemorySuggestion.value)
-        return
-      }
-    }
-
-    if (event.key === 'Escape' && shouldShowMemorySuggestions.value) {
-      event.preventDefault()
-      hideMemorySuggestionPanel()
       return
     }
 
@@ -3087,12 +2323,10 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     currentAgent,
     currentAgentId,
     currentAgentName,
-    currentMemoryReferences,
     currentProjectPath,
     currentSessionId,
     cancelPlan,
     currentWorkingDirectory,
-    dismissMemorySuggestion,
     executePlan,
     executeCurrentPlan,
     fileInputRef,
@@ -3109,16 +2343,8 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     handleCompositionStart,
     handleKeyDown,
     handleMessageFormSubmit,
-    handleMemorySuggestionPointerEnter,
-    handleMemorySuggestionPointerLeave,
-    handleMemoryPreviewPointerEnter,
-    handleMemoryPreviewPointerLeave,
-    insertMemoryReference,
     handleOpenCompress,
     handlePaste,
-    hasVisibleMemorySuggestions,
-    isMemorySuggestionLoading,
-    isSearchingMemory,
     retryMessage,
     editAndResendMessage,
     handleSend,
@@ -3126,7 +2352,6 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     inputPlaceholder,
     inputText,
     insertFileMentions,
-    isActiveMemorySuggestion,
     isAgentDropdownOpen,
     isCompressing,
     isModelDropdownOpen,
@@ -3141,14 +2366,12 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     openAttachmentPicker,
     parsedInputText,
     pendingImages,
-    previewMemoryReference,
-    previewMemorySuggestion,
     presetModelOptions,
+    modelFilterText,
+    filteredModelOptions,
     queuedMessages,
     reasoningEffortOptions,
-    currentMemoryPreview,
     removeImage,
-    removeMemoryReferenceFromDraft,
     removeQueuedMessage,
     updateQueuedMessage,
     renderLayerRef,
@@ -3170,17 +2393,10 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     slashCommands,
     syncScroll,
     textareaRef,
-    shouldShowMemorySuggestionEmptyState,
-    shouldShowMemorySuggestionIdleHint,
-    shouldShowMemorySuggestions,
     toggleAgentDropdown,
     toggleModelDropdown,
     toggleReasoningDropdown,
     getReasoningEffortLabel,
-    tokenUsage,
-    visibleMemorySuggestions,
-    clearMemoryPreview,
-    scheduleClearMemoryPreview,
-    activeMemorySuggestionKey
+    tokenUsage
   }
 }

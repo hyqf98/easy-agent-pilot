@@ -18,6 +18,7 @@ import { useUnattendedStore } from './stores/unattended'
 import { useNotificationStore } from './stores/notification'
 import { useConfirmDialog, useWindowEvents } from './composables'
 import { useMiniPanelShortcut } from './composables/useMiniPanelShortcut'
+import { useDesktopPet } from './composables/useDesktopPet'
 import { createMockUpdaterAdapter } from './services/appUpdate'
 import { readCrashLog, writeCrashLog, clearCrashLog } from './services/runtimeLog/crashLog'
 import { EaToast, EaLoadingOverlay, EaConfirmDialog } from './components/common'
@@ -97,6 +98,7 @@ async function checkAndNotifyCrashOnStartup() {
 
 useWindowEvents()
 useMiniPanelShortcut()
+useDesktopPet()
 
 const handleKeydown = (event: KeyboardEvent) => {
   if ((event.metaKey || event.ctrlKey) && event.key === 'n') {
@@ -280,7 +282,7 @@ onMounted(async () => {
   await themeStore.loadTheme()
   await settingsStore.loadSettings()
 
-  if (!windowManagerStore.isMiniPanelWindow) {
+  if (!windowManagerStore.isMiniPanelWindow && !windowManagerStore.isPetWindow) {
     await windowStateStore.initWindowState()
   }
 
@@ -290,7 +292,7 @@ onMounted(async () => {
     await unattendedStore.initialize()
   }
 
-  if (!windowManagerStore.isMiniPanelWindow) {
+  if (!windowManagerStore.isMiniPanelWindow && !windowManagerStore.isPetWindow) {
     await projectStore.loadProjects()
 
     let restoredProjectId: string | null = null
@@ -343,7 +345,7 @@ onMounted(async () => {
     await appUpdateStore.runStartupCheck()
   }
 
-  if (!windowManagerStore.isMiniPanelWindow) {
+  if (!windowManagerStore.isMiniPanelWindow && !windowManagerStore.isPetWindow) {
     window.addEventListener('keydown', handleKeydown)
   }
 })

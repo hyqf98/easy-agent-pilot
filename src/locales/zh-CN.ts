@@ -163,6 +163,15 @@ const zhCN = {
     cliCompactionTruncationLimit: '截断阈值',
     cliCompactionResetNotice: 'CLI 运行时已自动压缩上下文，token 计数已重置'
   },
+  permission: {
+    title: '工具权限请求',
+    unknownTool: '未知工具',
+    modes: {
+      ask: '每次询问',
+      allowAlways: '自动允许',
+      rejectAlways: '自动拒绝'
+    }
+  },
   panel: {
     ...enUS.panel,
     projects: '项目',
@@ -333,20 +342,6 @@ const zhCN = {
     pendingFailed: '发送失败',
     pendingEmpty: '空消息',
     sendImmediately: '立即发送',
-    memoryReferencesTitle: '已引用记忆',
-    memorySuggestionEyebrow: '记忆召回',
-    memorySuggestionTitle: '你之前提过这些内容，要不要带上？',
-    memoryKeyboardHint: '上下键选择，回车引入',
-    memoryPreviewTitle: '悬停预览',
-    memorySearching: '正在检索历史记忆...',
-    memorySearchingActive: '正在搜索相关记忆...',
-    memorySearchSettling: '输入期间会保留当前列表，并持续刷新结果',
-    memoryNoMatches: '暂时没有匹配到记忆',
-    memoryKeepTypingHint: '继续输入更多关键词，停顿后仍无结果时会保持为空态',
-    memoryInsert: '引入',
-    memoryDismiss: '忽略',
-    memorySourceLibrary: '记忆库',
-    memorySourceRaw: '原始记忆',
     ghostHintAttachments: '附件',
     ghostHintImages: '图片',
     ghostHintFiles: "{'@'} 引用文件",
@@ -439,6 +434,7 @@ const zhCN = {
       userError: '发送失败',
       userCompleted: '已发送',
       assistantStreaming: '生成中',
+      assistantAwaiting: '正在思考…',
       assistantRetrying: '重试中({current}/{max})',
       assistantStopped: '已停止',
       assistantError: '生成失败',
@@ -454,7 +450,9 @@ const zhCN = {
   },
   // 输入框（会话编辑器）
   composer: {
-    selectClient: '选择客户端'
+    selectClient: '选择客户端',
+    searchModelPlaceholder: '筛选模型…',
+    noModelMatch: '无匹配模型'
   },
   // 设置页面翻译
   settings: {
@@ -472,7 +470,8 @@ const zhCN = {
       skills: '技能',
       plugins: '插件',
       theme: '主题设置',
-      logs: '日志管理'
+      logs: '日志管理',
+      desktopPet: '桌面宠物'
     },
     group: {
       workspace: '工作区',
@@ -487,7 +486,48 @@ const zhCN = {
       unattended: '配置后台自动执行与调度任务',
       logs: '查看运行日志与排查问题',
       usageStats: '查看 Token 用量与费用统计',
-      appUpdate: '检查并安装应用更新'
+      appUpdate: '检查并安装应用更新',
+      desktopPet: '开启桌面宠物，搜索下载并切换市场宠物'
+    },
+    desktopPet: {
+      title: '桌面宠物',
+      generalTitle: '基本设置',
+      enable: '启用桌面宠物',
+      enableDesc: '开启后宠物会显示在屏幕右下角，可拖拽移动',
+      alwaysOnTop: '始终置顶',
+      alwaysOnTopDesc: '宠物窗口悬浮在所有应用之上',
+      myPetsTitle: '我的宠物',
+      myPetsDesc: '已安装的宠物，点击"使用"切换当前显示的宠物',
+      activePet: '当前宠物',
+      activePetPlaceholder: '选择宠物',
+      emptyLocal: '还没有安装任何宠物，去下方市场下载吧',
+      builtinBadge: '内置',
+      use: '使用',
+      marketTitle: '宠物市场',
+      marketDesc: '来自 codex-pets.net 社区，搜索并下载你喜欢的宠物',
+      searchPlaceholder: '搜索宠物名称…',
+      search: '搜索',
+      loading: '加载中…',
+      emptyRemote: '未找到宠物，换个关键词试试',
+      download: '下载',
+      installed: '已安装',
+      sortNew: '最新',
+      sortPopular: '热门',
+      sortViews: '浏览最多',
+      sortDiscussed: '评论最多',
+      sortRandom: '随机',
+      kindAll: '全部分类',
+      kindPerson: '人物',
+      kindAnimal: '动物',
+      kindCreature: '生物',
+      kindObject: '物品',
+      prevPage: '上一页',
+      nextPage: '下一页',
+      animStates: '动画状态（点击预览）',
+      downloadAndUse: '下载并使用',
+      setAsActive: '设为当前宠物',
+      currentlyActive: '当前正在使用',
+      close: '关闭'
     },
     agentManagement: {
       tabs: {
@@ -817,6 +857,7 @@ const zhCN = {
       sdkAgents: 'SDK 智能体',
       noAgents: '暂无可用智能体',
       noAgentsHint: '请先在"Agent 配置"页面添加智能体',
+      cliConfigDirHint: '配置目录：{dir}',
       pleaseSelectAgent: '请从上方下拉菜单选择一个智能体',
       configSourceDb: '配置存储在数据库中',
       configSourceFs: '配置存储在文件系统中',

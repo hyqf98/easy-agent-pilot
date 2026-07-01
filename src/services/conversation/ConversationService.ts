@@ -1,7 +1,7 @@
 import { MANUAL_STOP_ERROR_MARKER, useMessageStore, type Message, type MessageAttachment, type ToolCall } from '@/stores/message'
 import { invoke } from '@tauri-apps/api/core'
 import { useSessionStore, type Session } from '@/stores/session'
-import { useSessionExecutionStore, type ComposerMemoryReference } from '@/stores/sessionExecution'
+import { useSessionExecutionStore } from '@/stores/sessionExecution'
 import { useProjectStore } from '@/stores/project'
 import { useAgentStore, type AgentConfig, inferAgentProvider } from '@/stores/agent'
 import { useNotificationStore } from '@/stores/notification'
@@ -317,7 +317,6 @@ export class ConversationService {
       injectedSystemMessages?: string[]
       dedupeInjectedSystemMessagesBySession?: boolean
       previewContent?: string
-      memoryReferencesToPersist?: ComposerMemoryReference[]
       existingUserMessageId?: string
       reuseAssistantMessageId?: string
     }
@@ -400,14 +399,6 @@ export class ConversationService {
             notificationStore.warning('记忆记录失败', captureError instanceof Error ? captureError.message : '该消息未写入记忆')
           }
         }
-        await memoryStore.recordSessionMemoryReferences({
-          sessionId,
-          messageId: targetUserMessage.id,
-          references: (options?.memoryReferencesToPersist ?? []).map(reference => ({
-            sourceType: reference.sourceType,
-            sourceId: reference.sourceId
-          }))
-        })
 
         const messagePreview = this.buildMessagePreview(options?.previewContent ?? content, attachments)
         sessionStore.updateLastMessage(sessionId, messagePreview)
@@ -432,6 +423,10 @@ export class ConversationService {
           )
         : undefined
 
+      // 文本行延迟"入场"：创建时使用未来哨兵时间戳，使其在首个 content chunk 到达前
+      // 排到回合最末（thinking/tool 行各自按真实到达时间排序）。空内容行已被 CSS 隐藏，
+      // 不会出现错位光标；首个文本到达时回填真实 createdAt，落到正确时序位置。
+      const textRowSentinelCreatedAt = new Date(Date.now() + 86_400_000).toISOString()
       const aiMessage = reusableAssistantMessage ?? await messageStore.addMessage({
         sessionId,
         requestId,
@@ -440,12 +435,13 @@ export class ConversationService {
         content: '',
         status: 'streaming',
         seq: 0
-      })
+      }, { createdAt: textRowSentinelCreatedAt })
 
       if (reusableAssistantMessage) {
         await messageStore.updateMessage(reusableAssistantMessage.id, {
           status: 'streaming',
-          errorMessage: ''
+          errorMessage: '',
+          createdAt: textRowSentinelCreatedAt
         })
       }
 
@@ -672,8 +668,7 @@ export class ConversationService {
           injectedSystemMessages: expert
             ? [buildSubAgentSystemPrompt(expert.prompt)]
             : undefined,
-          previewContent: nextDraft.displayContent,
-          memoryReferencesToPersist: nextDraft.memoryReferences ?? []
+          previewContent: nextDraft.displayContent
         }
       )
     } catch (error) {
@@ -922,6 +917,14 @@ export class ConversationService {
       ? `${aiMessage.content.trimEnd()}\n\n`
       : ''
     let accumulatedThinking = ''
+    // 实时思考行（仅内存，不落库；后端 MessageRecorder 已落库对应 thinking 行）。
+    // 首个思考增量到达时创建，content 到达后由 onDone 收尾（置 completed）。
+    // 用对象容器避免 TS 闭包控制流收窄（赋值发生在异步闭包内，同步读取处会被推断为初始 null）。
+    const liveThinking = { message: null as Message | null }
+    // 实时工具调用行（仅内存，不落库；后端 MessageRecorder 已落库对应 tool_use/tool_result 行）。
+    // 按 toolCallId 索引，支持同一回合多工具并发。首个 tool_use 到达时创建，
+    // onDone/handleFailure/catch 收尾时置 completed/error，刷新后由后端落库行接管（与 thinking 双轨一致）。
+    const liveToolMessages = new Map<string, { message: Message | null }>()
     const toolCalls: ToolCall[] = []
     const editTraces: FileEditTrace[] = []
     const usageState: { model?: string, inputTokens?: number, outputTokens?: number, cacheReadInputTokens?: number, cacheCreationInputTokens?: number, contextWindowOccupancy?: number } = {
@@ -956,6 +959,8 @@ export class ConversationService {
     let pendingUiUpdate: Partial<Message> | null = null
     let scheduledUiFlushAnimationFrame: number | null = null
     let scheduledUiFlushTimeout: ReturnType<typeof setTimeout> | null = null
+    // 文本行哨兵时间戳是否已在首个 content 到达时回填为真实时间（仅触发一次）
+    let textRowCreatedAtAnchored = false
 
     const registerTraceTask = (task: Promise<void>) => {
       pendingTraceTasks.add(task)
@@ -1092,6 +1097,70 @@ export class ConversationService {
       }
 
       scheduleUiFlush()
+    }
+
+    // 确保"正在思考…"实时行存在（仅内存，不落库）。
+    // 插入位置：紧跟在 AI 文本回复行（aiMessage）之后，使思考显示在正文上方。
+    const ensureLiveThinkingMessage = async (): Promise<void> => {
+      if (liveThinking.message) {
+        return
+      }
+      try {
+        liveThinking.message = await messageStore.addMessage({
+          sessionId,
+          requestId: context.requestId,
+          role: 'assistant',
+          messageType: 'thinking',
+          content: '',
+          status: 'streaming',
+          // thinking 行按真实到达时间排序（不再共用 aiMessage 哨兵时间戳）。
+          // seq 仅作同毫秒 tiebreaker；后端入库行有独立递增 seq，刷新后接管。
+          seq: 0
+        }, { persist: false })
+      } catch (error) {
+        // 创建失败不阻断主流程，仅记录
+        console.warn('[ConversationService] Failed to create live thinking message:', error)
+      }
+    }
+
+    // 确保工具调用实时行存在（仅内存，不落库）。
+    // 按 toolCallId 复用，使同一工具的 use/result 增量落在同一条本地行上。
+    const ensureLiveToolUseMessage = async (toolCall: ToolCall): Promise<Message | null> => {
+      const existing = liveToolMessages.get(toolCall.id)
+      if (existing?.message) {
+        return existing.message
+      }
+      try {
+        const liveMessage = await messageStore.addMessage({
+          sessionId,
+          requestId: context.requestId,
+          role: 'assistant',
+          messageType: 'tool_use',
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          toolInput: toolCall.arguments ? JSON.stringify(toolCall.arguments) : '',
+          status: 'streaming',
+          // tool 行按真实到达时间排序（不再共用 aiMessage 哨兵时间戳）。
+          seq: liveToolMessages.size
+        }, { persist: false })
+        liveToolMessages.set(toolCall.id, { message: liveMessage })
+        return liveMessage
+      } catch (error) {
+        console.warn('[ConversationService] Failed to create live tool_use message:', error)
+        return null
+      }
+    }
+
+    // 收尾实时工具调用行（与 onDone/handleFailure/catch 的 thinking 收尾对称）：
+    // 将所有未终态的本地行置为 completed/error，然后清空索引，刷新后由后端落库行接管。
+    const finalizeLiveToolMessages = (hasError: boolean) => {
+      for (const { message } of liveToolMessages.values()) {
+        if (!message) continue
+        messageStore.updateMessageBuffered(message.id, {
+          status: hasError ? 'error' : 'completed'
+        }, { immediate: true })
+      }
+      liveToolMessages.clear()
     }
 
     const recordTimingSummary = () => {
@@ -1260,6 +1329,15 @@ export class ConversationService {
     }
 
     const handleFailure = async (errorMessage: string) => {
+      // 失败时收尾实时思考行（与 onDone 对称），避免遗留 streaming 思考行
+      if (liveThinking.message) {
+        messageStore.updateMessageBuffered(liveThinking.message.id, {
+          status: 'completed'
+        }, { immediate: true })
+        liveThinking.message = null
+      }
+      // 收尾实时工具调用行（与 thinking 对称）
+      finalizeLiveToolMessages(true)
       const classifiedFailure = detectCliFailure(errorMessage)
       const shouldAutoRetry = this.checkConversationAutoRetry(sessionId, classifiedFailure)
       if (shouldAutoRetry) {
@@ -1374,6 +1452,14 @@ export class ConversationService {
           onContent: (content) => {
             clearRetryPresentationOnRecoveredStream()
             markMetric('firstContentAt')
+            // 首个文本到达时把哨兵时间戳回填为真实时间，使文本行落到正确时序位置
+            // （思考/工具行已按各自到达时间排序，文本行此刻归位排在其后）。
+            if (!textRowCreatedAtAnchored) {
+              textRowCreatedAtAnchored = true
+              messageStore.updateMessageBuffered(aiMessage.id, {
+                createdAt: new Date().toISOString()
+              })
+            }
             accumulatedContent = mergeStreamingText(accumulatedContent, content, runtimeProvider)
             bufferMessageUpdate({
               content: accumulatedContent
@@ -1383,10 +1469,19 @@ export class ConversationService {
             clearRetryPresentationOnRecoveredStream()
             markMetric('firstThinkingAt')
             accumulatedThinking = mergeStreamingText(accumulatedThinking, thinking, runtimeProvider)
-            // 思考内容由后端 MessageRecorder 落库为独立 thinking 行，前端实时累积仅保留在局部变量
+            // 思考由后端 MessageRecorder 落库为独立 thinking 行；前端用一条仅内存的本地行做流式渲染，
+            // 使"正在思考…"提示与打字机效果在流式期间即可呈现（刷新后由后端落库行接管）。
+            void ensureLiveThinkingMessage().then(() => {
+              if (liveThinking.message) {
+                messageStore.updateMessageBuffered(liveThinking.message.id, {
+                  content: accumulatedThinking
+                })
+              }
+            })
           },
           onThinkingStart: () => {
             clearRetryPresentationOnRecoveredStream()
+            void ensureLiveThinkingMessage()
           },
           onToolUse: (toolCall) => {
             clearRetryPresentationOnRecoveredStream()
@@ -1413,12 +1508,33 @@ export class ConversationService {
               logger.log('[🔧 tool_use] NEW tool pushed, total:', toolCalls.length)
             }
             logger.log('[🔧 tool_use] buffering update, msgStatus:', getCurrentAiMessage()?.status)
-            // 工具调用由后端 MessageRecorder 落库为独立 tool_use 行，前端累积仅在局部
+            // 工具调用由后端 MessageRecorder 落库为独立 tool_use 行；前端额外用一条仅内存的
+            // 本地行做流式渲染（与 thinking 双轨一致），刷新后由后端落库行接管。
             if (isNewToolCall) {
               registerTraceTask((async () => {
                 await fileTraceCollector.captureToolUse(toolCall)
               })())
             }
+            // 推送本地行：新建或更新参数，使工具气泡在流式期间即时渲染
+            void ensureLiveToolUseMessage(toolCall).then((liveMessage) => {
+              if (liveMessage) {
+                const mergedArguments = existingIndex >= 0
+                  ? toolCalls[existingIndex].arguments
+                  : toolCall.arguments
+                if (mergedArguments && Object.keys(mergedArguments).length > 0) {
+                  messageStore.updateMessageBuffered(liveMessage.id, {
+                    toolInput: JSON.stringify(mergedArguments)
+                  })
+                }
+                // 透传 ACP ToolKind / ToolCallLocation（跟随 Agent）
+                if (toolCall.kind || toolCall.locations) {
+                  messageStore.updateMessageBuffered(liveMessage.id, {
+                    toolKind: toolCall.kind,
+                    toolLocations: toolCall.locations
+                  })
+                }
+              }
+            })
           },
           onToolInputDelta: (toolCallId, toolInput) => {
             clearRetryPresentationOnRecoveredStream()
@@ -1438,6 +1554,13 @@ export class ConversationService {
                 targetToolCall.arguments
               )
             }
+            // 同步更新本地行参数，使工具气泡的入参随增量实时呈现
+            const liveToolEntry = targetToolCall.id ? liveToolMessages.get(targetToolCall.id) : null
+            if (liveToolEntry?.message && targetToolCall.arguments) {
+              messageStore.updateMessageBuffered(liveToolEntry.message.id, {
+                toolInput: JSON.stringify(targetToolCall.arguments)
+              })
+            }
           },
           onToolResult: (toolCallId, result, isError) => {
             logger.log('[🔧 tool_result] received:', { toolCallId, isError, resultLen: result?.length })
@@ -1455,6 +1578,19 @@ export class ConversationService {
               // 工具结果由后端落库为独立 tool_result 行
             } else {
               console.warn('[🔧 tool_result] toolCallId not found:', toolCallId, 'existing:', toolCalls.map(t => t.id))
+            }
+            // 同步更新本地行：在 tool_use 行上直接写入结果，使气泡即时变为 success/error
+            // 渲染层 toolUseParsed 会读 message.toolResult 作为 fallback，无需创建独立 tool_result 行
+            const liveToolEntry = liveToolMessages.get(toolCallId)
+            if (liveToolEntry?.message) {
+              messageStore.updateMessageBuffered(liveToolEntry.message.id, {
+                toolResult: result,
+                status: isError ? 'error' : 'completed',
+                errorMessage: isError ? result : '',
+                // 工具结果阶段可能补发最终的 ToolKind / ToolCallLocation
+                toolKind: tc?.kind,
+                toolLocations: tc?.locations
+              })
             }
 
             if (!isError) {
@@ -1540,6 +1676,24 @@ export class ConversationService {
               syncRealtimeUsageNotice()
             }
           },
+          onContextWindow: (used, size) => {
+            // 上下文窗口占用通道：ACP UsageUpdate{used,size}。
+            // 仅更新进度环 used，保持计费 input/output token 不被覆盖。
+            if (typeof used === 'number' && used > 0) {
+              usageState.contextWindowOccupancy = used
+            }
+            // ACP 的 size 反映运行时上报的上下文上限：若可用，透传给 token store 作为 limit 参考
+            if (!shouldDeferCliUsageSync) {
+              tokenStore.updateRealtimeTokens(
+                sessionId,
+                undefined,
+                undefined,
+                undefined,
+                typeof used === 'number' && used > 0 ? used : undefined,
+                size
+              )
+            }
+          },
           onSystem: (content) => {
             clearRetryPresentationOnRecoveredStream()
 
@@ -1558,7 +1712,7 @@ export class ConversationService {
               usageState.inputTokens = undefined
               usageState.outputTokens = undefined
               usageState.contextWindowOccupancy = undefined
-              // 压缩提示在新结构下由后端落库为独立 compression 行，前端不再维护 runtimeNoticesState
+              // 解析压缩明细，组装摘要并落库为独立 compression 行 → 渲染 CompressionMessageBubble
               const lines = content.split('\n').slice(1)
               const detailParts: string[] = []
               for (const line of lines) {
@@ -1567,18 +1721,29 @@ export class ConversationService {
                 if (trimmed.startsWith('Trigger:')) {
                   const raw = trimmed.replace('Trigger:', '').trim()
                   const label = raw === 'auto' ? i18n.global.t('compression.cliCompactionAuto') : raw === 'manual' ? i18n.global.t('compression.cliCompactionManual') : raw
-                  detailParts.push(`${i18n.global.t('compression.cliCompactionTrigger')}: ${label}`)
+                  detailParts.push(`- **${i18n.global.t('compression.cliCompactionTrigger')}**: ${label}`)
                 } else if (trimmed.startsWith('Pre-compaction tokens:')) {
                   const val = trimmed.replace('Pre-compaction tokens:', '').trim()
-                  detailParts.push(`${i18n.global.t('compression.cliCompactionPreTokens')}: ${val}`)
+                  detailParts.push(`- **${i18n.global.t('compression.cliCompactionPreTokens')}**: ${val}`)
                 } else if (trimmed.startsWith('Truncation limit:')) {
                   const val = trimmed.replace('Truncation limit:', '').trim()
-                  detailParts.push(`${i18n.global.t('compression.cliCompactionTruncationLimit')}: ${val}`)
+                  detailParts.push(`- **${i18n.global.t('compression.cliCompactionTruncationLimit')}**: ${val}`)
                 } else {
                   detailParts.push(trimmed)
                 }
               }
-              void detailParts
+              const summaryMarkdown = detailParts.length > 0
+                ? `**${i18n.global.t('compression.cliCompactionTitle')}**\n\n${detailParts.join('\n')}`
+                : `**${i18n.global.t('compression.cliCompactionTitle')}**`
+              void messageStore.addMessage({
+                sessionId,
+                requestId: context.requestId,
+                role: 'assistant',
+                messageType: 'compression',
+                content: summaryMarkdown,
+                status: 'completed',
+                seq: 0
+              })
               return
             }
 
@@ -1633,6 +1798,24 @@ export class ConversationService {
           },
           onDone: () => {
             markMetric('doneAt')
+            // 兜底：若整个回合无文本 content（纯工具回合），哨兵时间戳尚未回填，
+            // 此时把文本行归位到当前时刻（排在所有已到达的思考/工具行之后）。
+            if (!textRowCreatedAtAnchored) {
+              textRowCreatedAtAnchored = true
+              messageStore.updateMessageBuffered(aiMessage.id, {
+                createdAt: new Date().toISOString()
+              })
+            }
+            // 收尾实时思考行：正文已落定，把本地 thinking 行置为 completed。
+            // 该行仅存在于内存，刷新后由后端落库的 thinking 行接管渲染。
+            if (liveThinking.message) {
+              messageStore.updateMessageBuffered(liveThinking.message.id, {
+                status: 'completed'
+              }, { immediate: true })
+              liveThinking.message = null
+            }
+            // 收尾实时工具调用行（与 thinking 对称）
+            finalizeLiveToolMessages(false)
             // 兜底清理：执行结束时移除可能残留的权限询问（后端超时 / 非正常完成）
             usePermissionStore().clearPending(sessionId)
             // 计划模式回合结束且 AI 已产出计划文档（最新 assistant text 非空）
@@ -1721,6 +1904,15 @@ export class ConversationService {
         this.finalizeSend(sessionId, epoch)
       }
     } catch (error) {
+      // 异常兜底：清理可能残留的实时思考行
+      if (liveThinking.message) {
+        messageStore.updateMessageBuffered(liveThinking.message.id, {
+          status: 'completed'
+        }, { immediate: true })
+        liveThinking.message = null
+      }
+      // 异常兜底：清理可能残留的实时工具调用行
+      finalizeLiveToolMessages(true)
       const errorMessage = getErrorMessage(error, '对话执行失败')
       void writeFrontendRuntimeLog(
         'ERROR',
@@ -1903,6 +2095,8 @@ export class ConversationService {
         cacheReadInputTokens?: number
         cacheCreationInputTokens?: number
       }) => void
+      // 上下文窗口占用通道（ACP UsageUpdate），仅更新进度环 used，不触碰计费 token
+      onContextWindow: (used: number | undefined, size: number | undefined) => void
       onSystem: (content: string) => void
       onError: (error: string) => void
       onPermissionRequest: (permission: {
@@ -1917,7 +2111,7 @@ export class ConversationService {
       onDone: () => void
     }
   ): void {
-    const { onContent, onThinking, onThinkingStart, onToolUse, onToolInputDelta, onToolResult, onFileEdit, onUsage, onSystem, onError, onPermissionRequest, onPlan, onAvailableCommands, onDone } = handlers
+    const { onContent, onThinking, onThinkingStart, onToolUse, onToolInputDelta, onToolResult, onFileEdit, onUsage, onContextWindow, onSystem, onError, onPermissionRequest, onPlan, onAvailableCommands, onDone } = handlers
 
     switch (event.type) {
       case 'content':
@@ -1943,7 +2137,9 @@ export class ConversationService {
             id: toolCallId,
             name: event.toolName,
             arguments: event.toolInput || {},
-            status: 'running'
+            status: 'running',
+            kind: event.toolKind,
+            locations: event.toolLocations
           }
           onToolUse(toolCall)
         } else {
@@ -1956,6 +2152,14 @@ export class ConversationService {
         break
 
       case 'tool_result':
+        // 工具结果阶段可能补发最终的 ToolKind / ToolCallLocation，先回填到 toolCalls 索引
+        if (event.toolCallId && (event.toolKind || event.toolLocations)) {
+          const tc = handlers.toolCalls.find(t => t.id === event.toolCallId)
+          if (tc) {
+            if (event.toolKind) tc.kind = event.toolKind
+            if (event.toolLocations) tc.locations = event.toolLocations
+          }
+        }
         if (event.toolCallId) {
           const result = typeof event.toolResult === 'string'
             ? event.toolResult
@@ -1989,6 +2193,12 @@ export class ConversationService {
           cacheReadInputTokens: event.cacheReadInputTokens,
           cacheCreationInputTokens: event.cacheCreationInputTokens
         })
+        break
+
+      case 'context_window':
+        // 独立通道：仅刷新上下文窗口占用（进度环 used），不改计费 token，
+        // 避免 ACP UsageUpdate.used 覆盖回合结束时 PromptResponse.usage 的累计输入。
+        onContextWindow(event.contextWindowUsed, event.contextWindowSize)
         break
 
       case 'system':

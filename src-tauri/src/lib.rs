@@ -54,7 +54,7 @@ pub fn run() {
         builder = builder.plugin(
             tauri_plugin_mcp_bridge::Builder::new()
                 .bind_address("127.0.0.1")
-                .base_port(9423)
+                .base_port(9223)
                 .build(),
         );
     }
@@ -73,6 +73,11 @@ pub fn run() {
 
             // 初始化策略注册表
             tauri::async_runtime::block_on(commands::conversation::init_registry());
+
+            // 安装内置桌面宠物资源（幂等：缺则从安装包复制，已存在则跳过）。
+            if let Err(e) = commands::desktop_pet::ensure_builtin_pets_installed(&app.handle()) {
+                log_bootstrap_error("DesktopPet", &format!("Failed to install builtin pets: {}", e));
+            }
 
             // 恢复待执行的定时计划和无人值守监听，必须挂在 Tauri 常驻运行时上。
             let app_handle = app.handle().clone();
@@ -190,6 +195,17 @@ pub fn run() {
             commands::mini_panel::show_mini_panel,
             commands::mini_panel::hide_mini_panel,
             commands::mini_panel::toggle_mini_panel,
+            // Desktop Pet commands
+            commands::desktop_pet::search_codex_pets,
+            commands::desktop_pet::get_codex_pet_detail,
+            commands::desktop_pet::download_codex_pet,
+            commands::desktop_pet::list_local_pets,
+            commands::desktop_pet::delete_local_pet,
+            commands::desktop_pet::get_pet_spritesheet_path,
+            commands::desktop_pet::show_pet_window,
+            commands::desktop_pet::hide_pet_window,
+            commands::desktop_pet::toggle_pet_window,
+            commands::desktop_pet::set_pet_always_on_top,
             commands::agent::list_agents,
             commands::agent::create_agent,
             commands::agent::update_agent,
@@ -229,6 +245,7 @@ pub fn run() {
             commands::agent_config::create_agent_model,
             commands::agent_config::update_agent_model,
             commands::agent_config::delete_agent_model,
+            commands::agent_config::sync_agent_models,
             commands::settings::get_app_setting,
             commands::settings::get_all_app_settings,
             commands::settings::resolve_app_update_proxy,

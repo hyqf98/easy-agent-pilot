@@ -282,6 +282,44 @@
   right: 0;
 }
 
+/* 模型下拉搜索框 */
+.composer-chip__search {
+  position: sticky;
+  top: 0;
+  padding: 4px 4px 6px;
+  background: var(--workspace-panel-bg, var(--composer-menu-bg, var(--color-surface)));
+  z-index: 1;
+}
+
+.composer-chip__search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: 1px solid var(--composer-menu-border, var(--color-border));
+  border-radius: 7px;
+  background: var(--color-surface);
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.composer-chip__search-input:focus {
+  border-color: var(--color-primary);
+}
+
+.composer-chip__search-input::placeholder {
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+}
+
+.composer-chip__empty {
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+  text-align: center;
+  user-select: none;
+}
+
 .conversation-composer--main .composer-chip__menu {
   max-height: min(280px, 45vh);
   padding: 4px;

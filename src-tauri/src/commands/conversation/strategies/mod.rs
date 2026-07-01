@@ -3,6 +3,7 @@ mod acp;
 mod cli_common;
 
 pub use acp::AcpStrategy;
+pub(crate) use acp::{probe_acp_models, probe_opencode_models, resolve_acp_command};
 pub(crate) use abnormal_completion::{
     classify_cli_completion, CliTextFragment, CliTextSource,
 };

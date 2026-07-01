@@ -234,6 +234,17 @@ export default {
     cliCompactionResetNotice: 'CLI runtime auto-compacted context, token count has been reset'
   },
 
+  // Tool permission requests
+  permission: {
+    title: 'Tool Permission Request',
+    unknownTool: 'Unknown tool',
+    modes: {
+      ask: 'Ask every time',
+      allowAlways: 'Always allow',
+      rejectAlways: 'Always reject'
+    }
+  },
+
   // Panel titles
   panel: {
     projects: 'Projects',
@@ -418,20 +429,6 @@ export default {
     pendingFailed: 'Queued failed',
     pendingEmpty: 'Empty message',
     sendImmediately: 'Send Now',
-    memoryReferencesTitle: 'Referenced memories',
-    memorySuggestionEyebrow: 'Memory recall',
-    memorySuggestionTitle: 'You mentioned these before. Bring them into this turn?',
-    memoryKeyboardHint: 'Use Up/Down to focus, Enter to insert',
-    memoryPreviewTitle: 'Hover preview',
-    memorySearching: 'Searching past memory...',
-    memorySearchingActive: 'Searching related memory...',
-    memorySearchSettling: 'Keep typing and the current list will stay visible while results refresh',
-    memoryNoMatches: 'No matching memories yet',
-    memoryKeepTypingHint: 'Continue typing more keywords. If nothing matches after a pause, this empty state stays visible.',
-    memoryInsert: 'Insert',
-    memoryDismiss: 'Dismiss',
-    memorySourceLibrary: 'Library',
-    memorySourceRaw: 'Raw',
     ghostHintAttachments: 'Files',
     ghostHintImages: 'Images',
     ghostHintFiles: "{'@'} files",
@@ -520,6 +517,7 @@ export default {
       userError: 'Send failed',
       userCompleted: 'Sent',
       assistantStreaming: 'Generating',
+      assistantAwaiting: 'Thinking…',
       assistantRetrying: 'Retrying ({current}/{max})',
       assistantStopped: 'Stopped',
       assistantError: 'Generation failed',
@@ -541,7 +539,9 @@ export default {
   },
   // 输入框（会话编辑器）
   composer: {
-    selectClient: 'Select client'
+    selectClient: 'Select client',
+    searchModelPlaceholder: 'Filter models…',
+    noModelMatch: 'No matching models'
   },
 
   // Settings navigation
@@ -559,7 +559,8 @@ export default {
       skills: 'Skills',
       plugins: 'Plugins',
       theme: 'Theme',
-      logs: 'Log Management'
+      logs: 'Log Management',
+      desktopPet: 'Desktop Pet'
     },
     group: {
       workspace: 'Workspace',
@@ -574,7 +575,48 @@ export default {
       unattended: 'Configure background automation and scheduled tasks',
       logs: 'Inspect runtime logs and troubleshoot',
       usageStats: 'Review token usage and cost statistics',
-      appUpdate: 'Check for and install app updates'
+      appUpdate: 'Check for and install app updates',
+      desktopPet: 'Enable a desktop pet, search & download pets from the market'
+    },
+    desktopPet: {
+      title: 'Desktop Pet',
+      generalTitle: 'General',
+      enable: 'Enable desktop pet',
+      enableDesc: 'The pet shows at the bottom-right of your screen and can be dragged',
+      alwaysOnTop: 'Always on top',
+      alwaysOnTopDesc: 'Keep the pet window above all other apps',
+      myPetsTitle: 'My Pets',
+      myPetsDesc: 'Installed pets — click "Use" to switch the active pet',
+      activePet: 'Active pet',
+      activePetPlaceholder: 'Select a pet',
+      emptyLocal: 'No pets installed yet — download one from the market below',
+      builtinBadge: 'Built-in',
+      use: 'Use',
+      marketTitle: 'Pet Market',
+      marketDesc: 'Pets from the codex-pets.net community — search and download your favorites',
+      searchPlaceholder: 'Search pet name…',
+      search: 'Search',
+      loading: 'Loading…',
+      emptyRemote: 'No pets found — try a different keyword',
+      download: 'Download',
+      installed: 'Installed',
+      sortNew: 'Newest',
+      sortPopular: 'Popular',
+      sortViews: 'Most viewed',
+      sortDiscussed: 'Most discussed',
+      sortRandom: 'Random',
+      kindAll: 'All kinds',
+      kindPerson: 'Person',
+      kindAnimal: 'Animal',
+      kindCreature: 'Creature',
+      kindObject: 'Object',
+      prevPage: 'Previous',
+      nextPage: 'Next',
+      animStates: 'Animation states (click to preview)',
+      downloadAndUse: 'Download & use',
+      setAsActive: 'Set as active pet',
+      currentlyActive: 'Currently active',
+      close: 'Close'
     },
     agentManagement: {
       tabs: {
@@ -985,6 +1027,7 @@ export default {
       sdkAgents: 'SDK Agents',
       noAgents: 'No agents available',
       noAgentsHint: 'Please add an agent in the "Agent Config" page first',
+      cliConfigDirHint: 'Config directory: {dir}',
       pleaseSelectAgent: 'Please select an agent from the dropdown above',
       configSourceDb: 'Configuration stored in database',
       configSourceFs: 'Configuration stored in file system',
