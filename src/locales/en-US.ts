@@ -238,6 +238,10 @@ export default {
   permission: {
     title: 'Tool Permission Request',
     unknownTool: 'Unknown tool',
+    allowOnce: 'Allow once',
+    allowAlways: 'Always allow',
+    reject: 'Reject',
+    defaultOption: 'Choose',
     modes: {
       ask: 'Ask every time',
       allowAlways: 'Always allow',
@@ -493,6 +497,7 @@ export default {
     error: 'Error',
     expand: 'Expand',
     collapse: 'Collapse',
+    formResponseSummary: 'User answered {count} questions',
     structured: {
       summary: 'Summary',
       generatedFiles: 'Generated Files',
@@ -521,7 +526,12 @@ export default {
       assistantRetrying: 'Retrying ({current}/{max})',
       assistantStopped: 'Stopped',
       assistantError: 'Generation failed',
-      assistantCompleted: 'Completed'
+      assistantCompleted: 'Completed',
+      assistantThinking: 'Thinking',
+      assistantToolRunning: 'Using tool: {tool}',
+      assistantToolRunningFallback: 'Using tool',
+      waitingPermission: 'Waiting for permission',
+      waitingUserAnswer: 'Waiting for user answer'
     },
     // 分割线（回合状态机）文案
     workDivider: {

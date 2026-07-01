@@ -1,4 +1,4 @@
-import { computed, ref, toRef, watch } from 'vue'
+import { computed, nextTick, ref, toRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useTypewriterText } from '@/composables/useTypewriterText'
 
@@ -19,6 +19,7 @@ export function useThinkingDisplay(props: ThinkingDisplayProps) {
   )
 
   const isExpanded = ref(props.live ? true : (props.defaultExpanded ?? true))
+  const scrollRef = ref<HTMLElement | null>(null)
   const hasUserToggled = ref(false)
   const placeholderText = computed(() => props.live ? '正在思考...' : '')
   const titleText = computed(() => props.live ? '正在思考' : '思考过程')
@@ -34,7 +35,8 @@ export function useThinkingDisplay(props: ThinkingDisplayProps) {
       if (!live && wasLive && (props.autoCollapseOnComplete ?? true) && !hasUserToggled.value) {
         isExpanded.value = false
       }
-    }
+    },
+    { immediate: true }
   )
 
   const toggleExpand = () => {
@@ -42,10 +44,25 @@ export function useThinkingDisplay(props: ThinkingDisplayProps) {
     isExpanded.value = !isExpanded.value
   }
 
+  function scrollToLatest() {
+    const element = scrollRef.value
+    if (!element || !isExpanded.value) return
+    element.scrollTop = element.scrollHeight
+  }
+
+  watch(
+    [displayedText, isExpanded],
+    () => {
+      void nextTick(scrollToLatest)
+    },
+    { flush: 'post' }
+  )
+
   return {
     t,
     displayedText,
     isExpanded,
+    scrollRef,
     placeholderText,
     titleText,
     toggleExpand

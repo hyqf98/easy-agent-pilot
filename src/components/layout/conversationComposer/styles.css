@@ -65,9 +65,17 @@
   gap: 8px;
 }
 
+.conversation-composer__dock,
 .conversation-composer__panel {
   display: flex;
   flex-direction: column;
+}
+
+.conversation-composer__dock {
+  gap: 10px;
+}
+
+.conversation-composer__panel {
   gap: 10px;
 }
 
@@ -121,16 +129,29 @@
   font-weight: 600;
 }
 
-.conversation-composer--main .conversation-composer__panel {
+.conversation-composer--main .conversation-composer__dock {
   width: 100%;
   max-width: min(100%, 900px);
   margin: 0 auto;
-  padding: 9px;
+  padding: 0;
   border: 1px solid color-mix(in srgb, var(--workspace-border, var(--color-border)) 74%, transparent);
-  border-radius: 18px;
+  border-radius: 16px;
   background: color-mix(in srgb, var(--workspace-panel-bg, var(--color-surface)) 94%, transparent);
   box-shadow: 0 12px 34px rgba(15, 23, 42, 0.08);
   backdrop-filter: blur(14px);
+  overflow: visible;
+}
+
+.conversation-composer--main .conversation-composer__panel {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 9px;
+  border: 0;
+  border-radius: 0 0 15px 15px;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .conversation-composer__main-header {
@@ -1281,21 +1302,21 @@
 }
 
 .conversation-composer__send {
-  background: var(--color-primary);
-  color: white;
+  background: color-mix(in srgb, var(--workspace-control-bg, var(--color-surface)) 86%, transparent);
+  color: var(--workspace-text-primary, var(--color-text-primary));
 }
 
 .conversation-composer--main .conversation-composer__send--main {
   min-height: 27px;
   padding: 0 14px;
   border: none;
-  background: var(--color-primary);
-  color: white;
-  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.16);
+  background: color-mix(in srgb, var(--workspace-control-bg, var(--color-surface)) 86%, transparent);
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  box-shadow: none;
 }
 
 .conversation-composer--main .conversation-composer__send--main:hover {
-  background: var(--color-primary-hover);
+  background: color-mix(in srgb, var(--workspace-control-hover-bg, var(--color-surface-hover)) 88%, transparent);
 }
 
 .conversation-composer--main .conversation-composer__toolbar--bottom {
@@ -1457,7 +1478,10 @@
 
 :global([data-theme='dark']) .conversation-composer--main .conversation-composer__send--main,
 :global(.dark) .conversation-composer--main .conversation-composer__send--main {
-  background: var(--color-primary);
+  color: var(--workspace-text-primary, #f4f4f0) !important;
+  border-color: transparent !important;
+  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.08)) 90%, transparent) !important;
+  box-shadow: none !important;
 }
 
 :global([data-theme='dark']) .conversation-composer__path,
@@ -2094,12 +2118,12 @@
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: #1d4ed8;
-  color: white;
+  background: color-mix(in srgb, var(--workspace-text-primary, var(--color-text-primary)) 88%, var(--workspace-panel-bg, var(--color-surface)));
+  color: var(--workspace-panel-bg, var(--color-surface));
   font-size: 10px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  box-shadow: 0 6px 14px rgba(37, 99, 235, 0.34);
+  box-shadow: 0 6px 14px color-mix(in srgb, var(--workspace-text-primary, var(--color-text-primary)) 18%, transparent);
 }
 
 .conversation-composer--main .conversation-composer__plan-footer {
@@ -2272,10 +2296,10 @@
   height: 27px;
   min-height: 27px;
   padding: 0 !important;
-  color: #ffffff !important;
-  border-color: color-mix(in srgb, var(--color-primary) 72%, transparent) !important;
-  background: linear-gradient(180deg, var(--color-primary-hover), var(--color-primary-active)) !important;
-  box-shadow: 0 8px 18px color-mix(in srgb, var(--color-primary) 20%, transparent) !important;
+  color: var(--workspace-text-primary, var(--color-text-primary)) !important;
+  border-color: transparent !important;
+  background: color-mix(in srgb, var(--workspace-control-bg, var(--color-surface)) 84%, var(--workspace-text-primary, var(--color-text-primary)) 4%) !important;
+  box-shadow: none !important;
 }
 
 .conversation-composer__send--main::before {
@@ -2284,13 +2308,27 @@
 
 .conversation-composer__send--main:hover:not(:disabled) {
   transform: translateY(-1px);
-  color: #ffffff !important;
-  background: linear-gradient(180deg, var(--color-primary), var(--color-primary-hover)) !important;
+  color: var(--workspace-text-primary, var(--color-text-primary)) !important;
+  border-color: transparent !important;
+  background: color-mix(in srgb, var(--workspace-control-hover-bg, var(--color-surface-hover)) 88%, var(--workspace-text-primary, var(--color-text-primary)) 6%) !important;
+}
+
+.conversation-composer__send--main.conversation-composer__send--stop {
+  color: color-mix(in srgb, var(--color-error, #ef4444) 78%, var(--workspace-text-primary, var(--color-text-primary))) !important;
+  border-color: transparent !important;
+  background: color-mix(in srgb, var(--workspace-control-bg, var(--color-surface)) 86%, var(--color-error, #ef4444) 7%) !important;
+  box-shadow: none !important;
+}
+
+.conversation-composer__send--main.conversation-composer__send--stop:hover:not(:disabled) {
+  transform: translateY(-1px);
+  color: color-mix(in srgb, var(--color-error, #ef4444) 86%, var(--workspace-text-primary, var(--color-text-primary))) !important;
+  background: color-mix(in srgb, var(--workspace-control-hover-bg, var(--color-surface-hover)) 84%, var(--color-error, #ef4444) 10%) !important;
 }
 
 .conversation-composer__send--main:disabled {
   color: var(--workspace-text-tertiary, var(--color-text-tertiary)) !important;
-  border-color: color-mix(in srgb, var(--workspace-border, var(--color-border)) 80%, transparent) !important;
+  border-color: transparent !important;
   background: color-mix(in srgb, var(--workspace-control-bg, var(--color-surface)) 74%, transparent) !important;
   box-shadow: none !important;
   transform: none;
@@ -2354,4 +2392,138 @@
 :global(.dark) .conversation-composer--main .composer-chip--open {
   background: color-mix(in srgb, var(--workspace-control-hover-bg, rgba(255, 255, 255, 0.1)) 88%, transparent);
   color: var(--workspace-text-primary, #f4f4f0);
+}
+
+/* Main composer dock: one visual container with a protruding priority panel. */
+.conversation-composer--main .conversation-composer__dock {
+  width: 100%;
+  max-width: var(--conversation-stream-width, min(100%, 980px));
+  margin: 0 auto;
+  gap: 0;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--workspace-border, var(--color-border)) 92%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--workspace-panel-bg, var(--color-surface)) 88%, transparent);
+  box-shadow: 0 18px 40px rgba(24, 24, 22, 0.055);
+  backdrop-filter: blur(18px);
+  overflow: visible;
+  transition:
+    border-color 0.16s ease,
+    background-color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.conversation-composer--main .conversation-composer__panel {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 0 0 15px 15px;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.conversation-composer--main .conversation-composer__dock > :deep(.permission-popup),
+.conversation-composer--main .conversation-composer__dock > :deep(.active-form-popup),
+.conversation-composer--main .conversation-composer__dock > .conversation-composer__queue--priority,
+.conversation-composer--main .conversation-composer__dock > :deep(.conversation-todo-panel) {
+  width: calc(100% + 2px);
+  max-width: none;
+  margin: -10px -1px 0;
+  border: 1px solid color-mix(in srgb, var(--workspace-border, var(--color-border)) 88%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--workspace-border, var(--color-border)) 58%, transparent);
+  border-radius: 16px 16px 10px 10px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--workspace-panel-bg, var(--color-surface)) 98%, white 2%),
+      color-mix(in srgb, var(--workspace-panel-bg, var(--color-surface)) 90%, transparent)
+    );
+  box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.05);
+}
+
+.conversation-composer--main .conversation-composer__dock > :deep(.permission-popup),
+.conversation-composer--main .conversation-composer__dock > :deep(.active-form-popup) {
+  overflow: hidden;
+}
+
+.conversation-composer--main .conversation-composer__dock > .conversation-composer__queue--priority {
+  gap: 7px;
+  padding: 9px 12px 10px;
+}
+
+.conversation-composer--main .conversation-composer__dock > :deep(.conversation-todo-panel) {
+  padding: 9px 13px 10px;
+}
+
+.conversation-composer--main .conversation-composer__dock > :deep(.permission-popup + *),
+.conversation-composer--main .conversation-composer__dock > :deep(.active-form-popup + *) {
+  margin-top: 0;
+}
+
+.conversation-composer--plan-mode.conversation-composer--main .conversation-composer__dock {
+  border-color: color-mix(in srgb, var(--color-border-focus, var(--color-primary)) 66%, var(--workspace-border-strong, var(--workspace-border)));
+  box-shadow:
+    0 18px 40px rgba(24, 24, 22, 0.055),
+    0 0 0 2px color-mix(in srgb, var(--color-border-focus, var(--color-primary)) 14%, transparent);
+}
+
+.conversation-composer--plan-mode.conversation-composer--main .conversation-composer__panel {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.conversation-composer--drag-over.conversation-composer--main .conversation-composer__dock {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--color-primary) 46%, var(--workspace-border, var(--color-border)));
+  background: color-mix(in srgb, var(--workspace-panel-bg, var(--color-surface)) 78%, var(--color-primary-light));
+}
+
+.conversation-composer--drag-over.conversation-composer--main .conversation-composer__panel {
+  border-style: solid;
+  border-color: transparent;
+  background: transparent;
+}
+
+:global([data-theme='dark']) .conversation-composer--main .conversation-composer__dock,
+:global(.dark) .conversation-composer--main .conversation-composer__dock {
+  background: color-mix(in srgb, var(--workspace-panel-bg, #1b1b1b) 82%, transparent);
+  border-color: color-mix(in srgb, var(--workspace-border, rgba(255, 255, 255, 0.1)) 92%, transparent);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+}
+
+:global([data-theme='dark']) .conversation-composer--main .conversation-composer__panel,
+:global(.dark) .conversation-composer--main .conversation-composer__panel {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+:global([data-theme='dark']) .conversation-composer--main .conversation-composer__dock > :deep(.permission-popup),
+:global(.dark) .conversation-composer--main .conversation-composer__dock > :deep(.permission-popup),
+:global([data-theme='dark']) .conversation-composer--main .conversation-composer__dock > :deep(.active-form-popup),
+:global(.dark) .conversation-composer--main .conversation-composer__dock > :deep(.active-form-popup),
+:global([data-theme='dark']) .conversation-composer--main .conversation-composer__dock > .conversation-composer__queue--priority,
+:global(.dark) .conversation-composer--main .conversation-composer__dock > .conversation-composer__queue--priority,
+:global([data-theme='dark']) .conversation-composer--main .conversation-composer__dock > :deep(.conversation-todo-panel),
+:global(.dark) .conversation-composer--main .conversation-composer__dock > :deep(.conversation-todo-panel) {
+  border-color: color-mix(in srgb, var(--workspace-border, rgba(255, 255, 255, 0.1)) 92%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--workspace-border, rgba(255, 255, 255, 0.1)) 58%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--workspace-panel-bg, #1b1b1b) 92%, rgba(255, 255, 255, 0.06)),
+      color-mix(in srgb, var(--workspace-panel-bg, #1b1b1b) 82%, transparent)
+    );
+}
+
+:global([data-theme='dark']) .conversation-composer--plan-mode.conversation-composer--main .conversation-composer__dock,
+:global(.dark) .conversation-composer--plan-mode.conversation-composer--main .conversation-composer__dock {
+  border-color: color-mix(in srgb, var(--color-border-focus, var(--color-primary)) 62%, var(--workspace-border-strong, var(--workspace-border)));
+  box-shadow:
+    0 18px 40px rgba(0, 0, 0, 0.28),
+    0 0 0 2px color-mix(in srgb, var(--color-border-focus, var(--color-primary)) 18%, transparent);
 }

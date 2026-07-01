@@ -1,37 +1,46 @@
 .tool-call {
+  --tool-muted-bg: transparent;
+  --tool-muted-bg-hover: color-mix(in srgb, var(--workspace-control-hover-bg, var(--tool-call-header-hover)) 22%, transparent);
+  --tool-muted-text: color-mix(in srgb, var(--workspace-text-secondary, var(--tool-call-meta)) 84%, var(--workspace-text-tertiary, var(--color-text-tertiary)));
+  --tool-muted-title: color-mix(in srgb, var(--workspace-text-secondary, var(--tool-call-name)) 88%, var(--workspace-text-primary, var(--color-text-primary)));
+  --tool-muted-meta: color-mix(in srgb, var(--workspace-text-tertiary, var(--tool-call-meta)) 86%, transparent);
+  --tool-muted-divider: color-mix(in srgb, var(--workspace-border, var(--tool-call-content-border)) 42%, transparent);
   align-self: flex-start;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  width: min(100%, var(--thinking-display-width, var(--timeline-entry-width, clamp(18rem, 40%, 34rem))));
+  width: min(100%, var(--timeline-entry-width, var(--conversation-stream-width, 48rem)));
   min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
-  border: 1px solid color-mix(in srgb, var(--workspace-border, var(--tool-call-content-border)) 74%, transparent);
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--workspace-control-bg, var(--tool-call-bg)) 72%, transparent);
+  border: 0;
+  border-left: 0;
+  border-radius: 8px;
+  background: var(--tool-muted-bg);
+  color: var(--tool-muted-text);
   overflow: hidden;
-  transition: border-color 0.18s ease;
+  transition: background 0.18s ease;
 }
 
 .tool-call--compact {
-  width: min(100%, var(--thinking-display-width, var(--timeline-entry-width, clamp(18rem, 40%, 34rem))));
+  width: min(100%, var(--timeline-entry-width, var(--conversation-stream-width, 48rem)));
 }
 
 .tool-call--agent-run {
-  width: min(100%, var(--timeline-entry-width, clamp(22rem, 48%, 40rem)));
+  width: min(100%, var(--timeline-entry-width, var(--conversation-stream-width, 48rem)));
 }
 
 .tool-call:hover {
-  border-color: color-mix(in srgb, var(--workspace-border-strong, var(--tool-call-hover-border)) 86%, transparent);
+  background: var(--tool-muted-bg-hover);
 }
 
 .tool-call--running {
-  border-color: color-mix(in srgb, var(--color-primary) 16%, var(--workspace-border, var(--tool-call-running-content-border)));
+  background: color-mix(in srgb, var(--workspace-control-bg, var(--color-bg-secondary)) 20%, transparent);
 }
 
 .tool-call--error {
-  border-color: color-mix(in srgb, var(--color-error) 22%, var(--workspace-border, var(--tool-call-error-content-border)));
+  background: color-mix(in srgb, var(--color-error) 8%, transparent);
+  color: color-mix(in srgb, var(--color-error) 18%, var(--tool-muted-text));
 }
 
 .tool-call__header {
@@ -39,7 +48,7 @@
   align-items: center;
   gap: 7px;
   width: 100%;
-  min-height: 32px;
+  min-height: 30px;
   padding: 5px 9px;
   border: 0;
   background: transparent;
@@ -51,7 +60,7 @@
 
 /* hover 仅以淡背景提示可点击 */
 .tool-call__header:hover {
-  background: color-mix(in srgb, var(--workspace-control-hover-bg, var(--tool-call-header-hover)) 42%, transparent);
+  background: transparent;
 }
 
 .tool-call__header-left {
@@ -69,8 +78,8 @@
   width: 18px;
   height: 18px;
   border-radius: 6px;
-  background: color-mix(in srgb, currentColor 8%, transparent);
-  color: var(--workspace-text-secondary, var(--tool-call-meta));
+  background: transparent;
+  color: var(--tool-muted-meta);
 }
 
 .tool-call--running .tool-call__icon,
@@ -82,23 +91,25 @@
   animation: tool-live-pulse 1.8s ease-in-out infinite;
 }
 
-.tool-call__agent-label {
+.tool-call__category {
   flex: 0 0 auto;
   padding: 2px 6px;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
-  color: color-mix(in srgb, var(--color-primary) 82%, var(--workspace-text-primary, var(--color-text-primary)));
+  background: color-mix(in srgb, var(--workspace-control-bg, var(--color-bg-secondary)) 70%, transparent);
+  color: var(--tool-muted-meta);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 650;
   line-height: 1.2;
 }
 
 .tool-call__name {
-  min-width: 0;
+  flex: 0 1 auto;
+  min-width: max-content;
+  max-width: 13rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--workspace-text-primary, var(--tool-call-name));
+  color: var(--tool-muted-title);
   font-size: 12px;
   font-weight: 580;
 }
@@ -107,11 +118,11 @@
 .tool-call__name--sweep {
   background: linear-gradient(
     90deg,
-    var(--workspace-text-primary, var(--tool-call-name)) 0%,
-    var(--workspace-text-primary, var(--tool-call-name)) 35%,
+    var(--tool-muted-title) 0%,
+    var(--tool-muted-title) 35%,
     var(--color-primary) 50%,
-    var(--workspace-text-primary, var(--tool-call-name)) 65%,
-    var(--workspace-text-primary, var(--tool-call-name)) 100%
+    var(--tool-muted-title) 65%,
+    var(--tool-muted-title) 100%
   );
   background-size: 250% 100%;
   background-position: 100% 0;
@@ -127,82 +138,41 @@
   100% { background-position: -150% 0; }
 }
 
-.tool-call__status {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 999px;
-  background: color-mix(in srgb, currentColor 10%, transparent);
-}
-
-.tool-call__status--running {
-  color: var(--color-primary);
-  animation: tool-spin 1s linear infinite;
-}
-
-.tool-call__status--success {
-  color: var(--workspace-text-secondary, var(--tool-call-success-status));
-}
-
-.tool-call__status--error {
-  color: var(--tool-call-error-status);
-}
-
-.tool-call__header-right {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 7px;
-  min-width: 0;
-  flex: 0 1 auto;
-  max-width: min(68%, 24rem);
+.tool-call--error .tool-call__category {
+  background: color-mix(in srgb, var(--color-error) 12%, transparent);
+  color: color-mix(in srgb, var(--color-error) 72%, var(--workspace-text-primary, var(--color-text-primary)));
 }
 
 .tool-call__summary {
   flex: 1 1 auto;
   min-width: 0;
-  max-width: min(18rem, 42vw);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--workspace-text-tertiary, var(--tool-call-summary));
+  color: var(--tool-muted-text);
   font-size: 11px;
-  text-align: right;
+  text-align: left;
 }
 
 .tool-call__toggle {
   display: none;
 }
 
-.tool-call__chevron {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--workspace-text-tertiary, var(--tool-call-meta));
-  transition: transform 0.18s ease;
-}
-
-.tool-call__chevron--expanded {
-  transform: rotate(180deg);
-}
-
 /* 展开内容区：与头部同属一个容器，仅以顶部分割线区分 */
 .tool-call__content {
   width: 100%;
   box-sizing: border-box;
-  border-top: 1px solid color-mix(in srgb, var(--workspace-border, var(--tool-call-content-border)) 50%, transparent);
+  border-top: 1px solid var(--tool-muted-divider);
   padding: 8px 9px 9px 12px;
   overflow: hidden;
 }
 
 .tool-call--running .tool-call__content {
-  border-top-color: color-mix(in srgb, var(--color-primary) 16%, var(--workspace-border, var(--tool-call-running-content-border)));
+  border-top-color: color-mix(in srgb, var(--color-primary) 12%, var(--tool-muted-divider));
 }
 
 .tool-call--error .tool-call__content {
-  border-top-color: color-mix(in srgb, var(--color-error) 22%, var(--workspace-border, var(--tool-call-error-content-border)));
+  border-top-color: color-mix(in srgb, var(--color-error) 16%, var(--tool-muted-divider));
 }
 
 .tool-call__section {
@@ -240,23 +210,13 @@
   background: color-mix(in srgb, var(--workspace-control-hover-bg, var(--tool-call-section-hover)) 64%, transparent);
 }
 
-.tool-call__section-title,
-.tool-call__section-toggle {
+.tool-call__section-title {
   display: flex;
   align-items: center;
-}
-
-.tool-call__section-title {
   gap: 6px;
-  color: var(--workspace-text-secondary, var(--tool-call-meta));
+  color: var(--tool-muted-text);
   font-size: 11px;
   font-weight: 560;
-}
-
-.tool-call__section-toggle {
-  gap: 7px;
-  color: var(--workspace-text-tertiary, var(--tool-call-meta));
-  font-size: 11px;
 }
 
 .tool-call__code {
@@ -265,10 +225,10 @@
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
-  border: 1px solid color-mix(in srgb, var(--workspace-border, var(--color-border)) 60%, transparent);
+  border: 0;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--tool-call-code-bg, rgba(28, 25, 23, 0.05)) 84%, transparent);
-  color: var(--workspace-text-primary, var(--color-text-primary));
+  background: color-mix(in srgb, var(--tool-call-code-bg, rgba(28, 25, 23, 0.05)) 70%, transparent);
+  color: color-mix(in srgb, var(--workspace-text-secondary, var(--color-text-secondary)) 90%, var(--workspace-text-primary, var(--color-text-primary)));
   font-family: var(--font-family-mono);
   font-size: 12px;
   line-height: 1.52;
@@ -282,6 +242,12 @@
   white-space: pre;
   overflow-wrap: normal;
   word-break: normal;
+}
+
+.tool-call__code--skill {
+  max-height: min(260px, 34vh);
+  overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .tool-call__result {
@@ -326,7 +292,7 @@
   align-items: center;
   gap: 3px;
   flex: 0 0 auto;
-  max-width: 12rem;
+  max-width: 13rem;
   padding: 1px 6px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--workspace-control-bg, var(--color-bg-secondary)) 80%, transparent);
@@ -363,12 +329,6 @@
   color: var(--workspace-text-secondary, var(--tool-call-meta));
 }
 
-@keyframes tool-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 @keyframes tool-live-pulse {
   0%,
   100% {
@@ -382,13 +342,16 @@
 
 :global([data-theme='dark']) .tool-call,
 :global(.dark) .tool-call {
-  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.06)) 72%, transparent);
-  border-color: color-mix(in srgb, var(--workspace-border, rgba(255, 255, 255, 0.1)) 80%, transparent);
+  --tool-muted-bg: rgba(255, 255, 255, 0.035);
+  --tool-muted-bg-hover: rgba(255, 255, 255, 0.052);
+  --tool-muted-text: color-mix(in srgb, var(--workspace-text-secondary, #b7b7af) 62%, var(--workspace-text-tertiary, #77776f));
+  --tool-muted-title: color-mix(in srgb, var(--workspace-text-secondary, #b7b7af) 74%, var(--workspace-text-primary, #f4f4f0));
+  --tool-muted-meta: color-mix(in srgb, var(--workspace-text-tertiary, #77776f) 86%, transparent);
+  --tool-muted-divider: rgba(255, 255, 255, 0.055);
 }
 
 :global([data-theme='dark']) .tool-call__code,
 :global(.dark) .tool-call__code {
-  border-color: color-mix(in srgb, var(--workspace-border, rgba(255, 255, 255, 0.1)) 70%, transparent);
-  background: color-mix(in srgb, rgba(0, 0, 0, 0.22) 88%, transparent);
-  color: var(--workspace-text-primary, #f4f4f0);
+  background: rgba(0, 0, 0, 0.18);
+  color: color-mix(in srgb, var(--workspace-text-secondary, #b7b7af) 82%, var(--workspace-text-primary, #f4f4f0));
 }

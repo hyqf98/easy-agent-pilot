@@ -4,7 +4,7 @@ import { EaIcon } from '@/components/common'
 import { conversationService } from '@/services/conversation'
 import { resolveRecordedModelId } from '@/services/usage/agentCliUsageRecorder'
 import { useAgentStore } from '@/stores/agent'
-import { MANUAL_STOP_ERROR_MARKER, type Message, type ToolCall } from '@/stores/message'
+import { MANUAL_STOP_ERROR_MARKER, isVisibleConversationMessage, type Message, type ToolCall } from '@/stores/message'
 import { useMessageStore } from '@/stores/message'
 import { useFileChangeStore } from '@/stores/fileChange'
 import { useSessionStore } from '@/stores/session'
@@ -64,6 +64,7 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
   const isEditing = ref(false)
   const editContent = ref('')
   const editTextareaRef = ref<HTMLTextAreaElement | null>(null)
+  const isFormResponseExpanded = ref(false)
   // 点击编辑控件外部（textarea / 发送 / 取消按钮以外）时取消编辑
   let editOutsideClickListener: ((event: PointerEvent) => void) | null = null
   let elapsedTimer: ReturnType<typeof setInterval> | null = null
@@ -111,8 +112,40 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
       && message.messageType !== 'system'
     )
   )
+  const latestAssistantRequestId = computed(() => {
+    const latestAssistant = [...resolvedSessionMessages.value]
+      .reverse()
+      .find(message =>
+        message.role === 'assistant'
+        && message.messageType !== 'usage'
+        && message.messageType !== 'context_window'
+        && message.messageType !== 'system'
+      )
+
+    return latestAssistant?.requestId ?? null
+  })
+  const isLatestAssistantRequestSending = computed(() => {
+    if (!props.sessionId || !props.message.requestId) {
+      return false
+    }
+
+    return sessionExecutionStore.getIsSending(props.sessionId)
+      && latestAssistantRequestId.value === props.message.requestId
+      && requestAssistantMessages.value.length > 0
+  })
   const isRequestActive = computed(() =>
     requestAssistantMessages.value.some(message => message.status === 'streaming')
+    || isLatestAssistantRequestSending.value
+  )
+  const hasVisibleRequestEvent = computed(() =>
+    requestAssistantMessages.value.some(message => {
+      if (!isVisibleConversationMessage(message, resolvedSessionMessages.value)) {
+        return false
+      }
+      if (message.messageType === 'thinking') return true
+      if (message.messageType === 'tool_use' || message.messageType === 'tool_result') return true
+      return Boolean(message.content?.trim())
+    })
   )
   // 回合终态推导：执行中 → 已完成 → 已中断 → 已失败
   // streaming 优先（仍在工作）；其次 error（失败）；其次 interrupted（停止/中断）；否则 completed
@@ -141,9 +174,9 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
   })
   const shouldShowWorkDivider = computed(() =>
     isFirstAssistantInRequest.value
-    && props.message.messageType !== 'usage'
-    && props.message.messageType !== 'context_window'
+    && props.message.messageType === 'text'
     && !isSystemStatus.value
+    && !(requestTerminalStatus.value === 'active' && hasVisibleRequestEvent.value)
   )
   const workDurationLabel = computed(() => {
     const times = requestAssistantMessages.value
@@ -261,7 +294,7 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
     isUser.value
     && latestUserMessageId.value === props.message.id
     && !isUserTurnActive.value
-    && (canRetry.value || Boolean(followingAssistantMessage.value))
+    && (canRetry.value || Boolean(followingAssistantMessage.value) || Boolean(props.sessionId))
   )
   // 用户消息可编辑：任意用户消息（不限最新），回合已结束（完成/失败/停止），无表单回填。
   // 编辑后重发会清空该消息之下的全部 AI 响应并重新生成。
@@ -366,6 +399,15 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
 
     return lines.length > 0 ? lines : null
   })
+
+  const userFormResponseCount = computed(() => userFormResponseDisplay.value?.length ?? 0)
+  const userFormResponseSummary = computed(() =>
+    t('message.formResponseSummary', { count: userFormResponseCount.value })
+  )
+
+  function toggleFormResponseExpanded() {
+    isFormResponseExpanded.value = !isFormResponseExpanded.value
+  }
 
   const processedUserMessage = computed(() => {
     if (!isUser.value) return []
@@ -534,9 +576,12 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
   })
   const matchedToolResultMessage = computed(() => {
     if (!props.message.toolCallId) return null
-    return resolvedSessionMessages.value.find(message =>
+    const resultMessages = resolvedSessionMessages.value.filter(message =>
       message.messageType === 'tool_result' && message.toolCallId === props.message.toolCallId
-    ) ?? null
+    )
+    return [...resultMessages].reverse().find(message => message.toolResult?.trim())
+      ?? resultMessages[resultMessages.length - 1]
+      ?? null
   })
   const isRequestStreaming = computed(() => {
     if (isStreaming.value) return true
@@ -889,9 +934,11 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
     isEditing,
     editContent,
     editTextareaRef,
+    isFormResponseExpanded,
     isAutoRetryPending,
     formattedTime,
     userFormResponseDisplay,
+    userFormResponseSummary,
     processedUserMessage,
     hasUserText,
     statusInfo,
@@ -932,6 +979,7 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
     cancelEdit,
     handleEditSubmit,
     handleFormSubmit,
+    toggleFormResponseExpanded,
     handleOpenEditTrace,
     formatTraceChangeType,
     getTraceDisplayName,

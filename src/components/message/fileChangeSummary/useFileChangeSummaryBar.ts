@@ -30,6 +30,19 @@ export function useFileChangeSummaryBar(props: FileChangeSummaryBarProps) {
     traces.value.filter(tr => (tr.status ?? 'pending') === 'pending').length
   )
 
+  const compactSummary = computed(() => {
+    const parts = traces.value.slice(0, 3).map(trace => {
+      const stats = lineStats(trace)
+      const suffix = [
+        stats.added > 0 ? `+${stats.added}` : '',
+        stats.removed > 0 ? `-${stats.removed}` : ''
+      ].filter(Boolean).join(' ')
+      return suffix ? `${trace.relativePath} ${suffix}` : trace.relativePath
+    })
+    const overflow = traces.value.length - parts.length
+    return overflow > 0 ? `${parts.join(' / ')} / +${overflow}` : parts.join(' / ')
+  })
+
   function changeTypeMeta(type: FileEditChangeType) {
     switch (type) {
       case 'create': return { dot: 'create', icon: 'file-plus' }
@@ -68,6 +81,7 @@ export function useFileChangeSummaryBar(props: FileChangeSummaryBarProps) {
     visible,
     expanded,
     pendingCount,
+    compactSummary,
     changeTypeMeta,
     lineStats,
     toggleExpand,

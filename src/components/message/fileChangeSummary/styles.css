@@ -13,7 +13,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
   height: 30px;
   padding: 0 10px;
@@ -43,6 +43,18 @@
   color: var(--workspace-text-primary, #262626);
   font-weight: 600;
   white-space: nowrap;
+}
+
+.file-change-summary__compact {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--workspace-text-secondary, #6b7280);
+  font-family: var(--font-family-mono, "SF Mono", Menlo, Consolas, monospace);
+  font-size: 11px;
+  font-weight: 500;
 }
 
 .file-change-summary__pending {

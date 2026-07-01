@@ -31,23 +31,23 @@
 
 .execution-timeline__tool-calls-shell {
   --tool-call-shell-max-height: var(--timeline-tool-call-shell-max-height, min(40rem, calc(3.35rem * 10 + var(--spacing-2) * 9 + 3rem)));
-  --tool-call-shell-border: rgba(249, 115, 22, 0.2);
-  --tool-call-shell-bg: linear-gradient(180deg, rgba(255, 247, 237, 0.96), rgba(255, 255, 255, 0.96));
-  --tool-call-shell-shadow: 0 10px 24px rgba(249, 115, 22, 0.08);
-  --tool-call-shell-title: #c2410c;
-  --tool-call-shell-count-bg: rgba(249, 115, 22, 0.12);
-  --tool-call-shell-count-text: #9a3412;
-  --tool-call-shell-scrollbar-thumb: rgba(249, 115, 22, 0.36);
+  --tool-call-shell-bg: color-mix(in srgb, var(--workspace-control-bg, var(--tool-call-bg)) 58%, transparent);
+  --tool-call-shell-title: var(--workspace-text-secondary, var(--color-text-secondary));
+  --tool-call-shell-count-bg: rgba(38, 38, 38, 0.055);
+  --tool-call-shell-count-text: var(--workspace-text-secondary, var(--color-text-secondary));
+  --tool-call-shell-scrollbar-thumb: rgba(148, 163, 184, 0.42);
+  --tool-call-shell-rail: color-mix(in srgb, var(--workspace-border-strong, var(--color-border)) 58%, transparent);
   width: var(--timeline-entry-width);
   max-width: 100%;
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-2);
-  padding: 0.75rem;
-  border-radius: 1rem;
-  border: 1px solid var(--tool-call-shell-border);
+  gap: 6px;
+  padding: 5px 0 5px 10px;
+  border-radius: 8px;
+  border: 0;
+  border-left: 2px solid var(--tool-call-shell-rail);
   background: var(--tool-call-shell-bg);
-  box-shadow: var(--tool-call-shell-shadow);
+  box-shadow: none;
   overflow: hidden;
 }
 
@@ -63,11 +63,11 @@
   gap: 0.45rem;
   width: var(--timeline-entry-width);
   max-width: 100%;
-  padding: 0.58rem 0.85rem;
-  border-radius: 0.75rem;
-  background: linear-gradient(135deg, rgba(14, 165, 233, 0.12), rgba(6, 182, 212, 0.08));
-  border: 1px solid rgba(14, 165, 233, 0.18);
-  box-shadow: 0 10px 22px rgba(14, 165, 233, 0.08);
+  padding: 0.34rem 0.56rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--workspace-control-bg, rgba(15, 23, 42, 0.04)) 80%, transparent);
+  border: 0;
+  box-shadow: none;
   box-sizing: border-box;
 }
 
@@ -83,16 +83,16 @@
 }
 
 .execution-timeline__tool-model-label {
-  color: #0369a1;
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary));
   font-weight: 600;
 }
 
 .execution-timeline__tool-model-value {
   flex: 1 1 auto;
   text-align: right;
-  color: #0f172a;
-  font-weight: 700;
-  letter-spacing: 0.01em;
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+  font-weight: 600;
+  letter-spacing: 0;
 }
 
 .execution-timeline__tool-calls-head {
@@ -101,7 +101,7 @@
   justify-content: space-between;
   gap: 0.75rem;
   width: 100%;
-  padding: 0 0.1rem;
+  padding: 2px 0;
   border: none;
   background: transparent;
   text-align: left;
@@ -123,9 +123,9 @@
 
 .execution-timeline__tool-calls-title {
   font-size: 0.74rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--tool-call-shell-title);
 }
 
@@ -133,8 +133,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 1.5rem;
-  height: 1.5rem;
+  min-width: 1.25rem;
+  height: 1.25rem;
   padding: 0 0.4rem;
   border-radius: 999px;
   background: var(--tool-call-shell-count-bg);
@@ -355,27 +355,26 @@
 }
 
 .execution-timeline--dark .execution-timeline__tool-calls-shell {
-  --tool-call-shell-border: rgba(249, 115, 22, 0.26);
-  --tool-call-shell-bg: linear-gradient(180deg, rgba(67, 20, 7, 0.7), rgba(15, 23, 42, 0.92));
-  --tool-call-shell-shadow: 0 12px 28px rgba(2, 6, 23, 0.28);
-  --tool-call-shell-title: #fdba74;
-  --tool-call-shell-count-bg: rgba(249, 115, 22, 0.18);
-  --tool-call-shell-count-text: #fed7aa;
-  --tool-call-shell-scrollbar-thumb: rgba(251, 146, 60, 0.42);
+  --tool-call-shell-bg: rgba(255, 255, 255, 0.035);
+  --tool-call-shell-title: color-mix(in srgb, var(--workspace-text-secondary, #b7b7af) 74%, var(--workspace-text-tertiary, #77776f));
+  --tool-call-shell-count-bg: rgba(255, 255, 255, 0.08);
+  --tool-call-shell-count-text: color-mix(in srgb, var(--workspace-text-secondary, #b7b7af) 70%, var(--workspace-text-tertiary, #77776f));
+  --tool-call-shell-scrollbar-thumb: rgba(148, 163, 184, 0.54);
+  --tool-call-shell-rail: rgba(255, 255, 255, 0.14);
 }
 
 .execution-timeline--dark .execution-timeline__tool-model-bubble {
-  background: linear-gradient(135deg, rgba(8, 47, 73, 0.78), rgba(15, 118, 110, 0.34));
-  border-color: rgba(34, 211, 238, 0.22);
-  box-shadow: 0 12px 24px rgba(2, 6, 23, 0.22);
+  background: rgba(255, 255, 255, 0.035);
+  border: 0;
+  box-shadow: none;
 }
 
 .execution-timeline--dark .execution-timeline__tool-model-label {
-  color: #67e8f9;
+  color: var(--workspace-text-tertiary, #77776f);
 }
 
 .execution-timeline--dark .execution-timeline__tool-model-value {
-  color: #ecfeff;
+  color: color-mix(in srgb, var(--workspace-text-secondary, #b7b7af) 70%, var(--workspace-text-primary, #f4f4f0));
 }
 
 .execution-timeline--dark .timeline-message__text {

@@ -308,8 +308,8 @@
 }
 
 :deep(.mini-panel__messages .message-bubble__tool-calls-shell) {
-  padding: 0.55rem;
-  border-radius: 0.85rem;
+  padding: 5px 0 5px 9px;
+  border-radius: 8px;
 }
 
 :deep(.mini-panel__messages .message-bubble__tool-calls-head) {

@@ -33,6 +33,19 @@ function resolveVariant(option: PermissionOption): 'allow-once' | 'allow-always'
   return 'default'
 }
 
+function resolveOptionLabel(option: PermissionOption): string {
+  switch (resolveVariant(option)) {
+    case 'allow-once':
+      return t('permission.allowOnce')
+    case 'allow-always':
+      return t('permission.allowAlways')
+    case 'reject':
+      return t('permission.reject')
+    default:
+      return option.name || t('permission.defaultOption')
+  }
+}
+
 async function handleRespond(option: PermissionOption): Promise<void> {
   if (!pending.value || submitting.value) return
   submitting.value = option.optionId
@@ -48,6 +61,10 @@ async function handleRespond(option: PermissionOption): Promise<void> {
 const inputSummary = computed<string>(() => {
   const input = pending.value?.toolInput
   if (!input || typeof input !== 'object') return ''
+  const command = input.command ?? input.cmd ?? input.script
+  if (typeof command === 'string' && command.trim()) {
+    return command.trim()
+  }
   const entries = Object.entries(input).slice(0, 3)
   return entries.map(([key, value]) => {
     const str = typeof value === 'string' ? value : JSON.stringify(value)
@@ -94,7 +111,7 @@ const inputSummary = computed<string>(() => {
             :disabled="submitting !== null"
             @click="handleRespond(option)"
           >
-            {{ option.name }}
+            {{ resolveOptionLabel(option) }}
           </button>
         </div>
       </div>

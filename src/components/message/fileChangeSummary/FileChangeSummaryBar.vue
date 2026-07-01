@@ -10,6 +10,7 @@ const {
   visible,
   expanded,
   pendingCount,
+  compactSummary,
   changeTypeMeta,
   lineStats,
   toggleExpand,
@@ -38,6 +39,12 @@ const {
       </span>
       <span class="file-change-summary__label">
         {{ t('fileChange.modifiedFiles', { count: traces.length }) }}
+      </span>
+      <span
+        v-if="compactSummary"
+        class="file-change-summary__compact"
+      >
+        {{ compactSummary }}
       </span>
       <span
         v-if="pendingCount > 0 && pendingCount < traces.length"

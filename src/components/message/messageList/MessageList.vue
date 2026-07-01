@@ -20,6 +20,9 @@ const emit = defineEmits<MessageListEmits>()
 const {
   listRef,
   currentMessages,
+  renderableMessages,
+  streamStatus,
+  isAwaitingFirstAssistantEvent,
   resolvedSessionId,
   isExternalMessagesMode,
   hasMoreMessages,
@@ -70,7 +73,7 @@ const {
       <template v-if="!shouldVirtualize">
         <TransitionGroup name="message">
           <template
-            v-for="message in currentMessages"
+            v-for="message in renderableMessages"
             :key="message.id"
           >
             <div
@@ -119,6 +122,7 @@ const {
               :is-current-streaming-message-override="isExternalMessagesMode ? props.currentStreamingMessageId === item.message.id : undefined"
               :hide-context-strategy-notice="props.hideContextStrategyNotice"
               @retry="handleRetry"
+              @edit="handleEdit"
               @form-submit="handleFormSubmit"
               @open-edit-trace="handleOpenEditTrace"
               @stop="handleStop"
@@ -127,9 +131,49 @@ const {
         </template>
 
         <div
+          v-if="isAwaitingFirstAssistantEvent"
+          class="message-list__initial-work"
+        >
+          <span class="message-list__initial-work-line" />
+          <span class="message-list__initial-work-status">
+            <span class="message-list__stream-status-spinner" />
+            <span>{{ t('message.workDivider.working') }}</span>
+          </span>
+        </div>
+
+        <div
+          v-if="streamStatus"
+          class="message-list__stream-status"
+          :class="`message-list__stream-status--${streamStatus.kind}`"
+        >
+          <span class="message-list__stream-status-spinner" />
+          <span>{{ streamStatus.text }}</span>
+        </div>
+
+        <div
           class="message-list__virtual-spacer"
           :style="{ height: `${virtualWindow.bottomSpacer}px` }"
         />
+      </div>
+
+      <div
+        v-if="isAwaitingFirstAssistantEvent"
+        class="message-list__initial-work"
+      >
+        <span class="message-list__initial-work-line" />
+        <span class="message-list__initial-work-status">
+          <span class="message-list__stream-status-spinner" />
+          <span>{{ t('message.workDivider.working') }}</span>
+        </span>
+      </div>
+
+      <div
+        v-if="!shouldVirtualize && streamStatus"
+        class="message-list__stream-status"
+        :class="`message-list__stream-status--${streamStatus.kind}`"
+      >
+        <span class="message-list__stream-status-spinner" />
+        <span>{{ streamStatus.text }}</span>
       </div>
 
       <!-- 空状态 -->

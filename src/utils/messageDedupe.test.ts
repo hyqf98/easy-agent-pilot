@@ -29,12 +29,12 @@ describe('dedupeMessagesById', () => {
 })
 
 describe('dedupeRequestTextRows', () => {
-  it('同回合多条 assistant text 仅保留 content 最长的一条', () => {
+  it('同回合多条 assistant text 段必须全部保留', () => {
     const short = buildMessage({ id: 'a1', requestId: 'r1', content: 'hi' })
     const long = buildMessage({ id: 'a2', requestId: 'r1', content: 'hello world response' })
     const result = dedupeRequestTextRows([short, long])
-    expect(result.filter(m => m.messageType === 'text')).toHaveLength(1)
-    expect(result.find(m => m.messageType === 'text')?.content).toBe('hello world response')
+    expect(result.filter(m => m.messageType === 'text')).toHaveLength(2)
+    expect(result.map(m => m.content)).toEqual(['hi', 'hello world response'])
   })
 
   it('不同回合的 text 各自保留', () => {
@@ -50,7 +50,7 @@ describe('dedupeRequestTextRows', () => {
     const thinking = buildMessage({ id: 'th1', requestId: 'r1', messageType: 'thinking', content: 'thought' })
     const usage = buildMessage({ id: 'u1', requestId: 'r1', messageType: 'usage' })
     const result = dedupeRequestTextRows([text1, text2, thinking, usage])
-    expect(result.filter(m => m.messageType === 'text')).toHaveLength(1)
+    expect(result.filter(m => m.messageType === 'text')).toHaveLength(2)
     expect(result.filter(m => m.messageType === 'thinking')).toHaveLength(1)
     expect(result.filter(m => m.messageType === 'usage')).toHaveLength(1)
   })
@@ -61,7 +61,7 @@ describe('dedupeRequestTextRows', () => {
     const a2 = buildMessage({ id: 'a2', requestId: 'r1', content: 'longer answer text' })
     const result = dedupeRequestTextRows([user, a1, a2])
     expect(result.filter(m => m.role === 'user')).toHaveLength(1)
-    expect(result.filter(m => m.role === 'assistant' && m.messageType === 'text')).toHaveLength(1)
+    expect(result.filter(m => m.role === 'assistant' && m.messageType === 'text')).toHaveLength(2)
   })
 
   it('无 requestId 的 assistant text 不参与去重', () => {
@@ -70,11 +70,10 @@ describe('dedupeRequestTextRows', () => {
     expect(result).toHaveLength(1)
   })
 
-  it('content 长度相同时保留最后一条', () => {
+  it('content 长度相同时也保留所有 text 段', () => {
     const first = buildMessage({ id: 'a1', requestId: 'r1', content: 'same' })
     const second = buildMessage({ id: 'a2', requestId: 'r1', content: 'same' })
     const result = dedupeRequestTextRows([first, second])
-    expect(result.filter(m => m.messageType === 'text')).toHaveLength(1)
-    expect(result.find(m => m.messageType === 'text')?.id).toBe('a2')
+    expect(result.filter(m => m.messageType === 'text')).toHaveLength(2)
   })
 })

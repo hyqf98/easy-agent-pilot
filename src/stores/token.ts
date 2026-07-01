@@ -97,6 +97,7 @@ export interface RealtimeTokenData {
   outputTokens: number
   model?: string
   contextWindowOccupancy?: number
+  contextWindowOccupancySource?: 'acp' | 'snapshot'
   /** 运行时上报的上下文窗口总大小（ACP UsageUpdate.size），用于校验/覆盖配置上限 */
   contextWindowSize?: number
 }
@@ -204,6 +205,17 @@ function deleteMapEntry<K, V>(source: Map<K, V>, key: K): Map<K, V> {
   return next
 }
 
+export function shouldReplaceContextWindowOccupancy(
+  existingSource: RealtimeTokenData['contextWindowOccupancySource'],
+  incomingOccupancy: number | undefined,
+  incomingSource: RealtimeTokenData['contextWindowOccupancySource']
+): boolean {
+  return incomingOccupancy !== undefined && (
+    incomingSource === 'acp'
+    || existingSource !== 'acp'
+  )
+}
+
 function getLevel(percentage: number): TokenLevel {
   if (percentage >= 95) return 'critical'
   if (percentage >= 80) return 'danger'
@@ -250,6 +262,7 @@ export const useTokenStore = defineStore('token', () => {
   async function restorePersistedSessionTokens(sessionId: string): Promise<RealtimeTokenData | null> {
     const messageStore = useMessageStore()
     const sessionStore = useSessionStore()
+    const sessionMessages = messageStore.messagesBySession(sessionId)
     const session = sessionStore.sessions.find(item => item.id === sessionId)
     const boundProvider = session?.cliSessionProvider?.trim().toLowerCase()
     const hasPersistedCliRuntime = Boolean(boundProvider)
@@ -258,7 +271,10 @@ export const useTokenStore = defineStore('token', () => {
       return null
     }
 
-    const latestUsageMessage = findLatestUsageMessage(messageStore.messagesBySession(sessionId))
+    const latestUsageMessage = findLatestUsageMessage(sessionMessages)
+    const latestContextWindowMessage = findLatestContextWindowMessage(sessionMessages)
+    const persistedContextWindowUsed = latestContextWindowMessage?.inputTokens
+    const persistedContextWindowSize = latestContextWindowMessage?.outputTokens
 
     if (session) {
       try {
@@ -268,7 +284,11 @@ export const useTokenStore = defineStore('token', () => {
             inputTokens: snapshot.inputTokens ?? 0,
             outputTokens: snapshot.outputTokens ?? 0,
             model: snapshot.model,
-            contextWindowOccupancy: snapshot.contextWindowOccupancy
+            contextWindowOccupancy: persistedContextWindowUsed ?? snapshot.contextWindowOccupancy,
+            contextWindowOccupancySource: persistedContextWindowUsed !== undefined
+              ? 'acp'
+              : (snapshot.contextWindowOccupancy !== undefined ? 'snapshot' : undefined),
+            contextWindowSize: persistedContextWindowSize
           }
         }
       } catch (error) {
@@ -287,12 +307,7 @@ export const useTokenStore = defineStore('token', () => {
 
     const inputTokens = rawCounts.inputTokens ?? parsePersistedTokenCount(summary.input)
     const outputTokens = rawCounts.outputTokens ?? parsePersistedTokenCount(summary.output)
-    const contextWindowOccupancy = rawCounts.contextWindowOccupancy
-      ?? (
-        inputTokens !== undefined || outputTokens !== undefined
-          ? (inputTokens ?? 0) + (outputTokens ?? 0)
-          : undefined
-      )
+    const contextWindowOccupancy = persistedContextWindowUsed ?? rawCounts.contextWindowOccupancy
     const model = summary.model?.trim() || undefined
 
     if (inputTokens === undefined && outputTokens === undefined && !model) {
@@ -303,7 +318,9 @@ export const useTokenStore = defineStore('token', () => {
       inputTokens: inputTokens ?? 0,
       outputTokens: outputTokens ?? 0,
       model,
-      contextWindowOccupancy
+      contextWindowOccupancy,
+      contextWindowOccupancySource: persistedContextWindowUsed !== undefined ? 'acp' : undefined,
+      contextWindowSize: persistedContextWindowSize
     }
   }
 
@@ -336,13 +353,7 @@ export const useTokenStore = defineStore('token', () => {
     const latestContextWindowMessage = findLatestContextWindowMessage(sessionMessages)
     const persistedContextWindowUsed = latestContextWindowMessage?.inputTokens
     const persistedContextWindowSize = latestContextWindowMessage?.outputTokens
-    const persistedOccupancy = persistedUsageCounts.contextWindowOccupancy
-      ?? persistedContextWindowUsed
-      ?? (
-        persistedUsageCounts.inputTokens !== undefined || persistedUsageCounts.outputTokens !== undefined
-          ? (persistedUsageCounts.inputTokens ?? 0) + (persistedUsageCounts.outputTokens ?? 0)
-          : undefined
-      )
+    const persistedOccupancy = persistedContextWindowUsed ?? persistedUsageCounts.contextWindowOccupancy
     const realtimeModel = realtimeData?.model?.trim() || persistedUsageSummary?.model?.trim() || undefined
 
     let contextWindow = DEFAULT_CONTEXT_WINDOW
@@ -383,9 +394,10 @@ export const useTokenStore = defineStore('token', () => {
       return buildEmptyTokenUsage(contextWindow)
     }
 
-    const usedTokens = realtimeData?.contextWindowOccupancy
-      ?? persistedOccupancy
-      ?? 0
+    const realtimeOccupancy = realtimeData?.contextWindowOccupancy
+    const usedTokens = realtimeData?.contextWindowOccupancySource === 'acp'
+      ? (realtimeOccupancy ?? persistedOccupancy ?? 0)
+      : (persistedContextWindowUsed ?? realtimeOccupancy ?? persistedOccupancy ?? 0)
 
     const percentage = contextWindow > 0
       ? Math.min(100, (usedTokens / contextWindow) * 100)
@@ -425,7 +437,8 @@ export const useTokenStore = defineStore('token', () => {
     outputTokens: number | undefined,
     model?: string,
     contextWindowOccupancy?: number,
-    contextWindowSize?: number
+    contextWindowSize?: number,
+    contextWindowOccupancySource?: RealtimeTokenData['contextWindowOccupancySource']
   ) {
     if (
       inputTokens === undefined
@@ -433,14 +446,26 @@ export const useTokenStore = defineStore('token', () => {
       && !model
       && contextWindowOccupancy === undefined
       && contextWindowSize === undefined
+      && contextWindowOccupancySource === undefined
     ) return
     const existing = realtimeTokens.value.get(sessionId) || { inputTokens: 0, outputTokens: 0 }
+    const shouldUpdateOccupancy = shouldReplaceContextWindowOccupancy(
+      existing.contextWindowOccupancySource,
+      contextWindowOccupancy,
+      contextWindowOccupancySource
+    )
+    const nextOccupancySource = shouldUpdateOccupancy
+      ? contextWindowOccupancySource
+      : existing.contextWindowOccupancySource
 
     realtimeTokens.value = replaceMapEntry(realtimeTokens.value, sessionId, {
       inputTokens: inputTokens ?? existing.inputTokens,
       outputTokens: outputTokens ?? existing.outputTokens,
       model: model ?? existing.model,
-      contextWindowOccupancy: contextWindowOccupancy ?? existing.contextWindowOccupancy,
+      contextWindowOccupancy: shouldUpdateOccupancy
+        ? contextWindowOccupancy
+        : existing.contextWindowOccupancy,
+      contextWindowOccupancySource: nextOccupancySource,
       contextWindowSize: contextWindowSize ?? existing.contextWindowSize
     })
   }

@@ -7,7 +7,7 @@ import { useSessionExecutionStore } from './sessionExecution'
 import { useTokenStore, type CompressionStrategy } from './token'
 import { readSessionCliUsageSnapshot } from '@/services/usage/cliSessionUsageSnapshot'
 import { getErrorMessage } from '@/utils/api'
-import { dedupeMessagesById, dedupeRequestTextRows } from '@/utils/messageDedupe'
+import { dedupeMessagesById } from '@/utils/messageDedupe'
 import type { FileEditTrace } from '@/types/fileTrace'
 import type { ToolLocation } from '@/services/conversation/strategies/types'
 
@@ -154,13 +154,59 @@ function resolveRawMessageCreatedAt(message?: RustMessage): string | null {
   return message?.createdAt ?? null
 }
 
-function compareMessageOrder(left: Pick<Message, 'createdAt' | 'seq'>, right: Pick<Message, 'createdAt' | 'seq'>): number {
+function compareMessageOrder(
+  left: Pick<Message, 'createdAt' | 'seq' | 'requestId' | 'role'>,
+  right: Pick<Message, 'createdAt' | 'seq' | 'requestId' | 'role'>
+): number {
+  if (
+    left.requestId
+    && right.requestId
+    && left.requestId === right.requestId
+    && left.role === 'assistant'
+    && right.role === 'assistant'
+    && left.seq !== right.seq
+  ) {
+    return left.seq - right.seq
+  }
+
   const t = new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
   return t !== 0 ? t : left.seq - right.seq
 }
 
 /** @deprecated 旧名保留兼容，内部改用 compareMessageOrder */
 const compareMessageCreatedAt = compareMessageOrder
+
+export function compareMessagesForRender(left: Message, right: Message): number {
+  return compareMessageOrder(left, right)
+}
+
+export function isVisibleConversationMessage(message: Message, messages: Message[]): boolean {
+  if (message.messageType === 'usage' || message.messageType === 'context_window') {
+    return false
+  }
+
+  if (
+    message.role === 'assistant'
+    && message.messageType === 'text'
+    && message.status === 'streaming'
+    && !message.content?.trim()
+  ) {
+    return false
+  }
+
+  if (message.role === 'assistant' && message.messageType === 'system') {
+    return false
+  }
+
+  if (message.messageType === 'tool_result' && message.toolCallId) {
+    return !messages.some(candidate =>
+      candidate.messageType === 'tool_use'
+      && candidate.toolCallId === message.toolCallId
+    )
+  }
+
+  return true
+}
 
 const EMPTY_MESSAGES: Message[] = []
 
@@ -173,6 +219,10 @@ function generateLocalMessageId(): string {
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
   return `local_${uuid}`
+}
+
+function isEphemeralMessageId(id: string): boolean {
+  return id.startsWith('local_anchor_')
 }
 const EMPTY_ASSISTANT_EDIT_TRACES: SessionEditTrace[] = []
 const EMPTY_TRACE_MAP = new Map<string, { traceId: string, messageId: string, timestamp: string }>()
@@ -371,7 +421,7 @@ export const useMessageStore = defineStore('message', () => {
   }
 
   function setSessionMessages(sessionId: string, nextMessages: Message[]): void {
-    const normalizedMessages = dedupeRequestTextRows(dedupeMessagesById(nextMessages)).sort(compareMessageCreatedAt)
+    const normalizedMessages = dedupeMessagesById(nextMessages).sort(compareMessageCreatedAt)
     const assistantEditTraces = buildAssistantEditTraces(normalizedMessages)
     const latestAssistantTraceMap = buildLatestAssistantTraceMap(normalizedMessages)
     sessionMessages.value.set(sessionId, normalizedMessages)
@@ -467,7 +517,7 @@ export const useMessageStore = defineStore('message', () => {
 
   async function persistMessageUpdates(id: string, updates: Partial<Message>): Promise<void> {
     // 仅内存消息（如实时思考行）不落库：避免与后端 MessageRecorder 双写
-    if (localOnlyMessageIds.has(id)) {
+    if (localOnlyMessageIds.has(id) || isEphemeralMessageId(id)) {
       return
     }
 
@@ -556,6 +606,10 @@ export const useMessageStore = defineStore('message', () => {
     updates: Partial<Message>,
     options: BufferedMessageUpdateOptions = {}
   ): void {
+    if (isEphemeralMessageId(id)) {
+      return
+    }
+
     applyMessageUpdatesLocally(id, updates)
     pendingMessageUpdates.set(
       id,
@@ -568,6 +622,33 @@ export const useMessageStore = defineStore('message', () => {
     }
 
     scheduleBufferedMessageFlush(id)
+  }
+
+  function removeLocalMessage(id: string): void {
+    if (!localOnlyMessageIds.has(id)) {
+      return
+    }
+
+    localOnlyMessageIds.delete(id)
+    pendingMessageUpdates.delete(id)
+    const timer = pendingMessageTimers.get(id)
+    if (timer) {
+      clearTimeout(timer)
+      pendingMessageTimers.delete(id)
+    }
+
+    const index = messages.value.findIndex(message => message.id === id)
+    if (index === -1) {
+      return
+    }
+
+    const deletedMessage = messages.value[index]
+    messages.value.splice(index, 1)
+    const currentSessionMessages = sessionMessages.value.get(deletedMessage.sessionId) ?? EMPTY_MESSAGES
+    setSessionMessages(
+      deletedMessage.sessionId,
+      currentSessionMessages.filter(message => message.id !== id)
+    )
   }
 
   async function loadMessages(sessionId: string) {
@@ -619,30 +700,42 @@ export const useMessageStore = defineStore('message', () => {
       const latestUsageMessage = [...correctedSessionMessages]
         .reverse()
         .find(message => message.messageType === 'usage')
+      const latestContextWindowMessage = [...correctedSessionMessages]
+        .reverse()
+        .find(message => message.messageType === 'context_window')
       if (latestUsageMessage) {
         const restoredInputTokens = latestUsageMessage.inputTokens
         const restoredOutputTokens = latestUsageMessage.outputTokens
-        const restoredOccupancy = (restoredInputTokens ?? 0) + (restoredOutputTokens ?? 0) > 0
-          ? (restoredInputTokens ?? 0) + (restoredOutputTokens ?? 0)
-          : restoredInputTokens
         tokenStore.updateRealtimeTokens(
           sessionId,
           restoredInputTokens ?? undefined,
           restoredOutputTokens ?? undefined,
           latestUsageMessage.model,
-          restoredOccupancy ?? undefined
+          latestContextWindowMessage?.inputTokens ?? undefined,
+          latestContextWindowMessage?.outputTokens ?? undefined,
+          latestContextWindowMessage ? 'acp' : undefined
+        )
+      } else if (latestContextWindowMessage) {
+        tokenStore.updateRealtimeTokens(
+          sessionId,
+          undefined,
+          undefined,
+          undefined,
+          latestContextWindowMessage.inputTokens ?? undefined,
+          latestContextWindowMessage.outputTokens ?? undefined,
+          'acp'
         )
       } else if (sessionProvider && session) {
         const snapshot = await readSessionCliUsageSnapshot(session)
         if (snapshot) {
-          const occupancy = snapshot.contextWindowOccupancy
-            ?? (snapshot.inputTokens + snapshot.outputTokens)
           tokenStore.updateRealtimeTokens(
             sessionId,
             snapshot.inputTokens || undefined,
             snapshot.outputTokens || undefined,
             snapshot.model,
-            occupancy || undefined
+            snapshot.contextWindowOccupancy ?? undefined,
+            undefined,
+            snapshot.contextWindowOccupancy ? 'snapshot' : undefined
           )
         } else {
           tokenStore.clearRealtimeTokens(sessionId)
@@ -997,6 +1090,7 @@ export const useMessageStore = defineStore('message', () => {
     addMessage,
     updateMessage,
     updateMessageBuffered,
+    removeLocalMessage,
     flushBufferedMessageUpdate,
     deleteMessage,
     deleteMessagesAfter,

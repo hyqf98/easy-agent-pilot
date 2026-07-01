@@ -1,10 +1,34 @@
 import i18n from '@/i18n'
 import type { McpServerConfig } from './strategies/types'
 
-export function buildMainConversationFormRequestPrompt(): string {
-  const locale = i18n.mode === 'legacy'
+function getCurrentLocale(): string {
+  return i18n.mode === 'legacy'
     ? String((i18n.global as any).locale)
     : String((i18n.global.locale as any).value)
+}
+
+export function buildMainConversationLanguagePrompt(): string {
+  const locale = getCurrentLocale()
+
+  if (locale === 'en-US') {
+    return [
+      'Language policy for the main conversation:',
+      '1. Reply in the same language the user is currently using unless the user explicitly asks for another language.',
+      '2. Preserve the language across follow-up answers in the same conversation.',
+      '3. If the user writes Chinese or the app locale is Chinese, reply in Chinese by default, including after form responses, option selections, and short answers such as A/B/C.'
+    ].join('\n')
+  }
+
+  return [
+    '主会话语言规则:',
+    '1. 默认使用用户当前使用的语言回复，除非用户明确要求切换语言。',
+    '2. 同一会话的后续回答必须延续此前的语言风格。',
+    '3. 当用户使用中文，或应用界面语言为中文时，默认用中文回复；即使用户只是回复 A/B/C、选项、表单结果或短句，也继续用中文。'
+  ].join('\n')
+}
+
+export function buildMainConversationFormRequestPrompt(): string {
+  const locale = getCurrentLocale()
 
   if (locale === 'en-US') {
     return `You are collaborating with the user in the app's main conversation.
@@ -83,9 +107,7 @@ function formatMcpServerNames(mcpServers?: McpServerConfig[]): string {
 export function buildImageAttachmentFallbackPrompt(
   options: ImageAttachmentFallbackPromptOptions
 ): string {
-  const locale = i18n.mode === 'legacy'
-    ? String((i18n.global as any).locale)
-    : String((i18n.global.locale as any).value)
+  const locale = getCurrentLocale()
   const mcpServerList = formatMcpServerNames(options.mcpServers)
 
   if (locale === 'en-US') {

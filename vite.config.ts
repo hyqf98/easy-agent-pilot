@@ -105,4 +105,12 @@ export default defineConfig(async () => ({
       },
     },
   },
+
+  test: {
+    exclude: [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/src-tauri/**",
+    ],
+  },
 }));

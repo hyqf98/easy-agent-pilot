@@ -50,7 +50,9 @@ const {
   isEditing,
   editContent,
   editTextareaRef,
+  isFormResponseExpanded,
   userFormResponseDisplay,
+  userFormResponseSummary,
   processedUserMessage,
   hasUserText,
   shouldShowRuntimeNotices,
@@ -59,8 +61,8 @@ const {
   shouldShowWorkDivider,
   workDividerLabel,
   workDividerIcon,
-    workDividerStatusClass,
-    workDurationLabel,
+  workDividerStatusClass,
+  workDurationLabel,
   errorMessage,
   isAssistantFormOnly,
   resolvedFormResponsesById,
@@ -73,7 +75,8 @@ const {
   startEdit,
   cancelEdit,
   handleEditSubmit,
-  handleFormSubmit
+  handleFormSubmit,
+  toggleFormResponseExpanded
 } = useMessageBubble(props, emit)
 </script>
 
@@ -200,6 +203,7 @@ const {
           :interactive-forms="isAssistant"
           :form-disabled="false"
           :animate="isAssistant && isStreaming"
+          :streaming="isAssistant && isStreaming"
           :resolved-form-values-by-form-id="resolvedFormResponsesById"
           @form-submit="handleFormSubmit"
         />
@@ -207,13 +211,30 @@ const {
           v-else-if="userFormResponseDisplay"
           class="message-bubble__form-response"
         >
-          <div
-            v-for="(line, index) in userFormResponseDisplay"
-            :key="index"
-            class="message-bubble__form-response-item"
+          <button
+            type="button"
+            class="message-bubble__form-response-summary"
+            :aria-expanded="isFormResponseExpanded"
+            @click="toggleFormResponseExpanded"
           >
-            <span class="message-bubble__form-response-label">{{ line.split(': ')[0] }}</span>
-            <span class="message-bubble__form-response-value">{{ line.split(': ').slice(1).join(': ') }}</span>
+            <EaIcon
+              name="message-square-check"
+              :size="13"
+            />
+            <span>{{ userFormResponseSummary }}</span>
+          </button>
+          <div
+            v-if="isFormResponseExpanded"
+            class="message-bubble__form-response-detail"
+          >
+            <div
+              v-for="(line, index) in userFormResponseDisplay"
+              :key="index"
+              class="message-bubble__form-response-item"
+            >
+              <span class="message-bubble__form-response-label">{{ line.split(': ')[0] }}</span>
+              <span class="message-bubble__form-response-value">{{ line.split(': ').slice(1).join(': ') }}</span>
+            </div>
           </div>
         </div>
         <div
@@ -264,10 +285,6 @@ const {
             :preview-max-height="520"
           />
         </div>
-        <span
-          v-if="isStreaming && !isAwaitingFirstToken"
-          class="message-bubble__cursor"
-        />
       </div>
 
       <div

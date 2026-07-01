@@ -11,6 +11,7 @@ const props = withDefaults(defineProps<ThinkingDisplayProps>(), {
 const {
   displayedText,
   isExpanded,
+  scrollRef,
   placeholderText,
   titleText,
   toggleExpand
@@ -41,15 +42,6 @@ const {
           :class="{ 'thinking-display__title--sweep': props.live }"
         >{{ titleText }}</span>
       </div>
-      <span
-        class="thinking-display__chevron"
-        :class="{ 'thinking-display__chevron--expanded': isExpanded }"
-      >
-        <EaIcon
-          name="chevron-down"
-          :size="12"
-        />
-      </span>
     </button>
 
     <!-- 思考内容 - 默认收起 -->
@@ -57,7 +49,10 @@ const {
       v-show="isExpanded"
       class="thinking-display__content"
     >
-      <div class="thinking-display__scroll">
+      <div
+        ref="scrollRef"
+        class="thinking-display__scroll"
+      >
         <pre class="thinking-display__text">{{ displayedText || placeholderText }}</pre>
       </div>
     </div>

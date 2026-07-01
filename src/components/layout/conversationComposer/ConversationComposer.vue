@@ -78,6 +78,7 @@ const {
   handleOpenCompress,
   handlePaste,
   handleSlashCommandSelect,
+  hasPermissionPrompt,
   inputPlaceholder,
   inputText,
   isAgentDropdownOpen,
@@ -90,6 +91,7 @@ const {
   isPlanMode,
   isReasoningDropdownOpen,
   isQueueCollapsed,
+  isSending,
   isUploadingImages,
   mentionSearchText,
   mentionStart,
@@ -150,10 +152,14 @@ const hasDraftContent = computed(() => (
   || pendingImages.value.length > 0
 ))
 
+const isStopButtonMode = computed(() => (
+  isSending.value && !hasDraftContent.value
+))
+
 const sendButtonDisabled = computed(() => (
   !props.sessionId
   || isUploadingImages.value
-  || !hasDraftContent.value
+  || (!hasDraftContent.value && !isStopButtonMode.value)
 ))
 
 const sendButtonTitle = computed(() => {
@@ -163,6 +169,10 @@ const sendButtonTitle = computed(() => {
 
   if (isUploadingImages.value) {
     return t('message.uploadingAttachments')
+  }
+
+  if (isStopButtonMode.value) {
+    return '停止'
   }
 
   return '发送'
@@ -275,16 +285,23 @@ const sendButtonTitle = computed(() => {
       </div>
     </div>
 
-    <div class="conversation-composer__panel">
-      <ConversationTodoPanel
-        v-if="sessionId"
+    <div class="conversation-composer__dock">
+      <PermissionPromptPopup
+        v-if="isMainPanel && sessionId && hasPermissionPrompt"
         :session-id="sessionId"
-        :default-collapsed="true"
+      />
+
+      <ActiveFormPopup
+        v-else-if="isMainPanel && activeForm"
+        :question="activeForm.question"
+        :form-schema="activeForm.formSchema"
+        @submit="handleActiveFormSubmit"
+        @cancel="handleActiveFormCancel"
       />
 
       <div
-        v-if="queuedMessages.length > 0"
-        class="conversation-composer__queue"
+        v-else-if="queuedMessages.length > 0"
+        class="conversation-composer__queue conversation-composer__queue--priority"
       >
         <button
           v-if="isMainPanel"
@@ -410,42 +427,36 @@ const sendButtonTitle = computed(() => {
         </div>
       </div>
 
-      <ConversationComposerAttachments
-        v-if="isMainPanel"
-        :attachments="pendingImages"
-        :main="true"
-        :remove-attachment="removeImage"
-      />
-
-      <input
-        ref="fileInputRef"
-        type="file"
-        class="conversation-composer__file-input"
-        multiple
-        @change="handleAttachmentFileChange"
-      >
-
-      <ConversationComposerAttachments
-        v-if="!isMainPanel"
-        :attachments="pendingImages"
-        :main="false"
-        :remove-attachment="removeImage"
-      />
-
-      <ActiveFormPopup
-        v-if="isMainPanel && activeForm"
-        :question="activeForm.question"
-        :form-schema="activeForm.formSchema"
-        @submit="handleActiveFormSubmit"
-        @cancel="handleActiveFormCancel"
-      />
-
-      <PermissionPromptPopup
-        v-if="isMainPanel && sessionId"
+      <ConversationTodoPanel
+        v-else-if="sessionId"
         :session-id="sessionId"
+        :default-collapsed="true"
       />
 
-      <div class="conversation-composer__editor-stack">
+      <div class="conversation-composer__panel">
+        <ConversationComposerAttachments
+          v-if="isMainPanel"
+          :attachments="pendingImages"
+          :main="true"
+          :remove-attachment="removeImage"
+        />
+
+        <input
+          ref="fileInputRef"
+          type="file"
+          class="conversation-composer__file-input"
+          multiple
+          @change="handleAttachmentFileChange"
+        >
+
+        <ConversationComposerAttachments
+          v-if="!isMainPanel"
+          :attachments="pendingImages"
+          :main="false"
+          :remove-attachment="removeImage"
+        />
+
+        <div class="conversation-composer__editor-stack">
         <div
           v-if="isPlanMode"
           class="conversation-composer__plan-footer"
@@ -705,6 +716,7 @@ const sendButtonTitle = computed(() => {
               <button
                 type="button"
                 class="conversation-composer__send conversation-composer__send--main"
+                :class="{ 'conversation-composer__send--stop': isStopButtonMode }"
                 :disabled="sendButtonDisabled"
                 :title="sendButtonTitle"
                 :aria-label="sendButtonTitle"
@@ -717,19 +729,19 @@ const sendButtonTitle = computed(() => {
                   {{ queuedMessages.length }}
                 </span>
                 <EaIcon
-                  name="send-horizontal"
+                  :name="isStopButtonMode ? 'square' : 'send-horizontal'"
                   :size="14"
                 />
               </button>
             </div>
           </div>
         </div>
-      </div>
+        </div>
 
-      <div
-        v-if="!isMainPanel"
-        class="conversation-composer__main-footer"
-      >
+        <div
+          v-if="!isMainPanel"
+          class="conversation-composer__main-footer"
+        >
         <div class="conversation-composer__main-footer-left">
           <button
             class="composer-chip composer-chip--image"
@@ -802,6 +814,7 @@ const sendButtonTitle = computed(() => {
           :session-id="sessionId"
           @compress="handleOpenCompress"
         />
+        </div>
       </div>
     </div>
 

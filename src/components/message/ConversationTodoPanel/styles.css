@@ -1,17 +1,26 @@
 .conversation-todo-panel {
-  max-width: min(100%, 900px);
-  margin: 8px auto 0;
-  padding: 9px 11px;
+  position: relative;
+  z-index: 1;
+  width: calc(100% + 2px);
+  max-width: none;
+  margin: -10px -1px -2px;
+  padding: 9px 13px 10px;
   border: 1px solid color-mix(in srgb, var(--workspace-border, var(--color-border)) 74%, transparent);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--workspace-panel-bg, var(--color-surface)) 94%, transparent);
-  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.06);
+  border-bottom-color: color-mix(in srgb, var(--workspace-border, var(--color-border)) 54%, transparent);
+  border-radius: 16px 16px 10px 10px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--workspace-panel-bg, var(--color-surface)) 98%, white 2%),
+      color-mix(in srgb, var(--workspace-panel-bg, var(--color-surface)) 92%, transparent)
+    );
+  box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.05);
   transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
 .conversation-todo-panel--expanded {
   border-color: color-mix(in srgb, var(--color-primary) 24%, var(--color-border-primary));
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 -8px 26px rgba(15, 23, 42, 0.06), 0 10px 28px rgba(96, 165, 250, 0.08);
 }
 
 .conversation-todo-panel__head {
@@ -34,10 +43,17 @@
 
 .conversation-todo-panel__head-main {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
   min-width: 0;
   flex: 1;
+}
+
+.conversation-todo-panel--expanded .conversation-todo-panel__head-main {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
 }
 
 .conversation-todo-panel__title {
@@ -48,13 +64,21 @@
   color: var(--color-text-primary);
   font-size: 13px;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .conversation-todo-panel__active-strip {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
   min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.conversation-todo-panel--expanded .conversation-todo-panel__active-strip {
+  flex-wrap: wrap;
+  overflow: visible;
 }
 
 .conversation-todo-panel__active-chip {
@@ -62,11 +86,11 @@
   align-items: center;
   gap: 6px;
   min-width: 0;
-  max-width: min(100%, 26rem);
+  max-width: min(100%, 22rem);
   padding: 3px 8px;
   border-radius: 8px;
   border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
-  background: color-mix(in srgb, var(--color-bg-secondary) 92%, white 8%);
+  background: color-mix(in srgb, var(--workspace-control-bg, var(--color-bg-secondary)) 92%, white 8%);
   color: var(--color-text-secondary);
   font-size: 11px;
   line-height: 1;
@@ -129,10 +153,10 @@
 .conversation-todo-panel__items {
   display: flex;
   flex-direction: column;
-  max-height: min(30vh, 240px);
+  max-height: min(30vh, 230px);
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding-right: 4px;
+  padding: 2px 4px 0 0;
   transform-origin: top;
 }
 
@@ -280,4 +304,3 @@
     transform: translateX(120%);
   }
 }
-

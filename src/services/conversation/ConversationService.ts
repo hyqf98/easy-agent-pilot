@@ -23,11 +23,13 @@ import { FileTraceCollector } from './fileTraceCollector'
 import i18n from '@/i18n'
 import {
   buildImageAttachmentFallbackPrompt as buildImageAttachmentFallbackSystemPrompt,
+  buildMainConversationLanguagePrompt,
   buildMainConversationFormRequestPrompt
 } from './prompts'
 import { resolveUsageModelHint } from './usageModelHint'
 import { loadAgentMcpServers } from '@/utils/mcpServerConfig'
 import { mergeToolInputArguments } from '@/utils/toolInput'
+import { mergeStreamingText } from '@/utils/mergeStreamingText'
 import { getErrorMessage } from '@/utils/api'
 import {
   classifyCliFailureFragments,
@@ -65,60 +67,6 @@ interface StreamTimingMetrics {
   firstToolAt?: number
   doneAt?: number
   persistedAt?: number
-}
-
-function resolveCodexContextWindowOccupancy(usage: {
-  inputTokens?: number
-  outputTokens?: number
-  rawInputTokens?: number
-  rawOutputTokens?: number
-}): number | undefined {
-  const rawInputTokens = typeof usage.rawInputTokens === 'number' ? usage.rawInputTokens : undefined
-  const rawOutputTokens = typeof usage.rawOutputTokens === 'number' ? usage.rawOutputTokens : undefined
-  if (rawInputTokens !== undefined || rawOutputTokens !== undefined) {
-    return (rawInputTokens ?? 0) + (rawOutputTokens ?? 0)
-  }
-
-  const inputTokens = typeof usage.inputTokens === 'number' ? usage.inputTokens : undefined
-  const outputTokens = typeof usage.outputTokens === 'number' ? usage.outputTokens : undefined
-  if (inputTokens !== undefined || outputTokens !== undefined) {
-    return (inputTokens ?? 0) + (outputTokens ?? 0)
-  }
-
-  return undefined
-}
-
-function normalizeUsageNumber(value?: number): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0
-    ? value
-    : undefined
-}
-
-function resolveRuntimeContextWindowOccupancy(options: {
-  provider?: string | null
-  inputTokens?: number
-  outputTokens?: number
-  rawInputTokens?: number
-  rawOutputTokens?: number
-}): number | undefined {
-  const provider = options.provider?.trim().toLowerCase() ?? ''
-  if (provider === 'codex') {
-    return resolveCodexContextWindowOccupancy(options)
-  }
-
-  const inputTokens = normalizeUsageNumber(options.inputTokens)
-  const outputTokens = normalizeUsageNumber(options.outputTokens)
-  if (inputTokens !== undefined || outputTokens !== undefined) {
-    return (inputTokens ?? 0) + (outputTokens ?? 0)
-  }
-
-  const rawInputTokens = normalizeUsageNumber(options.rawInputTokens)
-  const rawOutputTokens = normalizeUsageNumber(options.rawOutputTokens)
-  if (rawInputTokens !== undefined || rawOutputTokens !== undefined) {
-    return (rawInputTokens ?? 0) + (rawOutputTokens ?? 0)
-  }
-
-  return undefined
 }
 
 const REFERENCED_MEMORY_BLOCK_HEADER = '[用户主动引用的历史记忆]'
@@ -166,44 +114,6 @@ function resolveRequestedUsageModel(options: {
     reportedModelId: normalizedReported,
     requestedModelId: normalizedRequested
   }) ?? normalizedRequested ?? normalizedReported
-}
-
-function isSnapshotProneContentRuntime(provider?: string | null): boolean {
-  const normalized = provider?.trim().toLowerCase() ?? ''
-  return normalized.includes('opencode')
-}
-
-function findTextOverlapLength(left: string, right: string): number {
-  const maxLength = Math.min(left.length, right.length)
-  for (let length = maxLength; length > 0; length -= 1) {
-    if (left.endsWith(right.slice(0, length))) {
-      return length
-    }
-  }
-  return 0
-}
-
-function mergeStreamingText(current: string, incoming: string, provider?: string | null): string {
-  if (!incoming) {
-    return current
-  }
-
-  if (!current || !isSnapshotProneContentRuntime(provider)) {
-    return current + incoming
-  }
-
-  if (incoming === current || current.endsWith(incoming)) {
-    return current
-  }
-
-  if (incoming.startsWith(current) || incoming.includes(current)) {
-    return incoming
-  }
-
-  const overlapLength = findTextOverlapLength(current, incoming)
-  return overlapLength > 0
-    ? current + incoming.slice(overlapLength)
-    : current + incoming
 }
 
 function stableStringify(value: unknown): string {
@@ -423,25 +333,23 @@ export class ConversationService {
           )
         : undefined
 
-      // 文本行延迟"入场"：创建时使用未来哨兵时间戳，使其在首个 content chunk 到达前
-      // 排到回合最末（thinking/tool 行各自按真实到达时间排序）。空内容行已被 CSS 隐藏，
-      // 不会出现错位光标；首个文本到达时回填真实 createdAt，落到正确时序位置。
-      const textRowSentinelCreatedAt = new Date(Date.now() + 86_400_000).toISOString()
-      const aiMessage = reusableAssistantMessage ?? await messageStore.addMessage({
+      const aiMessage: Message = reusableAssistantMessage ?? {
+        id: `local_anchor_${requestId}`,
         sessionId,
         requestId,
         role: 'assistant',
         messageType: 'text',
         content: '',
         status: 'streaming',
-        seq: 0
-      }, { createdAt: textRowSentinelCreatedAt })
+        seq: 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
 
       if (reusableAssistantMessage) {
         await messageStore.updateMessage(reusableAssistantMessage.id, {
           status: 'streaming',
-          errorMessage: '',
-          createdAt: textRowSentinelCreatedAt
+          errorMessage: ''
         })
       }
 
@@ -508,6 +416,7 @@ export class ConversationService {
         mcpServers
       })
       const sessionScopedPromptCandidates = [
+        buildMainConversationLanguagePrompt(),
         ...rawInjectedSystemMessages,
         ...(projectMemoryPrompt ? [projectMemoryPrompt] : []),
         ...(imageAttachmentFallbackPrompt ? [imageAttachmentFallbackPrompt] : []),
@@ -916,15 +825,19 @@ export class ConversationService {
     let accumulatedContent = aiMessage.content
       ? `${aiMessage.content.trimEnd()}\n\n`
       : ''
-    let accumulatedThinking = ''
-    // 实时思考行（仅内存，不落库；后端 MessageRecorder 已落库对应 thinking 行）。
-    // 首个思考增量到达时创建，content 到达后由 onDone 收尾（置 completed）。
-    // 用对象容器避免 TS 闭包控制流收窄（赋值发生在异步闭包内，同步读取处会被推断为初始 null）。
-    const liveThinking = { message: null as Message | null }
-    // 实时工具调用行（仅内存，不落库；后端 MessageRecorder 已落库对应 tool_use/tool_result 行）。
-    // 按 toolCallId 索引，支持同一回合多工具并发。首个 tool_use 到达时创建，
-    // onDone/handleFailure/catch 收尾时置 completed/error，刷新后由后端落库行接管（与 thinking 双轨一致）。
+    let segmentSeq = 0
+    const liveSegmentCreatedAt = aiMessage.createdAt || new Date().toISOString()
+    type LiveSegmentKind = 'text' | 'thinking'
+    interface LiveSegment {
+      kind: LiveSegmentKind
+      message: Message
+      content: string
+    }
+    const liveSegment = { current: null as LiveSegment | null }
     const liveToolMessages = new Map<string, { message: Message | null }>()
+    const liveToolSeqByCall = new WeakMap<ToolCall, number>()
+    let liveSegmentQueue: Promise<void> = Promise.resolve()
+    let awaitingTextSegmentId: string | null = null
     const toolCalls: ToolCall[] = []
     const editTraces: FileEditTrace[] = []
     const usageState: { model?: string, inputTokens?: number, outputTokens?: number, cacheReadInputTokens?: number, cacheCreationInputTokens?: number, contextWindowOccupancy?: number } = {
@@ -955,13 +868,12 @@ export class ConversationService {
     let usageBaseline: UsageBaseline | null = null
     let lastErrorMessage = ''
     let usageRecorded = false
+    let hasAcpContextWindow = false
     let latestExternalSessionId: string | undefined
+    let receivedPlanEvent = false
     let pendingUiUpdate: Partial<Message> | null = null
     let scheduledUiFlushAnimationFrame: number | null = null
     let scheduledUiFlushTimeout: ReturnType<typeof setTimeout> | null = null
-    // 文本行哨兵时间戳是否已在首个 content 到达时回填为真实时间（仅触发一次）
-    let textRowCreatedAtAnchored = false
-
     const registerTraceTask = (task: Promise<void>) => {
       pendingTraceTasks.add(task)
       task.finally(() => pendingTraceTasks.delete(task))
@@ -1043,6 +955,12 @@ export class ConversationService {
       return Object.keys(nextUpdates).length > 0 ? nextUpdates : null
     }
 
+    const isLiveSegmentInterrupted = (messageId: string) => {
+      return messageStore.messagesBySession(sessionId)
+        .find(message => message.id === messageId)
+        ?.status === 'interrupted'
+    }
+
     const flushPendingUiUpdate = (options?: { immediate?: boolean }) => {
       clearScheduledUiFlush()
       if (!pendingUiUpdate) {
@@ -1099,28 +1017,106 @@ export class ConversationService {
       scheduleUiFlush()
     }
 
-    // 确保"正在思考…"实时行存在（仅内存，不落库）。
-    // 插入位置：紧跟在 AI 文本回复行（aiMessage）之后，使思考显示在正文上方。
-    const ensureLiveThinkingMessage = async (): Promise<void> => {
-      if (liveThinking.message) {
+    const enqueueLiveSegmentTask = (task: () => void | Promise<void>) => {
+      liveSegmentQueue = liveSegmentQueue
+        .then(task)
+        .catch(error => {
+          console.warn('[ConversationService] live segment update failed:', error)
+        })
+      return liveSegmentQueue
+    }
+
+    const finalizeLiveSegment = (status: Message['status'] = 'completed') => {
+      const current = liveSegment.current
+      if (!current) {
         return
       }
+
+      if (current.message.id === awaitingTextSegmentId && !current.content.trim()) {
+        messageStore.removeLocalMessage(current.message.id)
+        awaitingTextSegmentId = null
+        liveSegment.current = null
+        return
+      }
+
+      if (isLiveSegmentInterrupted(current.message.id) && (status === 'completed' || status === 'error')) {
+        liveSegment.current = null
+        return
+      }
+
+      messageStore.updateMessageBuffered(current.message.id, {
+        status
+      }, { immediate: true })
+      liveSegment.current = null
+    }
+
+    const ensureLiveTextSegment = async (): Promise<LiveSegment | null> => {
+      if (liveSegment.current?.kind === 'text') {
+        return liveSegment.current
+      }
+
+      finalizeLiveSegment()
       try {
-        liveThinking.message = await messageStore.addMessage({
+        const message = await messageStore.addMessage({
+          sessionId,
+          requestId: context.requestId,
+          role: 'assistant',
+          messageType: 'text',
+          content: '',
+          status: 'streaming',
+          seq: segmentSeq++
+        }, { persist: false, createdAt: liveSegmentCreatedAt })
+        liveSegment.current = { kind: 'text', message, content: '' }
+        return liveSegment.current
+      } catch (error) {
+        console.warn('[ConversationService] Failed to create live text message:', error)
+        return null
+      }
+    }
+
+    const ensureLiveThinkingSegment = async (): Promise<LiveSegment | null> => {
+      if (liveSegment.current?.kind === 'thinking') {
+        return liveSegment.current
+      }
+
+      finalizeLiveSegment()
+      try {
+        const message = await messageStore.addMessage({
           sessionId,
           requestId: context.requestId,
           role: 'assistant',
           messageType: 'thinking',
           content: '',
           status: 'streaming',
-          // thinking 行按真实到达时间排序（不再共用 aiMessage 哨兵时间戳）。
-          // seq 仅作同毫秒 tiebreaker；后端入库行有独立递增 seq，刷新后接管。
-          seq: 0
-        }, { persist: false })
+          seq: segmentSeq++
+        }, { persist: false, createdAt: liveSegmentCreatedAt })
+        liveSegment.current = { kind: 'thinking', message, content: '' }
+        return liveSegment.current
       } catch (error) {
-        // 创建失败不阻断主流程，仅记录
         console.warn('[ConversationService] Failed to create live thinking message:', error)
+        return null
       }
+    }
+
+    const appendLiveSegmentContent = async (
+      kind: 'text' | 'thinking',
+      content: string
+    ): Promise<void> => {
+      const segment = kind === 'text'
+        ? await ensureLiveTextSegment()
+        : await ensureLiveThinkingSegment()
+
+      if (!segment) {
+        return
+      }
+
+      if (kind === 'text' && segment.message.id === awaitingTextSegmentId) {
+        awaitingTextSegmentId = null
+      }
+      segment.content = mergeStreamingText(segment.content, content)
+      messageStore.updateMessageBuffered(segment.message.id, {
+        content: segment.content
+      }, { immediate: true })
     }
 
     // 确保工具调用实时行存在（仅内存，不落库）。
@@ -1140,9 +1136,8 @@ export class ConversationService {
           toolName: toolCall.name,
           toolInput: toolCall.arguments ? JSON.stringify(toolCall.arguments) : '',
           status: 'streaming',
-          // tool 行按真实到达时间排序（不再共用 aiMessage 哨兵时间戳）。
-          seq: liveToolMessages.size
-        }, { persist: false })
+          seq: liveToolSeqByCall.get(toolCall) ?? segmentSeq++
+        }, { persist: false, createdAt: liveSegmentCreatedAt })
         liveToolMessages.set(toolCall.id, { message: liveMessage })
         return liveMessage
       } catch (error) {
@@ -1194,6 +1189,11 @@ export class ConversationService {
       ;(globalThis as { __EASY_AGENT_LAST_STREAM_METRICS?: typeof summary }).__EASY_AGENT_LAST_STREAM_METRICS = summary
     }
 
+    void enqueueLiveSegmentTask(async () => {
+      const segment = await ensureLiveTextSegment()
+      awaitingTextSegmentId = segment?.message.id ?? null
+    })
+
     const recordUsageOnce = (occurredAt?: string) => {
       if (usageRecorded || !(context.agent.acpCommand || context.agent.cliPath)) {
         return
@@ -1227,7 +1227,9 @@ export class ConversationService {
         usageState.inputTokens,
         usageState.outputTokens,
         usageState.model,
-        usageState.contextWindowOccupancy
+        usageState.contextWindowOccupancy,
+        undefined,
+        hasAcpContextWindow ? 'acp' : undefined
       )
     }
 
@@ -1243,7 +1245,9 @@ export class ConversationService {
           usageState.inputTokens,
           usageState.outputTokens,
           usageState.model,
-          usageState.contextWindowOccupancy
+          usageState.contextWindowOccupancy,
+          undefined,
+          hasAcpContextWindow ? 'acp' : undefined
         )
         return
       }
@@ -1280,7 +1284,9 @@ export class ConversationService {
         }) ?? usageState.model
         usageState.inputTokens = mergedUsageCounts.inputTokens
         usageState.outputTokens = mergedUsageCounts.outputTokens
-        usageState.contextWindowOccupancy = finalUsageSnapshot.contextWindowOccupancy
+        if (usageState.contextWindowOccupancy === undefined) {
+          usageState.contextWindowOccupancy = finalUsageSnapshot.contextWindowOccupancy
+        }
       }
 
       syncRealtimeUsageNotice()
@@ -1289,7 +1295,9 @@ export class ConversationService {
         usageState.inputTokens,
         usageState.outputTokens,
         usageState.model,
-        usageState.contextWindowOccupancy
+        usageState.contextWindowOccupancy,
+        undefined,
+        hasAcpContextWindow ? 'acp' : (usageState.contextWindowOccupancy !== undefined ? 'snapshot' : undefined)
       )
     }
 
@@ -1329,14 +1337,8 @@ export class ConversationService {
     }
 
     const handleFailure = async (errorMessage: string) => {
-      // 失败时收尾实时思考行（与 onDone 对称），避免遗留 streaming 思考行
-      if (liveThinking.message) {
-        messageStore.updateMessageBuffered(liveThinking.message.id, {
-          status: 'completed'
-        }, { immediate: true })
-        liveThinking.message = null
-      }
-      // 收尾实时工具调用行（与 thinking 对称）
+      await liveSegmentQueue
+      finalizeLiveSegment('error')
       finalizeLiveToolMessages(true)
       const classifiedFailure = detectCliFailure(errorMessage)
       const shouldAutoRetry = this.checkConversationAutoRetry(sessionId, classifiedFailure)
@@ -1369,8 +1371,7 @@ export class ConversationService {
         // 自动重试提示在新结构下走独立 system 行，此处仅更新重试状态
         void retryAttemptNumber
         messageStore.updateMessageBuffered(aiMessage.id, {
-          retryState: retryState ?? undefined,
-          createdAt: new Date().toISOString()
+          retryState: retryState ?? undefined
         })
 
         this.scheduleConversationAutoRetry(
@@ -1389,6 +1390,31 @@ export class ConversationService {
       await Promise.allSettled(Array.from(pendingPersistenceTasks))
       await applyFinalUsageSnapshot()
       syncProcessingTimeNotice()
+      const hasVisibleAssistantEvent = messageStore.messagesBySession(sessionId).some(message =>
+        message.requestId === context.requestId
+        && message.role === 'assistant'
+        && message.messageType !== 'usage'
+        && message.messageType !== 'context_window'
+        && message.messageType !== 'system'
+        && (
+          message.messageType === 'thinking'
+          || message.messageType === 'tool_use'
+          || message.messageType === 'tool_result'
+          || Boolean(message.content?.trim())
+        )
+      )
+      if (!hasVisibleAssistantEvent) {
+        await messageStore.addMessage({
+          sessionId,
+          requestId: context.requestId,
+          role: 'assistant',
+          messageType: 'error',
+          content: errorMessage,
+          status: 'error',
+          errorMessage,
+          seq: segmentSeq++
+        }, { persist: false, createdAt: liveSegmentCreatedAt })
+      }
       bufferMessageUpdate({
         status: 'error',
         errorMessage
@@ -1452,40 +1478,22 @@ export class ConversationService {
           onContent: (content) => {
             clearRetryPresentationOnRecoveredStream()
             markMetric('firstContentAt')
-            // 首个文本到达时把哨兵时间戳回填为真实时间，使文本行落到正确时序位置
-            // （思考/工具行已按各自到达时间排序，文本行此刻归位排在其后）。
-            if (!textRowCreatedAtAnchored) {
-              textRowCreatedAtAnchored = true
-              messageStore.updateMessageBuffered(aiMessage.id, {
-                createdAt: new Date().toISOString()
-              })
-            }
-            accumulatedContent = mergeStreamingText(accumulatedContent, content, runtimeProvider)
-            bufferMessageUpdate({
-              content: accumulatedContent
-            })
+            accumulatedContent = mergeStreamingText(accumulatedContent, content)
+            void enqueueLiveSegmentTask(() => appendLiveSegmentContent('text', content))
           },
           onThinking: (thinking) => {
             clearRetryPresentationOnRecoveredStream()
             markMetric('firstThinkingAt')
-            accumulatedThinking = mergeStreamingText(accumulatedThinking, thinking, runtimeProvider)
-            // 思考由后端 MessageRecorder 落库为独立 thinking 行；前端用一条仅内存的本地行做流式渲染，
-            // 使"正在思考…"提示与打字机效果在流式期间即可呈现（刷新后由后端落库行接管）。
-            void ensureLiveThinkingMessage().then(() => {
-              if (liveThinking.message) {
-                messageStore.updateMessageBuffered(liveThinking.message.id, {
-                  content: accumulatedThinking
-                })
-              }
-            })
+            void enqueueLiveSegmentTask(() => appendLiveSegmentContent('thinking', thinking))
           },
           onThinkingStart: () => {
             clearRetryPresentationOnRecoveredStream()
-            void ensureLiveThinkingMessage()
+            void enqueueLiveSegmentTask(() => ensureLiveThinkingSegment().then(() => undefined))
           },
           onToolUse: (toolCall) => {
             clearRetryPresentationOnRecoveredStream()
             markMetric('firstToolAt')
+            liveToolSeqByCall.set(toolCall, segmentSeq++)
             logger.log('[🔧 tool_use] received:', { id: toolCall.id, name: toolCall.name, status: toolCall.status, toolCallsCount: toolCalls.length })
             const existingIndex = toolCalls.findIndex(tc => tc.id === toolCall.id)
             let isNewToolCall = false
@@ -1516,7 +1524,9 @@ export class ConversationService {
               })())
             }
             // 推送本地行：新建或更新参数，使工具气泡在流式期间即时渲染
-            void ensureLiveToolUseMessage(toolCall).then((liveMessage) => {
+            void enqueueLiveSegmentTask(async () => {
+              finalizeLiveSegment()
+              const liveMessage = await ensureLiveToolUseMessage(toolCall)
               if (liveMessage) {
                 const mergedArguments = existingIndex >= 0
                   ? toolCalls[existingIndex].arguments
@@ -1555,12 +1565,14 @@ export class ConversationService {
               )
             }
             // 同步更新本地行参数，使工具气泡的入参随增量实时呈现
-            const liveToolEntry = targetToolCall.id ? liveToolMessages.get(targetToolCall.id) : null
-            if (liveToolEntry?.message && targetToolCall.arguments) {
-              messageStore.updateMessageBuffered(liveToolEntry.message.id, {
-                toolInput: JSON.stringify(targetToolCall.arguments)
-              })
-            }
+            void enqueueLiveSegmentTask(() => {
+              const liveToolEntry = targetToolCall.id ? liveToolMessages.get(targetToolCall.id) : null
+              if (liveToolEntry?.message && targetToolCall.arguments) {
+                messageStore.updateMessageBuffered(liveToolEntry.message.id, {
+                  toolInput: JSON.stringify(targetToolCall.arguments)
+                })
+              }
+            })
           },
           onToolResult: (toolCallId, result, isError) => {
             logger.log('[🔧 tool_result] received:', { toolCallId, isError, resultLen: result?.length })
@@ -1581,17 +1593,19 @@ export class ConversationService {
             }
             // 同步更新本地行：在 tool_use 行上直接写入结果，使气泡即时变为 success/error
             // 渲染层 toolUseParsed 会读 message.toolResult 作为 fallback，无需创建独立 tool_result 行
-            const liveToolEntry = liveToolMessages.get(toolCallId)
-            if (liveToolEntry?.message) {
-              messageStore.updateMessageBuffered(liveToolEntry.message.id, {
-                toolResult: result,
-                status: isError ? 'error' : 'completed',
-                errorMessage: isError ? result : '',
-                // 工具结果阶段可能补发最终的 ToolKind / ToolCallLocation
-                toolKind: tc?.kind,
-                toolLocations: tc?.locations
-              })
-            }
+            void enqueueLiveSegmentTask(() => {
+              const liveToolEntry = liveToolMessages.get(toolCallId)
+              if (liveToolEntry?.message) {
+                messageStore.updateMessageBuffered(liveToolEntry.message.id, {
+                  toolResult: result,
+                  status: isError ? 'error' : 'completed',
+                  errorMessage: isError ? result : '',
+                  // 工具结果阶段可能补发最终的 ToolKind / ToolCallLocation
+                  toolKind: tc?.kind,
+                  toolLocations: tc?.locations
+                })
+              }
+            })
 
             if (!isError) {
               registerTraceTask((async () => {
@@ -1654,16 +1668,6 @@ export class ConversationService {
             if (typeof normalizedUsage.cacheCreationInputTokens === 'number') {
               usageState.cacheCreationInputTokens = (usageState.cacheCreationInputTokens ?? 0) + normalizedUsage.cacheCreationInputTokens
             }
-            const nextContextWindowOccupancy = resolveRuntimeContextWindowOccupancy({
-              provider: runtimeProvider,
-              inputTokens: usage.inputTokens,
-              outputTokens: usage.outputTokens,
-              rawInputTokens: usage.rawInputTokens,
-              rawOutputTokens: usage.rawOutputTokens
-            })
-            if (nextContextWindowOccupancy !== undefined && nextContextWindowOccupancy > 0) {
-              usageState.contextWindowOccupancy = nextContextWindowOccupancy
-            }
 
             if (!shouldDeferCliUsageSync) {
               tokenStore.updateRealtimeTokens(
@@ -1671,7 +1675,9 @@ export class ConversationService {
                 usageState.inputTokens,
                 usageState.outputTokens,
                 usageState.model,
-                usageState.contextWindowOccupancy
+                usageState.contextWindowOccupancy,
+                undefined,
+                hasAcpContextWindow ? 'acp' : undefined
               )
               syncRealtimeUsageNotice()
             }
@@ -1681,18 +1687,18 @@ export class ConversationService {
             // 仅更新进度环 used，保持计费 input/output token 不被覆盖。
             if (typeof used === 'number' && used > 0) {
               usageState.contextWindowOccupancy = used
+              hasAcpContextWindow = true
             }
-            // ACP 的 size 反映运行时上报的上下文上限：若可用，透传给 token store 作为 limit 参考
-            if (!shouldDeferCliUsageSync) {
-              tokenStore.updateRealtimeTokens(
-                sessionId,
-                undefined,
-                undefined,
-                undefined,
-                typeof used === 'number' && used > 0 ? used : undefined,
-                size
-              )
-            }
+            // ACP 的 size 反映运行时上报的上下文上限：若可用，实时透传给 token store 作为 limit 参考。
+            tokenStore.updateRealtimeTokens(
+              sessionId,
+              undefined,
+              undefined,
+              undefined,
+              typeof used === 'number' && used > 0 ? used : undefined,
+              size,
+              'acp'
+            )
           },
           onSystem: (content) => {
             clearRetryPresentationOnRecoveredStream()
@@ -1705,13 +1711,16 @@ export class ConversationService {
                   undefined,
                   undefined,
                   usageState.model,
-                  0
+                  0,
+                  undefined,
+                  'acp'
                 )
               }
               usageBaseline = null
               usageState.inputTokens = undefined
               usageState.outputTokens = undefined
               usageState.contextWindowOccupancy = undefined
+              hasAcpContextWindow = true
               // 解析压缩明细，组装摘要并落库为独立 compression 行 → 渲染 CompressionMessageBubble
               const lines = content.split('\n').slice(1)
               const detailParts: string[] = []
@@ -1783,6 +1792,7 @@ export class ConversationService {
           onPlan: (planJson) => {
             // ACP Agent Plan 全量替换语义：整体覆盖该会话最新计划，驱动右侧面板
             try {
+              receivedPlanEvent = true
               useAgentPlanStore().ingestStreamPlan(sessionId, planJson)
             } catch (err) {
               console.error('[agentPlan] ingest stream plan failed', err)
@@ -1798,38 +1808,14 @@ export class ConversationService {
           },
           onDone: () => {
             markMetric('doneAt')
-            // 兜底：若整个回合无文本 content（纯工具回合），哨兵时间戳尚未回填，
-            // 此时把文本行归位到当前时刻（排在所有已到达的思考/工具行之后）。
-            if (!textRowCreatedAtAnchored) {
-              textRowCreatedAtAnchored = true
-              messageStore.updateMessageBuffered(aiMessage.id, {
-                createdAt: new Date().toISOString()
-              })
-            }
-            // 收尾实时思考行：正文已落定，把本地 thinking 行置为 completed。
-            // 该行仅存在于内存，刷新后由后端落库的 thinking 行接管渲染。
-            if (liveThinking.message) {
-              messageStore.updateMessageBuffered(liveThinking.message.id, {
-                status: 'completed'
-              }, { immediate: true })
-              liveThinking.message = null
-            }
-            // 收尾实时工具调用行（与 thinking 对称）
-            finalizeLiveToolMessages(false)
+            void enqueueLiveSegmentTask(() => {
+              finalizeLiveSegment()
+              finalizeLiveToolMessages(false)
+            })
             // 兜底清理：执行结束时移除可能残留的权限询问（后端超时 / 非正常完成）
             usePermissionStore().clearPending(sessionId)
-            // 计划模式回合结束且 AI 已产出计划文档（最新 assistant text 非空）
-            // → 标记待确认，弹出「开始执行 / 继续修改」
-            if (sessionStore.isPlanMode(sessionId)) {
-              const sessionMessages = messageStore.messagesBySession(sessionId)
-              const hasPlanDoc = [...sessionMessages].reverse().some(
-                msg => msg.role === 'assistant'
-                  && msg.messageType === 'text'
-                  && !!msg.content?.trim()
-              )
-              if (hasPlanDoc) {
-                useAgentPlanStore().requestConfirm(sessionId)
-              }
+            if (sessionStore.isPlanMode(sessionId) && receivedPlanEvent) {
+              useAgentPlanStore().requestConfirm(sessionId)
             }
             const finalizedToolCalls = finalizePendingToolCalls(toolCalls)
             if (finalizedToolCalls !== toolCalls) {
@@ -1853,6 +1839,7 @@ export class ConversationService {
         })
       })
 
+      await liveSegmentQueue
       flushPendingUiUpdate()
       await Promise.allSettled(Array.from(pendingTraceTasks))
       await Promise.allSettled(Array.from(pendingPersistenceTasks))
@@ -1883,6 +1870,7 @@ export class ConversationService {
         if (finalizedToolCalls !== toolCalls) {
           toolCalls.splice(0, toolCalls.length, ...finalizedToolCalls)
         }
+        await liveSegmentQueue
         await applyFinalUsageSnapshot()
         syncProcessingTimeNotice()
         if (!shouldSurfaceExecutionFailure()) {
@@ -1904,14 +1892,8 @@ export class ConversationService {
         this.finalizeSend(sessionId, epoch)
       }
     } catch (error) {
-      // 异常兜底：清理可能残留的实时思考行
-      if (liveThinking.message) {
-        messageStore.updateMessageBuffered(liveThinking.message.id, {
-          status: 'completed'
-        }, { immediate: true })
-        liveThinking.message = null
-      }
-      // 异常兜底：清理可能残留的实时工具调用行
+      await liveSegmentQueue
+      finalizeLiveSegment('error')
       finalizeLiveToolMessages(true)
       const errorMessage = getErrorMessage(error, '对话执行失败')
       void writeFrontendRuntimeLog(
@@ -1944,11 +1926,13 @@ export class ConversationService {
           cliSessionId: '',
           cliSessionProvider: ''
         })
-        await messageStore.updateMessage(aiMessage.id, {
-          content: '',
-          errorMessage: '',
-          status: 'pending'
-        })
+        if (!aiMessage.id.startsWith('local_anchor_')) {
+          await messageStore.updateMessage(aiMessage.id, {
+            content: '',
+            errorMessage: '',
+            status: 'pending'
+          })
+        }
 
         return this.executeConversation(fallbackContext!, aiMessage, sessionId, projectId, undefined, epoch)
       }
@@ -2016,20 +2000,24 @@ export class ConversationService {
       const messageStore = useMessageStore()
       const sessionExecutionStore = useSessionExecutionStore()
       sessionExecutionStore.setIsAwaitingRetry(sessionId, false)
-      const currentMessage = messageStore.messagesBySession(sessionId)
-        .find(message => message.id === aiMessage.id)
-      if (!currentMessage || currentMessage.status === 'interrupted') {
-        this.clearConversationRetryState(sessionId)
-        return
+      const isLocalAnchor = aiMessage.id.startsWith('local_anchor_')
+      if (!isLocalAnchor) {
+        const currentMessage = messageStore.messagesBySession(sessionId)
+          .find(message => message.id === aiMessage.id)
+        if (!currentMessage || currentMessage.status === 'interrupted') {
+          this.clearConversationRetryState(sessionId)
+          return
+        }
       }
 
       try {
-        await messageStore.updateMessage(aiMessage.id, {
-          content: '',
-          errorMessage: '',
-          status: 'streaming',
-          createdAt: new Date().toISOString()
-        })
+        if (!isLocalAnchor) {
+          await messageStore.updateMessage(aiMessage.id, {
+            content: '',
+            errorMessage: '',
+            status: 'streaming'
+          })
+        }
         sessionExecutionStore.startSending(sessionId)
         await this.executeConversation(context, aiMessage, sessionId, projectId, undefined, undefined)
       } catch (retryError) {
@@ -2265,10 +2253,10 @@ export class ConversationService {
       // 中断指定会话
       const streamingMessageId = sessionExecutionStore.getExecutionState(sessionId).currentStreamingMessageId
       if (messageId && streamingMessageId && messageId !== streamingMessageId) {
-        void messageStore.updateMessage(messageId, {
+        messageStore.updateMessageBuffered(messageId, {
           status: 'interrupted',
           errorMessage: MANUAL_STOP_ERROR_MARKER
-        })
+        }, { immediate: true })
         return
       }
 
@@ -2277,13 +2265,26 @@ export class ConversationService {
 
       // 2. 更新消息状态为 interrupted
       if (messageId) {
-        messageStore.updateMessage(messageId, {
+        messageStore.updateMessageBuffered(messageId, {
           status: 'interrupted',
           errorMessage: MANUAL_STOP_ERROR_MARKER
-        })
+        }, { immediate: true })
       } else {
         // 如果没有传入 messageId，从 sessionExecutionStore 获取当前流式消息 ID
-        if (streamingMessageId) {
+        if (streamingMessageId?.startsWith('local_anchor_')) {
+          for (const message of messageStore.messagesBySession(sessionId)) {
+            if (
+              message.role === 'assistant'
+              && message.status === 'streaming'
+              && (message.messageType === 'text' || message.messageType === 'thinking' || message.messageType === 'tool_use')
+            ) {
+              messageStore.updateMessageBuffered(message.id, {
+                status: 'interrupted',
+                errorMessage: MANUAL_STOP_ERROR_MARKER
+              }, { immediate: true })
+            }
+          }
+        } else if (streamingMessageId) {
           messageStore.updateMessage(streamingMessageId, {
             status: 'interrupted',
             errorMessage: MANUAL_STOP_ERROR_MARKER

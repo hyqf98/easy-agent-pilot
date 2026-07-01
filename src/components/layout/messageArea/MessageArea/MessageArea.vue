@@ -9,6 +9,7 @@ import PanelResizer from '../../PanelResizer/PanelResizer.vue'
 import ConversationComposer from '../../conversationComposer/ConversationComposer.vue'
 import { useActiveFormRequest } from '@/composables/useActiveFormRequest'
 import { ACTIVE_FORM_ID } from '@/constants/activeForm'
+import { usePermissionStore } from '@/stores/permission'
 import { useMessageArea } from './useMessageArea'
 
 const {
@@ -49,6 +50,10 @@ const {
 // 主会话：计算最新未回答的 AI 表单请求，在输入框上方弹出（Cursor 风格）
 const { activeForm } = useActiveFormRequest(() => sessionStore.currentSessionId)
 const { t } = useI18n()
+const permissionStore = usePermissionStore()
+const hasPermissionPrompt = computed(() =>
+  Boolean(sessionStore.currentSessionId && permissionStore.getPending(sessionStore.currentSessionId))
+)
 
 // 将当前激活表单 id 注入消息渲染层，抑制消息流里同表单的内联重复
 const activeFormId = computed(() => activeForm.value?.formId ?? null)
@@ -124,6 +129,8 @@ function handleComposerFormSubmit(values: Record<string, unknown>) {
             :hide-latest-plan-doc="shouldHideLatestPlanDoc"
             :hide-context-strategy-notice="true"
             :top-safe-inset="0"
+            :waiting-permission="hasPermissionPrompt"
+            :waiting-form="Boolean(activeForm)"
             @retry="handleRetry"
             @edit="handleEdit"
             @form-submit="handleMessageFormSubmit"

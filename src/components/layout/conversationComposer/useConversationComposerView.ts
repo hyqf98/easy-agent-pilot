@@ -6,6 +6,7 @@ import type { ActiveFormRequest } from '@/composables/useActiveFormRequest'
 import { useSessionStore } from '@/stores/session'
 import { useSettingsStore } from '@/stores/settings'
 import { useThemeStore } from '@/stores/theme'
+import { usePermissionStore } from '@/stores/permission'
 import type { SlashCommandPanelType } from '@/services/slashCommands'
 
 export interface ConversationComposerProps {
@@ -30,6 +31,7 @@ export function useConversationComposerView(props: Readonly<ConversationComposer
   const settingsStore = useSettingsStore()
   const sessionStore = useSessionStore()
   const themeStore = useThemeStore()
+  const permissionStore = usePermissionStore()
   const rootRef = ref<HTMLElement | null>(null)
   const isDragOver = ref(false)
   const isQueueCollapsed = ref(true)
@@ -42,6 +44,7 @@ export function useConversationComposerView(props: Readonly<ConversationComposer
   const isMiniPanel = computed(() => props.panelType === 'mini')
   const isDarkTheme = computed(() => themeStore.isDark)
   const isPlanMode = computed(() => Boolean(props.sessionId && sessionStore.isPlanMode(props.sessionId)))
+  const hasPermissionPrompt = computed(() => Boolean(props.sessionId && permissionStore.getPending(props.sessionId)))
 
   const composer = useConversationComposer({
     panelType: props.panelType,
@@ -155,6 +158,7 @@ export function useConversationComposerView(props: Readonly<ConversationComposer
     isMainPanel,
     isMiniPanel,
     isPlanMode,
+    hasPermissionPrompt,
     isQueueCollapsed,
     queuedDraftEditText,
     rootRef,

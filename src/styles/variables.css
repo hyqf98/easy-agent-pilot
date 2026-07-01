@@ -219,21 +219,21 @@
   --conversation-trace-drawer-backdrop: rgba(15, 23, 42, 0.28);
   --conversation-trace-drawer-shadow: -18px 0 32px rgba(15, 23, 42, 0.18);
 
-  --tool-call-bg: rgba(255, 255, 255, 0.74);
-  --tool-call-shell-bg: rgba(255, 255, 255, 0.58);
+  --tool-call-bg: rgba(38, 38, 38, 0.045);
+  --tool-call-shell-bg: rgba(38, 38, 38, 0.035);
   --tool-call-shell-border: var(--workspace-border);
   --tool-call-shell-shadow: none;
-  --tool-call-shell-title: var(--color-text-secondary);
-  --tool-call-shell-count-bg: rgba(38, 38, 38, 0.06);
+  --tool-call-shell-title: var(--workspace-text-secondary);
+  --tool-call-shell-count-bg: rgba(38, 38, 38, 0.055);
   --tool-call-shell-count-text: var(--workspace-text-secondary);
   --tool-call-shell-scrollbar-thumb: rgba(148, 163, 184, 0.42);
   --tool-call-border: var(--workspace-border);
   --tool-call-shadow: none;
   --tool-call-hover-border: var(--workspace-border-strong);
   --tool-call-hover-shadow: none;
-  --tool-call-running-bg: rgba(255, 255, 255, 0.82);
+  --tool-call-running-bg: rgba(38, 38, 38, 0.052);
   --tool-call-running-border: rgba(38, 38, 38, 0.18);
-  --tool-call-success-bg: rgba(250, 250, 249, 0.92);
+  --tool-call-success-bg: rgba(38, 38, 38, 0.045);
   --tool-call-success-border: rgba(120, 113, 108, 0.22);
   --tool-call-error-bg: rgba(254, 242, 242, 0.86);
   --tool-call-error-border: rgba(220, 38, 38, 0.34);

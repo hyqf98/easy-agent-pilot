@@ -1,5 +1,11 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, type ComponentPublicInstance } from 'vue'
-import { useMessageStore, type Message } from '@/stores/message'
+import { useI18n } from 'vue-i18n'
+import {
+  compareMessagesForRender,
+  isVisibleConversationMessage,
+  useMessageStore,
+  type Message
+} from '@/stores/message'
 import { useSessionStore } from '@/stores/session'
 import { useSessionExecutionStore } from '@/stores/sessionExecution'
 import { useUIStore } from '@/stores/ui'
@@ -8,6 +14,13 @@ interface VirtualMessageItem {
   message: Message
   top: number
   height: number
+}
+
+type LiveStreamStatusKind = 'generating' | 'thinking' | 'tool' | 'permission' | 'form'
+
+interface LiveStreamStatus {
+  kind: LiveStreamStatusKind
+  text: string
 }
 
 interface SessionScrollSnapshot {
@@ -30,6 +43,8 @@ export interface MessageListProps {
   hideContextStrategyNotice?: boolean
   topSafeInset?: number
   forceScrollToBottomToken?: number
+  waitingPermission?: boolean
+  waitingForm?: boolean
   /** 计划模式 + 浮动面板展示时，隐藏最新一条 assistant text（PRD 文档），避免与面板重复 */
   hideLatestPlanDoc?: boolean
 }
@@ -48,6 +63,7 @@ const sessionMessageHeights = new Map<string, Record<string, number>>()
 // 滚动条 thumb 在滚动过程中长短跳变（滚动经过的消息被实测后总高度变化）。
 // 取贴近真实样本中位/平均的值（实测多数文本消息 34~110px），使双向偏差最小。
 const DEFAULT_MESSAGE_HEIGHT = 90
+const STREAM_STATUS_HEIGHT = 34
 // 虚拟化阈值：低于此数量的会话全量渲染，所有消息高度由 ResizeObserver 一次性实测，
 // scrollHeight 立即确定、滚动条全程稳定。仅当消息量较大（带来明显性能压力）时才启用
 // 虚拟滚动（未测量消息用估算高度，滚动实测时总高度会变化、滚动条 thumb 长短跳变）。
@@ -78,6 +94,7 @@ function detectWindowsRuntime(): boolean {
  * 负责虚拟滚动、滚动位置恢复、历史消息加载以及流式消息期间的自动滚动状态。
  */
 export function useMessageList(props: MessageListProps, emit: MessageListEmits) {
+  const { t } = useI18n()
   const messageStore = useMessageStore()
   const sessionStore = useSessionStore()
   const sessionExecutionStore = useSessionExecutionStore()
@@ -138,16 +155,109 @@ export function useMessageList(props: MessageListProps, emit: MessageListEmits) 
     return result
   })
 
-  const currentIsSending = computed(() => {
+  const renderableMessages = computed(() =>
+    currentMessages.value
+      .filter(message => isVisibleConversationMessage(message, currentMessages.value))
+      .sort(compareMessagesForRender)
+  )
+
+  const executionStateVersion = computed(() => {
+    if (!resolvedSessionId.value) {
+      return 0
+    }
+
+    return sessionExecutionStore.getStateVersion(resolvedSessionId.value)
+  })
+
+  const currentExecutionState = computed(() => {
+    executionStateVersion.value
+    return resolvedSessionId.value
+      ? sessionExecutionStore.getExecutionState(resolvedSessionId.value)
+      : null
+  })
+
+  const currentIsProcessing = computed(() => {
     if (typeof props.externalIsSending === 'boolean') {
       return props.externalIsSending
     }
 
     if (!resolvedSessionId.value) {
+      return currentMessages.value.some(message => message.role === 'assistant' && message.status === 'streaming')
+    }
+
+    const state = currentExecutionState.value
+    if (!state) {
+      return currentMessages.value.some(message => message.role === 'assistant' && message.status === 'streaming')
+    }
+
+    return state.isSending
+      || state.isStreaming
+      || state.isQueueDraining
+      || state.isAwaitingRetry
+      || currentMessages.value.some(message => message.role === 'assistant' && message.status === 'streaming')
+  })
+
+  const latestVisibleMessage = computed(() => {
+    const messages = renderableMessages.value
+    return messages[messages.length - 1] ?? null
+  })
+
+  const isAwaitingFirstAssistantEvent = computed(() => {
+    if (!currentIsProcessing.value || latestVisibleMessage.value?.role !== 'user') {
       return false
     }
 
-    return sessionExecutionStore.getIsSending(resolvedSessionId.value)
+    const latestUser = latestVisibleMessage.value
+    return !currentMessages.value.some(message =>
+      message.requestId === latestUser.requestId
+      && message.role === 'assistant'
+      && isVisibleConversationMessage(message, currentMessages.value)
+    )
+  })
+
+  const streamStatus = computed<LiveStreamStatus | null>(() => {
+    if (props.waitingPermission) {
+      return { kind: 'permission', text: t('message.status.waitingPermission') }
+    }
+
+    if (props.waitingForm) {
+      return { kind: 'form', text: t('message.status.waitingUserAnswer') }
+    }
+
+    if (!currentIsProcessing.value) {
+      return null
+    }
+
+    if (isAwaitingFirstAssistantEvent.value) {
+      return null
+    }
+
+    const latestStreamingAssistant = [...renderableMessages.value]
+      .reverse()
+      .find(message => message.role === 'assistant' && message.status === 'streaming')
+    const latestAssistant = latestStreamingAssistant ?? [...renderableMessages.value]
+      .reverse()
+      .find(message => message.role === 'assistant')
+
+    if (!latestAssistant || latestAssistant.status === 'error' || latestAssistant.status === 'interrupted') {
+      return { kind: 'generating', text: t('message.status.assistantStreaming') }
+    }
+
+    if (latestAssistant.messageType === 'thinking') {
+      return { kind: 'thinking', text: t('message.status.assistantThinking') }
+    }
+
+    if (latestAssistant.messageType === 'tool_use' || latestAssistant.messageType === 'tool_result') {
+      const toolName = latestAssistant.toolName?.trim()
+      return {
+        kind: latestAssistant.status === 'streaming' ? 'tool' : 'generating',
+        text: latestAssistant.status === 'streaming' && toolName
+          ? t('message.status.assistantToolRunning', { tool: toolName })
+          : t('message.status.assistantStreaming')
+      }
+    }
+
+    return { kind: 'generating', text: t('message.status.assistantStreaming') }
   })
 
   const isListVisible = computed(() => {
@@ -159,11 +269,11 @@ export function useMessageList(props: MessageListProps, emit: MessageListEmits) 
   })
 
   const shouldVirtualize = computed(() => (
-    !isWindowsRuntime && currentMessages.value.length > VIRTUALIZE_THRESHOLD
+    !isWindowsRuntime && renderableMessages.value.length > VIRTUALIZE_THRESHOLD
   ))
 
   const latestMessageActivity = computed(() => {
-    const messages = currentMessages.value
+    const messages = renderableMessages.value
     const latestMessage = messages[messages.length - 1]
 
     // 新结构下工具调用/思考/编辑追踪/运行时通知都是独立行，
@@ -196,7 +306,7 @@ export function useMessageList(props: MessageListProps, emit: MessageListEmits) 
   const messageLayout = computed<VirtualMessageItem[]>(() => {
     let offset = 0
 
-    return currentMessages.value.map(message => {
+    return renderableMessages.value.map(message => {
       const height = messageHeights.value[message.id] ?? DEFAULT_MESSAGE_HEIGHT
       const item = { message, top: offset, height }
       offset += height
@@ -206,14 +316,15 @@ export function useMessageList(props: MessageListProps, emit: MessageListEmits) 
 
   const totalMessageHeight = computed(() => {
     const lastItem = messageLayout.value[messageLayout.value.length - 1]
-    return lastItem ? lastItem.top + lastItem.height : 0
+    const messageHeight = lastItem ? lastItem.top + lastItem.height : 0
+    return messageHeight + (streamStatus.value ? STREAM_STATUS_HEIGHT : 0)
   })
 
   const virtualWindow = computed(() => {
     if (!shouldVirtualize.value) {
       return {
         start: 0,
-        end: currentMessages.value.length,
+        end: renderableMessages.value.length,
         topSpacer: 0,
         bottomSpacer: 0
       }
@@ -235,6 +346,8 @@ export function useMessageList(props: MessageListProps, emit: MessageListEmits) 
 
     const safeEnd = Math.max(end, start + 1)
     const lastVisible = layouts[safeEnd - 1]
+    const renderedBottom = (lastVisible?.top ?? 0) + (lastVisible?.height ?? 0)
+    const statusHeight = streamStatus.value ? STREAM_STATUS_HEIGHT : 0
 
     return {
       start,
@@ -242,7 +355,7 @@ export function useMessageList(props: MessageListProps, emit: MessageListEmits) 
       topSpacer: layouts[start]?.top ?? 0,
       bottomSpacer: Math.max(
         0,
-        totalMessageHeight.value - ((lastVisible?.top ?? 0) + (lastVisible?.height ?? 0))
+        totalMessageHeight.value - renderedBottom - statusHeight
       )
     }
   })
@@ -838,8 +951,8 @@ export function useMessageList(props: MessageListProps, emit: MessageListEmits) 
     }
   })
 
-  watch(currentIsSending, async (sending, wasSending) => {
-    if (!sending || wasSending || !isListVisible.value || isRestoringScroll(resolvedSessionId.value)) {
+  watch(currentIsProcessing, async (processing, wasProcessing) => {
+    if (!processing || wasProcessing || !isListVisible.value || isRestoringScroll(resolvedSessionId.value)) {
       return
     }
 
@@ -942,6 +1055,9 @@ export function useMessageList(props: MessageListProps, emit: MessageListEmits) 
   return {
     listRef,
     currentMessages,
+    renderableMessages,
+    streamStatus,
+    isAwaitingFirstAssistantEvent,
     resolvedSessionId,
     isExternalMessagesMode,
     hasMoreMessages,

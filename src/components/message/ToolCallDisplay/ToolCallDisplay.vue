@@ -6,26 +6,25 @@ const props = withDefaults(defineProps<ToolCallDisplayProps>(), {
   live: false,
   compact: false,
   defaultExpanded: undefined,
-  defaultResultExpanded: undefined,
   autoCollapseOnComplete: true
 })
 
 const {
   t,
   isExpanded,
-  isResultExpanded,
   toggleExpand,
-  toggleResultExpand,
   statusClass,
-  statusIcon,
   toolIcon,
   locationBadges,
+  toolCategoryLabel,
   isTerminalLikeTool,
   isAgentExecutionTool,
+  isSkillTool,
   agentExecutionTitle,
   animatedArguments,
   animatedResult,
   agentPrompt,
+  skillContent,
   toolSummary
 } = useToolCallDisplay(props)
 </script>
@@ -50,13 +49,13 @@ const {
           />
         </span>
         <span
-          v-if="isAgentExecutionTool"
-          class="tool-call__agent-label"
-        >子代理执行</span>
+          class="tool-call__category"
+        >{{ toolCategoryLabel }}</span>
         <span
           class="tool-call__name"
           :class="{ 'tool-call__name--sweep': toolCall.status === 'running' }"
         >{{ isAgentExecutionTool ? agentExecutionTitle : toolCall.name }}</span>
+        <span class="tool-call__summary">{{ toolSummary }}</span>
         <!-- 文件位置徽标：读取/写入/修改了哪些文件 -->
         <span
           v-for="(badge, index) in locationBadges"
@@ -70,27 +69,6 @@ const {
             :size="11"
           />
           <span class="tool-call__loc-label">{{ badge.label }}</span>
-        </span>
-        <span
-          class="tool-call__status"
-          :class="`tool-call__status--${toolCall.status}`"
-        >
-          <EaIcon
-            :name="statusIcon"
-            :size="12"
-          />
-        </span>
-      </div>
-      <div class="tool-call__header-right">
-        <span class="tool-call__summary">{{ toolSummary }}</span>
-        <span
-          class="tool-call__chevron"
-          :class="{ 'tool-call__chevron--expanded': isExpanded }"
-        >
-          <EaIcon
-            name="chevron-down"
-            :size="12"
-          />
         </span>
       </div>
     </button>
@@ -114,8 +92,25 @@ const {
         <pre class="tool-call__code">{{ agentPrompt }}</pre>
       </div>
 
+      <div
+        v-if="isSkillTool && skillContent"
+        class="tool-call__section tool-call__section--skill-content"
+      >
+        <div class="tool-call__section-title">
+          <EaIcon
+            name="sparkles"
+            :size="12"
+          />
+          <span>内容</span>
+        </div>
+        <pre class="tool-call__code tool-call__code--skill">{{ skillContent }}</pre>
+      </div>
+
       <!-- 参数 -->
-      <div class="tool-call__section">
+      <div
+        v-if="!isSkillTool"
+        class="tool-call__section"
+      >
         <div class="tool-call__section-title">
           <EaIcon
             name="log-in"
@@ -131,35 +126,14 @@ const {
         v-if="toolCall.result"
         class="tool-call__section"
       >
-        <button
-          type="button"
-          class="tool-call__section-header"
-          @click.stop="toggleResultExpand"
-        >
-          <div class="tool-call__section-title">
-            <EaIcon
-              :name="isAgentExecutionTool ? 'scroll-text' : 'log-out'"
-              :size="12"
-            />
-            <span>{{ isAgentExecutionTool ? '执行日志 / 结果' : t('message.result') }}</span>
-          </div>
-          <div class="tool-call__section-toggle">
-            <span>{{ isResultExpanded ? t('message.collapse') : t('message.expand') }}</span>
-            <span
-              class="tool-call__chevron"
-              :class="{ 'tool-call__chevron--expanded': isResultExpanded }"
-            >
-              <EaIcon
-                name="chevron-down"
-                :size="12"
-              />
-            </span>
-          </div>
-        </button>
-        <div
-          v-show="isResultExpanded"
-          class="tool-call__result"
-        >
+        <div class="tool-call__section-title">
+          <EaIcon
+            :name="isAgentExecutionTool ? 'scroll-text' : 'log-out'"
+            :size="12"
+          />
+          <span>{{ isAgentExecutionTool ? '执行日志 / 结果' : t('message.result') }}</span>
+        </div>
+        <div class="tool-call__result">
           <pre
             class="tool-call__code tool-call__result-content"
             :class="{ 'tool-call__code--terminal': isTerminalLikeTool }"

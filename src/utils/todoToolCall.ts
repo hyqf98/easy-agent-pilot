@@ -77,6 +77,7 @@ function resolveTodoStatus(entry: Record<string, unknown>): TodoItem['status'] {
 
 function resolveTodoArray(toolCall: ToolCall): unknown[] {
   const candidates = [
+    parseTodoResultPayload(toolCall.result),
     toolCall.arguments?.todos,
     toolCall.arguments?.items,
     toolCall.arguments?.tasks,
@@ -90,6 +91,49 @@ function resolveTodoArray(toolCall: ToolCall): unknown[] {
   }
 
   return []
+}
+
+function parseJsonObject(value: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null
+  } catch {
+    return null
+  }
+}
+
+function parseTodoResultPayload(value: unknown): unknown[] | undefined {
+  let parsed: unknown = value
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value)
+    } catch {
+      return undefined
+    }
+  }
+
+  if (Array.isArray(parsed)) {
+    return parsed
+  }
+
+  const parsedObject = parsed && typeof parsed === 'object'
+    ? parsed as Record<string, unknown>
+    : null
+
+  if (!parsedObject) {
+    return undefined
+  }
+
+  const candidate = [
+    parsedObject.todos,
+    parsedObject.items,
+    parsedObject.tasks,
+    parsedObject.plan
+  ].find(Array.isArray)
+
+  return Array.isArray(candidate) ? candidate : undefined
 }
 
 function resolveTodoContent(entry: Record<string, unknown>): string {
@@ -130,13 +174,20 @@ function parseToolCallTodos(toolCall: ToolCall): TodoItem[] {
 
 function buildMessagesTodoCacheKey(messages: Message[]): string {
   const lastMessage = messages[messages.length - 1]
+  const lastToolMessage = [...messages].reverse().find(message =>
+    message.messageType === 'tool_use' || message.messageType === 'tool_result'
+  )
 
   return [
     messages.length,
     lastMessage?.id ?? '',
     lastMessage?.status ?? '',
     lastMessage?.createdAt ?? '',
-    lastMessage?.messageType ?? ''
+    lastMessage?.messageType ?? '',
+    lastToolMessage?.id ?? '',
+    lastToolMessage?.status ?? '',
+    lastToolMessage?.toolInput?.length ?? 0,
+    lastToolMessage?.toolResult?.length ?? 0
   ].join(':')
 }
 
@@ -184,14 +235,37 @@ export function extractTodoSnapshotFromMessages(messages: Message[]): TodoSnapsh
     return todoSnapshotByMessagesCache.get(cacheKey) ?? null
   }
 
+  const toolUseByCallId = new Map<string, Message>()
+  for (const message of messages) {
+    if (message.messageType === 'tool_use' && message.toolCallId) {
+      toolUseByCallId.set(message.toolCallId, message)
+    }
+  }
+
   for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
     const message = messages[messageIndex]
-    // 新结构下工具调用是独立行，todo 提取从 tool_result 行读取
-    if (message.messageType !== 'tool_result' || !message.toolResult) {
+    if (message.messageType !== 'tool_use' && message.messageType !== 'tool_result') {
       continue
     }
+
+    const toolUseMessage = message.messageType === 'tool_result' && message.toolCallId
+      ? toolUseByCallId.get(message.toolCallId)
+      : undefined
+    const toolName = message.toolName || toolUseMessage?.toolName
+    const toolInput = message.toolInput || toolUseMessage?.toolInput
+    let parsedArguments: Record<string, unknown> = {}
+    if (toolInput) {
+      parsedArguments = parseJsonObject(toolInput) ?? { raw: toolInput }
+    }
+
     const snapshot = extractTodoSnapshotFromToolCalls(
-      [{ id: message.toolCallId ?? '', name: message.toolName ?? '', arguments: {}, status: 'success', result: message.toolResult }],
+      [{
+        id: message.toolCallId ?? '',
+        name: toolName ?? '',
+        arguments: parsedArguments,
+        status: message.status === 'error' ? 'error' : 'success',
+        result: message.toolResult
+      }],
       message.createdAt
     )
     if (snapshot) {

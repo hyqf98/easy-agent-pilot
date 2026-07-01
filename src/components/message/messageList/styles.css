@@ -50,6 +50,78 @@
   min-width: 0;
 }
 
+.message-list__stream-status {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: 8px;
+  width: 100%;
+  max-width: var(--conversation-stream-width);
+  min-height: 30px;
+  margin: 0 auto;
+  padding: 2px 0;
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.message-list__stream-status-spinner {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--workspace-text-secondary, var(--color-text-secondary)) 18%, transparent);
+  border-top-color: var(--workspace-text-secondary, var(--color-text-secondary));
+  animation: spin 0.9s linear infinite;
+}
+
+.message-list__initial-work {
+  display: grid;
+  grid-template-columns: minmax(20px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: var(--conversation-stream-width);
+  min-height: 30px;
+  margin: 0 auto;
+  padding: 2px 0;
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary));
+  font-size: 11px;
+  line-height: 1;
+}
+
+.message-list__initial-work-line {
+  height: 1px;
+  min-width: 20px;
+  background:
+    linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in srgb, var(--workspace-border-strong, var(--color-border)) 72%, transparent) 18%,
+      color-mix(in srgb, var(--workspace-border, var(--color-border)) 86%, transparent)
+    );
+}
+
+.message-list__initial-work-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 7px;
+  border: 1px solid color-mix(in srgb, var(--workspace-border, var(--color-border)) 82%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--workspace-control-bg, var(--color-surface)) 72%, transparent);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+  font-weight: 560;
+}
+
+.message-list__initial-work .message-list__stream-status-spinner {
+  width: 12px;
+  height: 12px;
+  flex-basis: 12px;
+}
+
 .message-list__virtual-spacer {
   flex-shrink: 0;
 }

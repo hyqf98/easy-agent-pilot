@@ -71,6 +71,23 @@ function dedupeSystemMessages(messages: Message[]): Message[] {
   })
 }
 
+function shouldIncludeConversationMessage(message: Message): boolean {
+  if (message.role === 'system' || message.role === 'user') {
+    return true
+  }
+
+  if (message.role !== 'assistant') {
+    return false
+  }
+
+  if (message.status === 'streaming' && !normalizeContent(message.content ?? '')) {
+    return false
+  }
+
+  return message.messageType === 'text'
+    || message.messageType === 'error'
+}
+
 export function buildConversationMessages(
   messages: Message[],
   options: BuildConversationMessagesOptions = {}
@@ -93,8 +110,7 @@ export function buildConversationMessages(
 
   assembled.push(
     ...messages.filter((message) =>
-      (message.role === 'system' || message.role === 'user' || message.role === 'assistant') &&
-      !(message.role === 'assistant' && !normalizeContent(message.content ?? '') && message.status === 'streaming')
+      shouldIncludeConversationMessage(message)
     )
   )
 

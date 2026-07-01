@@ -1911,7 +1911,12 @@ export function useConversationComposer(options: UseConversationComposerOptions)
 
     composerDebug('send', { rawLen: rawInput.length, expandedLen: expandedInput.length, attachCount: attachments.length })
 
-    if (!displayInput && attachments.length === 0) return
+    if (!displayInput && attachments.length === 0) {
+      if (isSending.value) {
+        await conversationService.abort(sessionId)
+      }
+      return
+    }
 
     const parsedSlashCommand = attachments.length === 0 ? parseSlashCommandInput(userInput) : null
     if (parsedSlashCommand) {

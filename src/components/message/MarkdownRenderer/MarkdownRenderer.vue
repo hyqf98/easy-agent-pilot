@@ -2,7 +2,8 @@
 import { useMarkdownRenderer, type MarkdownRendererProps } from './useMarkdownRenderer'
 
 const props = withDefaults(defineProps<MarkdownRendererProps>(), {
-  animate: false
+  animate: false,
+  streamingCaret: false
 })
 
 const { containerRef, renderedContent } = useMarkdownRenderer(props)
@@ -17,4 +18,3 @@ const { containerRef, renderedContent } = useMarkdownRenderer(props)
 </template>
 
 <style scoped src="./styles.css"></style>
-

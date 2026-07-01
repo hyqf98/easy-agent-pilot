@@ -156,9 +156,34 @@
 .message-bubble__form-response {
   display: flex;
   flex-direction: column;
+  gap: 7px;
+  min-width: 13rem;
+  padding: 0;
+}
+
+.message-bubble__form-response-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 560;
+  line-height: 1.45;
+  text-align: left;
+  cursor: pointer;
+}
+
+.message-bubble__form-response-detail {
+  display: flex;
+  flex-direction: column;
   gap: 2px;
-  min-width: 16rem;
-  padding: 2px 0;
+  padding-left: 10px;
+  border-left: 1px solid color-mix(in srgb, currentColor 26%, transparent);
 }
 
 .message-bubble__form-response-item {
@@ -286,15 +311,6 @@
 :global(.dark) .file-mention:hover {
   background: linear-gradient(135deg, rgba(96, 165, 250, 0.28), rgba(96, 165, 250, 0.18));
   border-color: rgba(96, 165, 250, 0.5);
-}
-
-.message-bubble__cursor {
-  display: inline-block;
-  width: 2px;
-  height: 1em;
-  margin-left: 2px;
-  background-color: var(--color-primary);
-  animation: blink 1s step-end infinite;
 }
 
 /* 等待首字加载动画：AI 文本回复 streaming 且内容为空时显示旋转圆环 */
@@ -1123,7 +1139,8 @@
   max-width: min(100%, var(--message-fixed-width));
   min-height: 0;
   padding: 0;
-  color: var(--workspace-text-primary, var(--color-text-primary));
+  color: color-mix(in srgb, var(--workspace-text-primary, var(--color-text-primary)) 94%, #000000);
+  font-weight: 430;
 }
 
 .message-bubble--assistant .message-bubble__content:empty {
@@ -1135,6 +1152,10 @@
   width: var(--message-compact-max-width);
   min-width: min(100%, var(--message-compact-max-width));
   max-width: 100%;
+}
+
+.message-bubble__thinking {
+  color: color-mix(in srgb, var(--workspace-text-secondary, var(--color-text-secondary)) 82%, var(--workspace-text-tertiary, var(--color-text-tertiary)));
 }
 
 .message-bubble__stream-segment + .message-bubble__stream-segment {
@@ -1280,13 +1301,6 @@
   border-color: var(--workspace-control-border, var(--color-border));
 }
 
-.message-bubble__cursor {
-  width: 2px;
-  height: 0.95em;
-  background-color: currentColor;
-  opacity: 0.72;
-}
-
 .file-mention {
   background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 86%, transparent);
   color: var(--workspace-text-secondary, var(--color-text-secondary));
@@ -1305,6 +1319,12 @@
 :global([data-theme='dark']) .message-bubble--assistant .message-bubble__content,
 :global(.dark) .message-bubble--assistant .message-bubble__content {
   color: var(--workspace-text-primary, #f4f4f0);
+  font-weight: 420;
+}
+
+:global([data-theme='dark']) .message-bubble__thinking,
+:global(.dark) .message-bubble__thinking {
+  color: color-mix(in srgb, var(--workspace-text-secondary, #b7b7af) 62%, var(--workspace-text-tertiary, #77776f));
 }
 
 :global([data-theme='dark']) .message-bubble__work-status,

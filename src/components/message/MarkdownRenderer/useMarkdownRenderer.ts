@@ -14,6 +14,7 @@ import { openProjectFileInWorkspace } from '@/modules/fileEditor'
 export interface MarkdownRendererProps {
   content: string
   animate?: boolean
+  streamingCaret?: boolean
 }
 
 export function useMarkdownRenderer(props: MarkdownRendererProps) {
@@ -325,7 +326,31 @@ export function useMarkdownRenderer(props: MarkdownRendererProps) {
     { charsPerSecond: 140, maxChunkSize: 24 }
   )
 
-  const renderedContent = computed(() => md.render(displayedText.value))
+  function appendStreamingCaret(html: string): string {
+    if (!props.streamingCaret || !displayedText.value) {
+      return html
+    }
+
+    const caret = '<span class="markdown-content__stream-caret" aria-hidden="true"></span>'
+    const blockPattern = /<(p|li|h1|h2|h3|h4|h5|h6|blockquote)(\s[^>]*)?>([\s\S]*?)<\/\1>/gi
+    let lastMatch: RegExpExecArray | null = null
+    let match: RegExpExecArray | null = null
+
+    while ((match = blockPattern.exec(html)) !== null) {
+      if (match[3]?.trim()) {
+        lastMatch = match
+      }
+    }
+
+    if (!lastMatch || lastMatch.index < 0) {
+      return `${html}${caret}`
+    }
+
+    const insertAt = lastMatch.index + lastMatch[0].length - `</${lastMatch[1]}>`.length
+    return `${html.slice(0, insertAt)}${caret}${html.slice(insertAt)}`
+  }
+
+  const renderedContent = computed(() => appendStreamingCaret(md.render(displayedText.value)))
 
   // 处理链接点击，使用 Tauri opener
   const handleLinkClick = async (e: MouseEvent): Promise<void> => {

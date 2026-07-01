@@ -8,6 +8,7 @@ export interface StructuredContentRendererProps {
   interactiveForms?: boolean
   formDisabled?: boolean
   animate?: boolean
+  streaming?: boolean
   resolvedFormValues?: Record<string, unknown> | null
   resolvedFormValuesByFormId?: Record<string, Record<string, unknown>> | null
 }

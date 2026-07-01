@@ -12,6 +12,7 @@ const props = withDefaults(defineProps<StructuredContentRendererProps>(), {
   interactiveForms: false,
   formDisabled: false,
   animate: false,
+  streaming: false,
   resolvedFormValues: null,
   resolvedFormValuesByFormId: null
 })
@@ -42,6 +43,7 @@ const {
         v-if="block.type === 'markdown'"
         :content="block.content"
         :animate="false"
+        :streaming-caret="props.streaming && index === blocks.length - 1"
       />
 
       <div

@@ -84,6 +84,11 @@ interface ComposerStateSnapshot {
 export const useSessionExecutionStore = defineStore('sessionExecution', () => {
   // State - 使用 Map 存储每个会话的执行状态
   const executionStates = ref<Map<string, SessionExecutionState>>(new Map())
+  const stateVersions = ref<Map<string, number>>(new Map())
+
+  function touchState(sessionId: string) {
+    stateVersions.value.set(sessionId, (stateVersions.value.get(sessionId) ?? 0) + 1)
+  }
 
   /**
    * 获取指定会话的执行状态，如果不存在则创建默认状态
@@ -93,8 +98,13 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
     if (!state) {
       state = createDefaultState()
       executionStates.value.set(sessionId, state)
+      touchState(sessionId)
     }
     return state
+  }
+
+  function getStateVersion(sessionId: string): number {
+    return stateVersions.value.get(sessionId) ?? 0
   }
 
   /**
@@ -194,6 +204,7 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
   function setInputText(sessionId: string, text: string) {
     const state = getExecutionState(sessionId)
     state.inputText = text
+    touchState(sessionId)
   }
 
   function getFileMentions(sessionId: string) {
@@ -203,26 +214,31 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
   function setFileMentions(sessionId: string, mentions: ComposerFileMention[]) {
     const state = getExecutionState(sessionId)
     state.fileMentions = mentions
+    touchState(sessionId)
   }
 
   function setPendingImages(sessionId: string, images: PendingImageAttachment[]) {
     const state = getExecutionState(sessionId)
     state.pendingImages = images
+    touchState(sessionId)
   }
 
   function appendPendingImages(sessionId: string, images: PendingImageAttachment[]) {
     const state = getExecutionState(sessionId)
     state.pendingImages = [...state.pendingImages, ...images]
+    touchState(sessionId)
   }
 
   function removePendingImage(sessionId: string, imageId: string) {
     const state = getExecutionState(sessionId)
     state.pendingImages = state.pendingImages.filter(image => image.id !== imageId)
+    touchState(sessionId)
   }
 
   function clearPendingImages(sessionId: string) {
     const state = getExecutionState(sessionId)
     state.pendingImages = []
+    touchState(sessionId)
   }
 
   /**
@@ -245,6 +261,7 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
     targetState.inputText = snapshot.inputText
     targetState.fileMentions = snapshot.fileMentions
     targetState.pendingImages = snapshot.pendingImages
+    touchState(targetSessionId)
   }
 
   function queueMessage(
@@ -259,17 +276,20 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
       status: 'queued'
     }
     state.queuedMessages = [...state.queuedMessages, queuedDraft]
+    touchState(sessionId)
     return queuedDraft
   }
 
   function removeQueuedMessage(sessionId: string, draftId: string) {
     const state = getExecutionState(sessionId)
     state.queuedMessages = state.queuedMessages.filter(draft => draft.id !== draftId)
+    touchState(sessionId)
   }
 
   function restoreQueuedMessage(sessionId: string, draft: QueuedMessageDraft) {
     const state = getExecutionState(sessionId)
     state.queuedMessages = [draft, ...state.queuedMessages]
+    touchState(sessionId)
   }
 
   function updateQueuedMessage(
@@ -288,6 +308,7 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
         ...updates
       }
     })
+    touchState(sessionId)
   }
 
   function popNextQueuedMessage(sessionId: string): QueuedMessageDraft | null {
@@ -298,6 +319,7 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
     }
 
     const [draft] = state.queuedMessages.splice(index, 1)
+    touchState(sessionId)
     return draft ?? null
   }
 
@@ -319,6 +341,7 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
         errorMessage
       }
     })
+    touchState(sessionId)
   }
 
   function retryQueuedMessage(sessionId: string, draftId: string) {
@@ -334,11 +357,13 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
         errorMessage: undefined
       }
     })
+    touchState(sessionId)
   }
 
   function setIsUploadingImages(sessionId: string, uploading: boolean) {
     const state = getExecutionState(sessionId)
     state.isUploadingImages = uploading
+    touchState(sessionId)
   }
 
   /**
@@ -347,16 +372,19 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
   function setIsSending(sessionId: string, sending: boolean) {
     const state = getExecutionState(sessionId)
     state.isSending = sending
+    touchState(sessionId)
   }
 
   function setIsQueueDraining(sessionId: string, draining: boolean) {
     const state = getExecutionState(sessionId)
     state.isQueueDraining = draining
+    touchState(sessionId)
   }
 
   function setIsAwaitingRetry(sessionId: string, awaiting: boolean) {
     const state = getExecutionState(sessionId)
     state.isAwaitingRetry = awaiting
+    touchState(sessionId)
   }
 
   /**
@@ -365,6 +393,7 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
   function setIsStreaming(sessionId: string, streaming: boolean) {
     const state = getExecutionState(sessionId)
     state.isStreaming = streaming
+    touchState(sessionId)
   }
 
   /**
@@ -373,6 +402,7 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
   function setStreamTimerId(sessionId: string, timerId: ReturnType<typeof setInterval> | null) {
     const state = getExecutionState(sessionId)
     state.streamTimerId = timerId
+    touchState(sessionId)
   }
 
   /**
@@ -381,6 +411,7 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
   function setCurrentStreamingMessageId(sessionId: string, messageId: string | null) {
     const state = getExecutionState(sessionId)
     state.currentStreamingMessageId = messageId
+    touchState(sessionId)
   }
 
   function beginRetryAttempt(
@@ -403,12 +434,14 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
       current: nextCurrent,
       max: payload.max
     }
+    touchState(sessionId)
     return state.currentRetryState
   }
 
   function clearCurrentRetryState(sessionId: string) {
     const state = getExecutionState(sessionId)
     state.currentRetryState = null
+    touchState(sessionId)
   }
 
   /**
@@ -420,6 +453,7 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
     state.isQueueDraining = false
     state.isAwaitingRetry = false
     state.isStreaming = true
+    touchState(sessionId)
   }
 
   /**
@@ -433,6 +467,7 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
     state.isStreaming = false
     state.streamTimerId = null
     state.currentStreamingMessageId = null
+    touchState(sessionId)
   }
 
   /**
@@ -452,6 +487,7 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
     state.isQueueDraining = false
     state.isStreaming = false
     state.currentStreamingMessageId = null
+    touchState(sessionId)
   }
 
   /**
@@ -467,6 +503,7 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
       }
       // 删除状态
       executionStates.value.delete(sessionId)
+      stateVersions.value.delete(sessionId)
     }
   }
 
@@ -481,6 +518,7 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
       }
     })
     executionStates.value.clear()
+    stateVersions.value.clear()
   }
 
   /**
@@ -524,6 +562,7 @@ export const useSessionExecutionStore = defineStore('sessionExecution', () => {
     getIsBusy,
     getIsStreaming,
     getCurrentRetryState,
+    getStateVersion,
     hasAnyRunningSession,
     runningSessionIds,
 

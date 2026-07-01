@@ -80,6 +80,12 @@ export function useTypewriterText(
         hasInitialized.value = true
 
         if (nextText) {
+          if (isEnabled) {
+            displayedText.value = ''
+            tick()
+            return
+          }
+
           syncImmediately(nextText)
           return
         }

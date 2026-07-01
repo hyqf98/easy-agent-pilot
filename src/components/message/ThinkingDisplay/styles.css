@@ -1,4 +1,9 @@
 .thinking-display {
+  --thinking-muted-bg: transparent;
+  --thinking-muted-bg-hover: color-mix(in srgb, var(--workspace-control-hover-bg, var(--color-bg-tertiary)) 22%, transparent);
+  --thinking-muted-text: color-mix(in srgb, var(--workspace-text-secondary, var(--color-text-secondary)) 82%, var(--workspace-text-tertiary, var(--color-text-tertiary)));
+  --thinking-muted-meta: color-mix(in srgb, var(--workspace-text-tertiary, var(--color-text-tertiary)) 86%, transparent);
+  --thinking-muted-divider: color-mix(in srgb, var(--workspace-border, var(--color-border)) 42%, transparent);
   align-self: flex-start;
   display: flex;
   flex-direction: column;
@@ -6,20 +11,22 @@
   min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
-  border: 1px solid color-mix(in srgb, var(--workspace-border, var(--tool-call-border, var(--color-border))) 74%, transparent);
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--workspace-control-bg, var(--tool-call-bg, var(--color-surface))) 72%, transparent);
+  border: 0;
+  border-left: 0;
+  border-radius: 8px;
+  background: var(--thinking-muted-bg);
+  color: var(--thinking-muted-text);
   overflow: hidden;
-  transition: border-color 0.18s ease, background 0.18s ease;
+  transition: background 0.18s ease;
 }
 
 .thinking-display:hover {
-  border-color: color-mix(in srgb, var(--workspace-border-strong, var(--tool-call-hover-border, var(--color-border))) 86%, transparent);
+  background: var(--thinking-muted-bg-hover);
 }
 
 /* live 仅保留图标脉冲 + 标题扫光，无边框发光 */
 .thinking-display--live {
-  /* 无边框样式 */
+  background: color-mix(in srgb, var(--workspace-control-hover-bg, var(--color-bg-tertiary)) 18%, transparent);
 }
 
 .thinking-display__header {
@@ -27,7 +34,7 @@
   align-items: center;
   gap: 7px;
   width: 100%;
-  min-height: 32px;
+  min-height: 30px;
   padding: 5px 9px;
   border: 0;
   background: transparent;
@@ -38,7 +45,7 @@
 }
 
 .thinking-display__header:hover {
-  background: color-mix(in srgb, var(--workspace-control-hover-bg, var(--tool-call-header-hover)) 42%, transparent);
+  background: transparent;
 }
 
 .thinking-display__header-left {
@@ -55,12 +62,12 @@
   width: 18px;
   height: 18px;
   border-radius: 6px;
-  color: var(--workspace-text-secondary, var(--tool-call-meta, var(--color-text-secondary)));
-  background: color-mix(in srgb, currentColor 8%, transparent);
+  color: var(--thinking-muted-meta);
+  background: transparent;
 }
 
 .thinking-display--live .thinking-display__icon {
-  color: var(--color-primary);
+  color: var(--thinking-muted-meta);
   animation: thinking-live-pulse 1.8s ease-in-out infinite;
 }
 
@@ -73,25 +80,25 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--workspace-text-secondary, var(--tool-call-name, var(--color-text-primary)));
+  color: var(--thinking-muted-text);
   font-size: 12px;
   font-weight: 560;
   letter-spacing: 0;
 }
 
 .thinking-display--live .thinking-display__title {
-  color: var(--workspace-text-primary, var(--color-text-primary));
+  color: var(--thinking-muted-text);
 }
 
 /* 执行中：标题文字从左到右的高亮扫光，循环到完成（live=false）后自动停止 */
 .thinking-display__title--sweep {
   background: linear-gradient(
     90deg,
-    var(--workspace-text-secondary, var(--color-text-secondary)) 0%,
-    var(--workspace-text-secondary, var(--color-text-secondary)) 35%,
-    var(--color-primary) 50%,
-    var(--workspace-text-secondary, var(--color-text-secondary)) 65%,
-    var(--workspace-text-secondary, var(--color-text-secondary)) 100%
+    var(--thinking-muted-text) 0%,
+    var(--thinking-muted-text) 35%,
+    var(--workspace-text-primary, var(--color-text-primary)) 50%,
+    var(--thinking-muted-text) 65%,
+    var(--thinking-muted-text) 100%
   );
   background-size: 250% 100%;
   background-position: 100% 0;
@@ -107,21 +114,11 @@
   100% { background-position: -150% 0; }
 }
 
-.thinking-display__chevron {
-  display: inline-flex;
-  color: var(--workspace-text-tertiary, var(--tool-call-meta, var(--color-text-tertiary)));
-  transition: transform 0.18s ease;
-}
-
-.thinking-display__chevron--expanded {
-  transform: rotate(180deg);
-}
-
 /* 展开内容区：与头部同属一个容器，仅以顶部分割线区分 */
 .thinking-display__content {
   width: 100%;
   box-sizing: border-box;
-  border-top: 1px solid color-mix(in srgb, var(--workspace-border, var(--tool-call-content-border, var(--color-border))) 50%, transparent);
+  border-top: 1px solid var(--thinking-muted-divider);
   max-height: min(280px, 40vh);
   overflow: hidden;
 }
@@ -131,8 +128,9 @@
   max-height: min(280px, 40vh);
   overflow: auto;
   scrollbar-gutter: stable;
-  padding: 8px 9px 9px 12px;
+  padding: 8px 9px 9px 13px;
   box-sizing: border-box;
+  border-left: 1px solid color-mix(in srgb, var(--thinking-muted-meta) 42%, transparent);
 }
 
 /* 仅此处需要 thin 滚动条（6px，与全局 8px 不同）；track/thumb 沿用全局 */
@@ -151,7 +149,7 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
-  color: color-mix(in srgb, var(--workspace-text-secondary, var(--color-text-secondary)) 75%, var(--color-text-tertiary));
+  color: var(--thinking-muted-text);
 }
 
 @keyframes thinking-spin {
@@ -167,14 +165,17 @@
   }
 
   50% {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 11%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--workspace-text-secondary, var(--color-text-secondary)) 10%, transparent);
   }
 }
 
 :global([data-theme='dark']) .thinking-display,
 :global(.dark) .thinking-display {
-  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.06)) 72%, transparent);
-  border-color: color-mix(in srgb, var(--workspace-border, rgba(255, 255, 255, 0.1)) 80%, transparent);
+  --thinking-muted-bg: rgba(255, 255, 255, 0.035);
+  --thinking-muted-bg-hover: rgba(255, 255, 255, 0.052);
+  --thinking-muted-text: color-mix(in srgb, var(--workspace-text-secondary, #b7b7af) 62%, var(--workspace-text-tertiary, #77776f));
+  --thinking-muted-meta: color-mix(in srgb, var(--workspace-text-tertiary, #77776f) 86%, transparent);
+  --thinking-muted-divider: rgba(255, 255, 255, 0.055);
 }
 
 :global([data-theme='dark']) .thinking-display__text,

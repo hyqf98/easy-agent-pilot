@@ -166,6 +166,10 @@ const zhCN = {
   permission: {
     title: '工具权限请求',
     unknownTool: '未知工具',
+    allowOnce: '允许本次',
+    allowAlways: '始终允许',
+    reject: '拒绝',
+    defaultOption: '选择',
     modes: {
       ask: '每次询问',
       allowAlways: '自动允许',
@@ -410,6 +414,7 @@ const zhCN = {
     parameters: '参数',
     expand: '展开',
     collapse: '收起',
+    formResponseSummary: '用户已回答 {count} 个问题',
     structured: {
       summary: '摘要',
       generatedFiles: '新增文件',
@@ -438,7 +443,12 @@ const zhCN = {
       assistantRetrying: '重试中({current}/{max})',
       assistantStopped: '已停止',
       assistantError: '生成失败',
-      assistantCompleted: '已完成'
+      assistantCompleted: '已完成',
+      assistantThinking: '思考中',
+      assistantToolRunning: '使用工具中: {tool}',
+      assistantToolRunningFallback: '使用工具中',
+      waitingPermission: '等待授权',
+      waitingUserAnswer: '等待用户回答'
     },
     // 分割线（回合状态机）文案
     workDivider: {
