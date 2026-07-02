@@ -1,8 +1,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, type ComponentPublicInstance } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
-  compareMessagesForRender,
-  isVisibleConversationMessage,
+  isVisibleForRender,
   useMessageStore,
   type Message
 } from '@/stores/message'
@@ -157,9 +156,37 @@ export function useMessageList(props: MessageListProps, emit: MessageListEmits) 
 
   const renderableMessages = computed(() =>
     currentMessages.value
-      .filter(message => isVisibleConversationMessage(message, currentMessages.value))
-      .sort(compareMessagesForRender)
+      .filter(message => isVisibleForRender(message))
   )
+
+  /**
+   * 渲染项列表：在每回合第一条可见 assistant 消息前插入 WorkDivider。
+   * 每回合只出一条分割线，即使用户发了消息但 AI 还没响应也立即显示。
+   */
+  const renderItems = computed(() => {
+    const messages = renderableMessages.value
+    const items: Array<{ type: 'divider'; key: string; requestId: string } | { type: 'message'; key: string; message: Message }> = []
+    const seenRequestIds = new Set<string>()
+
+    for (const message of messages) {
+      if (message.role === 'assistant' && !seenRequestIds.has(message.requestId)) {
+        seenRequestIds.add(message.requestId)
+        items.push({ type: 'divider', key: `divider-${message.requestId}`, requestId: message.requestId })
+      }
+      items.push({ type: 'message', key: message.id, message })
+    }
+
+    return items
+  })
+
+  /**
+   * 等待 AI 响应的 requestId：最新可见消息是 user 且该回合无 assistant 消息时，
+   * 立即显示一条 active 状态的分割线。
+   */
+  const pendingRequestId = computed(() => {
+    if (!isAwaitingFirstAssistantEvent.value) return null
+    return latestVisibleMessage.value?.requestId ?? null
+  })
 
   const executionStateVersion = computed(() => {
     if (!resolvedSessionId.value) {
@@ -211,7 +238,7 @@ export function useMessageList(props: MessageListProps, emit: MessageListEmits) 
     return !currentMessages.value.some(message =>
       message.requestId === latestUser.requestId
       && message.role === 'assistant'
-      && isVisibleConversationMessage(message, currentMessages.value)
+      && isVisibleForRender(message)
     )
   })
 
@@ -219,44 +246,28 @@ export function useMessageList(props: MessageListProps, emit: MessageListEmits) 
     if (props.waitingPermission) {
       return { kind: 'permission', text: t('message.status.waitingPermission') }
     }
-
     if (props.waitingForm) {
       return { kind: 'form', text: t('message.status.waitingUserAnswer') }
     }
+    if (!currentIsProcessing.value) return null
+    if (isAwaitingFirstAssistantEvent.value) return null
 
-    if (!currentIsProcessing.value) {
-      return null
-    }
+    const messages = renderableMessages.value
+    const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant')
+    if (!lastAssistant) return { kind: 'generating', text: t('message.status.assistantStreaming') }
 
-    if (isAwaitingFirstAssistantEvent.value) {
-      return null
-    }
-
-    const latestStreamingAssistant = [...renderableMessages.value]
-      .reverse()
-      .find(message => message.role === 'assistant' && message.status === 'streaming')
-    const latestAssistant = latestStreamingAssistant ?? [...renderableMessages.value]
-      .reverse()
-      .find(message => message.role === 'assistant')
-
-    if (!latestAssistant || latestAssistant.status === 'error' || latestAssistant.status === 'interrupted') {
-      return { kind: 'generating', text: t('message.status.assistantStreaming') }
-    }
-
-    if (latestAssistant.messageType === 'thinking') {
+    if (lastAssistant.messageType === 'thinking') {
       return { kind: 'thinking', text: t('message.status.assistantThinking') }
     }
-
-    if (latestAssistant.messageType === 'tool_use' || latestAssistant.messageType === 'tool_result') {
-      const toolName = latestAssistant.toolName?.trim()
+    if (lastAssistant.messageType === 'tool_use') {
+      const toolName = lastAssistant.toolName?.trim()
       return {
-        kind: latestAssistant.status === 'streaming' ? 'tool' : 'generating',
-        text: latestAssistant.status === 'streaming' && toolName
+        kind: lastAssistant.status === 'streaming' ? 'tool' : 'generating',
+        text: lastAssistant.status === 'streaming' && toolName
           ? t('message.status.assistantToolRunning', { tool: toolName })
           : t('message.status.assistantStreaming')
       }
     }
-
     return { kind: 'generating', text: t('message.status.assistantStreaming') }
   })
 
@@ -1056,6 +1067,8 @@ export function useMessageList(props: MessageListProps, emit: MessageListEmits) 
     listRef,
     currentMessages,
     renderableMessages,
+    renderItems,
+    pendingRequestId,
     streamStatus,
     isAwaitingFirstAssistantEvent,
     resolvedSessionId,

@@ -1,6 +1,7 @@
 // 消息组件导出
 export { default as MessageList } from './messageList/MessageList.vue'
 export { default as MessageBubble } from './messageBubble/MessageBubble.vue'
+export { default as WorkDivider } from './WorkDivider/WorkDivider.vue'
 export { default as MarkdownRenderer } from './MarkdownRenderer/MarkdownRenderer.vue'
 export { default as ToolCallDisplay } from './ToolCallDisplay/ToolCallDisplay.vue'
 export { default as ConversationTodoPanel } from './ConversationTodoPanel/ConversationTodoPanel.vue'

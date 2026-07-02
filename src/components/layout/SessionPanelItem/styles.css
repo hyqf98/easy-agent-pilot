@@ -164,56 +164,6 @@
   background-color: var(--color-warning-light);
 }
 
-.session-item__meta {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-2);
-  margin-top: var(--spacing-3);
-  padding-left: calc(16px + var(--spacing-3));
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
-}
-
-.session-item__meta-row {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-4);
-  flex-wrap: wrap;
-}
-
-.session-item__meta-row--secondary {
-  color: var(--color-text-tertiary);
-  opacity: 0.8;
-}
-
-.session-item__time,
-.session-item__count,
-.session-item__agent-type,
-.session-item__created {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-1);
-}
-
-.session-item__agent-type {
-  color: var(--color-primary);
-  font-weight: var(--font-weight-medium);
-}
-
-.session-item__preview {
-  margin-top: var(--spacing-3);
-  padding: var(--spacing-2) var(--spacing-3);
-  padding-left: calc(16px + var(--spacing-3));
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  background-color: var(--color-bg-tertiary);
-  border-radius: var(--radius-sm);
-  line-height: 1.5;
-}
-
 .session-item__highlight {
   padding: 0 2px;
   border-radius: 4px;

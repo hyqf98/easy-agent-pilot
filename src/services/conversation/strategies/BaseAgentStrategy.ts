@@ -2,7 +2,6 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import type { AgentConfig } from '@/stores/agent'
 import { getErrorMessage } from '@/utils/api'
-import logger from '@/utils/logger'
 import {
   buildAgentExecutionRequest,
   getAgentRuntimeProfile,
@@ -97,19 +96,24 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
       execution.unlistenStream = await listen<BackendStreamEvent>(
         this.getEventName(context.sessionId),
         (event) => {
-          if (event.payload?.type === 'tool_use' || event.payload?.type === 'tool_result') {
-            logger.log('[🔧 BackendEvent] raw:', event.payload?.type, {
-              toolName: event.payload?.toolName,
-              toolCallId: event.payload?.toolCallId,
-              hasResult: event.payload?.type === 'tool_result' ? !!event.payload?.toolResult : undefined
-            })
+          const raw = event.payload
+          if (!raw) return
+
+          // 内联归一化：reasoning→thinking，parse toolInput，忽略无关事件
+          const type = raw.type === 'reasoning' ? 'thinking'
+            : raw.type === 'reasoning_start' ? 'thinking_start'
+            : raw.type
+          if (type === 'message_start' || type === 'session_started') return
+
+          const streamEvent: StreamEvent = {
+            ...raw,
+            type: type as StreamEvent['type'],
+            toolInput: raw.toolInput ? parseToolPayload(raw.toolInput) : undefined,
           }
-          const streamEvent = this.transformEvent(event.payload)
-          if (!streamEvent) {
-            if (event.payload?.type === 'tool_use' || event.payload?.type === 'tool_result' || event.payload?.type === 'tool_input_delta') {
-              console.warn('[🔧 BackendEvent] transformEvent returned null for:', event.payload?.type, event.payload)
-            }
-            return
+
+          if (type === 'context_window') {
+            streamEvent.contextWindowUsed = raw.inputTokens
+            streamEvent.contextWindowSize = raw.outputTokens
           }
 
           if (
@@ -117,11 +121,6 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
             && !execution.eventState.sawMeaningfulOutput
             && Date.now() - registeredAt < 200
           ) {
-            console.warn('[AI Execute] dropping stale done event', {
-              provider: this.name,
-              sessionId: context.sessionId,
-              elapsedMs: Date.now() - registeredAt
-            })
             return
           }
 
@@ -237,134 +236,6 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
           attachments: message.attachments
         }
       })
-  }
-
-  protected transformEvent(event: BackendStreamEvent): StreamEvent | null {
-    const baseEvent = {
-      inputTokens: event.inputTokens,
-      outputTokens: event.outputTokens,
-      rawInputTokens: event.rawInputTokens,
-      rawOutputTokens: event.rawOutputTokens,
-      cacheReadInputTokens: event.cacheReadInputTokens,
-      cacheCreationInputTokens: event.cacheCreationInputTokens,
-      model: event.model,
-      externalSessionId: event.externalSessionId,
-      permissionOptions: event.permissionOptions,
-      toolKind: event.toolKind,
-      toolLocations: event.toolLocations
-    }
-
-    switch (event.type) {
-      case 'content':
-        return {
-          type: 'content',
-          content: event.content,
-          ...baseEvent
-        }
-      case 'thinking':
-      case 'reasoning':
-        return {
-          type: 'thinking',
-          content: event.content,
-          ...baseEvent
-        }
-      case 'thinking_start':
-      case 'reasoning_start':
-        return {
-          type: 'thinking_start',
-          ...baseEvent
-        }
-      case 'tool_use':
-        return {
-          type: 'tool_use',
-          toolName: event.toolName,
-          toolCallId: event.toolCallId,
-          toolInput: parseToolPayload(event.toolInput),
-          ...baseEvent
-        }
-      case 'tool_input_delta':
-        return {
-          type: 'tool_input_delta',
-          toolCallId: event.toolCallId,
-          toolInput: parseToolPayload(event.toolInput),
-          ...baseEvent
-        }
-      case 'tool_result':
-        return {
-          type: 'tool_result',
-          toolCallId: event.toolCallId,
-          toolResult: event.toolResult,
-          ...baseEvent
-        }
-      case 'message_start':
-      case 'usage':
-        return {
-          type: 'usage',
-          ...baseEvent
-        }
-      case 'context_window':
-        // ACP UsageUpdate{used,size}：语义为上下文窗口占用，与计费用 usage 通道分离。
-        // 后端把 used/size 临时塞进 inputTokens/outputTokens 下发（见 acp.rs），
-        // 这里归一为独立字段，避免被 onUsage 当成累计 token 覆盖进度环之外的指标。
-        return {
-          type: 'context_window',
-          contextWindowUsed: event.inputTokens,
-          contextWindowSize: event.outputTokens,
-          model: event.model
-        }
-      case 'system':
-        return {
-          type: 'system',
-          content: event.content,
-          ...baseEvent
-        }
-      case 'error':
-        return {
-          type: 'error',
-          error: event.error,
-          ...baseEvent
-        }
-      case 'plan':
-        return {
-          type: 'plan',
-          content: event.content,
-          ...baseEvent
-        }
-      case 'available_commands':
-        return {
-          type: 'available_commands',
-          content: event.content,
-          ...baseEvent
-        }
-      case 'file_edit':
-        return {
-          type: 'file_edit',
-          fileEdit: event.fileEdit,
-          ...baseEvent
-        }
-      case 'permission_request':
-        return {
-          type: 'permission_request',
-          toolName: event.toolName,
-          toolCallId: event.toolCallId,
-          toolInput: parseToolPayload(event.toolInput),
-          content: event.content,
-          ...baseEvent
-        }
-      case 'done':
-        return {
-          type: 'done',
-          ...baseEvent
-        }
-      default:
-        if (event.inputTokens !== undefined || event.outputTokens !== undefined || event.model) {
-          return {
-            type: 'usage',
-            ...baseEvent
-          }
-        }
-        return null
-    }
   }
 
   private createExecution(sessionId: string): ActiveExecution {

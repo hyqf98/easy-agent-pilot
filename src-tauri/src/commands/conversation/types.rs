@@ -94,6 +94,15 @@ pub struct StreamEvent {
     /// 工具访问/修改的文件位置列表，透传 ACP ToolCallLocation（跟随 Agent）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_locations: Option<Vec<ToolLocationView>>,
+    /// 消息行 ID（新建行时由后端分配 UUID，追加 chunk 时复用同一 ID）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
+    /// 回合内顺序号（从 0 开始，新建行时分配；追加 chunk 时为 None）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seq: Option<i64>,
+    /// 是否为追加操作（true = 追加内容到已有行，false = 新建行）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_append: Option<bool>,
 }
 
 /// 文件变更的前端视图（ACP Diff → create/modify/delete）

@@ -36,9 +36,7 @@ export type { SessionActionItem }
 export function useSessionPanelItem(props: SessionPanelItemProps) {
   const { t } = useI18n()
   const {
-    getStatusText,
-    formatRelativeTime,
-    formatSessionCreatedAt
+    getStatusText
   } = useSessionView()
 
   const isEditing = computed(() => props.editingSessionId === props.session.id)
@@ -85,17 +83,13 @@ export function useSessionPanelItem(props: SessionPanelItemProps) {
   }
 
   const sessionNameSegments = computed(() => buildHighlightSegments(props.session.name, props.searchQuery))
-  const lastMessageSegments = computed(() => buildHighlightSegments(props.session.lastMessage ?? '', props.searchQuery))
 
   return {
     t,
     EaIcon,
     getStatusText,
-    formatRelativeTime,
-    formatSessionCreatedAt,
     isEditing,
     getStatusBadgeClass,
-    sessionNameSegments,
-    lastMessageSegments
+    sessionNameSegments
   }
 }

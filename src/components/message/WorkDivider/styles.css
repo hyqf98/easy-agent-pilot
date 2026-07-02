@@ -1,0 +1,93 @@
+.work-divider {
+  display: grid;
+  grid-template-columns: minmax(20px, 1fr) auto auto auto;
+  align-items: center;
+  gap: 8px;
+  width: var(--message-compact-max-width);
+  min-width: min(100%, var(--message-compact-max-width));
+  max-width: 100%;
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary));
+  font-size: 11px;
+  line-height: 1;
+}
+
+.work-divider__line {
+  height: 1px;
+  min-width: 20px;
+  background:
+    linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in srgb, var(--workspace-border-strong, var(--color-border)) 72%, transparent) 18%,
+      color-mix(in srgb, var(--workspace-border, var(--color-border)) 86%, transparent)
+    );
+}
+
+.work-divider__status,
+.work-divider__duration {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--workspace-border, var(--color-border)) 82%, transparent);
+  background: color-mix(in srgb, var(--workspace-control-bg, var(--color-surface)) 72%, transparent);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+}
+
+.work-divider__status {
+  gap: 5px;
+  padding: 4px 7px;
+  border-radius: 999px;
+  font-weight: 560;
+}
+
+.work-divider__duration {
+  justify-content: center;
+  min-width: 42px;
+  padding: 4px 7px;
+  border-radius: 999px;
+  font-family: var(--font-family-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 状态配色 ── */
+
+.work-divider--active .work-divider__status {
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  border-color: color-mix(in srgb, var(--color-primary) 24%, var(--workspace-border, var(--color-border)));
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--workspace-control-bg, var(--color-surface)));
+}
+
+.work-divider--active .work-divider__status :deep(svg) {
+  color: var(--color-primary);
+  animation: spin 1s linear infinite;
+}
+
+.work-divider--interrupted .work-divider__status {
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  border-color: color-mix(in srgb, var(--workspace-text-secondary, var(--color-text-secondary)) 24%, var(--workspace-border, var(--color-border)));
+  background: color-mix(in srgb, var(--workspace-text-secondary, var(--color-text-secondary)) 8%, var(--workspace-control-bg, var(--color-surface)));
+}
+
+.work-divider--interrupted .work-divider__status :deep(svg) {
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+}
+
+.work-divider--failed .work-divider__status {
+  color: color-mix(in srgb, var(--color-error) 82%, var(--color-text-primary) 18%);
+  border-color: color-mix(in srgb, var(--color-error) 24%, var(--workspace-border, var(--color-border)));
+  background: color-mix(in srgb, var(--color-error) 8%, var(--workspace-control-bg, var(--color-surface)));
+}
+
+.work-divider--failed .work-divider__status :deep(svg) {
+  color: var(--color-error);
+}
+
+/* ── 暗色模式 ── */
+
+:global([data-theme='dark']) .work-divider__status,
+:global([data-theme='dark']) .work-divider__duration,
+:global(.dark) .work-divider__status,
+:global(.dark) .work-divider__duration {
+  border-color: color-mix(in srgb, var(--workspace-border, rgba(255, 255, 255, 0.1)) 88%, transparent);
+  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.06)) 78%, transparent);
+}

@@ -2,6 +2,7 @@
 import { useI18n } from 'vue-i18n'
 import { EaIcon } from '@/components/common'
 import MessageBubble from '../messageBubble/MessageBubble.vue'
+import WorkDivider from '../WorkDivider/WorkDivider.vue'
 import {
   useMessageList,
   type MessageListEmits,
@@ -20,9 +21,9 @@ const emit = defineEmits<MessageListEmits>()
 const {
   listRef,
   currentMessages,
-  renderableMessages,
+  renderItems,
+  pendingRequestId,
   streamStatus,
-  isAwaitingFirstAssistantEvent,
   resolvedSessionId,
   isExternalMessagesMode,
   hasMoreMessages,
@@ -73,18 +74,28 @@ const {
       <template v-if="!shouldVirtualize">
         <TransitionGroup name="message">
           <template
-            v-for="message in renderableMessages"
-            :key="message.id"
+            v-for="item in renderItems"
+            :key="item.key"
           >
             <div
-              :ref="(element) => bindMessageElement(message.id, element as Element | null)"
+              v-if="item.type === 'divider'"
+              class="message-list__virtual-item"
+            >
+              <WorkDivider
+                :request-id="item.requestId"
+                :messages="currentMessages"
+              />
+            </div>
+            <div
+              v-else
+              :ref="(element) => bindMessageElement(item.message.id, element as Element | null)"
               class="message-list__virtual-item"
             >
               <MessageBubble
-                :message="message"
+                :message="item.message"
                 :session-id="resolvedSessionId || undefined"
                 :session-messages="isExternalMessagesMode ? currentMessages : undefined"
-                :is-current-streaming-message-override="isExternalMessagesMode ? props.currentStreamingMessageId === message.id : undefined"
+                :is-current-streaming-message-override="isExternalMessagesMode ? props.currentStreamingMessageId === item.message.id : undefined"
                 :hide-context-strategy-notice="props.hideContextStrategyNotice"
                 @retry="handleRetry"
                 @edit="handleEdit"
@@ -94,6 +105,18 @@ const {
               />
             </div>
           </template>
+
+          <!-- 用户发送后等待 AI 首个事件：立即显示 active 分割线 -->
+          <div
+            v-if="pendingRequestId"
+            :key="`pending-${pendingRequestId}`"
+            class="message-list__virtual-item"
+          >
+            <WorkDivider
+              :request-id="pendingRequestId"
+              :messages="[]"
+            />
+          </div>
         </TransitionGroup>
       </template>
 
@@ -131,40 +154,9 @@ const {
         </template>
 
         <div
-          v-if="isAwaitingFirstAssistantEvent"
-          class="message-list__initial-work"
-        >
-          <span class="message-list__initial-work-line" />
-          <span class="message-list__initial-work-status">
-            <span class="message-list__stream-status-spinner" />
-            <span>{{ t('message.workDivider.working') }}</span>
-          </span>
-        </div>
-
-        <div
-          v-if="streamStatus"
-          class="message-list__stream-status"
-          :class="`message-list__stream-status--${streamStatus.kind}`"
-        >
-          <span class="message-list__stream-status-spinner" />
-          <span>{{ streamStatus.text }}</span>
-        </div>
-
-        <div
           class="message-list__virtual-spacer"
           :style="{ height: `${virtualWindow.bottomSpacer}px` }"
         />
-      </div>
-
-      <div
-        v-if="isAwaitingFirstAssistantEvent"
-        class="message-list__initial-work"
-      >
-        <span class="message-list__initial-work-line" />
-        <span class="message-list__initial-work-status">
-          <span class="message-list__stream-status-spinner" />
-          <span>{{ t('message.workDivider.working') }}</span>
-        </span>
       </div>
 
       <div

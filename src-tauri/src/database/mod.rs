@@ -30,8 +30,7 @@ const INIT_SQL: &str = r#"
         cli_session_provider TEXT,
         status TEXT NOT NULL DEFAULT 'idle',
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
 
@@ -41,8 +40,7 @@ const INIT_SQL: &str = r#"
         external_session_id TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        PRIMARY KEY (session_id, runtime_key),
-        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        PRIMARY KEY (session_id, runtime_key)
     );
     CREATE INDEX IF NOT EXISTS idx_session_runtime_bindings_runtime
         ON session_runtime_bindings(runtime_key, updated_at DESC);
@@ -74,8 +72,7 @@ const INIT_SQL: &str = r#"
         error_message TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        seq INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        seq INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_messages_session_created ON messages(session_id, created_at);
 
@@ -134,8 +131,7 @@ const INIT_SQL: &str = r#"
         status TEXT NOT NULL DEFAULT 'pending',
         created_at TEXT NOT NULL,
         seq INTEGER NOT NULL DEFAULT 0,
-        UNIQUE(session_id, tool_call_id, file_path),
-        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        UNIQUE(session_id, tool_call_id, file_path)
     );
     CREATE INDEX IF NOT EXISTS idx_file_changes_session ON file_change_traces(session_id, request_id, created_at);
 
@@ -149,8 +145,7 @@ const INIT_SQL: &str = r#"
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         seq INTEGER NOT NULL DEFAULT 0,
-        UNIQUE(session_id, request_id),
-        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        UNIQUE(session_id, request_id)
     );
     CREATE INDEX IF NOT EXISTS idx_agent_plans_session ON agent_plan_snapshots(session_id, updated_at);
 
@@ -194,9 +189,7 @@ const INIT_SQL: &str = r#"
         session_id TEXT NOT NULL,
         mcp_server_id TEXT NOT NULL,
         enabled INTEGER NOT NULL DEFAULT 1,
-        PRIMARY KEY (session_id, mcp_server_id),
-        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-        FOREIGN KEY (mcp_server_id) REFERENCES mcp_servers(id) ON DELETE CASCADE
+        PRIMARY KEY (session_id, mcp_server_id)
     );
 
     -- 主题配置表
@@ -270,8 +263,7 @@ const INIT_SQL: &str = r#"
         scope TEXT NOT NULL DEFAULT 'user',
         enabled INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+        updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_agent_mcp_configs_agent ON agent_mcp_configs(agent_id);
 
@@ -287,8 +279,7 @@ const INIT_SQL: &str = r#"
         assets_path TEXT,
         enabled INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+        updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_agent_skills_configs_agent ON agent_skills_configs(agent_id);
 
@@ -302,8 +293,7 @@ const INIT_SQL: &str = r#"
         plugin_path TEXT NOT NULL,
         enabled INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+        updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_agent_plugins_configs_agent ON agent_plugins_configs(agent_id);
 
@@ -344,8 +334,7 @@ const INIT_SQL: &str = r#"
         status TEXT NOT NULL DEFAULT 'draft',
         agent_team TEXT,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_plans_project ON plans(project_id);
     CREATE INDEX IF NOT EXISTS idx_plans_status ON plans(status);
@@ -353,9 +342,7 @@ const INIT_SQL: &str = r#"
         plan_id TEXT NOT NULL,
         library_id TEXT NOT NULL,
         created_at TEXT NOT NULL,
-        PRIMARY KEY (plan_id, library_id),
-        FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE,
-        FOREIGN KEY (library_id) REFERENCES memory_libraries(id) ON DELETE CASCADE
+        PRIMARY KEY (plan_id, library_id)
     );
 
     CREATE TABLE IF NOT EXISTS solo_runs (
@@ -382,8 +369,7 @@ const INIT_SQL: &str = r#"
         updated_at TEXT NOT NULL,
         started_at TEXT,
         completed_at TEXT,
-        stopped_at TEXT,
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        stopped_at TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_solo_runs_project ON solo_runs(project_id);
     CREATE INDEX IF NOT EXISTS idx_solo_runs_status ON solo_runs(status);
@@ -391,9 +377,7 @@ const INIT_SQL: &str = r#"
         run_id TEXT NOT NULL,
         library_id TEXT NOT NULL,
         created_at TEXT NOT NULL,
-        PRIMARY KEY (run_id, library_id),
-        FOREIGN KEY (run_id) REFERENCES solo_runs(id) ON DELETE CASCADE,
-        FOREIGN KEY (library_id) REFERENCES memory_libraries(id) ON DELETE CASCADE
+        PRIMARY KEY (run_id, library_id)
     );
 
     CREATE TABLE IF NOT EXISTS solo_steps (
@@ -414,8 +398,7 @@ const INIT_SQL: &str = r#"
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         started_at TEXT,
-        completed_at TEXT,
-        FOREIGN KEY (run_id) REFERENCES solo_runs(id) ON DELETE CASCADE
+        completed_at TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_solo_steps_run ON solo_steps(run_id, created_at ASC);
     CREATE INDEX IF NOT EXISTS idx_solo_steps_status ON solo_steps(status);
@@ -429,9 +412,7 @@ const INIT_SQL: &str = r#"
         log_type TEXT NOT NULL,
         content TEXT NOT NULL,
         metadata TEXT,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY (run_id) REFERENCES solo_runs(id) ON DELETE CASCADE,
-        FOREIGN KEY (step_id) REFERENCES solo_steps(id) ON DELETE CASCADE
+        created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_solo_logs_run ON solo_logs(run_id, created_at ASC);
     CREATE INDEX IF NOT EXISTS idx_solo_logs_step ON solo_logs(step_id, created_at ASC);
@@ -442,8 +423,7 @@ const INIT_SQL: &str = r#"
         external_session_id TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        PRIMARY KEY (run_id, runtime_key),
-        FOREIGN KEY (run_id) REFERENCES solo_runs(id) ON DELETE CASCADE
+        PRIMARY KEY (run_id, runtime_key)
     );
     CREATE INDEX IF NOT EXISTS idx_solo_runtime_bindings_runtime
         ON solo_runtime_bindings(runtime_key, updated_at DESC);
@@ -474,9 +454,7 @@ const INIT_SQL: &str = r#"
         last_fail_reason TEXT,
         last_result_at TEXT,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE,
-        FOREIGN KEY (parent_id) REFERENCES tasks(id) ON DELETE CASCADE
+        updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_tasks_plan ON tasks(plan_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);
@@ -485,9 +463,7 @@ const INIT_SQL: &str = r#"
         task_id TEXT NOT NULL,
         library_id TEXT NOT NULL,
         created_at TEXT NOT NULL,
-        PRIMARY KEY (task_id, library_id),
-        FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
-        FOREIGN KEY (library_id) REFERENCES memory_libraries(id) ON DELETE CASCADE
+        PRIMARY KEY (task_id, library_id)
     );
 
     CREATE TABLE IF NOT EXISTS task_runtime_bindings (
@@ -496,8 +472,7 @@ const INIT_SQL: &str = r#"
         external_session_id TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        PRIMARY KEY (task_id, runtime_key),
-        FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+        PRIMARY KEY (task_id, runtime_key)
     );
     CREATE INDEX IF NOT EXISTS idx_task_runtime_bindings_runtime
         ON task_runtime_bindings(runtime_key, updated_at DESC);
@@ -513,8 +488,7 @@ const INIT_SQL: &str = r#"
         sort_order INTEGER DEFAULT 0,
         enabled INTEGER DEFAULT 1,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+        updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_agent_models_agent ON agent_models(agent_id);
 
@@ -530,8 +504,7 @@ const INIT_SQL: &str = r#"
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         project_id TEXT NOT NULL UNIQUE,
         last_accessed_at INTEGER NOT NULL,
-        access_count INTEGER DEFAULT 1,
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        access_count INTEGER DEFAULT 1
     );
     CREATE INDEX IF NOT EXISTS idx_project_access_log_time ON project_access_log(last_accessed_at DESC);
 
@@ -553,8 +526,7 @@ const INIT_SQL: &str = r#"
         granularity INTEGER DEFAULT 20,
         task_count_mode TEXT NOT NULL DEFAULT 'min',
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+        updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_task_split_sessions_plan ON task_split_sessions(plan_id);
 
@@ -565,8 +537,7 @@ const INIT_SQL: &str = r#"
         log_type TEXT NOT NULL,
         content TEXT NOT NULL,
         metadata TEXT,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+        created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_task_execution_logs_task ON task_execution_logs(task_id);
     CREATE INDEX IF NOT EXISTS idx_task_execution_logs_created ON task_execution_logs(created_at);
@@ -595,12 +566,7 @@ const INIT_SQL: &str = r#"
         pricing_status TEXT NOT NULL DEFAULT 'missing_usage',
         pricing_version TEXT NOT NULL,
         occurred_at TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
-        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL,
-        FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL,
-        FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE SET NULL,
-        FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE SET NULL
+        created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_occurred ON agent_cli_usage_records(occurred_at DESC);
     CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_provider_time ON agent_cli_usage_records(provider, occurred_at DESC);
@@ -619,8 +585,7 @@ const INIT_SQL: &str = r#"
         sort_order INTEGER DEFAULT 0,
         status TEXT NOT NULL DEFAULT 'active',
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        FOREIGN KEY (parent_id) REFERENCES departments(id) ON DELETE SET NULL
+        updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_departments_parent ON departments(parent_id);
     CREATE INDEX IF NOT EXISTS idx_departments_name ON departments(name);
@@ -640,8 +605,7 @@ const INIT_SQL: &str = r#"
         avatar TEXT,
         remark TEXT,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL
+        updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_employees_department ON employees(department_id);
     CREATE INDEX IF NOT EXISTS idx_employees_employee_no ON employees(employee_no);
@@ -659,9 +623,7 @@ const INIT_SQL: &str = r#"
         result_summary TEXT,
         result_files TEXT,
         fail_reason TEXT,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
-        FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+        created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_task_execution_results_plan_created
         ON task_execution_results(plan_id, created_at DESC);
@@ -681,9 +643,7 @@ const INIT_SQL: &str = r#"
         allow_all_senders INTEGER NOT NULL DEFAULT 1,
         future_auth_mode TEXT NOT NULL DEFAULT 'allow_all',
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        FOREIGN KEY (default_project_id) REFERENCES projects(id) ON DELETE SET NULL,
-        FOREIGN KEY (default_agent_id) REFERENCES agents(id) ON DELETE SET NULL
+        updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_unattended_channels_type ON unattended_channels(channel_type);
     CREATE INDEX IF NOT EXISTS idx_unattended_channels_enabled ON unattended_channels(enabled);
@@ -703,7 +663,6 @@ const INIT_SQL: &str = r#"
         last_error TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        FOREIGN KEY (channel_id) REFERENCES unattended_channels(id) ON DELETE CASCADE,
         UNIQUE(channel_id, account_id)
     );
     CREATE INDEX IF NOT EXISTS idx_unattended_accounts_channel ON unattended_channel_accounts(channel_id, updated_at DESC);
@@ -725,12 +684,6 @@ const INIT_SQL: &str = r#"
         last_message_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        FOREIGN KEY (channel_account_id) REFERENCES unattended_channel_accounts(id) ON DELETE CASCADE,
-        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL,
-        FOREIGN KEY (active_project_id) REFERENCES projects(id) ON DELETE SET NULL,
-        FOREIGN KEY (active_agent_id) REFERENCES agents(id) ON DELETE SET NULL,
-        FOREIGN KEY (last_plan_id) REFERENCES plans(id) ON DELETE SET NULL,
-        FOREIGN KEY (last_task_id) REFERENCES tasks(id) ON DELETE SET NULL,
         UNIQUE(channel_account_id, peer_id)
     );
     CREATE INDEX IF NOT EXISTS idx_unattended_threads_account ON unattended_threads(channel_account_id, updated_at DESC);
@@ -747,9 +700,7 @@ const INIT_SQL: &str = r#"
         summary TEXT,
         payload_json TEXT,
         correlation_id TEXT,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY (channel_account_id) REFERENCES unattended_channel_accounts(id) ON DELETE SET NULL,
-        FOREIGN KEY (thread_id) REFERENCES unattended_threads(id) ON DELETE SET NULL
+        created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_unattended_events_account_created ON unattended_events(channel_account_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_unattended_events_thread_created ON unattended_events(thread_id, created_at DESC);
@@ -765,8 +716,7 @@ const INIT_SQL: &str = r#"
         description TEXT,
         order_index INTEGER DEFAULT 0,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        FOREIGN KEY (parent_id) REFERENCES memory_categories(id) ON DELETE CASCADE
+        updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_memory_categories_parent ON memory_categories(parent_id);
 
@@ -784,9 +734,7 @@ const INIT_SQL: &str = r#"
         tags TEXT,
         metadata TEXT,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-        FOREIGN KEY (category_id) REFERENCES memory_categories(id) ON DELETE SET NULL
+        updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_user_memories_session ON user_memories(session_id);
     CREATE INDEX IF NOT EXISTS idx_user_memories_category ON user_memories(category_id);
@@ -800,8 +748,7 @@ const INIT_SQL: &str = r#"
         compressed_content TEXT NOT NULL,
         compression_ratio REAL,
         model_id TEXT,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY (memory_id) REFERENCES user_memories(id) ON DELETE CASCADE
+        created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_memory_compressions_memory ON memory_compressions(memory_id);
 "#;
@@ -845,8 +792,7 @@ fn rebuild_messages_if_legacy(conn: &Connection) -> Result<()> {
             error_message TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            seq INTEGER NOT NULL DEFAULT 0,
-            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            seq INTEGER NOT NULL DEFAULT 0
         );
         "#,
     )?;
@@ -981,7 +927,7 @@ pub fn init_database() -> Result<()> {
     // 启用 WAL 模式以支持并发读写，避免 "database is locked" 错误
     conn.execute_batch("PRAGMA journal_mode = WAL")?;
     // 启用外键约束（SQLite 默认不启用）
-    conn.execute("PRAGMA foreign_keys = ON", [])?;
+    conn.execute("PRAGMA foreign_keys = OFF", [])?;
 
     // 执行初始化 SQL
     conn.execute_batch(INIT_SQL)?;
@@ -995,7 +941,6 @@ pub fn init_database() -> Result<()> {
     // 所以我们需要单独执行每条语句并忽略错误
     let migrations = [
         // 文件变更追踪表（新表，幂等创建；旧库补建）
-        "CREATE TABLE IF NOT EXISTS file_change_traces (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, request_id TEXT NOT NULL, tool_call_id TEXT NOT NULL, file_path TEXT NOT NULL, relative_path TEXT NOT NULL, change_type TEXT NOT NULL, before_content TEXT, after_content TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL, seq INTEGER NOT NULL DEFAULT 0, UNIQUE(session_id, tool_call_id, file_path), FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE)",
         "CREATE INDEX IF NOT EXISTS idx_file_changes_session ON file_change_traces(session_id, request_id, created_at)",
         "ALTER TABLE mcp_servers ADD COLUMN test_status TEXT",
         "ALTER TABLE mcp_servers ADD COLUMN test_message TEXT",
@@ -1171,8 +1116,7 @@ pub fn init_database() -> Result<()> {
             sort_order INTEGER DEFAULT 0,
             enabled INTEGER DEFAULT 1,
             created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+            updated_at TEXT NOT NULL
         )
     "#;
     if let Err(e) = conn.execute(agent_models_table_sql, []) {
@@ -1243,9 +1187,7 @@ pub fn init_database() -> Result<()> {
             plan_id TEXT NOT NULL,
             library_id TEXT NOT NULL,
             created_at TEXT NOT NULL,
-            PRIMARY KEY (plan_id, library_id),
-            FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE,
-            FOREIGN KEY (library_id) REFERENCES memory_libraries(id) ON DELETE CASCADE
+            PRIMARY KEY (plan_id, library_id)
         )
     "#;
     if let Err(e) = conn.execute(plan_memory_libraries_table_sql, []) {
@@ -1341,9 +1283,7 @@ pub fn init_database() -> Result<()> {
             task_id TEXT NOT NULL,
             library_id TEXT NOT NULL,
             created_at TEXT NOT NULL,
-            PRIMARY KEY (task_id, library_id),
-            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
-            FOREIGN KEY (library_id) REFERENCES memory_libraries(id) ON DELETE CASCADE
+            PRIMARY KEY (task_id, library_id)
         )
     "#;
     if let Err(e) = conn.execute(task_memory_libraries_table_sql, []) {
@@ -1362,9 +1302,7 @@ pub fn init_database() -> Result<()> {
             run_id TEXT NOT NULL,
             library_id TEXT NOT NULL,
             created_at TEXT NOT NULL,
-            PRIMARY KEY (run_id, library_id),
-            FOREIGN KEY (run_id) REFERENCES solo_runs(id) ON DELETE CASCADE,
-            FOREIGN KEY (library_id) REFERENCES memory_libraries(id) ON DELETE CASCADE
+            PRIMARY KEY (run_id, library_id)
         )
     "#;
     if let Err(e) = conn.execute(solo_run_memory_libraries_table_sql, []) {
@@ -1379,8 +1317,7 @@ pub fn init_database() -> Result<()> {
             external_session_id TEXT NOT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            PRIMARY KEY (session_id, runtime_key),
-            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            PRIMARY KEY (session_id, runtime_key)
         )
         "#,
         "CREATE INDEX IF NOT EXISTS idx_session_runtime_bindings_runtime ON session_runtime_bindings(runtime_key, updated_at DESC)",
@@ -1391,8 +1328,7 @@ pub fn init_database() -> Result<()> {
             external_session_id TEXT NOT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            PRIMARY KEY (task_id, runtime_key),
-            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+            PRIMARY KEY (task_id, runtime_key)
         )
         "#,
         "CREATE INDEX IF NOT EXISTS idx_task_runtime_bindings_runtime ON task_runtime_bindings(runtime_key, updated_at DESC)",
@@ -1466,8 +1402,7 @@ pub fn init_database() -> Result<()> {
             granularity INTEGER DEFAULT 20,
             task_count_mode TEXT NOT NULL DEFAULT 'min',
             created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+            updated_at TEXT NOT NULL
         )
     "#;
     if let Err(e) = conn.execute(task_split_sessions_table_sql, []) {
@@ -1511,8 +1446,7 @@ pub fn init_database() -> Result<()> {
             log_type TEXT NOT NULL,
             content TEXT NOT NULL,
             metadata TEXT,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+            created_at TEXT NOT NULL
         )
     "#;
     if let Err(e) = conn.execute(plan_split_logs_table_sql, []) {
@@ -1541,9 +1475,7 @@ pub fn init_database() -> Result<()> {
             result_summary TEXT,
             result_files TEXT,
             fail_reason TEXT,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
-            FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+            created_at TEXT NOT NULL
         )
     "#;
     if let Err(e) = conn.execute(task_execution_results_table_sql, []) {
@@ -1584,12 +1516,7 @@ pub fn init_database() -> Result<()> {
             pricing_status TEXT NOT NULL DEFAULT 'missing_usage',
             pricing_version TEXT NOT NULL,
             occurred_at TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
-            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL,
-            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL,
-            FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE SET NULL,
-            FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE SET NULL
+            created_at TEXT NOT NULL
         )
     "#;
     if let Err(e) = conn.execute(agent_cli_usage_table_sql, []) {
@@ -1662,9 +1589,7 @@ pub fn init_database() -> Result<()> {
             content TEXT NOT NULL,
             source_role TEXT NOT NULL DEFAULT 'user',
             created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+            updated_at TEXT NOT NULL
         )
     "#;
     if let Err(e) = conn.execute(raw_memory_records_table_sql, []) {
@@ -1681,8 +1606,7 @@ pub fn init_database() -> Result<()> {
             merged_content_md TEXT NOT NULL DEFAULT '',
             agent_id TEXT,
             model_id TEXT,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY (library_id) REFERENCES memory_libraries(id) ON DELETE CASCADE
+            created_at TEXT NOT NULL
         )
     "#;
     if let Err(e) = conn.execute(memory_merge_runs_table_sql, []) {
@@ -1694,9 +1618,7 @@ pub fn init_database() -> Result<()> {
             project_id TEXT NOT NULL,
             library_id TEXT NOT NULL,
             created_at TEXT NOT NULL,
-            PRIMARY KEY (project_id, library_id),
-            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-            FOREIGN KEY (library_id) REFERENCES memory_libraries(id) ON DELETE CASCADE
+            PRIMARY KEY (project_id, library_id)
         )
     "#;
     if let Err(e) = conn.execute(project_memory_libraries_table_sql, []) {
@@ -1711,8 +1633,7 @@ pub fn init_database() -> Result<()> {
             chunk_order INTEGER NOT NULL DEFAULT 0,
             chunk_hash TEXT NOT NULL,
             created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            FOREIGN KEY (library_id) REFERENCES memory_libraries(id) ON DELETE CASCADE
+            updated_at TEXT NOT NULL
         )
     "#;
     if let Err(e) = conn.execute(memory_library_chunks_table_sql, []) {
@@ -1726,9 +1647,7 @@ pub fn init_database() -> Result<()> {
             source_id TEXT NOT NULL,
             message_id TEXT NOT NULL,
             created_at TEXT NOT NULL,
-            PRIMARY KEY (session_id, source_type, source_id),
-            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-            FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+            PRIMARY KEY (session_id, source_type, source_id)
         )
     "#;
     if let Err(e) = conn.execute(session_memory_reference_history_table_sql, []) {
@@ -1865,8 +1784,7 @@ fn init_memory_repos_schema(conn: &Connection) -> Result<()> {
             source_type TEXT NOT NULL,
             config TEXT NOT NULL DEFAULT '{}',
             enabled INTEGER NOT NULL DEFAULT 1,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY (repo_id) REFERENCES memory_repos(id) ON DELETE CASCADE
+            created_at TEXT NOT NULL
         )
         "#,
         // 独立记忆调度任务（与 Plan 体系解耦）
@@ -1885,8 +1803,7 @@ fn init_memory_repos_schema(conn: &Connection) -> Result<()> {
             agent_id TEXT,
             model_id TEXT,
             created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            FOREIGN KEY (repo_id) REFERENCES memory_repos(id) ON DELETE CASCADE
+            updated_at TEXT NOT NULL
         )
         "#,
         // 任务运行记录（含产物摘要与变更文件）
@@ -1899,8 +1816,7 @@ fn init_memory_repos_schema(conn: &Connection) -> Result<()> {
             summary TEXT,
             files_changed TEXT,
             started_at TEXT NOT NULL,
-            finished_at TEXT NOT NULL,
-            FOREIGN KEY (job_id) REFERENCES memory_jobs(id) ON DELETE CASCADE
+            finished_at TEXT NOT NULL
         )
         "#,
     ];

@@ -86,7 +86,7 @@ pub fn open_db_connection() -> Result<Connection> {
     let conn = Connection::open(&db_path)?;
     conn.busy_timeout(Duration::from_secs(5))?;
     conn.execute_batch("PRAGMA journal_mode = WAL")?;
-    conn.execute("PRAGMA foreign_keys = ON", [])?;
+    conn.execute("PRAGMA foreign_keys = OFF", [])?;
     Ok(conn)
 }
 
@@ -239,7 +239,7 @@ mod tests {
 
     fn build_memory_test_connection() -> Connection {
         let conn = Connection::open_in_memory().expect("open in-memory sqlite");
-        conn.execute("PRAGMA foreign_keys = ON", [])
+        conn.execute("PRAGMA foreign_keys = OFF", [])
             .expect("enable foreign keys");
         conn.execute_batch(
             r#"
@@ -249,8 +249,7 @@ mod tests {
 
             CREATE TABLE sessions (
                 id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+                project_id TEXT NOT NULL
             );
 
             CREATE TABLE raw_memory_records (
@@ -259,9 +258,7 @@ mod tests {
                 project_id TEXT,
                 content TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+                updated_at TEXT NOT NULL
             );
 
             CREATE TABLE memory_libraries (
@@ -275,8 +272,7 @@ mod tests {
                 chunk_order INTEGER NOT NULL DEFAULT 0,
                 chunk_hash TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (library_id) REFERENCES memory_libraries(id) ON DELETE CASCADE
+                updated_at TEXT NOT NULL
             );
             "#,
         )

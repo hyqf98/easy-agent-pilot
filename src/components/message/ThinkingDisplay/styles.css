@@ -35,7 +35,7 @@
   gap: 7px;
   width: 100%;
   min-height: 30px;
-  padding: 5px 9px;
+  padding: 5px 0;
   border: 0;
   background: transparent;
   cursor: pointer;
@@ -128,7 +128,7 @@
   max-height: min(280px, 40vh);
   overflow: auto;
   scrollbar-gutter: stable;
-  padding: 8px 9px 9px 13px;
+  padding: 8px 0 9px 0;
   box-sizing: border-box;
   border-left: 1px solid color-mix(in srgb, var(--thinking-muted-meta) 42%, transparent);
 }

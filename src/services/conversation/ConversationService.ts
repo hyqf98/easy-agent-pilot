@@ -148,6 +148,30 @@ function resolveToolCallId(event: StreamEvent): string {
   return `tool-${hashString(`${event.toolName ?? ''}:${stableStringify(event.toolInput ?? {})}`)}`
 }
 
+/** 解析 CLI Context Compaction 系统消息，生成前端摘要 */
+function buildCompactionSummary(content: string): string {
+  const lines = content.split('\n').slice(1)
+  const detailParts: string[] = []
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    if (trimmed.startsWith('Trigger:')) {
+      const raw = trimmed.replace('Trigger:', '').trim()
+      const label = raw === 'auto' ? i18n.global.t('compression.cliCompactionAuto') : raw === 'manual' ? i18n.global.t('compression.cliCompactionManual') : raw
+      detailParts.push(`- **${i18n.global.t('compression.cliCompactionTrigger')}**: ${label}`)
+    } else if (trimmed.startsWith('Pre-compaction tokens:')) {
+      detailParts.push(`- **${i18n.global.t('compression.cliCompactionPreTokens')}**: ${trimmed.replace('Pre-compaction tokens:', '').trim()}`)
+    } else if (trimmed.startsWith('Truncation limit:')) {
+      detailParts.push(`- **${i18n.global.t('compression.cliCompactionTruncationLimit')}**: ${trimmed.replace('Truncation limit:', '').trim()}`)
+    } else {
+      detailParts.push(trimmed)
+    }
+  }
+  return detailParts.length > 0
+    ? `**${i18n.global.t('compression.cliCompactionTitle')}**\n\n${detailParts.join('\n')}`
+    : `**${i18n.global.t('compression.cliCompactionTitle')}**`
+}
+
 /**
  * 对话服务
  * 封装消息发送逻辑，处理流式事件更新
@@ -824,15 +848,15 @@ export class ConversationService {
     let accumulatedContent = aiMessage.content
       ? `${aiMessage.content.trimEnd()}\n\n`
       : ''
-    // 实时段落缓存：key = 后端 segmentId，value = 仅内存行（persist:false）。
-    // 后端 emit 的每个 content/thinking/tool_use 事件都带 segmentId + seq，
-    // 前端首次见到 segmentId 时创建本地行，后续直接追加 content。
-    // 不再需要前端推断段落边界、累积器、串行队列或哨兵时间戳。
-    const liveSegments = new Map<string, { message: Message | null, content: string }>()
-    const liveToolMessages = new Map<string, { message: Message | null }>()
-    // 工作分割线消息（独立行，persist:false）：发送即创建，标记本回合 AI 响应。
-    // 状态由 finalizeAllLiveSegments 收尾（completed/error），驱动分割线文案/图标/配色。
-    let workDividerMessage: Message | null = null
+
+    // 收尾所有 streaming 行：onDone/onError/onAbort 时调用
+    const finalizeStreamingMessages = (status: Message['status']) => {
+      for (const msg of messageStore.messagesBySession(sessionId)) {
+        if (msg.requestId === context.requestId && msg.status === 'streaming') {
+          messageStore.updateMessageBuffered(msg.id, { status }, { immediate: true })
+        }
+      }
+    }
     const toolCalls: ToolCall[] = []
     const editTraces: FileEditTrace[] = []
     const usageState: { model?: string, inputTokens?: number, outputTokens?: number, cacheReadInputTokens?: number, cacheCreationInputTokens?: number, contextWindowOccupancy?: number } = {
@@ -950,12 +974,6 @@ export class ConversationService {
       return Object.keys(nextUpdates).length > 0 ? nextUpdates : null
     }
 
-    const isLiveSegmentInterrupted = (messageId: string) => {
-      return messageStore.messagesBySession(sessionId)
-        .find(message => message.id === messageId)
-        ?.status === 'interrupted'
-    }
-
     const flushPendingUiUpdate = (options?: { immediate?: boolean }) => {
       clearScheduledUiFlush()
       if (!pendingUiUpdate) {
@@ -983,8 +1001,6 @@ export class ConversationService {
         })
       }
 
-      // Tauri WebView 在长时间 CLI 流式输出期间可能推迟 animation frame，
-      // 这里保留一个 timeout 兜底，确保消息/工具调用/token 能持续刷新到页面。
       scheduledUiFlushTimeout = setTimeout(() => {
         scheduledUiFlushTimeout = null
         flushPendingUiUpdate()
@@ -1010,117 +1026,6 @@ export class ConversationService {
       }
 
       scheduleUiFlush()
-    }
-
-    // 按 segmentId 确保本地行存在。首次见到 segmentId 时创建，后续调用复用。
-    // content 由调用方负责追加并写入。seq 由后端统一分配，保证排序一致。
-    const ensureLiveSegment = async (
-      segmentId: string,
-      seq: number,
-      messageType: 'text' | 'thinking',
-      initialContent: string
-    ): Promise<{ message: Message, content: string } | null> => {
-      const cached = liveSegments.get(segmentId)
-      if (cached) {
-        return cached.message ? { message: cached.message, content: cached.content } : null
-      }
-      try {
-        const message = await messageStore.addMessage({
-          sessionId,
-          requestId: context.requestId,
-          role: 'assistant',
-          messageType,
-          content: initialContent,
-          status: 'streaming',
-          seq
-        }, { persist: false })
-        const entry = { message, content: initialContent }
-        liveSegments.set(segmentId, entry)
-        return entry
-      } catch (error) {
-        console.warn('[ConversationService] Failed to create live segment:', error)
-        liveSegments.set(segmentId, { message: null, content: '' })
-        return null
-      }
-    }
-
-    // 收尾单个活跃段落：置终态并从 liveSegments 移除。
-    // 段落是线性的，finalize 后不再有同段 chunk，故直接 delete。
-    const finalizeLiveSegment = (segmentId: string, status: Message['status']) => {
-      const entry = liveSegments.get(segmentId)
-      if (!entry?.message) {
-        liveSegments.delete(segmentId)
-        return
-      }
-      if (isLiveSegmentInterrupted(entry.message.id) && (status === 'completed' || status === 'error')) {
-        liveSegments.delete(segmentId)
-        return
-      }
-      messageStore.updateMessageBuffered(entry.message.id, { status }, { immediate: true })
-      liveSegments.delete(segmentId)
-      console.log('[ACP] segment=end', entry.message.messageType, segmentId, '→', status)
-    }
-
-    // 段落切换：收尾除当前段落外的所有活跃 text/thinking 段。
-    // 与后端 MessageRecorder.finalize_open_segments() 对称——开新段落前收尾上一段，
-    // 使 ThinkingDisplay 的 live 立即翻 false（停止 loading、autoCollapseOnComplete 自动收起）。
-    const finalizeOtherLiveSegments = (currentSegmentId?: string) => {
-      for (const segId of [...liveSegments.keys()]) {
-        if (segId !== currentSegmentId) {
-          finalizeLiveSegment(segId, 'completed')
-        }
-      }
-    }
-
-    // 收尾所有活跃的本地段落到指定状态（onDone/handleFailure/catch 调用）。
-    const finalizeAllLiveSegments = (status: Message['status']) => {
-      if (workDividerMessage && !isLiveSegmentInterrupted(workDividerMessage.id)) {
-        messageStore.updateMessageBuffered(workDividerMessage.id, {
-          status
-        }, { immediate: true })
-      }
-      for (const segId of [...liveSegments.keys()]) {
-        finalizeLiveSegment(segId, status)
-      }
-    }
-
-    // 确保工具调用实时行存在（仅内存，不落库）。
-    // 按 toolCallId（即 segmentId）复用，使同一工具的 use/result 增量落在同一条本地行上。
-    const ensureLiveToolUseMessage = async (toolCall: ToolCall, seq: number): Promise<Message | null> => {
-      const existing = liveToolMessages.get(toolCall.id)
-      if (existing?.message) {
-        return existing.message
-      }
-      try {
-        const liveMessage = await messageStore.addMessage({
-          sessionId,
-          requestId: context.requestId,
-          role: 'assistant',
-          messageType: 'tool_use',
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          toolInput: toolCall.arguments ? JSON.stringify(toolCall.arguments) : '',
-          status: 'streaming',
-          seq
-        }, { persist: false })
-        liveToolMessages.set(toolCall.id, { message: liveMessage })
-        return liveMessage
-      } catch (error) {
-        console.warn('[ConversationService] Failed to create live tool_use message:', error)
-        return null
-      }
-    }
-
-    // 收尾实时工具调用行（与 onDone/handleFailure/catch 的 thinking 收尾对称）：
-    // 将所有未终态的本地行置为 completed/error，然后清空索引，刷新后由后端落库行接管。
-    const finalizeLiveToolMessages = (hasError: boolean) => {
-      for (const { message } of liveToolMessages.values()) {
-        if (!message) continue
-        messageStore.updateMessageBuffered(message.id, {
-          status: hasError ? 'error' : 'completed'
-        }, { immediate: true })
-      }
-      liveToolMessages.clear()
     }
 
     const recordTimingSummary = () => {
@@ -1180,7 +1085,7 @@ export class ConversationService {
       void tokenStore.loadSessionUsageSummary(sessionId)
     }
 
-    const syncRealtimeUsageNotice = (_options?: { immediate?: boolean }) => {
+    const syncRealtimeUsageNotice = () => {
       // 用量在新结构下由后端 MessageRecorder 落库为独立 usage 行，前端仅更新 token 进度条
       tokenStore.updateRealtimeTokens(
         sessionId,
@@ -1297,8 +1202,7 @@ export class ConversationService {
     }
 
     const handleFailure = async (errorMessage: string) => {
-      finalizeAllLiveSegments('error')
-      finalizeLiveToolMessages(true)
+      finalizeStreamingMessages('error')
       const classifiedFailure = detectCliFailure(errorMessage)
       const shouldAutoRetry = this.checkConversationAutoRetry(sessionId, classifiedFailure)
       if (shouldAutoRetry) {
@@ -1371,7 +1275,7 @@ export class ConversationService {
           content: errorMessage,
           status: 'error',
           errorMessage,
-          seq: Date.now()
+          seq: 0
         })
       }
       bufferMessageUpdate({
@@ -1425,233 +1329,157 @@ export class ConversationService {
     }
 
     try {
-      // 发送即显示分割线：在流式开始前追加一条独立的 work_divider 消息（独占一行），
-      // 作为本回合 AI 响应的起点标记。status='streaming' 使 requestTerminalStatus='active'
-      // → 渲染「正在工作」+ 实时计时；onDone/failure 由 finalizeAllLiveSegments 收尾。
-      if (!workDividerMessage) {
-        try {
-          workDividerMessage = await messageStore.addMessage({
-            sessionId,
-            requestId: context.requestId,
-            role: 'assistant',
-            messageType: 'work_divider',
-            content: '',
-            status: 'streaming',
-            seq: 0
-          }, { persist: false })
-        } catch (error) {
-          console.warn('[ConversationService] Failed to create work divider message:', error)
-        }
-      }
-
       await agentExecutor.execute(context, (event: StreamEvent) => {
         markMetric('firstEventAt')
         registerCliSessionBinding(event.externalSessionId)
-        this.handleStreamEvent(event, {
-          aiMessage,
-          sessionId,
-          runtimeProvider,
-          requestedModelId: context.agent.modelId?.trim() || undefined,
-          toolCalls,
-          onContent: (content, segmentId, seq) => {
+
+        switch (event.type) {
+          // ═══ 内容行：后端已分配 messageId + seq，前端直接创建或追加 ═══
+          case 'content': {
             clearRetryPresentationOnRecoveredStream()
             markMetric('firstContentAt')
-            accumulatedContent = mergeStreamingText(accumulatedContent, content)
-            // 首次见到 segmentId 时创建本地行，后续直接追加
-            const cached = liveSegments.get(segmentId)
-            if (cached?.message) {
-              cached.content = mergeStreamingText(cached.content, content)
-              messageStore.updateMessageBuffered(cached.message.id, {
-                content: cached.content
-              }, { immediate: true })
-            } else {
-              // 新段落：先收尾上一段（与后端 finalize_open_segments 对称），再创建
-              finalizeOtherLiveSegments(segmentId)
-              console.log('[ACP] segment=new text', { segmentId, seq })
-              void ensureLiveSegment(segmentId, seq, 'text', content)
+            if (event.content) {
+              accumulatedContent = mergeStreamingText(accumulatedContent, event.content)
+              if (event.isAppend && event.messageId) {
+                messageStore.appendToMessage(event.messageId, event.content)
+              } else if (event.messageId && event.seq != null) {
+                messageStore.addMessage({
+                  id: event.messageId, sessionId, requestId: context.requestId,
+                  role: 'assistant', messageType: 'text',
+                  content: event.content, status: 'streaming', seq: event.seq,
+                }, { persist: false })
+              }
             }
-          },
-          onThinking: (thinking, segmentId, seq) => {
+            break
+          }
+
+          case 'thinking': {
             clearRetryPresentationOnRecoveredStream()
             markMetric('firstThinkingAt')
-            const cached = liveSegments.get(segmentId)
-            if (cached?.message) {
-              cached.content = mergeStreamingText(cached.content, thinking)
-              messageStore.updateMessageBuffered(cached.message.id, {
-                content: cached.content
-              }, { immediate: true })
-            } else {
-              finalizeOtherLiveSegments(segmentId)
-              console.log('[ACP] segment=new thinking', { segmentId, seq })
-              void ensureLiveSegment(segmentId, seq, 'thinking', thinking)
+            if (event.content) {
+              if (event.isAppend && event.messageId) {
+                messageStore.appendToMessage(event.messageId, event.content)
+              } else if (event.messageId && event.seq != null) {
+                messageStore.addMessage({
+                  id: event.messageId, sessionId, requestId: context.requestId,
+                  role: 'assistant', messageType: 'thinking',
+                  content: event.content, status: 'streaming', seq: event.seq,
+                }, { persist: false })
+              }
             }
-          },
-          onThinkingStart: () => {
+            break
+          }
+
+          case 'thinking_start':
             clearRetryPresentationOnRecoveredStream()
-            // thinking_start 无 segmentId（仅 UI 提示），实际行在首个 thinking chunk 时创建
-          },
-          onToolUse: (toolCall, _segmentId, seq) => {
+            break
+
+          // ═══ 工具行：各自独立行 ═══
+          case 'tool_use': {
             clearRetryPresentationOnRecoveredStream()
             markMetric('firstToolAt')
-            const existingIndex = toolCalls.findIndex(tc => tc.id === toolCall.id)
-            let isNewToolCall = false
-            if (existingIndex >= 0) {
-              const existingToolCall = toolCalls[existingIndex]
-              const finalizedStatus = existingToolCall.status === 'success' || existingToolCall.status === 'error'
-                ? existingToolCall.status
-                : toolCall.status
-              toolCalls[existingIndex] = {
-                ...existingToolCall,
-                ...toolCall,
-                arguments: mergeToolInputArguments(existingToolCall.arguments, toolCall.arguments),
-                status: finalizedStatus,
-                result: existingToolCall.result,
-                errorMessage: existingToolCall.errorMessage
-              }
-            } else {
-              toolCalls.push(toolCall)
-              isNewToolCall = true
+            if (event.messageId && event.seq != null) {
+              messageStore.addMessage({
+                id: event.messageId, sessionId, requestId: context.requestId,
+                role: 'assistant', messageType: 'tool_use',
+                toolCallId: event.toolCallId, toolName: event.toolName,
+                toolInput: event.toolInput ? JSON.stringify(event.toolInput) : '',
+                toolKind: event.toolKind, toolLocations: event.toolLocations,
+                status: 'streaming', seq: event.seq,
+              }, { persist: false })
             }
-            // 工具调用由后端 MessageRecorder 落库为独立 tool_use 行；前端额外用一条仅内存的
-            // 本地行做流式渲染，刷新后由后端落库行接管。
-            if (isNewToolCall) {
-              // 新工具开始：收尾所有活跃 text/thinking 段（与后端 finalize_open_segments 对称）
-              finalizeOtherLiveSegments()
-              console.log('[ACP] tool_use=new', { id: toolCall.id, name: toolCall.name, seq })
-              registerTraceTask((async () => {
-                await fileTraceCollector.captureToolUse(toolCall)
-              })())
-            }
-            // 推送本地行：新建或更新参数，使工具气泡在流式期间即时渲染
-            void ensureLiveToolUseMessage(toolCall, seq).then((liveMessage) => {
-              if (liveMessage) {
-                const mergedArguments = existingIndex >= 0
-                  ? toolCalls[existingIndex].arguments
-                  : toolCall.arguments
-                if (mergedArguments && Object.keys(mergedArguments).length > 0) {
-                  messageStore.updateMessageBuffered(liveMessage.id, {
-                    toolInput: JSON.stringify(mergedArguments)
-                  })
+            // 业务追踪
+            if (event.toolName) {
+              const toolCallId = resolveToolCallId(event)
+              const existingIndex = toolCalls.findIndex(tc => tc.id === toolCallId)
+              if (existingIndex >= 0) {
+                toolCalls[existingIndex] = {
+                  ...toolCalls[existingIndex],
+                  arguments: mergeToolInputArguments(toolCalls[existingIndex].arguments, event.toolInput || {}),
+                  kind: event.toolKind ?? toolCalls[existingIndex].kind,
+                  locations: event.toolLocations ?? toolCalls[existingIndex].locations,
                 }
-                // 透传 ACP ToolKind / ToolCallLocation（跟随 Agent）
-                if (toolCall.kind || toolCall.locations) {
-                  messageStore.updateMessageBuffered(liveMessage.id, {
-                    toolKind: toolCall.kind,
-                    toolLocations: toolCall.locations
-                  })
-                }
+              } else {
+                toolCalls.push({
+                  id: toolCallId, name: event.toolName,
+                  arguments: event.toolInput || {}, status: 'running',
+                  kind: event.toolKind, locations: event.toolLocations,
+                })
+                registerTraceTask((async () => {
+                  await fileTraceCollector.captureToolUse(toolCalls[toolCalls.length - 1])
+                })())
               }
-            })
-          },
-          onToolInputDelta: (toolCallId, toolInput) => {
+            }
+            break
+          }
+
+          case 'tool_result': {
+            if (event.messageId && event.seq != null) {
+              messageStore.addMessage({
+                id: event.messageId, sessionId, requestId: context.requestId,
+                role: 'assistant', messageType: 'tool_result',
+                toolCallId: event.toolCallId,
+                toolResult: typeof event.toolResult === 'string' ? event.toolResult : JSON.stringify(event.toolResult ?? ''),
+                toolKind: event.toolKind, toolLocations: event.toolLocations,
+                status: 'completed', seq: event.seq,
+              }, { persist: false })
+            }
+            // 业务追踪
+            if (event.toolCallId) {
+              const tc = toolCalls.find(t => t.id === event.toolCallId)
+              if (tc) {
+                const resultStr = typeof event.toolResult === 'string'
+                  ? event.toolResult
+                  : JSON.stringify(event.toolResult ?? '')
+                tc.result = resultStr
+                tc.status = 'success'
+                if (event.toolKind) tc.kind = event.toolKind
+                if (event.toolLocations) tc.locations = event.toolLocations
+                registerTraceTask((async () => {
+                  const trace = await fileTraceCollector.resolveToolResult(event.toolCallId!, resultStr)
+                  if (trace) editTraces.push(trace)
+                })())
+              }
+            }
+            break
+          }
+
+          case 'tool_input_delta':
             clearRetryPresentationOnRecoveredStream()
-            const targetToolCall = (toolCallId
-              ? toolCalls.find(tool => tool.id === toolCallId)
-              : null) || [...toolCalls].reverse().find(tool => tool.status === 'running')
+            break
 
-            if (!targetToolCall) {
-              return
-            }
-
-            targetToolCall.arguments = mergeToolInputArguments(targetToolCall.arguments, toolInput)
-            if (targetToolCall.id && toolInput && Object.keys(toolInput).length > 0) {
-              fileTraceCollector.updateToolArguments(
-                targetToolCall.id,
-                targetToolCall.name,
-                targetToolCall.arguments
-              )
-            }
-            // 同步更新本地行参数，使工具气泡的入参随增量实时呈现
-            const liveToolEntry = targetToolCall.id ? liveToolMessages.get(targetToolCall.id) : null
-            if (liveToolEntry?.message && targetToolCall.arguments) {
-              messageStore.updateMessageBuffered(liveToolEntry.message.id, {
-                toolInput: JSON.stringify(targetToolCall.arguments)
-              })
-            }
-          },
-          onToolResult: (toolCallId, result, isError) => {
-            if (!isError) {
-              clearRetryPresentationOnRecoveredStream()
-            }
-            const tc = toolCalls.find(t => t.id === toolCallId)
-            if (tc) {
-              tc.result = result
-              tc.status = isError ? 'error' : 'success'
-              if (isError) {
-                tc.errorMessage = result
+          case 'file_edit':
+            if (event.fileEdit) {
+              const exists = editTraces.some(t => t.id === event.fileEdit!.id)
+              if (!exists) {
+                editTraces.push(event.fileEdit)
+                try { useFileChangeStore().ingestStreamEdit(sessionId, event.fileEdit) }
+                catch (err) { console.error('[fileChange] ingest stream edit failed', err) }
               }
-              // 工具结果由后端落库为独立 tool_result 行
-            } else {
-              console.warn('[ACP] tool_result: toolCallId not found', { toolCallId, existing: toolCalls.map(t => t.id) })
             }
-            console.log('[ACP] tool_result', { toolCallId, status: isError ? 'error' : 'success', len: result?.length })
-            // 同步更新本地行：在 tool_use 行上直接写入结果，使气泡即时变为 success/error
-            // 渲染层 toolUseParsed 会读 message.toolResult 作为 fallback，无需创建独立 tool_result 行
-            const liveToolEntry = liveToolMessages.get(toolCallId)
-            if (liveToolEntry?.message) {
-              messageStore.updateMessageBuffered(liveToolEntry.message.id, {
-                toolResult: result,
-                status: isError ? 'error' : 'completed',
-                errorMessage: isError ? result : '',
-                // 工具结果阶段可能补发最终的 ToolKind / ToolCallLocation
-                toolKind: tc?.kind,
-                toolLocations: tc?.locations
-              })
-            }
+            break
 
-            if (!isError) {
-              registerTraceTask((async () => {
-                const trace = await fileTraceCollector.resolveToolResult(toolCallId, result)
-                if (!trace) {
-                  return
-                }
-
-                editTraces.push(trace)
-                // 编辑追踪在新结构下不塞进 message
-              })())
-            }
-          },
-          onFileEdit: (trace) => {
-            const exists = editTraces.some(existingTrace => existingTrace.id === trace.id)
-            if (exists) {
-              return
-            }
-
-            editTraces.push(trace)
-            // 接入文件变更追踪 store，驱动消息底部汇总条与右侧审查
-            try {
-              useFileChangeStore().ingestStreamEdit(sessionId, trace)
-            } catch (err) {
-              console.error('[fileChange] ingest stream edit failed', err)
-            }
-          },
-          onUsage: (usage) => {
+          // ═══ Token 更新（不渲染为消息） ═══
+          case 'usage': {
             clearRetryPresentationOnRecoveredStream()
             const normalizedUsage = normalizeRuntimeUsage({
               provider: runtimeProvider,
-              inputTokens: usage.inputTokens,
-              outputTokens: usage.outputTokens,
-              rawInputTokens: usage.rawInputTokens,
-              rawOutputTokens: usage.rawOutputTokens,
-              cacheReadInputTokens: usage.cacheReadInputTokens,
-              cacheCreationInputTokens: usage.cacheCreationInputTokens,
-              baseline: usageBaseline
+              inputTokens: event.inputTokens, outputTokens: event.outputTokens,
+              rawInputTokens: event.rawInputTokens, rawOutputTokens: event.rawOutputTokens,
+              cacheReadInputTokens: event.cacheReadInputTokens,
+              cacheCreationInputTokens: event.cacheCreationInputTokens,
+              baseline: usageBaseline,
             })
             usageBaseline = normalizedUsage.nextBaseline
             const normalizedUsageModel = resolveRequestedUsageModel({
-              requestedModelId: context.agent.modelId,
-              reportedModelId: usage.model
+              requestedModelId: context.agent.modelId, reportedModelId: event.model,
             })
-            if (normalizedUsageModel) {
-              usageState.model = normalizedUsageModel
-            }
-            const mergedUsageCounts = mergeResponseUsageCounts({
-              inputTokens: usageState.inputTokens,
-              outputTokens: usageState.outputTokens
-            }, {
-              inputTokens: normalizedUsage.inputTokens,
-              outputTokens: normalizedUsage.outputTokens
-            }, runtimeProvider)
+            if (normalizedUsageModel) usageState.model = normalizedUsageModel
+            const mergedUsageCounts = mergeResponseUsageCounts(
+              { inputTokens: usageState.inputTokens, outputTokens: usageState.outputTokens },
+              { inputTokens: normalizedUsage.inputTokens, outputTokens: normalizedUsage.outputTokens },
+              runtimeProvider,
+            )
             usageState.inputTokens = mergedUsageCounts.inputTokens
             usageState.outputTokens = mergedUsageCounts.outputTokens
             if (typeof normalizedUsage.cacheReadInputTokens === 'number') {
@@ -1660,150 +1488,89 @@ export class ConversationService {
             if (typeof normalizedUsage.cacheCreationInputTokens === 'number') {
               usageState.cacheCreationInputTokens = (usageState.cacheCreationInputTokens ?? 0) + normalizedUsage.cacheCreationInputTokens
             }
-
             if (!shouldDeferCliUsageSync) {
               tokenStore.updateRealtimeTokens(
-                sessionId,
-                usageState.inputTokens,
-                usageState.outputTokens,
-                usageState.model,
-                usageState.contextWindowOccupancy,
-                undefined,
-                hasAcpContextWindow ? 'acp' : undefined
+                sessionId, usageState.inputTokens, usageState.outputTokens,
+                usageState.model, usageState.contextWindowOccupancy, undefined,
+                hasAcpContextWindow ? 'acp' : undefined,
               )
-              syncRealtimeUsageNotice()
             }
-          },
-          onContextWindow: (used, size) => {
-            // 上下文窗口占用通道：ACP UsageUpdate{used,size}。
-            // 仅更新进度环 used，保持计费 input/output token 不被覆盖。
-            if (typeof used === 'number' && used > 0) {
-              usageState.contextWindowOccupancy = used
+            break
+          }
+
+          case 'context_window': {
+            if (typeof event.contextWindowUsed === 'number' && event.contextWindowUsed > 0) {
+              usageState.contextWindowOccupancy = event.contextWindowUsed
               hasAcpContextWindow = true
             }
-            // ACP 的 size 反映运行时上报的上下文上限：若可用，实时透传给 token store 作为 limit 参考。
             tokenStore.updateRealtimeTokens(
-              sessionId,
-              undefined,
-              undefined,
-              undefined,
-              typeof used === 'number' && used > 0 ? used : undefined,
-              size,
-              'acp'
+              sessionId, undefined, undefined, event.model,
+              event.contextWindowUsed, event.contextWindowSize, 'acp',
             )
-          },
-          onSystem: (content) => {
-            clearRetryPresentationOnRecoveredStream()
+            break
+          }
 
-            if (content && content.includes('CLI Context Compaction')) {
-              if (!shouldDeferCliUsageSync) {
-                tokenStore.hardClearSessionTokens(sessionId)
-                tokenStore.updateRealtimeTokens(
-                  sessionId,
-                  undefined,
-                  undefined,
-                  usageState.model,
-                  0,
-                  undefined,
-                  'acp'
-                )
-              }
+          // ═══ 系统消息（含压缩检测） ═══
+          case 'system': {
+            clearRetryPresentationOnRecoveredStream()
+            const content = event.content ?? ''
+            if (content.includes('CLI Context Compaction')) {
+              tokenStore.hardClearSessionTokens(sessionId)
+              tokenStore.updateRealtimeTokens(sessionId, undefined, undefined, usageState.model, 0, undefined, 'acp')
               usageBaseline = null
               usageState.inputTokens = undefined
               usageState.outputTokens = undefined
               usageState.contextWindowOccupancy = undefined
               hasAcpContextWindow = true
-              // 解析压缩明细，组装摘要并落库为独立 compression 行 → 渲染 CompressionMessageBubble
-              const lines = content.split('\n').slice(1)
-              const detailParts: string[] = []
-              for (const line of lines) {
-                const trimmed = line.trim()
-                if (!trimmed) continue
-                if (trimmed.startsWith('Trigger:')) {
-                  const raw = trimmed.replace('Trigger:', '').trim()
-                  const label = raw === 'auto' ? i18n.global.t('compression.cliCompactionAuto') : raw === 'manual' ? i18n.global.t('compression.cliCompactionManual') : raw
-                  detailParts.push(`- **${i18n.global.t('compression.cliCompactionTrigger')}**: ${label}`)
-                } else if (trimmed.startsWith('Pre-compaction tokens:')) {
-                  const val = trimmed.replace('Pre-compaction tokens:', '').trim()
-                  detailParts.push(`- **${i18n.global.t('compression.cliCompactionPreTokens')}**: ${val}`)
-                } else if (trimmed.startsWith('Truncation limit:')) {
-                  const val = trimmed.replace('Truncation limit:', '').trim()
-                  detailParts.push(`- **${i18n.global.t('compression.cliCompactionTruncationLimit')}**: ${val}`)
-                } else {
-                  detailParts.push(trimmed)
-                }
-              }
-              const summaryMarkdown = detailParts.length > 0
-                ? `**${i18n.global.t('compression.cliCompactionTitle')}**\n\n${detailParts.join('\n')}`
-                : `**${i18n.global.t('compression.cliCompactionTitle')}**`
               void messageStore.addMessage({
-                sessionId,
-                requestId: context.requestId,
-                role: 'assistant',
-                messageType: 'compression',
-                content: summaryMarkdown,
-                status: 'completed',
-                seq: 0
+                sessionId, requestId: context.requestId,
+                role: 'assistant', messageType: 'compression',
+                content: buildCompactionSummary(content), status: 'completed', seq: 0,
               })
               return
             }
-
-            // 非压缩系统消息（如 "Connecting to agent via ACP…"）：
-            // 落库为独立 system 行，前端以轻量状态条样式渲染
-            if (content && content.trim()) {
+            if (content.trim()) {
               void messageStore.addMessage({
-                sessionId,
-                requestId: context.requestId,
-                role: 'assistant',
-                messageType: 'system',
-                content,
-                status: 'completed',
-                seq: 0
-              }).catch(error => {
-                console.warn('[ConversationService] Failed to persist system message:', error)
-              })
+                sessionId, requestId: context.requestId,
+                role: 'assistant', messageType: 'system',
+                content, status: 'completed', seq: 0,
+              }).catch(e => console.warn('[ConversationService] persist system:', e))
             }
-          },
-          onError: (error) => {
-            if (isAiMessageInterrupted()) {
-              return
-            }
+            break
+          }
 
-            lastErrorMessage = error
-          },
-          onPermissionRequest: (permission) => {
-            // ask 模式下后端已挂起等待；写入权限 store 驱动询问弹窗
+          case 'error':
+            if (!isAiMessageInterrupted() && event.error) lastErrorMessage = event.error
+            break
+
+          case 'permission_request':
             usePermissionStore().setPending({
-              sessionId,
-              requestId: context.requestId,
-              toolName: permission.toolName,
-              toolInput: permission.toolInput,
-              options: permission.options
+              sessionId, requestId: context.requestId,
+              toolName: event.toolName ?? '', toolInput: event.toolInput,
+              options: event.permissionOptions ?? [],
             })
-          },
-          onPlan: (planJson) => {
-            // ACP Agent Plan 全量替换语义：整体覆盖该会话最新计划，驱动右侧面板
-            try {
-              receivedPlanEvent = true
-              useAgentPlanStore().ingestStreamPlan(sessionId, planJson)
-            } catch (err) {
-              console.error('[agentPlan] ingest stream plan failed', err)
+            break
+
+          case 'plan':
+            if (event.content) {
+              try {
+                receivedPlanEvent = true
+                useAgentPlanStore().ingestStreamPlan(sessionId, event.content)
+              } catch (err) { console.error('[agentPlan]', err) }
             }
-          },
-          onAvailableCommands: (commandsJson) => {
-            // Agent 下发的可斜杠命令列表，驱动 `/` 下拉的 Agent 命令分组
-            try {
-              useAgentCapabilityStore().setAvailableCommands(sessionId, commandsJson)
-            } catch (err) {
-              console.error('[agentCapability] set available commands failed', err)
+            break
+
+          case 'available_commands':
+            if (event.content) {
+              try { useAgentCapabilityStore().setAvailableCommands(sessionId, event.content) }
+              catch (err) { console.error('[agentCapability]', err) }
             }
-          },
-          onDone: () => {
+            break
+
+          case 'done': {
             console.log('[ACP] done')
             markMetric('doneAt')
-            finalizeAllLiveSegments('completed')
-            finalizeLiveToolMessages(false)
-            // 兜底清理：执行结束时移除可能残留的权限询问（后端超时 / 非正常完成）
+            finalizeStreamingMessages('completed')
             usePermissionStore().clearPending(sessionId)
             if (sessionStore.isPlanMode(sessionId) && receivedPlanEvent) {
               useAgentPlanStore().requestConfirm(sessionId)
@@ -1814,20 +1581,15 @@ export class ConversationService {
             }
             syncProcessingTimeNotice()
             if (!shouldSurfaceExecutionFailure() && !isAiMessageInterrupted()) {
-              bufferMessageUpdate({
-                status: 'completed',
-                errorMessage: ''
-              }, { immediate: true })
+              bufferMessageUpdate({ status: 'completed', errorMessage: '' }, { immediate: true })
               this.clearConversationRetryState(sessionId)
               sessionExecutionStore.clearCurrentRetryState(sessionId)
-              sessionStore.updateLastMessage(
-                sessionId,
-                accumulatedContent.slice(0, 50)
-              )
+              sessionStore.updateLastMessage(sessionId, accumulatedContent.slice(0, 50))
             }
             this.finalizeSend(sessionId, epoch)
+            break
           }
-        })
+        }
       })
 
       flushPendingUiUpdate()
@@ -1881,8 +1643,7 @@ export class ConversationService {
         this.finalizeSend(sessionId, epoch)
       }
     } catch (error) {
-      finalizeAllLiveSegments('error')
-      finalizeLiveToolMessages(true)
+      finalizeStreamingMessages('error')
       const errorMessage = getErrorMessage(error, '对话执行失败')
       void writeFrontendRuntimeLog(
         'ERROR',
@@ -1988,6 +1749,14 @@ export class ConversationService {
       const messageStore = useMessageStore()
       const sessionExecutionStore = useSessionExecutionStore()
       sessionExecutionStore.setIsAwaitingRetry(sessionId, false)
+
+      // 并发守卫：如果用户在重试等待期间已手动发送新消息，跳过本次重试，
+      // 避免两个回合并发往同一 session 写入导致消息交错。
+      if (this.activeSendSessions.has(sessionId) || sessionExecutionStore.getIsSending(sessionId)) {
+        this.clearConversationRetryState(sessionId)
+        return
+      }
+
       const isLocalAnchor = aiMessage.id.startsWith('local_anchor_')
       if (!isLocalAnchor) {
         const currentMessage = messageStore.messagesBySession(sessionId)
@@ -2006,6 +1775,7 @@ export class ConversationService {
             status: 'streaming'
           })
         }
+        this.activeSendSessions.add(sessionId)
         sessionExecutionStore.startSending(sessionId)
         await this.executeConversation(context, aiMessage, sessionId, projectId, undefined, undefined)
       } catch (retryError) {
@@ -2042,183 +1812,6 @@ export class ConversationService {
 
   isConversationRetryScheduled(sessionId: string): boolean {
     return this.conversationRetryTimers.has(sessionId)
-  }
-
-  /**
-   * 处理流式事件
-   */
-  private handleStreamEvent(
-    event: StreamEvent,
-    handlers: {
-      aiMessage: Message
-      sessionId: string
-      runtimeProvider?: string
-      requestedModelId?: string
-      toolCalls: ToolCall[]
-      onContent: (content: string, segmentId: string, seq: number) => void
-      onThinking: (thinking: string, segmentId: string, seq: number) => void
-      onThinkingStart: () => void
-      onToolUse: (toolCall: ToolCall, segmentId: string, seq: number) => void
-      onToolInputDelta: (toolCallId: string | undefined, toolInput: Record<string, unknown> | undefined) => void
-      onToolResult: (toolCallId: string, result: string, isError: boolean, segmentId?: string, seq?: number) => void
-      onFileEdit: (trace: FileEditTrace) => void
-      onUsage: (usage: {
-        model?: string
-        inputTokens?: number
-        outputTokens?: number
-        rawInputTokens?: number
-        rawOutputTokens?: number
-        cacheReadInputTokens?: number
-        cacheCreationInputTokens?: number
-      }) => void
-      // 上下文窗口占用通道（ACP UsageUpdate），仅更新进度环 used，不触碰计费 token
-      onContextWindow: (used: number | undefined, size: number | undefined) => void
-      onSystem: (content: string) => void
-      onError: (error: string) => void
-      onPermissionRequest: (permission: {
-        toolName: string
-        toolInput?: Record<string, unknown>
-        options: { optionId: string; name: string; kind: string }[]
-      }) => void
-      /** ACP Agent Plan 全量快照（JSON 字符串），驱动右侧计划面板实时更新 */
-      onPlan: (planJson: string) => void
-      /** ACP Agent 下发的可斜杠命令列表（JSON 字符串），驱动 `/` 下拉 Agent 分组 */
-      onAvailableCommands: (commandsJson: string) => void
-      onDone: () => void
-    }
-  ): void {
-    const { onContent, onThinking, onThinkingStart, onToolUse, onToolInputDelta, onToolResult, onFileEdit, onUsage, onContextWindow, onSystem, onError, onPermissionRequest, onPlan, onAvailableCommands, onDone } = handlers
-
-    switch (event.type) {
-      case 'content':
-        // 后端对「追加到已有段落」的 chunk 返回 seq=None（serde 跳过），
-        // 因此 seq 仅在段落首次创建时有值；守卫不得要求 seq，否则后续 chunk 全部丢失。
-        // onContent 内部按 segmentId 走 cached 分支追加，seq 仅用于首次建行。
-        if (event.content && event.segmentId) {
-          console.log('[ACP] event=content', { segmentId: event.segmentId, seq: event.seq, len: event.content.length })
-          onContent(event.content, event.segmentId, event.seq ?? 0)
-        }
-        break
-
-      case 'thinking':
-        if (event.content && event.segmentId) {
-          console.log('[ACP] event=thinking', { segmentId: event.segmentId, seq: event.seq, len: event.content.length })
-          onThinking(event.content, event.segmentId, event.seq ?? 0)
-        }
-        break
-
-      case 'thinking_start':
-        onThinkingStart()
-        break
-
-      case 'tool_use':
-        if (event.toolName) {
-          const toolCallId = resolveToolCallId(event)
-          console.log('[ACP] event=tool_use', { toolCallId, name: event.toolName, segmentId: event.segmentId, seq: event.seq })
-          const toolCall: ToolCall = {
-            id: toolCallId,
-            name: event.toolName,
-            arguments: event.toolInput || {},
-            status: 'running',
-            kind: event.toolKind,
-            locations: event.toolLocations
-          }
-          onToolUse(toolCall, event.segmentId ?? toolCallId, event.seq ?? 0)
-        } else {
-          console.warn('[ConversationService] tool_use 事件缺少 toolName，跳过处理')
-        }
-        break
-
-      case 'tool_input_delta':
-        onToolInputDelta(event.toolCallId, event.toolInput)
-        break
-
-      case 'tool_result':
-        // 工具结果阶段可能补发最终的 ToolKind / ToolCallLocation，先回填到 toolCalls 索引
-        if (event.toolCallId && (event.toolKind || event.toolLocations)) {
-          const tc = handlers.toolCalls.find(t => t.id === event.toolCallId)
-          if (tc) {
-            if (event.toolKind) tc.kind = event.toolKind
-            if (event.toolLocations) tc.locations = event.toolLocations
-          }
-        }
-        if (event.toolCallId) {
-          const result = typeof event.toolResult === 'string'
-            ? event.toolResult
-            : JSON.stringify(event.toolResult, null, 2)
-          onToolResult(event.toolCallId, result, false, event.segmentId, event.seq)
-        } else {
-          console.warn('[ConversationService] tool_result 事件缺少 toolCallId，尝试匹配最后一个工具调用')
-          const lastRunningTool = [...handlers.toolCalls].reverse().find(tc => tc.status === 'running')
-          if (lastRunningTool && event.toolResult) {
-            const result = typeof event.toolResult === 'string'
-              ? event.toolResult
-              : JSON.stringify(event.toolResult, null, 2)
-            onToolResult(lastRunningTool.id, result, false, event.segmentId, event.seq)
-          }
-        }
-        break
-
-      case 'error':
-        if (event.error) {
-          onError(event.error)
-        }
-        break
-
-      case 'usage':
-        onUsage({
-          model: event.model,
-          inputTokens: event.inputTokens,
-          outputTokens: event.outputTokens,
-          rawInputTokens: event.rawInputTokens,
-          rawOutputTokens: event.rawOutputTokens,
-          cacheReadInputTokens: event.cacheReadInputTokens,
-          cacheCreationInputTokens: event.cacheCreationInputTokens
-        })
-        break
-
-      case 'context_window':
-        // 独立通道：仅刷新上下文窗口占用（进度环 used），不改计费 token，
-        // 避免 ACP UsageUpdate.used 覆盖回合结束时 PromptResponse.usage 的累计输入。
-        onContextWindow(event.contextWindowUsed, event.contextWindowSize)
-        break
-
-      case 'system':
-        if (event.content) {
-          onSystem(event.content)
-        }
-        break
-
-      case 'file_edit':
-        if (event.fileEdit) {
-          onFileEdit(event.fileEdit)
-        }
-        break
-
-      case 'permission_request':
-        onPermissionRequest({
-          toolName: event.toolName ?? '',
-          toolInput: event.toolInput,
-          options: event.permissionOptions ?? []
-        })
-        break
-
-      case 'plan':
-        if (event.content) {
-          onPlan(event.content)
-        }
-        break
-
-      case 'available_commands':
-        if (event.content) {
-          onAvailableCommands(event.content)
-        }
-        break
-
-      case 'done':
-        onDone()
-        break
-    }
   }
 
   /**

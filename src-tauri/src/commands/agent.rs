@@ -44,6 +44,7 @@ pub struct TestResult {
 pub struct CreateAgentInput {
     pub name: String,
     #[serde(rename = "type")]
+    #[allow(dead_code)]
     pub agent_type: Option<String>,
     pub acp_command: Option<String>,
     pub cli_path: Option<String>,

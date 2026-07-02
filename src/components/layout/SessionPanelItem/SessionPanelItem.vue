@@ -8,12 +8,9 @@ const {
   t,
   EaIcon,
   getStatusText,
-  formatRelativeTime,
-  formatSessionCreatedAt,
   isEditing,
   getStatusBadgeClass,
-  sessionNameSegments,
-  lastMessageSegments
+  sessionNameSegments
 } = useSessionPanelItem(props)
 </script>
 
@@ -88,63 +85,6 @@ const {
             :size="12"
           />
         </button>
-      </template>
-    </div>
-
-    <div class="session-item__meta">
-      <div class="session-item__meta-row">
-        <span class="session-item__time">
-          <EaIcon
-            name="clock"
-            :size="11"
-          />
-          {{ formatRelativeTime(session.updatedAt) }}
-        </span>
-        <span
-          v-if="session.messageCount"
-          class="session-item__count"
-        >
-          <EaIcon
-            name="message-square"
-            :size="11"
-          />
-          {{ session.messageCount }} 条消息
-        </span>
-        <span
-          v-if="session.agentType"
-          class="session-item__agent-type"
-        >
-          <EaIcon
-            name="bot"
-            :size="11"
-          />
-          {{ session.agentType }}
-        </span>
-      </div>
-      <div class="session-item__meta-row session-item__meta-row--secondary">
-        <span class="session-item__created">
-          <EaIcon
-            name="calendar"
-            :size="11"
-          />
-          创建于 {{ formatSessionCreatedAt(session.createdAt) }}
-        </span>
-      </div>
-    </div>
-
-    <div
-      v-if="session.lastMessage"
-      class="session-item__preview"
-    >
-      <template
-        v-for="(segment, index) in lastMessageSegments"
-        :key="`${session.id}-preview-${index}`"
-      >
-        <mark
-          v-if="segment.matched"
-          class="session-item__highlight"
-        >{{ segment.text }}</mark>
-        <span v-else>{{ segment.text }}</span>
       </template>
     </div>
 

@@ -139,6 +139,10 @@ export interface StreamEvent {
   segmentId?: string
   /** 段落序号：仅新建段落时由后端分配（追加 chunk 时为 undefined），保证回合内排序一致 */
   seq?: number
+  /** 后端分配的消息行 ID */
+  messageId?: string
+  /** 是否为追加操作（true = 追加到已有行） */
+  isAppend?: boolean
 }
 
 /**
@@ -246,6 +250,10 @@ export interface BackendStreamEvent {
   segmentId?: string
   /** 段落序号：仅新建段落时由后端分配（追加 chunk 时为 undefined），保证回合内排序一致 */
   seq?: number
+  /** 后端分配的消息行 ID */
+  messageId?: string
+  /** 是否为追加操作 */
+  isAppend?: boolean
 }
 
 /**

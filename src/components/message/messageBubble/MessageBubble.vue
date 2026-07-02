@@ -3,7 +3,6 @@ import AttachmentThumbnail from '@/components/common/AttachmentThumbnail/Attachm
 import StructuredContentRenderer from '../StructuredContentRenderer/StructuredContentRenderer.vue'
 import ThinkingDisplay from '../ThinkingDisplay/ThinkingDisplay.vue'
 import CompressionMessageBubble from '../CompressionMessageBubble/CompressionMessageBubble.vue'
-import RuntimeNoticeList from '../RuntimeNoticeList/RuntimeNoticeList.vue'
 import ToolCallDisplay from '../ToolCallDisplay/ToolCallDisplay.vue'
 import FileChangeSummaryBar from '../fileChangeSummary/FileChangeSummaryBar.vue'
 import {
@@ -42,9 +41,7 @@ const {
   isSystemStatus,
   isTokenOnlyMessage,
   isStreaming,
-  isAwaitingFirstToken,
   isError,
-  isUserTurnActive,
   canRetryUserMessage,
   canEditUserMessage,
   isEditing,
@@ -55,14 +52,7 @@ const {
   userFormResponseSummary,
   processedUserMessage,
   hasUserText,
-  shouldShowRuntimeNotices,
-  displayRuntimeNotices,
   hasToolCallFileChanges,
-  shouldShowWorkDivider,
-  workDividerLabel,
-  workDividerIcon,
-  workDividerStatusClass,
-  workDurationLabel,
   errorMessage,
   isAssistantFormOnly,
   resolvedFormResponsesById,
@@ -70,7 +60,6 @@ const {
   toolCallForDisplay,
   isMergedToolResult,
   toolDisplayLive,
-  handleStop,
   handleRetry,
   startEdit,
   cancelEdit,
@@ -106,21 +95,6 @@ const {
     class="message-bubble message-bubble--assistant message-bubble--tool"
   >
     <div class="message-bubble__body message-bubble__body--tool">
-      <div
-        v-if="shouldShowWorkDivider"
-        class="message-bubble__work-divider"
-        :class="workDividerStatusClass"
-      >
-        <span class="message-bubble__work-line" />
-        <span class="message-bubble__work-status">
-          <EaIcon
-            :name="workDividerIcon"
-            :size="12"
-          />
-          <span>{{ workDividerLabel }}</span>
-        </span>
-        <span class="message-bubble__work-duration">{{ workDurationLabel }}</span>
-      </div>
       <ToolCallDisplay
         :tool-call="toolCallForDisplay"
         :live="toolDisplayLive"
@@ -152,21 +126,6 @@ const {
     ]"
   >
     <div class="message-bubble__body">
-      <div
-        v-if="shouldShowWorkDivider"
-        class="message-bubble__work-divider"
-        :class="workDividerStatusClass"
-      >
-        <span class="message-bubble__work-line" />
-        <span class="message-bubble__work-status">
-          <EaIcon
-            :name="workDividerIcon"
-            :size="12"
-          />
-          <span>{{ workDividerLabel }}</span>
-        </span>
-        <span class="message-bubble__work-duration">{{ workDurationLabel }}</span>
-      </div>
 
       <!-- 思考过程：新结构下 thinking 是独立消息行，单条 message 不再内嵌 thinking -->
       <div
@@ -185,20 +144,8 @@ const {
         class="message-bubble__content message-bubble__stream-segment"
         :class="{ 'message-bubble__content--form-only': isAssistantFormOnly }"
       >
-        <!-- 等待首字：AI 文本回复 streaming 且内容为空时，渲染旋转圆环加载动画 -->
-        <div
-          v-if="isAwaitingFirstToken"
-          class="message-bubble__awaiting"
-        >
-          <EaIcon
-            name="loader-circle"
-            :size="16"
-            class="message-bubble__awaiting-spinner"
-          />
-          <span class="message-bubble__awaiting-text">{{ t('message.status.assistantAwaiting') }}</span>
-        </div>
         <StructuredContentRenderer
-          v-else-if="!isUser"
+          v-if="!isUser"
           :content="message.content || ''"
           :interactive-forms="isAssistant"
           :form-disabled="false"
@@ -287,18 +234,6 @@ const {
         </div>
       </div>
 
-      <div
-        v-if="shouldShowRuntimeNotices"
-        class="message-bubble__runtime message-bubble__stream-segment"
-      >
-        <RuntimeNoticeList
-          :notices="displayRuntimeNotices"
-        />
-      </div>
-
-      <!-- 工具调用：新结构下 tool_use / tool_result 是独立消息行，此处不再内嵌渲染 -->
-      <!-- 文件变更追踪：已嵌入修改文件的工具气泡内部展开，不再在普通消息底部独立显示 -->
-
       <!-- 操作按钮区：仅用户消息渲染（停止/重试/编辑），assistant 消息无 meta -->
       <div
         v-if="isUser"
@@ -327,21 +262,9 @@ const {
             />
           </button>
         </template>
-        <!-- 停止按钮 - 用户消息下，中断本轮 AI 响应（保留已生成内容） -->
-        <button
-          v-else-if="isUser && isUserTurnActive"
-          class="message-bubble__stop"
-          :title="t('common.stop')"
-          @click="handleStop"
-        >
-          <EaIcon
-            name="square"
-            :size="12"
-          />
-        </button>
         <!-- 编辑按钮 - 用户消息下：回合结束后可编辑并重发（清空下方 AI 响应重新生成） -->
         <button
-          v-else-if="isUser && canEditUserMessage"
+          v-if="!isEditing && isUser && canEditUserMessage"
           class="message-bubble__edit"
           :title="t('message.edit')"
           @click="startEdit"

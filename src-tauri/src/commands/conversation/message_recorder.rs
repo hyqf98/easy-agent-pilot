@@ -47,7 +47,8 @@ pub enum RecordableEvent {
         used: Option<u32>,
         size: Option<u32>,
     },
-    /// 压缩提示
+    /// 压缩提示（前端从 system 事件检测 CLI Context Compaction，不再走此变体）
+    #[allow(dead_code)]
     Compression(String),
     /// 系统消息
     System(String),
@@ -69,6 +70,17 @@ pub enum RecordableEvent {
     AgentPlan {
         plan_json: String,
     },
+}
+
+/// record() 的返回值，供调用方在 emit 事件时携带 messageId + seq + isAppend。
+#[derive(Debug, Clone, Default)]
+pub struct RecordResult {
+    /// 消息行 ID（新建行时为 Some(uuid)，追加 chunk 时为 Some(已有id)）
+    pub message_id: Option<String>,
+    /// 回合内顺序号（仅新建行时有值，追加 chunk 时为 None）
+    pub seq: Option<i64>,
+    /// 是否为追加操作
+    pub is_append: bool,
 }
 
 /// 一个用户回合（request_id）的事件落库服务对象。
@@ -100,7 +112,7 @@ impl MessageRecorder {
     }
 
     /// 按事件类型分发落库。落库失败返回 Err，由调用方决定是否记日志。
-    pub fn record(&self, event: &RecordableEvent) -> Result<()> {
+    pub fn record(&self, event: &RecordableEvent) -> Result<RecordResult> {
         match event {
             RecordableEvent::TextChunk(chunk) => self.record_text_chunk(chunk),
             RecordableEvent::ThinkingChunk(chunk) => self.record_thinking_chunk(chunk),
@@ -110,14 +122,25 @@ impl MessageRecorder {
                 input,
             } => {
                 self.finalize_open_segments()?;
-                self.insert_tool_use(tool_call_id, name, input)
+                let (id, seq) = self.insert_tool_use(tool_call_id, name, input)?;
+                Ok(RecordResult {
+                    message_id: Some(id),
+                    seq: Some(seq),
+                    is_append: false,
+                })
             }
             RecordableEvent::ToolResult {
                 tool_call_id,
                 result,
             } => {
                 self.finalize_open_segments()?;
-                self.insert_tool_result(tool_call_id, result.clone().unwrap_or_default().as_str())
+                let (id, seq) =
+                    self.insert_tool_result(tool_call_id, result.clone().unwrap_or_default().as_str())?;
+                Ok(RecordResult {
+                    message_id: Some(id),
+                    seq: Some(seq),
+                    is_append: false,
+                })
             }
             RecordableEvent::Usage {
                 input_tokens,
@@ -128,30 +151,55 @@ impl MessageRecorder {
                 cost,
             } => {
                 self.finalize_open_segments()?;
-                self.insert_usage(
+                let (id, seq) = self.insert_usage(
                     *input_tokens,
                     *output_tokens,
                     *cache_read_tokens,
                     *cache_creation_tokens,
                     model.as_deref(),
                     *cost,
-                )
+                )?;
+                Ok(RecordResult {
+                    message_id: Some(id),
+                    seq: Some(seq),
+                    is_append: false,
+                })
             }
             RecordableEvent::ContextWindow { used, size } => {
                 self.finalize_open_segments()?;
-                self.insert_context_window(*used, *size)
+                let (id, seq) = self.insert_context_window(*used, *size)?;
+                Ok(RecordResult {
+                    message_id: Some(id),
+                    seq: Some(seq),
+                    is_append: false,
+                })
             }
             RecordableEvent::Compression(summary) => {
                 self.finalize_open_segments()?;
-                self.insert_compression(summary)
+                let (id, seq) = self.insert_compression(summary)?;
+                Ok(RecordResult {
+                    message_id: Some(id),
+                    seq: Some(seq),
+                    is_append: false,
+                })
             }
             RecordableEvent::System(text) => {
                 self.finalize_open_segments()?;
-                self.insert_system(text)
+                let (id, seq) = self.insert_system(text)?;
+                Ok(RecordResult {
+                    message_id: Some(id),
+                    seq: Some(seq),
+                    is_append: false,
+                })
             }
             RecordableEvent::Error(msg) => {
                 self.finalize_open_segments()?;
-                self.insert_error(msg)
+                let (id, seq) = self.insert_error(msg)?;
+                Ok(RecordResult {
+                    message_id: Some(id),
+                    seq: Some(seq),
+                    is_append: false,
+                })
             }
             RecordableEvent::FileEdit {
                 tool_call_id,
@@ -169,11 +217,13 @@ impl MessageRecorder {
                     change_type,
                     before_content.clone(),
                     after_content,
-                )
+                )?;
+                Ok(RecordResult::default())
             }
             RecordableEvent::AgentPlan { plan_json } => {
                 self.finalize_open_segments()?;
-                self.insert_agent_plan(plan_json)
+                self.insert_agent_plan(plan_json)?;
+                Ok(RecordResult::default())
             }
         }
     }
@@ -185,33 +235,49 @@ impl MessageRecorder {
 
     // ---- 累积型事件 ----
 
-    fn record_text_chunk(&self, chunk: &str) -> Result<()> {
-        let mut guard = self.current_text_id.lock().unwrap();
+    fn record_text_chunk(&self, chunk: &str) -> Result<RecordResult> {
+        let guard = self.current_text_id.lock().unwrap();
         if let Some(id) = guard.as_ref() {
             self.append_content(id, chunk)?;
-            return Ok(());
+            return Ok(RecordResult {
+                message_id: Some(id.clone()),
+                seq: None,
+                is_append: true,
+            });
         }
         // 新开 text 行前，先收尾 thinking
         drop(guard);
         self.finalize_thinking()?;
-        let id = self.insert_text(chunk)?;
+        let (id, seq) = self.insert_text(chunk)?;
         self.set_status(&id, "streaming")?;
-        *self.current_text_id.lock().unwrap() = Some(id);
-        Ok(())
+        *self.current_text_id.lock().unwrap() = Some(id.clone());
+        Ok(RecordResult {
+            message_id: Some(id),
+            seq: Some(seq),
+            is_append: false,
+        })
     }
 
-    fn record_thinking_chunk(&self, chunk: &str) -> Result<()> {
-        let mut guard = self.current_thinking_id.lock().unwrap();
+    fn record_thinking_chunk(&self, chunk: &str) -> Result<RecordResult> {
+        let guard = self.current_thinking_id.lock().unwrap();
         if let Some(id) = guard.as_ref() {
             self.append_content(id, chunk)?;
-            return Ok(());
+            return Ok(RecordResult {
+                message_id: Some(id.clone()),
+                seq: None,
+                is_append: true,
+            });
         }
         drop(guard);
         self.finalize_text()?;
-        let id = self.insert_thinking(chunk)?;
+        let (id, seq) = self.insert_thinking(chunk)?;
         self.set_status(&id, "streaming")?;
-        *self.current_thinking_id.lock().unwrap() = Some(id);
-        Ok(())
+        *self.current_thinking_id.lock().unwrap() = Some(id.clone());
+        Ok(RecordResult {
+            message_id: Some(id),
+            seq: Some(seq),
+            is_append: false,
+        })
     }
 
     fn finalize_open_segments(&self) -> Result<()> {
@@ -257,7 +323,7 @@ impl MessageRecorder {
 
     // ---- 各类型专用 insert ----
 
-    fn insert_text(&self, content: &str) -> Result<String> {
+    fn insert_text(&self, content: &str) -> Result<(String, i64)> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = now_rfc3339();
         let seq = self.next_seq();
@@ -268,10 +334,10 @@ impl MessageRecorder {
              VALUES (?1, ?2, ?3, 'assistant', 'text', ?4, 'streaming', ?5, ?6, ?7)",
             params![&id, &self.session_id, &self.request_id, content, &now, &now, seq],
         )?;
-        Ok(id)
+        Ok((id, seq))
     }
 
-    fn insert_thinking(&self, content: &str) -> Result<String> {
+    fn insert_thinking(&self, content: &str) -> Result<(String, i64)> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = now_rfc3339();
         let seq = self.next_seq();
@@ -282,10 +348,10 @@ impl MessageRecorder {
              VALUES (?1, ?2, ?3, 'assistant', 'thinking', ?4, 'streaming', ?5, ?6, ?7)",
             params![&id, &self.session_id, &self.request_id, content, &now, &now, seq],
         )?;
-        Ok(id)
+        Ok((id, seq))
     }
 
-    fn insert_tool_use(&self, tool_call_id: &str, name: &str, input: &str) -> Result<()> {
+    fn insert_tool_use(&self, tool_call_id: &str, name: &str, input: &str) -> Result<(String, i64)> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = now_rfc3339();
         let seq = self.next_seq();
@@ -306,10 +372,10 @@ impl MessageRecorder {
                 seq,
             ],
         )?;
-        Ok(())
+        Ok((id, seq))
     }
 
-    fn insert_tool_result(&self, tool_call_id: &str, result: &str) -> Result<()> {
+    fn insert_tool_result(&self, tool_call_id: &str, result: &str) -> Result<(String, i64)> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = now_rfc3339();
         let seq = self.next_seq();
@@ -329,7 +395,7 @@ impl MessageRecorder {
                 seq,
             ],
         )?;
-        Ok(())
+        Ok((id, seq))
     }
 
     /// 写入文件变更追踪行。
@@ -407,7 +473,7 @@ impl MessageRecorder {
         cache_creation_tokens: Option<u32>,
         model: Option<&str>,
         cost: Option<f64>,
-    ) -> Result<()> {
+    ) -> Result<(String, i64)> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = now_rfc3339();
         let seq = self.next_seq();
@@ -432,10 +498,10 @@ impl MessageRecorder {
                 seq,
             ],
         )?;
-        Ok(())
+        Ok((id, seq))
     }
 
-    fn insert_context_window(&self, used: Option<u32>, size: Option<u32>) -> Result<()> {
+    fn insert_context_window(&self, used: Option<u32>, size: Option<u32>) -> Result<(String, i64)> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = now_rfc3339();
         let seq = self.next_seq();
@@ -455,10 +521,10 @@ impl MessageRecorder {
                 seq,
             ],
         )?;
-        Ok(())
+        Ok((id, seq))
     }
 
-    fn insert_compression(&self, summary: &str) -> Result<()> {
+    fn insert_compression(&self, summary: &str) -> Result<(String, i64)> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = now_rfc3339();
         let seq = self.next_seq();
@@ -477,10 +543,10 @@ impl MessageRecorder {
                 seq,
             ],
         )?;
-        Ok(())
+        Ok((id, seq))
     }
 
-    fn insert_system(&self, text: &str) -> Result<()> {
+    fn insert_system(&self, text: &str) -> Result<(String, i64)> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = now_rfc3339();
         let seq = self.next_seq();
@@ -499,10 +565,10 @@ impl MessageRecorder {
                 seq,
             ],
         )?;
-        Ok(())
+        Ok((id, seq))
     }
 
-    fn insert_error(&self, msg: &str) -> Result<()> {
+    fn insert_error(&self, msg: &str) -> Result<(String, i64)> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = now_rfc3339();
         let seq = self.next_seq();
@@ -521,7 +587,7 @@ impl MessageRecorder {
                 seq,
             ],
         )?;
-        Ok(())
+        Ok((id, seq))
     }
 }
 

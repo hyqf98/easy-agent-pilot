@@ -28,6 +28,9 @@ pub fn build_content_event(session_id: &str, request_id: &str, content: String) 
         file_edit: None,
         tool_kind: None,
         tool_locations: None,
+        message_id: None,
+        seq: None,
+        is_append: None,
     }
 }
 
@@ -54,6 +57,9 @@ pub fn build_error_event(session_id: &str, request_id: &str, error: String) -> A
         file_edit: None,
         tool_kind: None,
         tool_locations: None,
+        message_id: None,
+        seq: None,
+        is_append: None,
     }
 }
 
@@ -80,6 +86,9 @@ pub fn build_system_event(session_id: &str, request_id: &str, content: String) -
         file_edit: None,
         tool_kind: None,
         tool_locations: None,
+        message_id: None,
+        seq: None,
+        is_append: None,
     }
 }
 

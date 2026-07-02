@@ -3,7 +3,6 @@ import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useNotificationStore } from './notification'
 import { useSessionStore } from './session'
-import { useSessionExecutionStore } from './sessionExecution'
 import { useTokenStore, type CompressionStrategy } from './token'
 import { readSessionCliUsageSnapshot } from '@/services/usage/cliSessionUsageSnapshot'
 import { getErrorMessage } from '@/utils/api'
@@ -155,76 +154,37 @@ function resolveRawMessageCreatedAt(message?: RustMessage): string | null {
   return message?.createdAt ?? null
 }
 
+/**
+ * 纯 (requestId, seq) 比较：仅用于定位/比较场景，不参与渲染排序。
+ * 渲染顺序由后端推送顺序（addMessage push 到末尾）和 DB 返回顺序保证。
+ */
 function compareMessageOrder(
-  left: Pick<Message, 'createdAt' | 'seq' | 'requestId' | 'role'>,
-  right: Pick<Message, 'createdAt' | 'seq' | 'requestId' | 'role'>
+  left: Pick<Message, 'seq' | 'requestId'>,
+  right: Pick<Message, 'seq' | 'requestId'>
 ): number {
-  if (
-    left.requestId
-    && right.requestId
-    && left.requestId === right.requestId
-    && left.role === 'assistant'
-    && right.role === 'assistant'
-    && left.seq !== right.seq
-  ) {
-    return left.seq - right.seq
+  if (left.requestId !== right.requestId) {
+    return left.requestId < right.requestId ? -1 : 1
   }
-
-  const t = new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
-  return t !== 0 ? t : left.seq - right.seq
+  return left.seq - right.seq
 }
-
-/** @deprecated 旧名保留兼容，内部改用 compareMessageOrder */
-const compareMessageCreatedAt = compareMessageOrder
 
 export function compareMessagesForRender(left: Message, right: Message): number {
   return compareMessageOrder(left, right)
 }
 
-export function isVisibleConversationMessage(message: Message, messages: Message[]): boolean {
-  if (message.messageType === 'usage' || message.messageType === 'context_window') {
-    return false
-  }
+export function isVisibleForRender(message: Message): boolean {
+  return message.messageType !== 'usage'
+    && message.messageType !== 'context_window'
+}
 
-  if (
-    message.role === 'assistant'
-    && message.messageType === 'text'
-    && message.status === 'streaming'
-    && !message.content?.trim()
-  ) {
-    return false
-  }
-
-  if (message.role === 'assistant' && message.messageType === 'system') {
-    return false
-  }
-
-  if (message.messageType === 'tool_result' && message.toolCallId) {
-    return !messages.some(candidate =>
-      candidate.messageType === 'tool_use'
-      && candidate.toolCallId === message.toolCallId
-    )
-  }
-
-  return true
+/** @deprecated 旧名保留兼容，内部改用 isVisibleForRender */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function isVisibleConversationMessage(message: Message, _messages: Message[]): boolean {
+  return isVisibleForRender(message)
 }
 
 const EMPTY_MESSAGES: Message[] = []
 
-/**
- * 生成仅存在于内存的本地消息 id（带 `local_` 前缀，与 DB uuid 区分）。
- * 用于实时思考行等"前端渲染用、不落库"的消息。
- */
-function generateLocalMessageId(): string {
-  const uuid = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-  return `local_${uuid}`
-}
-
-function isEphemeralMessageId(id: string): boolean {
-  return id.startsWith('local_anchor_')
-}
 const EMPTY_ASSISTANT_EDIT_TRACES: SessionEditTrace[] = []
 const EMPTY_TRACE_MAP = new Map<string, { traceId: string, messageId: string, timestamp: string }>()
 const EMPTY_VISIBLE_MESSAGE_TRACES: SessionEditTrace[] = []
@@ -275,54 +235,6 @@ interface FlushBufferedMessageOptions {
 }
 
 const MESSAGE_FLUSH_INTERVAL_MS = 300
-
-function buildLatestAssistantTraceMap(
-  _messages: Message[]
-): Map<string, { traceId: string, messageId: string, timestamp: string }> {
-  // 新消息结构（一行一事件）不再把 editTraces 折叠进 message，文件编辑追踪功能后续按需重建
-  return new Map()
-}
-
-function buildAssistantEditTraces(_messages: Message[]): SessionEditTrace[] {
-  return []
-}
-
-function buildAssistantTraceDigest(traces: SessionEditTrace[]): string {
-  const latestTrace = traces[traces.length - 1]
-  return `${traces.length}:${latestTrace?.id ?? ''}:${latestTrace?.timestamp ?? ''}`
-}
-
-function buildVisibleAssistantEditTracesByMessage(
-  _messages: Message[],
-  _latestTraceByFile: Map<string, { traceId: string, messageId: string, timestamp: string }>
-): Map<string, SessionEditTrace[]> {
-  return new Map()
-}
-
-function shouldReconcileStreamingMessage(
-  message: Message,
-  currentStreamingMessageId: string | null,
-  isSessionBusy: boolean,
-  hasLocalActivity: boolean
-): boolean {
-  if (message.role !== 'assistant' || message.status !== 'streaming') {
-    return false
-  }
-
-  if (isSessionBusy) {
-    return false
-  }
-
-  if (hasLocalActivity) {
-    return false
-  }
-
-  if (!currentStreamingMessageId) {
-    return true
-  }
-
-  return message.id !== currentStreamingMessageId
-}
 
 function transformMessage(rustMsg: RustMessage): Message {
   return {
@@ -422,17 +334,13 @@ export const useMessageStore = defineStore('message', () => {
   }
 
   function setSessionMessages(sessionId: string, nextMessages: Message[]): void {
-    const normalizedMessages = dedupeMessagesById(nextMessages).sort(compareMessageCreatedAt)
-    const assistantEditTraces = buildAssistantEditTraces(normalizedMessages)
-    const latestAssistantTraceMap = buildLatestAssistantTraceMap(normalizedMessages)
+    const normalizedMessages = dedupeMessagesById(nextMessages)
     sessionMessages.value.set(sessionId, normalizedMessages)
-    assistantEditTracesBySession.value.set(sessionId, assistantEditTraces)
-    latestAssistantTraceBySession.value.set(sessionId, latestAssistantTraceMap)
-    visibleAssistantEditTracesByMessageBySession.value.set(
-      sessionId,
-      buildVisibleAssistantEditTracesByMessage(normalizedMessages, latestAssistantTraceMap)
-    )
-    assistantTraceDigestBySession.value.set(sessionId, buildAssistantTraceDigest(assistantEditTraces))
+    // 文件编辑追踪功能在新消息结构下已搁置；保留 ref 与 getter 以兼容外部依赖，数据恒为空
+    assistantEditTracesBySession.value.set(sessionId, EMPTY_ASSISTANT_EDIT_TRACES)
+    latestAssistantTraceBySession.value.set(sessionId, EMPTY_TRACE_MAP)
+    visibleAssistantEditTracesByMessageBySession.value.set(sessionId, new Map())
+    assistantTraceDigestBySession.value.set(sessionId, '0::')
   }
 
   function clearSessionDerivedState(sessionId: string): void {
@@ -518,7 +426,7 @@ export const useMessageStore = defineStore('message', () => {
 
   async function persistMessageUpdates(id: string, updates: Partial<Message>): Promise<void> {
     // 仅内存消息（如实时思考行）不落库：避免与后端 MessageRecorder 双写
-    if (localOnlyMessageIds.has(id) || isEphemeralMessageId(id)) {
+    if (localOnlyMessageIds.has(id)) {
       return
     }
 
@@ -607,10 +515,6 @@ export const useMessageStore = defineStore('message', () => {
     updates: Partial<Message>,
     options: BufferedMessageUpdateOptions = {}
   ): void {
-    if (isEphemeralMessageId(id)) {
-      return
-    }
-
     applyMessageUpdatesLocally(id, updates)
     pendingMessageUpdates.set(
       id,
@@ -625,36 +529,8 @@ export const useMessageStore = defineStore('message', () => {
     scheduleBufferedMessageFlush(id)
   }
 
-  function removeLocalMessage(id: string): void {
-    if (!localOnlyMessageIds.has(id)) {
-      return
-    }
-
-    localOnlyMessageIds.delete(id)
-    pendingMessageUpdates.delete(id)
-    const timer = pendingMessageTimers.get(id)
-    if (timer) {
-      clearTimeout(timer)
-      pendingMessageTimers.delete(id)
-    }
-
-    const index = messages.value.findIndex(message => message.id === id)
-    if (index === -1) {
-      return
-    }
-
-    const deletedMessage = messages.value[index]
-    messages.value.splice(index, 1)
-    const currentSessionMessages = sessionMessages.value.get(deletedMessage.sessionId) ?? EMPTY_MESSAGES
-    setSessionMessages(
-      deletedMessage.sessionId,
-      currentSessionMessages.filter(message => message.id !== id)
-    )
-  }
-
   async function loadMessages(sessionId: string) {
     const notificationStore = useNotificationStore()
-    const sessionExecutionStore = useSessionExecutionStore()
     const sessionStore = useSessionStore()
     const tokenStore = useTokenStore()
     isLoading.value = true
@@ -664,33 +540,9 @@ export const useMessageStore = defineStore('message', () => {
         limit: PAGE_SIZE
       })
 
-      const currentExecutionState = sessionExecutionStore.getExecutionState(sessionId)
       const nextSessionMessages = result.messages.map(transformMessage)
-      const currentSessionMessageMap = new Map(
-        (sessionMessages.value.get(sessionId) ?? EMPTY_MESSAGES).map(message => [message.id, message] as const)
-      )
-      const isSessionBusy = currentExecutionState.isSending
-        || currentExecutionState.isStreaming
-        || currentExecutionState.isAwaitingRetry
-        || currentExecutionState.isQueueDraining
-      const streamingMessagesToReconcile = nextSessionMessages.filter(message => (
-        shouldReconcileStreamingMessage(
-          message,
-          currentExecutionState.currentStreamingMessageId,
-          isSessionBusy,
-          currentSessionMessageMap.get(message.id)?.status === 'streaming'
-            || pendingMessageUpdates.has(message.id)
-            || inFlightMessageFlushes.has(message.id)
-        )
-      ))
 
-      const normalizedSessionMessages = streamingMessagesToReconcile.length > 0
-        ? nextSessionMessages.map(message => (
-          streamingMessagesToReconcile.some(streamingMessage => streamingMessage.id === message.id)
-            ? { ...message, status: 'interrupted' as const }
-            : message
-        ))
-        : nextSessionMessages
+      const normalizedSessionMessages = nextSessionMessages
 
       const session = sessionStore.sessions.find(item => item.id === sessionId)
       const sessionProvider = session?.cliSessionProvider?.trim().toLowerCase()
@@ -747,16 +599,6 @@ export const useMessageStore = defineStore('message', () => {
 
       updateGlobalMessagesForSession(sessionId, correctedSessionMessages)
       setSessionMessages(sessionId, correctedSessionMessages)
-
-      if (streamingMessagesToReconcile.length > 0) {
-        await Promise.allSettled(streamingMessagesToReconcile.map(async message => {
-          try {
-            await persistMessageUpdates(message.id, { status: 'interrupted' })
-          } catch (error) {
-            console.warn('[MessageStore] Failed to reconcile stale streaming message:', message.id, error)
-          }
-        }))
-      }
 
       // 更新分页状态
       const oldestMessage = result.messages[0]
@@ -838,7 +680,7 @@ export const useMessageStore = defineStore('message', () => {
       const nextSessionMessages = dedupeMessagesById([
         ...newMessages,
         ...currentSessionMessages
-      ]).sort(compareMessageCreatedAt)
+      ])
       updateGlobalMessagesForSession(sessionId, nextSessionMessages)
       setSessionMessages(sessionId, nextSessionMessages)
 
@@ -870,14 +712,16 @@ export const useMessageStore = defineStore('message', () => {
   }
 
   async function addMessage(
-    message: Omit<Message, 'id' | 'createdAt' | 'updatedAt'>,
+    message: Omit<Message, 'id' | 'createdAt' | 'updatedAt'> & { id?: string },
     options: { persist?: boolean; createdAt?: string } = {}
   ) {
     const persist = options.persist !== false
 
-    // 仅内存消息：生成本地 id + 时间戳，不落库（后端已落库对应行，前端只用于实时渲染）
+    // 仅内存消息：使用传入的 id（后端已落库），否则生成本地 id；不落库
     if (!persist) {
-      const id = generateLocalMessageId()
+      const id = message.id ?? `local_${typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`}`
       // 允许调用方指定 createdAt（如 live thinking 行需对齐同回合 text 行的时间，
       // 使排序反映「先思考后回复」的自然顺序，而非前端创建时刻）
       const now = options.createdAt ?? new Date().toISOString()
@@ -1070,6 +914,23 @@ export const useMessageStore = defineStore('message', () => {
     })
   }
 
+  /**
+   * 追加内容到已有消息行（后端 isAppend=true 时调用）。
+   * 后端已落库，前端仅做内存更新，不写入 DB。
+   */
+  function appendToMessage(id: string, chunk: string): void {
+    const index = messages.value.findIndex(message => message.id === id)
+    if (index === -1) return
+
+    const currentMessage = messages.value[index]
+    const nextContent = (currentMessage.content ?? '') + chunk
+    applyMessageUpdatesLocally(id, { content: nextContent })
+  }
+
+  function hasMessage(id: string): boolean {
+    return messages.value.some(message => message.id === id)
+  }
+
   return {
     // State
     messages,
@@ -1089,9 +950,10 @@ export const useMessageStore = defineStore('message', () => {
     loadMessages,
     loadMoreMessages,
     addMessage,
+    appendToMessage,
+    hasMessage,
     updateMessage,
     updateMessageBuffered,
-    removeLocalMessage,
     flushBufferedMessageUpdate,
     deleteMessage,
     deleteMessagesAfter,
