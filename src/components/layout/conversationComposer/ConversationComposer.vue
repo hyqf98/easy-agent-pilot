@@ -457,363 +457,363 @@ const sendButtonTitle = computed(() => {
         />
 
         <div class="conversation-composer__editor-stack">
-        <div
-          v-if="isPlanMode"
-          class="conversation-composer__plan-footer"
-        >
-          <div class="conversation-composer__plan-footer-info">
-            <EaIcon
-              name="eye"
-              :size="13"
-              class="conversation-composer__plan-footer-icon"
-            />
-            <span class="conversation-composer__plan-footer-label">{{ t('message.planModeBanner.title') }}</span>
-            <span class="conversation-composer__plan-footer-hint">{{ t('message.planModeBanner.hint') }}</span>
-          </div>
-          <div class="conversation-composer__plan-footer-actions">
-            <EaButton
-              type="secondary"
-              size="small"
-              @click="cancelPlan"
-            >
+          <div
+            v-if="isPlanMode"
+            class="conversation-composer__plan-footer"
+          >
+            <div class="conversation-composer__plan-footer-info">
               <EaIcon
-                name="x"
-                :size="12"
+                name="eye"
+                :size="13"
+                class="conversation-composer__plan-footer-icon"
               />
-              <span>{{ t('message.planModeBanner.cancel') }}</span>
-            </EaButton>
-            <EaButton
-              type="primary"
-              size="small"
-              @click="executePlan"
-            >
-              <EaIcon
-                name="play"
-                :size="12"
-              />
-              <span>{{ t('message.planModeBanner.execute') }}</span>
-            </EaButton>
-          </div>
-        </div>
-
-        <div
-          class="conversation-composer__editor-shell"
-          :class="{ 'conversation-composer__editor-shell--plan-mode': isPlanMode }"
-          @contextmenu.prevent
-        >
-          <div class="conversation-composer__editor-field">
-            <div
-              ref="renderLayerRef"
-              class="conversation-composer__render"
-              :class="{
-                'conversation-composer__render--hidden': !shouldUseRichTextOverlay
-              }"
-            >
-              <ConversationComposerRichTextOverlay
-                :t="t"
-                :parsed-input-text="parsedInputText"
-                :should-use-rich-text-overlay="shouldUseRichTextOverlay"
-                :is-main-panel="isMainPanel"
-                :input-text="inputText"
-                :composer-send-shortcut-hint="composerSendShortcutHint"
-              />
+              <span class="conversation-composer__plan-footer-label">{{ t('message.planModeBanner.title') }}</span>
+              <span class="conversation-composer__plan-footer-hint">{{ t('message.planModeBanner.hint') }}</span>
             </div>
-
-            <textarea
-              ref="textareaRef"
-              v-model="inputText"
-              class="conversation-composer__textarea"
-              :class="{
-                'conversation-composer__textarea--overlay': shouldUseRichTextOverlay
-              }"
-              rows="2"
-              :disabled="!sessionId"
-              :placeholder="shouldUseRichTextOverlay ? '' : (inputPlaceholder || t('message.inputPlaceholder', { shortcut: t('message.shortcutEnter') }))"
-              @compositionstart="handleCompositionStart"
-              @compositionend="handleCompositionEnd"
-              @input="handleInput"
-              @keydown="handleKeyDown"
-              @paste="handlePaste"
-              @scroll="syncScroll"
-              @focus="emit('focus')"
-            />
+            <div class="conversation-composer__plan-footer-actions">
+              <EaButton
+                type="secondary"
+                size="small"
+                @click="cancelPlan"
+              >
+                <EaIcon
+                  name="x"
+                  :size="12"
+                />
+                <span>{{ t('message.planModeBanner.cancel') }}</span>
+              </EaButton>
+              <EaButton
+                type="primary"
+                size="small"
+                @click="executePlan"
+              >
+                <EaIcon
+                  name="play"
+                  :size="12"
+                />
+                <span>{{ t('message.planModeBanner.execute') }}</span>
+              </EaButton>
+            </div>
           </div>
 
           <div
-            v-if="isMainPanel"
-            class="conversation-composer__control-row"
+            class="conversation-composer__editor-shell"
+            :class="{ 'conversation-composer__editor-shell--plan-mode': isPlanMode }"
+            @contextmenu.prevent
           >
-            <div class="conversation-composer__control-group conversation-composer__control-group--start">
-              <button
-                class="composer-chip composer-chip--image composer-chip--image-main"
-                :disabled="isUploadingImages"
-                @click="openAttachmentPicker"
-              >
-                <EaIcon
-                  name="plus"
-                  :size="14"
-                />
-              </button>
-
+            <div class="conversation-composer__editor-field">
               <div
-                ref="agentDropdownRef"
-                class="composer-chip composer-chip--dropdown"
+                ref="renderLayerRef"
+                class="conversation-composer__render"
                 :class="{
-                  'composer-chip--main': isMainPanel,
-                  'composer-chip--open': isAgentDropdownOpen
+                  'conversation-composer__render--hidden': !shouldUseRichTextOverlay
                 }"
               >
-                <button
-                  class="composer-chip__button"
-                  @click="toggleAgentDropdown"
-                >
-                  <EaIcon
-                    :name="currentAgent?.provider === 'codex' ? 'terminal' : 'code'"
-                    :size="11"
-                  />
-                  <span>{{ currentAgentName }}</span>
-                  <EaIcon
-                    :name="isAgentDropdownOpen ? 'chevron-up' : 'chevron-down'"
-                    :size="9"
-                  />
-                </button>
-                <Transition name="dropdown">
-                  <div
-                    v-if="isAgentDropdownOpen"
-                    class="composer-chip__menu"
-                  >
-                    <div
-                      v-for="option in agentOptions"
-                      :key="option.value"
-                      class="composer-chip__option"
-                      :class="{ 'composer-chip__option--selected': option.value === currentAgentId }"
-                      @click="selectAgent(option.value)"
-                    >
-                      <EaIcon
-                        :name="option.provider === 'codex' ? 'terminal' : 'code'"
-                        :size="12"
-                      />
-                      <span>{{ option.label }}</span>
-                      <span class="composer-chip__tag">{{ option.provider ? option.provider.toUpperCase() : 'ACP' }}</span>
-                    </div>
-                  </div>
-                </Transition>
+                <ConversationComposerRichTextOverlay
+                  :t="t"
+                  :parsed-input-text="parsedInputText"
+                  :should-use-rich-text-overlay="shouldUseRichTextOverlay"
+                  :is-main-panel="isMainPanel"
+                  :input-text="inputText"
+                  :composer-send-shortcut-hint="composerSendShortcutHint"
+                />
               </div>
+
+              <textarea
+                ref="textareaRef"
+                v-model="inputText"
+                class="conversation-composer__textarea"
+                :class="{
+                  'conversation-composer__textarea--overlay': shouldUseRichTextOverlay
+                }"
+                rows="2"
+                :disabled="!sessionId"
+                :placeholder="shouldUseRichTextOverlay ? '' : (inputPlaceholder || t('message.inputPlaceholder', { shortcut: t('message.shortcutEnter') }))"
+                @compositionstart="handleCompositionStart"
+                @compositionend="handleCompositionEnd"
+                @input="handleInput"
+                @keydown="handleKeyDown"
+                @paste="handlePaste"
+                @scroll="syncScroll"
+                @focus="emit('focus')"
+              />
             </div>
 
-            <div class="conversation-composer__control-group conversation-composer__control-group--end">
-              <div class="conversation-composer__context-slot">
-                <TokenProgressBar
-                  :session-id="sessionId"
-                  @compress="handleOpenCompress"
-                />
-              </div>
-
-              <div
-                v-if="currentAgent"
-                ref="modelDropdownRef"
-                class="composer-chip composer-chip--dropdown"
-                :class="{
-                  'composer-chip--main': isMainPanel,
-                  'composer-chip--open': isModelDropdownOpen
-                }"
-              >
+            <div
+              v-if="isMainPanel"
+              class="conversation-composer__control-row"
+            >
+              <div class="conversation-composer__control-group conversation-composer__control-group--start">
                 <button
-                  class="composer-chip__button"
-                  @click="toggleModelDropdown"
+                  class="composer-chip composer-chip--image composer-chip--image-main"
+                  :disabled="isUploadingImages"
+                  @click="openAttachmentPicker"
                 >
                   <EaIcon
-                    name="cpu"
-                    :size="11"
-                  />
-                  <span class="composer-chip__text">{{ getModelLabel(selectedModelId) }}</span>
-                  <EaIcon
-                    :name="isModelDropdownOpen ? 'chevron-up' : 'chevron-down'"
-                    :size="9"
+                    name="plus"
+                    :size="14"
                   />
                 </button>
-                <Transition name="dropdown">
-                  <div
-                    v-if="isModelDropdownOpen"
-                    class="composer-chip__menu composer-chip__menu--right"
+
+                <div
+                  ref="agentDropdownRef"
+                  class="composer-chip composer-chip--dropdown"
+                  :class="{
+                    'composer-chip--main': isMainPanel,
+                    'composer-chip--open': isAgentDropdownOpen
+                  }"
+                >
+                  <button
+                    class="composer-chip__button"
+                    @click="toggleAgentDropdown"
                   >
-                    <div class="composer-chip__search">
-                      <input
-                        v-model="modelFilterText"
-                        type="text"
-                        class="composer-chip__search-input"
-                        :placeholder="t('composer.searchModelPlaceholder')"
-                        @click.stop
+                    <EaIcon
+                      :name="currentAgent?.provider === 'codex' ? 'terminal' : 'code'"
+                      :size="11"
+                    />
+                    <span>{{ currentAgentName }}</span>
+                    <EaIcon
+                      :name="isAgentDropdownOpen ? 'chevron-up' : 'chevron-down'"
+                      :size="9"
+                    />
+                  </button>
+                  <Transition name="dropdown">
+                    <div
+                      v-if="isAgentDropdownOpen"
+                      class="composer-chip__menu"
+                    >
+                      <div
+                        v-for="option in agentOptions"
+                        :key="option.value"
+                        class="composer-chip__option"
+                        :class="{ 'composer-chip__option--selected': option.value === currentAgentId }"
+                        @click="selectAgent(option.value)"
                       >
+                        <EaIcon
+                          :name="option.provider === 'codex' ? 'terminal' : 'code'"
+                          :size="12"
+                        />
+                        <span>{{ option.label }}</span>
+                        <span class="composer-chip__tag">{{ option.provider ? option.provider.toUpperCase() : 'ACP' }}</span>
+                      </div>
                     </div>
-                    <div
-                      v-for="model in filteredModelOptions"
-                      :key="model.value"
-                      class="composer-chip__option"
-                      :class="{ 'composer-chip__option--selected': model.value === selectedModelId }"
-                      @click="selectModel(model.value)"
-                    >
-                      {{ model.label }}
-                    </div>
-                    <div
-                      v-if="filteredModelOptions.length === 0"
-                      class="composer-chip__empty"
-                    >
-                      {{ t('composer.noModelMatch') }}
-                    </div>
-                  </div>
-                </Transition>
+                  </Transition>
+                </div>
               </div>
 
-              <div
-                v-if="currentAgent && reasoningEffortOptions.length > 0"
-                ref="reasoningDropdownRef"
-                class="composer-chip composer-chip--dropdown"
-                :class="{
-                  'composer-chip--main': isMainPanel,
-                  'composer-chip--open': isReasoningDropdownOpen
-                }"
-              >
-                <button
-                  class="composer-chip__button"
-                  @click="toggleReasoningDropdown"
-                >
-                  <EaIcon
-                    name="brain"
-                    :size="11"
+              <div class="conversation-composer__control-group conversation-composer__control-group--end">
+                <div class="conversation-composer__context-slot">
+                  <TokenProgressBar
+                    :session-id="sessionId"
+                    @compress="handleOpenCompress"
                   />
-                  <span>{{ getReasoningEffortLabel(selectedReasoningEffort) }}</span>
+                </div>
+
+                <div
+                  v-if="currentAgent"
+                  ref="modelDropdownRef"
+                  class="composer-chip composer-chip--dropdown"
+                  :class="{
+                    'composer-chip--main': isMainPanel,
+                    'composer-chip--open': isModelDropdownOpen
+                  }"
+                >
+                  <button
+                    class="composer-chip__button"
+                    @click="toggleModelDropdown"
+                  >
+                    <EaIcon
+                      name="cpu"
+                      :size="11"
+                    />
+                    <span class="composer-chip__text">{{ getModelLabel(selectedModelId) }}</span>
+                    <EaIcon
+                      :name="isModelDropdownOpen ? 'chevron-up' : 'chevron-down'"
+                      :size="9"
+                    />
+                  </button>
+                  <Transition name="dropdown">
+                    <div
+                      v-if="isModelDropdownOpen"
+                      class="composer-chip__menu composer-chip__menu--right"
+                    >
+                      <div class="composer-chip__search">
+                        <input
+                          v-model="modelFilterText"
+                          type="text"
+                          class="composer-chip__search-input"
+                          :placeholder="t('composer.searchModelPlaceholder')"
+                          @click.stop
+                        >
+                      </div>
+                      <div
+                        v-for="model in filteredModelOptions"
+                        :key="model.value"
+                        class="composer-chip__option"
+                        :class="{ 'composer-chip__option--selected': model.value === selectedModelId }"
+                        @click="selectModel(model.value)"
+                      >
+                        {{ model.label }}
+                      </div>
+                      <div
+                        v-if="filteredModelOptions.length === 0"
+                        class="composer-chip__empty"
+                      >
+                        {{ t('composer.noModelMatch') }}
+                      </div>
+                    </div>
+                  </Transition>
+                </div>
+
+                <div
+                  v-if="currentAgent && reasoningEffortOptions.length > 0"
+                  ref="reasoningDropdownRef"
+                  class="composer-chip composer-chip--dropdown"
+                  :class="{
+                    'composer-chip--main': isMainPanel,
+                    'composer-chip--open': isReasoningDropdownOpen
+                  }"
+                >
+                  <button
+                    class="composer-chip__button"
+                    @click="toggleReasoningDropdown"
+                  >
+                    <EaIcon
+                      name="brain"
+                      :size="11"
+                    />
+                    <span>{{ getReasoningEffortLabel(selectedReasoningEffort) }}</span>
+                    <EaIcon
+                      :name="isReasoningDropdownOpen ? 'chevron-up' : 'chevron-down'"
+                      :size="9"
+                    />
+                  </button>
+                  <Transition name="dropdown">
+                    <div
+                      v-if="isReasoningDropdownOpen"
+                      class="composer-chip__menu composer-chip__menu--right"
+                    >
+                      <div
+                        class="composer-chip__option composer-chip__option--reset"
+                        :class="{ 'composer-chip__option--selected': !selectedReasoningEffort }"
+                        @click.stop="selectReasoningEffort('')"
+                      >
+                        {{ t('reasoning.default') }}
+                      </div>
+                      <div
+                        v-for="option in reasoningEffortOptions"
+                        :key="option.value"
+                        class="composer-chip__option"
+                        :class="{ 'composer-chip__option--selected': option.value === selectedReasoningEffort }"
+                        @click.stop="selectReasoningEffort(option.value)"
+                      >
+                        {{ option.label }}
+                      </div>
+                    </div>
+                  </Transition>
+                </div>
+
+                <button
+                  type="button"
+                  class="conversation-composer__send conversation-composer__send--main"
+                  :class="{ 'conversation-composer__send--stop': isStopButtonMode }"
+                  :disabled="sendButtonDisabled"
+                  :title="sendButtonTitle"
+                  :aria-label="sendButtonTitle"
+                  @click="handleSend"
+                >
+                  <span
+                    v-if="queuedMessages.length > 0"
+                    class="conversation-composer__send-state"
+                  >
+                    {{ queuedMessages.length }}
+                  </span>
                   <EaIcon
-                    :name="isReasoningDropdownOpen ? 'chevron-up' : 'chevron-down'"
-                    :size="9"
+                    :name="isStopButtonMode ? 'square' : 'send-horizontal'"
+                    :size="14"
                   />
                 </button>
-                <Transition name="dropdown">
-                  <div
-                    v-if="isReasoningDropdownOpen"
-                    class="composer-chip__menu composer-chip__menu--right"
-                  >
-                    <div
-                      class="composer-chip__option composer-chip__option--reset"
-                      :class="{ 'composer-chip__option--selected': !selectedReasoningEffort }"
-                      @click.stop="selectReasoningEffort('')"
-                    >
-                      {{ t('reasoning.default') }}
-                    </div>
-                    <div
-                      v-for="option in reasoningEffortOptions"
-                      :key="option.value"
-                      class="composer-chip__option"
-                      :class="{ 'composer-chip__option--selected': option.value === selectedReasoningEffort }"
-                      @click.stop="selectReasoningEffort(option.value)"
-                    >
-                      {{ option.label }}
-                    </div>
-                  </div>
-                </Transition>
               </div>
-
-              <button
-                type="button"
-                class="conversation-composer__send conversation-composer__send--main"
-                :class="{ 'conversation-composer__send--stop': isStopButtonMode }"
-                :disabled="sendButtonDisabled"
-                :title="sendButtonTitle"
-                :aria-label="sendButtonTitle"
-                @click="handleSend"
-              >
-                <span
-                  v-if="queuedMessages.length > 0"
-                  class="conversation-composer__send-state"
-                >
-                  {{ queuedMessages.length }}
-                </span>
-                <EaIcon
-                  :name="isStopButtonMode ? 'square' : 'send-horizontal'"
-                  :size="14"
-                />
-              </button>
             </div>
           </div>
-        </div>
         </div>
 
         <div
           v-if="!isMainPanel"
           class="conversation-composer__main-footer"
         >
-        <div class="conversation-composer__main-footer-left">
-          <button
-            class="composer-chip composer-chip--image"
-            :disabled="isUploadingImages"
-            @click="openAttachmentPicker"
-          >
-            <EaIcon
-              name="plus"
-              :size="14"
-            />
-          </button>
-
-          <div
-            v-if="currentAgent"
-            ref="modelDropdownRef"
-            class="composer-chip composer-chip--dropdown"
-            :class="{
-              'composer-chip--open': isModelDropdownOpen
-            }"
-          >
+          <div class="conversation-composer__main-footer-left">
             <button
-              class="composer-chip__button"
-              @click="toggleModelDropdown"
+              class="composer-chip composer-chip--image"
+              :disabled="isUploadingImages"
+              @click="openAttachmentPicker"
             >
               <EaIcon
-                name="cpu"
-                :size="11"
-              />
-              <span class="composer-chip__text">{{ getModelLabel(selectedModelId) }}</span>
-              <EaIcon
-                :name="isModelDropdownOpen ? 'chevron-up' : 'chevron-down'"
-                :size="9"
+                name="plus"
+                :size="14"
               />
             </button>
-            <Transition name="dropdown">
-              <div
-                v-if="isModelDropdownOpen"
-                class="composer-chip__menu"
-              >
-                <div class="composer-chip__search">
-                  <input
-                    v-model="modelFilterText"
-                    type="text"
-                    class="composer-chip__search-input"
-                    :placeholder="t('composer.searchModelPlaceholder')"
-                    @click.stop
-                  >
-                </div>
-                <div
-                  v-for="model in filteredModelOptions"
-                  :key="model.value"
-                  class="composer-chip__option"
-                  :class="{ 'composer-chip__option--selected': model.value === selectedModelId }"
-                  @click="selectModel(model.value)"
-                >
-                  {{ model.label }}
-                </div>
-                <div
-                  v-if="filteredModelOptions.length === 0"
-                  class="composer-chip__empty"
-                >
-                  {{ t('composer.noModelMatch') }}
-                </div>
-              </div>
-            </Transition>
-          </div>
-        </div>
 
-        <TokenProgressBar
-          :session-id="sessionId"
-          @compress="handleOpenCompress"
-        />
+            <div
+              v-if="currentAgent"
+              ref="modelDropdownRef"
+              class="composer-chip composer-chip--dropdown"
+              :class="{
+                'composer-chip--open': isModelDropdownOpen
+              }"
+            >
+              <button
+                class="composer-chip__button"
+                @click="toggleModelDropdown"
+              >
+                <EaIcon
+                  name="cpu"
+                  :size="11"
+                />
+                <span class="composer-chip__text">{{ getModelLabel(selectedModelId) }}</span>
+                <EaIcon
+                  :name="isModelDropdownOpen ? 'chevron-up' : 'chevron-down'"
+                  :size="9"
+                />
+              </button>
+              <Transition name="dropdown">
+                <div
+                  v-if="isModelDropdownOpen"
+                  class="composer-chip__menu"
+                >
+                  <div class="composer-chip__search">
+                    <input
+                      v-model="modelFilterText"
+                      type="text"
+                      class="composer-chip__search-input"
+                      :placeholder="t('composer.searchModelPlaceholder')"
+                      @click.stop
+                    >
+                  </div>
+                  <div
+                    v-for="model in filteredModelOptions"
+                    :key="model.value"
+                    class="composer-chip__option"
+                    :class="{ 'composer-chip__option--selected': model.value === selectedModelId }"
+                    @click="selectModel(model.value)"
+                  >
+                    {{ model.label }}
+                  </div>
+                  <div
+                    v-if="filteredModelOptions.length === 0"
+                    class="composer-chip__empty"
+                  >
+                    {{ t('composer.noModelMatch') }}
+                  </div>
+                </div>
+              </Transition>
+            </div>
+          </div>
+
+          <TokenProgressBar
+            :session-id="sessionId"
+            @compress="handleOpenCompress"
+          />
         </div>
       </div>
     </div>

@@ -135,6 +135,10 @@ export interface StreamEvent {
   toolKind?: string
   /** 工具访问/修改的文件位置（透传 ACP ToolCallLocation） */
   toolLocations?: ToolLocation[]
+  /** 后端段落标识：同一 content/thinking 段的所有 chunk 共享 segmentId（前端按此复用本地行） */
+  segmentId?: string
+  /** 段落序号：仅新建段落时由后端分配（追加 chunk 时为 undefined），保证回合内排序一致 */
+  seq?: number
 }
 
 /**
@@ -238,6 +242,10 @@ export interface BackendStreamEvent {
   toolKind?: string
   /** 工具访问/修改的文件位置（透传 ACP ToolCallLocation） */
   toolLocations?: ToolLocation[]
+  /** 后端段落标识：同一 content/thinking 段的所有 chunk 共享 segmentId（前端按此复用本地行） */
+  segmentId?: string
+  /** 段落序号：仅新建段落时由后端分配（追加 chunk 时为 undefined），保证回合内排序一致 */
+  seq?: number
 }
 
 /**

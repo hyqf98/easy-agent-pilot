@@ -23,6 +23,7 @@ export type MessageType =
   | 'compression'
   | 'system'
   | 'error'
+  | 'work_divider'
 export type ToolCallStatus = 'pending' | 'running' | 'success' | 'error'
 export const MANUAL_STOP_ERROR_MARKER = '__manual_stop__'
 

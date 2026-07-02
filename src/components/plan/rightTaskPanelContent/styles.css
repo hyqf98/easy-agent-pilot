@@ -1,0 +1,132 @@
+/* ============================================================
+ * RightTaskPanelContent 样式（右侧任务 Dock 主体）
+ * 两种模式：拆分中（TaskSplitPreview 自带样式） / 持久化任务列表
+ * ============================================================ */
+
+.right-task-panel-content {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--workspace-panel-bg, var(--color-surface));
+  overflow: hidden;
+}
+
+.task-list-pane {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.task-list-pane__header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2, 0.5rem);
+  padding: 0.7rem 0.85rem;
+  border-bottom: 1px solid var(--workspace-border, var(--color-border));
+  flex-shrink: 0;
+}
+
+.task-list-pane__title {
+  font-size: var(--font-size-base, 14px);
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+.task-list-pane__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4rem;
+  height: 1.4rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  font-size: var(--font-size-xs, 12px);
+  font-weight: 600;
+}
+
+.task-list-pane__empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary));
+  font-size: var(--font-size-sm, 13px);
+}
+
+.task-list-pane__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.4rem;
+}
+
+.task-item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.6rem 0.65rem;
+  margin-bottom: 0.3rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md, 8px);
+  background: transparent;
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  text-align: left;
+  cursor: pointer;
+  transition: all var(--transition-fast, 150ms);
+}
+
+.task-item:hover {
+  background: var(--workspace-control-hover-bg, var(--color-surface-hover));
+  border-color: var(--workspace-border, var(--color-border));
+}
+
+.task-item__status {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-text-tertiary, #94a3b8);
+}
+
+.task-item__status[data-color='gray'] {
+  background: var(--color-text-tertiary, #94a3b8);
+}
+
+.task-item__status[data-color='blue'] {
+  background: var(--color-primary, #3b82f6);
+}
+
+.task-item__status[data-color='green'] {
+  background: var(--color-success, #22c55e);
+}
+
+.task-item__status[data-color='yellow'] {
+  background: var(--color-warning, #eab308);
+}
+
+.task-item__status[data-color='red'] {
+  background: var(--color-danger, #ef4444);
+}
+
+.task-item__title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-sm, 13px);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-item__status-label {
+  flex-shrink: 0;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: var(--workspace-control-hover-bg, var(--color-surface-hover));
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+  font-size: var(--font-size-xs, 12px);
+}

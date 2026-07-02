@@ -1,0 +1,322 @@
+/* ============================================================
+ * PlanSplitConversation 样式（计划模式中间面板拆分会话）
+ * 去弹窗化：仅在计划模式中间区全宽渲染会话 + 输入 + 操作栏。
+ * 任务预览改由右侧任务 Dock 承载，故不再包含 preview-pane 样式。
+ * 采用 workspace-* 令牌，暗色模式自动跟随。
+ * ============================================================ */
+
+.plan-split-conversation {
+  --split-pane-bg: var(--workspace-panel-bg, #fff);
+  --split-pane-border: var(--workspace-border, rgba(38, 38, 38, 0.1));
+  --split-messages-bg: var(--conversation-workspace-bg, var(--workspace-stage-bg, #fbfbfa));
+
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--split-pane-bg);
+}
+
+.conversation-pane {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background-color: var(--split-pane-bg);
+}
+
+.conversation-input-area {
+  flex-shrink: 0;
+  padding: 0.5rem 0.65rem 0.65rem;
+  background: var(--workspace-stage-bg, var(--color-bg-primary));
+}
+
+.pane-input-bar {
+  display: flex;
+  align-items: flex-end;
+  padding: 0.65rem 0.75rem;
+  border-radius: 12px;
+  background: var(--workspace-panel-bg, var(--color-surface));
+  border: 1px solid var(--workspace-border, var(--color-border));
+  transition: border-color var(--transition-fast, 150ms);
+}
+
+.pane-input-bar:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary-light);
+}
+
+.pane-input-bar:has(.instruction-input:disabled) {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.messages-container {
+  flex: 1;
+  background: var(--split-messages-bg);
+  min-height: 0;
+}
+
+.messages-container :deep(.message-list) {
+  --message-list-top-safe-space: 0px;
+  --message-list-bottom-safe-space: 0px;
+  height: 100%;
+  padding: 0.75rem;
+  background: transparent;
+}
+
+.messages-container :deep(.message-bubble) {
+  --message-fixed-width: clamp(19rem, 32vw, 30rem);
+  --message-min-width: 0;
+  --message-max-width: clamp(22rem, 40vw, 34rem);
+  --message-compact-max-width: clamp(20rem, 32vw, 30rem);
+  --message-trace-max-width: clamp(22rem, 40vw, 34rem);
+  --thinking-display-width: clamp(20rem, 32vw, 30rem);
+}
+
+.messages-container :deep(.message-bubble--assistant.message-bubble--form-only) {
+  --message-fixed-width: clamp(19rem, 32vw, 30rem);
+  --message-max-width: clamp(22rem, 40vw, 34rem);
+  --message-compact-max-width: clamp(20rem, 32vw, 30rem);
+  --thinking-display-width: clamp(20rem, 32vw, 30rem);
+}
+
+.messages-container :deep(.message-bubble__content) {
+  padding: var(--spacing-2) var(--spacing-2);
+}
+
+.messages-container :deep(.message-bubble--assistant .message-bubble__content--form-only) {
+  padding: 0;
+  width: 100%;
+  min-width: 0;
+  max-width: min(100%, var(--message-max-width));
+}
+
+.messages-container :deep(.structured-content--form-only) {
+  width: min(100%, var(--message-max-width));
+}
+
+.messages-container :deep(.structured-content__form--standalone) {
+  width: 100%;
+  max-width: min(100%, var(--message-max-width));
+}
+
+.messages-container :deep(.dynamic-form--compact) {
+  width: 100%;
+  max-width: min(100%, var(--message-max-width));
+}
+
+.messages-container :deep(.message-bubble__thinking) {
+  width: min(100%, var(--message-max-width));
+  min-width: 0;
+  max-width: min(100%, var(--message-max-width));
+}
+
+.messages-container :deep(.message-bubble__tool-calls-shell),
+.messages-container :deep(.tool-call) {
+  width: min(100%, var(--message-compact-max-width));
+  min-width: 0;
+  max-width: min(100%, var(--message-compact-max-width));
+}
+
+/* 会话底部操作栏（替代原弹窗 footer） */
+.conversation-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.85rem;
+  border-top: 1px solid var(--workspace-border, var(--color-border));
+  background: var(--workspace-panel-bg, var(--color-surface));
+}
+
+.conversation-actions__group {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.footer-resplit-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2, 0.5rem);
+  margin-bottom: var(--spacing-2, 0.5rem);
+  padding: var(--spacing-2, 0.5rem) var(--spacing-3, 0.75rem);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-primary-light);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 18%, transparent);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+  font-size: var(--font-size-xs, 12px);
+}
+
+.resplit-hint-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: resplit-spin 0.6s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes resplit-spin {
+  to { transform: rotate(360deg); }
+}
+
+.input-wrapper {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.instruction-mentions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 0.5rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.45rem;
+  border-radius: 0.85rem;
+  border: 1px solid var(--workspace-border, rgba(148, 163, 184, 0.22));
+  background: var(--workspace-panel-bg, rgba(255, 255, 255, 0.97));
+  box-shadow: var(--workspace-card-shadow, 0 16px 32px rgba(15, 23, 42, 0.14));
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.instruction-mentions__item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: none;
+  border-radius: 0.7rem;
+  background: transparent;
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  text-align: left;
+  cursor: pointer;
+}
+
+.instruction-mentions__item:hover,
+.instruction-mentions__item--active {
+  background: var(--color-primary-light);
+}
+
+.instruction-mentions__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.4rem;
+  height: 1.5rem;
+  padding: 0 0.45rem;
+  border-radius: 999px;
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.instruction-mentions__title {
+  min-width: 0;
+  flex: 1;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.instruction-input {
+  width: 100%;
+  height: 3.35rem;
+  min-height: 3.35rem;
+  max-height: 3.35rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  font-size: var(--font-size-sm, 13px);
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+  box-shadow: none;
+  font-family: inherit;
+  overflow-y: auto;
+}
+
+.instruction-input:focus {
+  outline: none;
+  box-shadow: none;
+  border: none;
+}
+
+.instruction-input::placeholder {
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary));
+  font-size: var(--font-size-sm, 13px);
+  font-style: italic;
+  opacity: 0.7;
+  transition: opacity var(--transition-fast, 150ms);
+}
+
+.instruction-input:focus::placeholder {
+  opacity: 0.4;
+}
+
+.instruction-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 重试按钮的自动等待脉冲指示器 */
+.btn-retry--pending {
+  position: relative;
+  animation: retry-wait-breathe 1.8s ease-in-out infinite;
+}
+
+.btn-retry__pulse {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 999px;
+  background: radial-gradient(circle, var(--color-primary) 0%, var(--color-primary) 70%, color-mix(in srgb, var(--color-primary) 16%, transparent) 100%);
+  box-shadow: 0 0 0 var(--color-primary);
+  animation: retry-pulse-ring 1.4s ease-out infinite;
+  flex: 0 0 auto;
+}
+
+@keyframes retry-pulse-ring {
+  0% {
+    transform: scale(0.92);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary) 38%, transparent);
+    opacity: 0.92;
+  }
+
+  70% {
+    transform: scale(1.08);
+    box-shadow: 0 0 0 12px color-mix(in srgb, var(--color-primary) 0%, transparent);
+    opacity: 1;
+  }
+
+  100% {
+    transform: scale(0.96);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary) 0%, transparent);
+    opacity: 0.88;
+  }
+}
+
+@keyframes retry-wait-breathe {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-1px);
+  }
+}
