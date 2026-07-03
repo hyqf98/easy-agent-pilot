@@ -128,7 +128,7 @@
   max-height: min(280px, 40vh);
   overflow: auto;
   scrollbar-gutter: stable;
-  padding: 8px 0 9px 0;
+  padding: 8px 0 9px 12px;
   box-sizing: border-box;
   border-left: 1px solid color-mix(in srgb, var(--thinking-muted-meta) 42%, transparent);
 }

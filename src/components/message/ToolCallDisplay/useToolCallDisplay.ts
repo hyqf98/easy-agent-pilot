@@ -1,7 +1,6 @@
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ToolCall } from '@/stores/message'
-import { useTypewriterText } from '@/composables/useTypewriterText'
 
 export interface ToolCallDisplayProps {
   toolCall: ToolCall
@@ -14,8 +13,7 @@ export interface ToolCallDisplayProps {
 export function useToolCallDisplay(props: ToolCallDisplayProps) {
   const { t } = useI18n()
 
-  const isRunning = computed(() => props.live || props.toolCall.status === 'running')
-  const isExpanded = ref(props.defaultExpanded ?? isRunning.value)
+  const isExpanded = ref(props.defaultExpanded ?? false)
   const hasUserToggled = ref(false)
 
   const toggleExpand = () => {
@@ -36,20 +34,6 @@ export function useToolCallDisplay(props: ToolCallDisplayProps) {
         return ''
     }
   })
-
-  watch(
-    isRunning,
-    (running, wasRunning) => {
-      if (running && !hasUserToggled.value) {
-        isExpanded.value = true
-        return
-      }
-
-      if (!running && wasRunning && (props.autoCollapseOnComplete ?? true) && !hasUserToggled.value) {
-        isExpanded.value = false
-      }
-    }
-  )
 
   // 工具图标：优先用 ACP ToolKind 精确匹配，回退到名称启发式
   const toolIcon = computed(() => {
@@ -184,21 +168,11 @@ export function useToolCallDisplay(props: ToolCallDisplayProps) {
   })
 
   // 格式化参数
-  const formattedArguments = computed(() => {
+  const animatedArguments = computed(() => {
     return JSON.stringify(props.toolCall.arguments, null, 2)
   })
 
-  const { displayedText: animatedArguments } = useTypewriterText(
-    formattedArguments,
-    () => props.live ?? false,
-    { charsPerSecond: 120, maxChunkSize: 18 }
-  )
-
-  const { displayedText: animatedResult } = useTypewriterText(
-    computed(() => props.toolCall.result || ''),
-    () => props.live ?? false,
-    { charsPerSecond: 120, maxChunkSize: 18 }
-  )
+  const animatedResult = computed(() => props.toolCall.result || '')
 
   const toolSummary = computed(() => {
     if (isSkillTool.value) {

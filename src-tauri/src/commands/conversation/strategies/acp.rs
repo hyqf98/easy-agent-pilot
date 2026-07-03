@@ -813,6 +813,7 @@ impl AgentExecutionStrategy for AcpStrategy {
         let session_id_for_handler = session_id.clone();
         let request_id_for_handler = request_id.clone();
         let event_name_for_handler = event_name.clone();
+        let recorder_for_handler = recorder.clone();
 
         // done/清理阶段在闭包外仍需 session_id，提前克隆（闭包会 move 原值）
         let session_id_cleanup = session_id.clone();
@@ -859,6 +860,23 @@ impl AgentExecutionStrategy for AcpStrategy {
                     } else {
                         resolve_permission_outcome(&mode, &request.options)
                     };
+
+                    let outcome_str = match &outcome {
+                        RequestPermissionOutcome::Selected(sel) => {
+                            request.options.iter()
+                                .find(|o| o.option_id == sel.option_id)
+                                .map(|o| format!("{} ({:?})", o.name, o.kind))
+                                .unwrap_or_else(|| "selected".to_string())
+                        }
+                        RequestPermissionOutcome::Cancelled => "cancelled".to_string(),
+                        _ => "unknown".to_string(),
+                    };
+
+                    // 落库：持久化权限决策结果
+                    let _ = recorder_for_handler.record(&RecordableEvent::Permission {
+                        tool_name: tool_title.clone(),
+                        outcome: outcome_str,
+                    });
 
                     let _ = app_for_handler.emit(
                         &event_name_for_handler,
@@ -1134,7 +1152,13 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                         SessionUpdate::ToolCallUpdate(tool_update) => {
                                                             let result_text = tool_update.fields.content
                                                                 .as_ref()
-                                                                .map(|blocks| extract_text_from_tool_call_content(blocks));
+                                                                .map(|blocks| extract_text_from_tool_call_content(blocks))
+                                                                .filter(|t| !t.is_empty())
+                                                                .or_else(|| {
+                                                                    tool_update.fields.raw_output
+                                                                        .as_ref()
+                                                                        .map(|v| serde_json::to_string(v).unwrap_or_default())
+                                                                });
                                                             // 透传 ACP ToolKind / ToolCallLocation（跟随 Agent）
                                                             let tool_kind = tool_update.fields.kind
                                                                 .as_ref()
@@ -1142,6 +1166,53 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                             let tool_locations = tool_update.fields.locations
                                                                 .as_ref()
                                                                 .map(|locs| extract_locations(locs, working_directory.as_deref()));
+
+                                                            // raw_input 延迟到达（ToolCall 初始事件为空，更新事件才携带完整参数）
+                                                            // 发 tool_input_delta 事件让前端补全 tool_use 行的参数
+                                                            if let Some(raw_input) = &tool_update.fields.raw_input {
+                                                                let input_str = serde_json::to_string(raw_input).unwrap_or_default();
+                                                                if !input_str.is_empty() && input_str != "{}" {
+                                                                    // 落库：更新已持久化的 tool_use 行的 tool_input
+                                                                    let _ = recorder_inner.record(&RecordableEvent::ToolInputUpdate {
+                                                                        tool_call_id: tool_update.tool_call_id.to_string(),
+                                                                        input: input_str.clone(),
+                                                                    });
+                                                                    let input_kind = tool_kind.clone();
+                                                                    let input_locs = tool_update.fields.locations
+                                                                        .as_ref()
+                                                                        .map(|locs| extract_locations(locs, working_directory.as_deref()));
+                                                                    let _ = app.emit(
+                                                                        &event_name,
+                                                                        &AcpStreamEvent {
+                                                                            event_type: "tool_input_delta".to_string(),
+                                                                            session_id: session_id.clone(),
+                                                                            request_id: Some(request_id.clone()),
+                                                                            content: None,
+                                                                            tool_name: None,
+                                                                            tool_call_id: Some(tool_update.tool_call_id.to_string()),
+                                                                            tool_input: Some(input_str),
+                                                                            tool_result: None,
+                                                                            error: None,
+                                                                            input_tokens: None,
+                                                                            output_tokens: None,
+                                                                            raw_input_tokens: None,
+                                                                            raw_output_tokens: None,
+                                                                            cache_read_input_tokens: None,
+                                                                            cache_creation_input_tokens: None,
+                                                                            model: None,
+                                                                            external_session_id: None,
+                                                                            permission_options: None,
+                                                                            file_edit: None,
+                                                                            tool_kind: input_kind,
+                                                                            tool_locations: input_locs,
+                                                                            message_id: None,
+                                                                            seq: None,
+                                                                            is_append: None,
+                                                                        },
+                                                                    );
+                                                                }
+                                                            }
+
                                                             let result = recorder_inner.record(&RecordableEvent::ToolResult {
                                                                 tool_call_id: tool_update.tool_call_id.to_string(),
                                                                 result: result_text.clone(),

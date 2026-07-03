@@ -1,7 +1,6 @@
-import { computed, inject, toRef } from 'vue'
+import { computed, inject } from 'vue'
 import { ACTIVE_FORM_ID } from '@/constants/activeForm'
 import { parseStructuredContent } from '@/utils/structuredContent'
-import { useTypewriterText } from '@/composables/useTypewriterText'
 
 export interface StructuredContentRendererProps {
   content: string
@@ -25,13 +24,11 @@ export function useStructuredContentRenderer(
   // 主会话激活表单的 formId：该表单已在输入框上方以弹出卡片展示，消息流里不再重复渲染
   const activeFormId = inject(ACTIVE_FORM_ID, null)
 
-  const { displayedText } = useTypewriterText(
-    toRef(props, 'content'),
-    () => props.animate ?? false,
-    { charsPerSecond: 140, maxChunkSize: 24 }
-  )
+  const displayedText = computed(() => props.content)
 
-  const blocks = computed(() => parseStructuredContent(displayedText.value))
+  const blocks = computed(() =>
+    parseStructuredContent(displayedText.value)
+  )
   const isFormOnly = computed(() =>
     blocks.value.length > 0 && blocks.value.every(block => block.type === 'form')
   )

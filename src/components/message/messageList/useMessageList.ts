@@ -230,7 +230,7 @@ export function useMessageList(props: MessageListProps, emit: MessageListEmits) 
   })
 
   const isAwaitingFirstAssistantEvent = computed(() => {
-    if (!currentIsProcessing.value || latestVisibleMessage.value?.role !== 'user') {
+    if (latestVisibleMessage.value?.role !== 'user') {
       return false
     }
 

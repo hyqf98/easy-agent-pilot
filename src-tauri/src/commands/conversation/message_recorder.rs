@@ -33,6 +33,11 @@ pub enum RecordableEvent {
         tool_call_id: String,
         result: Option<String>,
     },
+    /// 工具调用参数延迟更新（ACP ToolCallUpdate.fields.raw_input）
+    ToolInputUpdate {
+        tool_call_id: String,
+        input: String,
+    },
     /// 一次 prompt 的 token 用量（输入/输出/缓存命中）
     Usage {
         input_tokens: Option<u32>,
@@ -69,6 +74,11 @@ pub enum RecordableEvent {
     /// 只保留最后一份。
     AgentPlan {
         plan_json: String,
+    },
+    /// ACP 权限请求结果（用户决策后持久化）
+    Permission {
+        tool_name: String,
+        outcome: String,
     },
 }
 
@@ -141,6 +151,13 @@ impl MessageRecorder {
                     seq: Some(seq),
                     is_append: false,
                 })
+            }
+            RecordableEvent::ToolInputUpdate {
+                tool_call_id,
+                input,
+            } => {
+                self.update_tool_input(tool_call_id, input)?;
+                Ok(RecordResult::default())
             }
             RecordableEvent::Usage {
                 input_tokens,
@@ -224,6 +241,15 @@ impl MessageRecorder {
                 self.finalize_open_segments()?;
                 self.insert_agent_plan(plan_json)?;
                 Ok(RecordResult::default())
+            }
+            RecordableEvent::Permission { tool_name, outcome } => {
+                self.finalize_open_segments()?;
+                let (id, seq) = self.insert_permission(tool_name, outcome)?;
+                Ok(RecordResult {
+                    message_id: Some(id),
+                    seq: Some(seq),
+                    is_append: false,
+                })
             }
         }
     }
@@ -395,7 +421,29 @@ impl MessageRecorder {
                 seq,
             ],
         )?;
+
+        // 回写结果到对应的 tool_use 行，使历史消息加载时 tool_use 行自带结果
+        let _ = conn.execute(
+            "UPDATE messages SET tool_result = ?1, updated_at = ?2 \
+             WHERE session_id = ?3 AND request_id = ?4 AND message_type = 'tool_use' \
+             AND tool_call_id = ?5",
+            params![result, &now, &self.session_id, &self.request_id, tool_call_id],
+        );
+
         Ok((id, seq))
+    }
+
+    /// 更新已持久化的 tool_use 行的 tool_input（raw_input 延迟到达时调用）。
+    fn update_tool_input(&self, tool_call_id: &str, input: &str) -> Result<()> {
+        let now = now_rfc3339();
+        let conn = open_db_connection()?;
+        conn.execute(
+            "UPDATE messages SET tool_input = ?1, updated_at = ?2 \
+             WHERE session_id = ?3 AND request_id = ?4 AND message_type = 'tool_use' \
+             AND tool_call_id = ?5",
+            params![input, &now, &self.session_id, &self.request_id, tool_call_id],
+        )?;
+        Ok(())
     }
 
     /// 写入文件变更追踪行。
@@ -463,6 +511,21 @@ impl MessageRecorder {
             params![&id, &self.session_id, &self.request_id, plan_json, &now, &now, seq],
         )?;
         Ok(())
+    }
+
+    fn insert_permission(&self, tool_name: &str, outcome: &str) -> Result<(String, i64)> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let now = now_rfc3339();
+        let seq = self.next_seq();
+        let conn = open_db_connection()?;
+        let content = format!("Permission: {} -> {}", tool_name, outcome);
+        conn.execute(
+            "INSERT INTO messages (id, session_id, request_id, role, message_type, status, \
+             content, tool_name, created_at, updated_at, seq) \
+             VALUES (?1, ?2, ?3, 'assistant', 'permission', 'completed', ?4, ?5, ?6, ?7, ?8)",
+            params![&id, &self.session_id, &self.request_id, content, tool_name, &now, &now, seq],
+        )?;
+        Ok((id, seq))
     }
 
     fn insert_usage(

@@ -1201,6 +1201,24 @@ export class ConversationService {
       })
     }
 
+    let lastSegmentType: string | null = null
+    let lastSegmentMessageId: string | null = null
+
+    const finalizePreviousSegment = (currentType: string) => {
+      if (lastSegmentType === currentType) return
+      if (!lastSegmentType || !lastSegmentMessageId) {
+        lastSegmentType = currentType
+        return
+      }
+      const prevMsg = messageStore.messagesBySession(sessionId)
+        .find(m => m.id === lastSegmentMessageId && m.status === 'streaming')
+      if (prevMsg) {
+        messageStore.updateMessageBuffered(prevMsg.id, { status: 'completed' }, { immediate: true })
+      }
+      lastSegmentType = currentType
+      lastSegmentMessageId = null
+    }
+
     const handleFailure = async (errorMessage: string) => {
       finalizeStreamingMessages('error')
       const classifiedFailure = detectCliFailure(errorMessage)
@@ -1338,6 +1356,10 @@ export class ConversationService {
           case 'content': {
             clearRetryPresentationOnRecoveredStream()
             markMetric('firstContentAt')
+            if (event.messageId && event.seq != null && !event.isAppend) {
+              finalizePreviousSegment('text')
+              lastSegmentMessageId = event.messageId
+            }
             if (event.content) {
               accumulatedContent = mergeStreamingText(accumulatedContent, event.content)
               if (event.isAppend && event.messageId) {
@@ -1356,6 +1378,10 @@ export class ConversationService {
           case 'thinking': {
             clearRetryPresentationOnRecoveredStream()
             markMetric('firstThinkingAt')
+            if (event.messageId && event.seq != null && !event.isAppend) {
+              finalizePreviousSegment('thinking')
+              lastSegmentMessageId = event.messageId
+            }
             if (event.content) {
               if (event.isAppend && event.messageId) {
                 messageStore.appendToMessage(event.messageId, event.content)
@@ -1414,12 +1440,16 @@ export class ConversationService {
           }
 
           case 'tool_result': {
+            const resultStr = typeof event.toolResult === 'string'
+              ? event.toolResult
+              : JSON.stringify(event.toolResult ?? '')
+
             if (event.messageId && event.seq != null) {
               messageStore.addMessage({
                 id: event.messageId, sessionId, requestId: context.requestId,
                 role: 'assistant', messageType: 'tool_result',
                 toolCallId: event.toolCallId,
-                toolResult: typeof event.toolResult === 'string' ? event.toolResult : JSON.stringify(event.toolResult ?? ''),
+                toolResult: resultStr,
                 toolKind: event.toolKind, toolLocations: event.toolLocations,
                 status: 'completed', seq: event.seq,
               }, { persist: false })
@@ -1428,9 +1458,6 @@ export class ConversationService {
             if (event.toolCallId) {
               const tc = toolCalls.find(t => t.id === event.toolCallId)
               if (tc) {
-                const resultStr = typeof event.toolResult === 'string'
-                  ? event.toolResult
-                  : JSON.stringify(event.toolResult ?? '')
                 tc.result = resultStr
                 tc.status = 'success'
                 if (event.toolKind) tc.kind = event.toolKind
@@ -1440,13 +1467,52 @@ export class ConversationService {
                   if (trace) editTraces.push(trace)
                 })())
               }
+              // 将结果回写到对应的 tool_use 消息行，使 ToolCallDisplay 展开后能看到输出内容
+              const sessionMessages = messageStore.messagesBySession(sessionId)
+              const toolUseMsg = sessionMessages.find(
+                m => m.messageType === 'tool_use' && m.toolCallId === event.toolCallId
+              )
+              if (toolUseMsg) {
+                void messageStore.updateMessage(toolUseMsg.id, {
+                  toolResult: resultStr,
+                  toolKind: event.toolKind ?? toolUseMsg.toolKind,
+                  toolLocations: event.toolLocations ?? toolUseMsg.toolLocations,
+                })
+              }
             }
             break
           }
 
-          case 'tool_input_delta':
+          case 'tool_input_delta': {
             clearRetryPresentationOnRecoveredStream()
+            // raw_input 延迟到达：更新已创建的 tool_use 消息参数
+            if (event.toolCallId && event.toolInput) {
+              const existing = toolCalls.find(tc => tc.id === event.toolCallId)
+              if (existing) {
+                existing.arguments = mergeToolInputArguments(existing.arguments, event.toolInput)
+                if (event.toolKind) existing.kind = event.toolKind
+                if (event.toolLocations) existing.locations = event.toolLocations
+              }
+              // 更新已渲染的 tool_use 消息行（内存态）
+              const sessionMessages = messageStore.messagesBySession(sessionId)
+              const toolUseMsg = sessionMessages.find(
+                m => m.messageType === 'tool_use' && m.toolCallId === event.toolCallId
+              )
+              if (toolUseMsg) {
+                const currentInput = (() => {
+                  try { return JSON.parse(toolUseMsg.toolInput || '{}') as Record<string, unknown> }
+                  catch { return { raw: toolUseMsg.toolInput } }
+                })()
+                const merged = mergeToolInputArguments(currentInput, event.toolInput)
+                void messageStore.updateMessage(toolUseMsg.id, {
+                  toolInput: JSON.stringify(merged),
+                  toolKind: event.toolKind ?? toolUseMsg.toolKind,
+                  toolLocations: event.toolLocations ?? toolUseMsg.toolLocations,
+                })
+              }
+            }
             break
+          }
 
           case 'file_edit':
             if (event.fileEdit) {

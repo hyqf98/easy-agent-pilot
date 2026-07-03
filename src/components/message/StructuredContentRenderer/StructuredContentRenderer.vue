@@ -43,7 +43,6 @@ const {
         v-if="block.type === 'markdown'"
         :content="block.content"
         :animate="false"
-        :streaming-caret="props.streaming && index === blocks.length - 1"
       />
 
       <div

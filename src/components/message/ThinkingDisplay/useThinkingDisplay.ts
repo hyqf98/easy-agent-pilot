@@ -1,6 +1,5 @@
-import { computed, nextTick, ref, toRef, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useTypewriterText } from '@/composables/useTypewriterText'
 
 export interface ThinkingDisplayProps {
   thinking: string
@@ -12,11 +11,7 @@ export interface ThinkingDisplayProps {
 export function useThinkingDisplay(props: ThinkingDisplayProps) {
   const { t } = useI18n()
 
-  const { displayedText } = useTypewriterText(
-    toRef(props, 'thinking'),
-    () => props.live ?? false,
-    { charsPerSecond: 120, maxChunkSize: 16 }
-  )
+  const displayedText = computed(() => props.thinking)
 
   const isExpanded = ref(props.live ? true : (props.defaultExpanded ?? true))
   const scrollRef = ref<HTMLElement | null>(null)

@@ -2,8 +2,7 @@
 import { useMarkdownRenderer, type MarkdownRendererProps } from './useMarkdownRenderer'
 
 const props = withDefaults(defineProps<MarkdownRendererProps>(), {
-  animate: false,
-  streamingCaret: false
+  animate: false
 })
 
 const { containerRef, renderedContent } = useMarkdownRenderer(props)
