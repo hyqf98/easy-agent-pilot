@@ -703,44 +703,36 @@ function extractXmlWrappedBlocks(content: string): StructuredContentBlock[] | nu
  *  - options 接受 JSON 数组字符串或 ["a","b"] 字面量，统一转为 [{label,value}]
  */
 const FIELD_TAG_PATTERN = /<field\b([^>]*?)(?:\/>|>\s*<\/field>)/gi
+/** 匹配带子元素的成对 <field ...>...</field>（含 <options><option> 子结构） */
+const FIELD_TAG_PAIR_PATTERN = /<field\b([^>]*?)>([\s\S]*?)<\/field>/gi
+/** 匹配 <option value="x">Label</option> 子标签 */
+const OPTION_TAG_PATTERN = /<option\b([^>]*?)>([\s\S]*?)<\/option>/gi
 
 function parseFieldTagForm(inner: string): StructuredContentBlock | null {
   const fields: FormField[] = []
+
+  // 先处理自闭合/空成对 <field .../> 或 <field ...></field>
   let fieldMatch: RegExpExecArray | null
   FIELD_TAG_PATTERN.lastIndex = 0
+  const matchedRanges: Array<[number, number]> = []
   while ((fieldMatch = FIELD_TAG_PATTERN.exec(inner)) !== null) {
-    const attrs = fieldMatch[1] || ''
-    const get = (key: string): string | undefined => {
-      // 归一化引号后匹配 key="value" 或 key='value'
-      const normalized = attrs.replace(/["“”]/g, '"').replace(/[‘’]/g, "'")
-      const m = new RegExp(`${key}\\s*=\\s*("([^"]*)"|'([^']*)')`, 'i').exec(normalized)
-      return m ? (m[2] ?? m[3] ?? '') : undefined
-    }
-    const name = get('name')
-    if (!name) continue
-    const type = (get('type') || 'text') as FormField['type']
-    const rawOptions = get('options')
-    let options: FormField['options']
-    if (rawOptions) {
-      try {
-        const parsed = JSON.parse(rawOptions.replace(/["“”]/g, '"'))
-        if (Array.isArray(parsed)) {
-          options = parsed.map(item =>
-            typeof item === 'string' ? { label: item, value: item } : { label: String(item?.label ?? item?.value ?? item), value: item?.value ?? item?.label ?? item }
-          )
-        }
-      } catch {
-        // 解析失败则忽略 options
-      }
-    }
-    fields.push({
-      name,
-      label: get('label') || name,
-      type,
-      required: get('required') === 'true',
-      options,
-      suggestion: get('default') ?? get('suggestion')
-    })
+    matchedRanges.push([fieldMatch.index, fieldMatch.index + fieldMatch[0].length])
+    const field = parseFieldAttrs(fieldMatch[1] || '', '')
+    if (field) fields.push(field)
+  }
+
+  // 再处理带子元素的成对 <field ...>...</field>（<options><option> 子结构）
+  FIELD_TAG_PAIR_PATTERN.lastIndex = 0
+  let pairMatch: RegExpExecArray | null
+  while ((pairMatch = FIELD_TAG_PAIR_PATTERN.exec(inner)) !== null) {
+    const start = pairMatch.index
+    const end = start + pairMatch[0].length
+    // 跳过已被自闭合模式匹配过的范围
+    if (matchedRanges.some(([s, e]) => start >= s && end <= e)) continue
+    const attrs = pairMatch[1] || ''
+    const body = pairMatch[2] || ''
+    const field = parseFieldAttrs(attrs, body)
+    if (field) fields.push(field)
   }
 
   if (fields.length === 0) {
@@ -755,6 +747,60 @@ function parseFieldTagForm(inner: string): StructuredContentBlock | null {
       title: '',
       fields
     }
+  }
+}
+
+/** 解析单个 <field> 的属性与可选的 <option> 子标签 body */
+function parseFieldAttrs(attrs: string, body: string): FormField | null {
+  const get = (key: string): string | undefined => {
+    // 归一化引号后匹配 key="value" 或 key='value'
+    const normalized = attrs.replace(/["“”]/g, '"').replace(/[‘’]/g, "'")
+    const m = new RegExp(`${key}\\s*=\\s*("([^"]*)"|'([^']*)')`, 'i').exec(normalized)
+    return m ? (m[2] ?? m[3] ?? '') : undefined
+  }
+  const name = get('name')
+  if (!name) return null
+  const type = (get('type') || 'text') as FormField['type']
+
+  let options: FormField['options']
+  // 优先从 body 中的 <option> 子标签提取选项
+  if (body && /<option\b/i.test(body)) {
+    const optList: Array<{ label: string, value: string }> = []
+    OPTION_TAG_PATTERN.lastIndex = 0
+    let optMatch: RegExpExecArray | null
+    while ((optMatch = OPTION_TAG_PATTERN.exec(body)) !== null) {
+      const optAttrs = optMatch[1] || ''
+      const optLabel = (optMatch[2] || '').trim()
+      const optNormalized = optAttrs.replace(/["“”]/g, '"').replace(/[‘’]/g, "'")
+      const valMatch = /value\s*=\s*("([^"]*)"|'([^']*)')/i.exec(optNormalized)
+      const value = valMatch ? (valMatch[2] ?? valMatch[3] ?? optLabel) : optLabel
+      optList.push({ label: optLabel || value, value })
+    }
+    if (optList.length > 0) options = optList
+  } else {
+    // 回退到属性中的 options JSON 字符串
+    const rawOptions = get('options')
+    if (rawOptions) {
+      try {
+        const parsed = JSON.parse(rawOptions.replace(/["“”]/g, '"'))
+        if (Array.isArray(parsed)) {
+          options = parsed.map(item =>
+            typeof item === 'string' ? { label: item, value: item } : { label: String(item?.label ?? item?.value ?? item), value: item?.value ?? item?.label ?? item }
+          )
+        }
+      } catch {
+        // 解析失败则忽略 options
+      }
+    }
+  }
+
+  return {
+    name,
+    label: get('label') || name,
+    type,
+    required: get('required') === 'true',
+    options,
+    suggestion: get('default') ?? get('suggestion')
   }
 }
 
