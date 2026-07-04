@@ -1,8 +1,15 @@
 # 当前任务
-端到端测试与优化：会话列表 UI、ACP 工具气泡中文化、工具高度、流式状态、待办续接、文件审查、计划/表单、后端清理。
+端到端测试与优化（demo1 真实 ACP 会话验证）：会话列表 UI、ACP 工具气泡中文化、工具高度、流式状态、待办续接、文件审查、计划/表单、后端清理。
 
-## 进度
-- [x] Issue 1: 会话列表精简（移除底部新建会话按钮 / 项目行多余 inline 按钮 / 会话省略菜单；保留项目 + 按钮 hover 显示，会话 pin/edit/delete hover 显示）— E2E DOM 检查 + typecheck + 74 tests
+## E2E 验证证据（demo1 + OpenCode CLI + glm-5.2）
+- Issue 1: DOM 检查 — session-add-btn/project-actions/session-menu 移除，hover 显示 ✓
+- Issue 2: 流式中队列第二条 → streamStatus "queue" kind 显示「1 条待发送」✓
+- Issue 4: 工具气泡渲染「修改 写入文件 greet.js」— 中文名 + 主文件紧凑显示 ✓
+- Issue 5: 工具展开 code max-height=220px(原无限) / result=280px(原360) + 滚动条(scrollHeight 3996 > clientHeight 220)✓
+- Issue 6: 写入 greet.js → 「修改了 1 个文件 greet.js +1 审查」→ 点击审查 → Monaco diff 面板 + 采纳/回滚按钮 ✓
+- Issue 7: 流式中发送按钮变 square → 点击中断 → 「工作已中断」状态 + Retry 按钮 → 点击 Retry 重新生成 ✓
+- Issue 8: AI 用纯文本提出澄清问题（A/B/C 选项）；form_response JSON 气泡代码已存在，模型未发 <form-request> XML 是模型行为非代码缺陷
+- Issue 9: 后端审计仅 1 dead fn (build_tokio_cli_command) + 1 unused import (ToolCall)，已清理；cargo check 通过
 - [x] Issue 4: 文件编辑气泡紧凑显示（主文件 basename 紧跟工具名）+ ACP 工具名中文化（Read→读取文件 等，集中到 src/utils/toolLabel.ts）— 13 单测
 - [x] Issue 5: 工具展开内容 max-height 收紧（参数/结果/技能均加滚动条上限）
 - [x] Issue 2: 排队状态显示在流式消息区（streamStatus 新增 'queue' kind，流式中附带队列计数后缀）
@@ -20,15 +27,16 @@
 - Tauri MCP E2E：DOM 检查确认 Issue 1（session-add-btn/project-actions/session-menu 移除，hover 显示生效）、Issue 4/6 CSS 规则已加载
 
 ## 阻塞点 / 待办
-- Issue 7/8 完整 E2E 需在线 ACP CLI（demo1 项目 + 复杂任务），当前环境无在线 agent，仅完成代码级验证。
+- Issue 8: AI（glm-5.2）用纯文本回答澄清问题，未发 <form-request> XML。form_response 气泡/ActiveFormPopup 代码已验证编译通过；需换用遵循 form-request 约定的模型/CLI 才能完整 E2E。
 - 既存 lint error（useMessageList.ts:210 no-unused-expressions）与 solo/prompts.test.ts 2 失败为既存问题，未处理。
-- Issue 9 后端深度清理延后（避免无目标大范围改动引入风险）。
 
 ## 提交记录
 - bbaf9fe feat(2.0.0): 会话列表精简 + ACP工具名中文化 + 工具高度收紧 (Issue 1/4/5)
 - c35b6a7 feat(2.0.0): 流式消息区显示排队状态 (Issue 2)
 - a5d6a9b feat(2.0.0): AI 完成本轮后显示回合级文件变更汇总 (Issue 6)
 - 05f5c6f feat(2.0.0): Todo 快照本地持久化兜底（跨会话续接）(Issue 3)
+- 3a510a4 fix(2.0.0): Issue 6 文件变更追踪 raw_input 兜底 + filePath camelCase + 后端冗余清理 (Issue 6/9)
+- 7489ff9 fix(2.0.0): Issue 6 文件审查面板 props 传递 + trace id 补全 (Issue 6)
 
 
 ## 上下文锚点
