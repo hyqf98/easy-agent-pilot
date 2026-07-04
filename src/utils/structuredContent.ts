@@ -675,13 +675,18 @@ function extractXmlWrappedBlocks(content: string): StructuredContentBlock[] | nu
       if (parsed && parsed.length > 0) {
         blocks.push(...parsed)
       } else if (tag === 'form-request') {
-        // 兜底：部分模型会用 <field> 子标签而非 JSON 表达表单请求，
-        // 这里把 <field name="x" label="y" type="..." options='[...]'/> 解析成表单块
+        // 兜底 1：部分模型会用 <field> 子标签而非 JSON 表达表单请求
         const fieldForm = parseFieldTagForm(innerJson)
         if (fieldForm) {
           blocks.push(fieldForm)
         } else {
-          pushMarkdownBlock(blocks, match[0])
+          // 兜底 2：部分模型输出 HTML 原生表单（<form><label><select><option>）
+          const htmlForm = parseHtmlNativeForm(innerJson)
+          if (htmlForm) {
+            blocks.push(htmlForm)
+          } else {
+            pushMarkdownBlock(blocks, match[0])
+          }
         }
       } else {
         pushMarkdownBlock(blocks, match[0])
@@ -802,6 +807,111 @@ function parseFieldAttrs(attrs: string, body: string): FormField | null {
     options,
     suggestion: get('default') ?? get('suggestion')
   }
+}
+
+/**
+ * 解析模型输出的 HTML 原生表单变体为表单块。
+ * 兼容格式：
+ *   <form-request>
+ *   <form>
+ *     <label>问题文本</label>
+ *     <select name="color">
+ *       <option value="red">红</option>
+ *       <option value="blue">蓝</option>
+ *     </select>
+ *     <input name="comment" type="text" />
+ *   </form>
+ *   </form-request>
+ *
+ * 提取 <select>/<input>/<textarea> 为字段，<option> 为选项。
+ */
+const HTML_SELECT_PATTERN = /<select\b([^>]*?)>([\s\S]*?)<\/select>/gi
+const HTML_INPUT_PATTERN = /<(?:input|textarea)\b([^>]*?)(?:\/>|>\s*<\/(?:input|textarea)>)/gi
+const HTML_OPTION_PATTERN = /<option\b([^>]*?)>([\s\S]*?)<\/option>/gi
+const HTML_LABEL_PATTERN = /<label\b[^>]*>([\s\S]*?)<\/label>/i
+
+function parseHtmlNativeForm(inner: string): StructuredContentBlock | null {
+  // 必须包含 <form> 或至少一个表单控件才尝试解析
+  if (!/<form\b/i.test(inner) && !HTML_SELECT_PATTERN.test(inner) && !HTML_INPUT_PATTERN.test(inner)) {
+    return null
+  }
+
+  const fields: FormField[] = []
+  const questionMatch = HTML_LABEL_PATTERN.exec(inner)
+  const question = questionMatch ? questionMatch[1].trim() : ''
+
+  // 提取 <select> 字段
+  HTML_SELECT_PATTERN.lastIndex = 0
+  let selectMatch: RegExpExecArray | null
+  while ((selectMatch = HTML_SELECT_PATTERN.exec(inner)) !== null) {
+    const attrs = selectMatch[1] || ''
+    const body = selectMatch[2] || ''
+    const name = readHtmlAttr(attrs, 'name') ?? readHtmlAttr(attrs, 'id')
+    if (!name) continue
+    const options: Array<{ label: string, value: string }> = []
+    HTML_OPTION_PATTERN.lastIndex = 0
+    let optMatch: RegExpExecArray | null
+    while ((optMatch = HTML_OPTION_PATTERN.exec(body)) !== null) {
+      const optAttrs = optMatch[1] || ''
+      const optLabel = (optMatch[2] || '').trim()
+      const value = readHtmlAttr(optAttrs, 'value') ?? optLabel
+      options.push({ label: optLabel || value, value })
+    }
+    fields.push({
+      name,
+      label: readHtmlAttr(attrs, 'label') ?? readHtmlAttr(attrs, 'placeholder') ?? name,
+      type: 'select',
+      required: readHtmlAttr(attrs, 'required') !== null,
+      options: options.length > 0 ? options : undefined,
+      suggestion: readHtmlAttr(attrs, 'data-suggestion') ?? options[0]?.value
+    })
+  }
+
+  // 提取 <input>/<textarea> 字段
+  HTML_INPUT_PATTERN.lastIndex = 0
+  let inputMatch: RegExpExecArray | null
+  while ((inputMatch = HTML_INPUT_PATTERN.exec(inner)) !== null) {
+    const attrs = inputMatch[1] || ''
+    const name = readHtmlAttr(attrs, 'name') ?? readHtmlAttr(attrs, 'id')
+    if (!name) continue
+    const inputType = readHtmlAttr(attrs, 'type') ?? 'text'
+    // 映射 HTML input type 到表单字段 type
+    let fieldType: FormField['type'] = 'text'
+    if (inputType === 'number') fieldType = 'number'
+    else if (inputType === 'checkbox') fieldType = 'checkbox'
+    else if (inputType === 'radio') fieldType = 'radio'
+    else if (inputType === 'date') fieldType = 'date'
+    fields.push({
+      name,
+      label: readHtmlAttr(attrs, 'label') ?? readHtmlAttr(attrs, 'placeholder') ?? name,
+      type: fieldType,
+      required: readHtmlAttr(attrs, 'required') !== null,
+      placeholder: readHtmlAttr(attrs, 'placeholder') ?? undefined,
+      suggestion: readHtmlAttr(attrs, 'value') ?? readHtmlAttr(attrs, 'data-suggestion')
+    })
+  }
+
+  if (fields.length === 0) return null
+
+  return {
+    type: 'form',
+    question,
+    formSchema: {
+      formId: `html-native-${Date.now()}`,
+      title: question || '',
+      fields
+    }
+  }
+}
+
+/** 从 HTML 属性字符串中读取单个属性值（归一化全角引号） */
+function readHtmlAttr(attrs: string, key: string): string | null {
+  const normalized = attrs.replace(/["“”]/g, '"').replace(/[‘’]/g, "'")
+  const m = new RegExp(`${key}\\s*=\\s*("([^"]*)"|'([^']*)')`, 'i').exec(normalized)
+  if (m) return m[2] ?? m[3] ?? ''
+  // boolean attribute (e.g. "required" with no value)
+  if (new RegExp(`\\b${key}\\b`, 'i').test(normalized)) return ''
+  return null
 }
 
 function extractBalancedJsonRanges(content: string): Array<{ start: number, end: number }> {

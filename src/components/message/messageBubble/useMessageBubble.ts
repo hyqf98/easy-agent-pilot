@@ -408,8 +408,8 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
     if (!requestId) return false
     const messages = resolvedSessionMessages.value
     const currentIndex = messages.findIndex(message => message.id === props.message.id)
-    if (currentIndex === -1) return false
-    // 后面不再有同 requestId 的 assistant 消息
+    if (currentIndex === -1) return true // 消息不在可见列表（可能是流式本地行），乐观返回 true
+    // 后面不再有同 requestId 的 assistant 消息（含工具消息）→ 是本轮最后一条
     for (let i = currentIndex + 1; i < messages.length; i += 1) {
       if (messages[i].role === 'assistant' && messages[i].requestId === requestId) {
         return false
@@ -420,9 +420,24 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
 
   const requestLevelFileTraces = computed(() => {
     if (!isLastAssistantInRequest.value) return []
+    // 优先用当前消息的 requestId 查找；若为空（如流式本地行），回退到该会话所有 traces
     const requestId = props.message.requestId
-    if (!requestId) return []
-    return fileChangeStore.getTracesForRequest(props.message.sessionId, requestId)
+    const sessionId = props.message.sessionId
+    if (requestId) {
+      const traces = fileChangeStore.getTracesForRequest(sessionId, requestId)
+      if (traces.length > 0) return traces
+    }
+    // 回退：若该 requestId 无 traces，但当前会话最近一个 request 有 traces，也显示
+    // （多轮场景下 traces 可能挂在不同的 requestId 下）
+    if (sessionId) {
+      const allSessionTraces = fileChangeStore.getTracesForSession(sessionId)
+      if (allSessionTraces.length > 0 && requestId) {
+        // 取与当前 requestId 相同的；若无则取最近的 traces
+        const sameRequest = allSessionTraces.filter(t => t.requestId === requestId)
+        if (sameRequest.length > 0) return sameRequest
+      }
+    }
+    return []
   })
 
   const hasRequestLevelFileChanges = computed(() => requestLevelFileTraces.value.length > 0)

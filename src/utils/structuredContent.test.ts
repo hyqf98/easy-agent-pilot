@@ -90,4 +90,55 @@ describe('parseStructuredContent — form-request field-tag parsing', () => {
     expect(formBlock).toBeTruthy()
     expect(mdBlocks.length).toBeGreaterThanOrEqual(1)
   })
+
+  it('parses HTML native form variant (<form><select><option>)', () => {
+    const content = `<form-request>
+<form>
+<label>请选择一个颜色</label>
+<select name="color">
+<option value="red">红</option>
+<option value="blue">蓝</option>
+<option value="green">绿</option>
+</select>
+<input name="comment" type="text" placeholder="备注" />
+</form>
+</form-request>`
+    const blocks = parseStructuredContent(content)
+    const formBlock = blocks.find(b => b.type === 'form')
+    expect(formBlock).toBeTruthy()
+    if (formBlock?.type !== 'form') return
+    expect(formBlock.formSchema.fields.length).toBe(2)
+    const colorField = formBlock.formSchema.fields.find(f => f.name === 'color')
+    expect(colorField).toBeTruthy()
+    expect(colorField!.type).toBe('select')
+    expect(colorField!.options).toBeDefined()
+    expect(colorField!.options!.length).toBe(3)
+    expect(colorField!.options![0]).toEqual({ label: '红', value: 'red' })
+    const commentField = formBlock.formSchema.fields.find(f => f.name === 'comment')
+    expect(commentField).toBeTruthy()
+    expect(commentField!.type).toBe('text')
+    expect(commentField!.placeholder).toBe('备注')
+    expect(formBlock.question).toBe('请选择一个颜色')
+  })
+
+  it('parses HTML form with fullwidth quotes and number input', () => {
+    const content = `<form-request>
+<form>
+<label>配置参数</label>
+<input name=“port” type=“number” value=“3000” />
+<select name=“env”>
+<option value=“dev”>开发</option>
+<option value=“prod”>生产</option>
+</select>
+</form>
+</form-request>`
+    const blocks = parseStructuredContent(content)
+    const formBlock = blocks.find(b => b.type === 'form')
+    expect(formBlock).toBeTruthy()
+    if (formBlock?.type !== 'form') return
+    expect(formBlock.formSchema.fields.length).toBe(2)
+    const portField = formBlock.formSchema.fields.find(f => f.name === 'port')
+    expect(portField!.type).toBe('number')
+    expect(portField!.suggestion).toBe('3000')
+  })
 })
