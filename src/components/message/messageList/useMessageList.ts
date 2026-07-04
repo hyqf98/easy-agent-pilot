@@ -15,7 +15,7 @@ interface VirtualMessageItem {
   height: number
 }
 
-type LiveStreamStatusKind = 'generating' | 'thinking' | 'tool' | 'permission' | 'form'
+type LiveStreamStatusKind = 'generating' | 'thinking' | 'tool' | 'permission' | 'form' | 'queue'
 
 interface LiveStreamStatus {
   kind: LiveStreamStatusKind
@@ -259,6 +259,15 @@ export function useMessageList(props: MessageListProps, emit: MessageListEmits) 
     if (props.waitingForm) {
       return { kind: 'form', text: t('message.status.waitingUserAnswer') }
     }
+
+    // 排队状态：有消息在队列里等待，显示队列计数（即使当前未在流式也显示）
+    const queuedCount = resolvedSessionId.value
+      ? sessionExecutionStore.getQueuedMessages(resolvedSessionId.value).length
+      : 0
+    if (queuedCount > 0 && !currentIsProcessing.value) {
+      return { kind: 'queue', text: t('message.queueCount', { count: queuedCount }) }
+    }
+
     if (!currentIsProcessing.value) return null
     if (isAwaitingFirstAssistantEvent.value) return null
 
@@ -271,14 +280,18 @@ export function useMessageList(props: MessageListProps, emit: MessageListEmits) 
     }
     if (lastAssistant.messageType === 'tool_use') {
       const toolName = lastAssistant.toolName?.trim()
+      const baseStatus = lastAssistant.status === 'streaming' && toolName
+        ? t('message.status.assistantToolRunning', { tool: toolName })
+        : t('message.status.assistantStreaming')
+      // 流式中附带排队计数
+      const queueSuffix = queuedCount > 0 ? ` · ${t('message.queueCount', { count: queuedCount })}` : ''
       return {
         kind: lastAssistant.status === 'streaming' ? 'tool' : 'generating',
-        text: lastAssistant.status === 'streaming' && toolName
-          ? t('message.status.assistantToolRunning', { tool: toolName })
-          : t('message.status.assistantStreaming')
+        text: `${baseStatus}${queueSuffix}`
       }
     }
-    return { kind: 'generating', text: t('message.status.assistantStreaming') }
+    const queueSuffix = queuedCount > 0 ? ` · ${t('message.queueCount', { count: queuedCount })}` : ''
+    return { kind: 'generating', text: `${t('message.status.assistantStreaming')}${queueSuffix}` }
   })
 
   const isListVisible = computed(() => {

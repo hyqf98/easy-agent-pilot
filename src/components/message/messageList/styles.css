@@ -82,6 +82,13 @@
   animation: spin 0.9s linear infinite;
 }
 
+/* 排队状态：不显示旋转动画，改用静态圆点 */
+.message-list__stream-status--queue .message-list__stream-status-spinner {
+  animation: none;
+  border: 2px solid color-mix(in srgb, var(--workspace-text-tertiary, var(--color-text-tertiary)) 40%, transparent);
+  border-top-color: var(--workspace-text-tertiary, var(--color-text-tertiary));
+}
+
 .message-list__virtual-spacer {
   flex-shrink: 0;
 }

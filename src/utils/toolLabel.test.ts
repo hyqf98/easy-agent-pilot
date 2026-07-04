@@ -62,7 +62,7 @@ describe('getToolKindLabelCn', () => {
 describe('getToolPrimaryFileBasename', () => {
   it('extracts basename from locations[0]', () => {
     expect(getToolPrimaryFileBasename({
-      locations: [{ relativePath: 'src/components/Foo.vue' }],
+      locations: [{ path: '/abs/src/components/Foo.vue', relativePath: 'src/components/Foo.vue' }],
       arguments: {}
     })).toBe('Foo.vue')
   })
@@ -86,7 +86,7 @@ describe('getToolPrimaryFileBasename', () => {
 
   it('prefers locations over arguments', () => {
     expect(getToolPrimaryFileBasename({
-      locations: [{ relativePath: 'a/b/loc.txt' }],
+      locations: [{ path: '/abs/a/b/loc.txt', relativePath: 'a/b/loc.txt' }],
       arguments: { file_path: 'c/d/arg.txt' }
     })).toBe('loc.txt')
   })
