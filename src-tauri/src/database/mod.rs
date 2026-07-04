@@ -45,37 +45,9 @@ const INIT_SQL: &str = r#"
     CREATE INDEX IF NOT EXISTS idx_session_runtime_bindings_runtime
         ON session_runtime_bindings(runtime_key, updated_at DESC);
 
-    -- 消息表
-    -- 注意：索引（idx_messages_request / idx_messages_session_type）引用新列，
-    -- 不能放在 INIT_SQL 里——旧库表已存在时 CREATE TABLE IF NOT EXISTS 会跳过建表，
-    -- 但后续 CREATE INDEX 会因列不存在而让整个 batch 失败。
-    -- 索引由 rebuild_messages_if_legacy 统一补建。
-    CREATE TABLE IF NOT EXISTS messages (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        request_id TEXT NOT NULL,
-        role TEXT NOT NULL,
-        message_type TEXT NOT NULL,
-        content TEXT,
-        status TEXT NOT NULL DEFAULT 'completed',
-        tool_call_id TEXT,
-        tool_name TEXT,
-        tool_input TEXT,
-        tool_result TEXT,
-        input_tokens INTEGER,
-        output_tokens INTEGER,
-        cache_read_tokens INTEGER,
-        cache_creation_tokens INTEGER,
-        model TEXT,
-        cost_usd REAL,
-        attachments TEXT,
-        error_message TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        seq INTEGER NOT NULL DEFAULT 0
-    );
-    CREATE INDEX IF NOT EXISTS idx_messages_session_created ON messages(session_id, created_at);
-
+    -- 消息表（已废弃：消息持久化已由 ACP session/load 替代，此表仅保留用于旧库兼容）
+    -- messages 表已废弃：ACP 消息不再本地落库（由 session/load 重放历史）。
+    -- 新库不再创建该表；旧库由 drop_legacy_messages_table 迁移 DROP。
     -- 智能体配置表
     CREATE TABLE IF NOT EXISTS agents (
         id TEXT PRIMARY KEY,
@@ -753,61 +725,17 @@ const INIT_SQL: &str = r#"
     CREATE INDEX IF NOT EXISTS idx_memory_compressions_memory ON memory_compressions(memory_id);
 "#;
 
-/// 若 messages 表为旧结构（缺少 request_id 列），DROP 后按新结构重建。
+/// messages 表已废弃：ACP 消息不再本地落库（由 ACP session/load 重放历史）。
 ///
-/// 旧结构是"一行一回合"，把 thinking/tool_calls/content 折叠进同一行；
-/// 新结构是"一行一事件"，每种事件（思考/工具/文本/用量/压缩…）各自独立成行。
-/// 历史消息不保留（已确认抛弃旧数据）。
-fn rebuild_messages_if_legacy(conn: &Connection) -> Result<()> {
-    // 新库 messages 表已由 INIT_SQL 按新结构创建，补建依赖新列的索引后直接跳过
-    if table_has_column(conn, "messages", "request_id")? {
-        ensure_messages_indexes(conn)?;
-        return Ok(());
-    }
-    println!("Detected legacy messages schema, rebuilding messages table...");
-    // 注意：DROP 会级联清空 session_memory_reference_history 中引用旧消息的行（ON DELETE CASCADE），
-    // 符合"抛弃旧数据"的既定决策。
+/// 旧库可能仍存在 messages 表（及其索引），这里统一 DROP，保证新库与旧库
+/// 都不再保留该表。历史数据已确认抛弃。
+fn drop_legacy_messages_table(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         r#"
+        DROP INDEX IF EXISTS idx_messages_request;
+        DROP INDEX IF EXISTS idx_messages_session_type;
+        DROP INDEX IF EXISTS idx_messages_session_created;
         DROP TABLE IF EXISTS messages;
-        CREATE TABLE IF NOT EXISTS messages (
-            id TEXT PRIMARY KEY,
-            session_id TEXT NOT NULL,
-            request_id TEXT NOT NULL,
-            role TEXT NOT NULL,
-            message_type TEXT NOT NULL,
-            content TEXT,
-            status TEXT NOT NULL DEFAULT 'completed',
-            tool_call_id TEXT,
-            tool_name TEXT,
-            tool_input TEXT,
-            tool_result TEXT,
-            input_tokens INTEGER,
-            output_tokens INTEGER,
-            cache_read_tokens INTEGER,
-            cache_creation_tokens INTEGER,
-            model TEXT,
-            cost_usd REAL,
-            attachments TEXT,
-            error_message TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            seq INTEGER NOT NULL DEFAULT 0
-        );
-        "#,
-    )?;
-    ensure_messages_indexes(conn)?;
-    println!("Messages table rebuilt to one-row-per-event schema.");
-    Ok(())
-}
-
-/// 补建依赖新列（request_id / message_type）的索引。
-/// 这些索引不能放在 INIT_SQL 里（旧库表已存在时会让 batch 失败）。
-fn ensure_messages_indexes(conn: &Connection) -> Result<()> {
-    conn.execute_batch(
-        r#"
-        CREATE INDEX IF NOT EXISTS idx_messages_request ON messages(request_id);
-        CREATE INDEX IF NOT EXISTS idx_messages_session_type ON messages(session_id, message_type);
         "#,
     )?;
     Ok(())
@@ -932,9 +860,9 @@ pub fn init_database() -> Result<()> {
     // 执行初始化 SQL
     conn.execute_batch(INIT_SQL)?;
 
-    // messages 表结构升级：旧库为"一行一回合"折叠结构，新结构为"一行一事件"。
-    // 检测旧结构（缺少 request_id 列）时 DROP 重建，历史消息不保留（已确认抛弃旧数据）。
-    rebuild_messages_if_legacy(&conn)?;
+    // messages 表已废弃（ACP 消息由 session/load 重放历史，不再本地落库）。
+    // 旧库若仍存在该表则 DROP，保证新旧库都不再保留。
+    drop_legacy_messages_table(&conn)?;
 
     // 执行迁移（忽略列已存在的错误）
     // SQLite 不支持 IF NOT EXISTS 用于 ALTER TABLE ADD COLUMN
@@ -1101,8 +1029,8 @@ pub fn init_database() -> Result<()> {
         }
     }
 
-    // messages 表已在新结构（INIT_SQL / rebuild_messages_if_legacy）中内置
-    // attachments/error_message/tool 相关列与 token 列，无需再单独 ALTER。
+    // messages 表已废弃并由 drop_legacy_messages_table 清理，
+    // 无需再为旧结构补列/重建索引。
 
     // agent_models 表迁移（智能体模型配置表）
     let agent_models_table_sql = r#"

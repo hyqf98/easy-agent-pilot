@@ -1352,23 +1352,35 @@ export class ConversationService {
         registerCliSessionBinding(event.externalSessionId)
 
         switch (event.type) {
-          // ═══ 内容行：后端已分配 messageId + seq，前端直接创建或追加 ═══
+          // ═══ 内容行：连续同类型（text）合并到同一气泡；不同类型开启新行 ═══
+          // 后端 isAppend 未显式设置（null）时，按"同类型连续追加"语义处理：
+          // 上一段同为 text 则复用同一 messageId 继续追加，保持单气泡渲染；
+          // 上一段为其他类型（thinking/tool）则 finalize 旧行并开启新 text 行。
           case 'content': {
             clearRetryPresentationOnRecoveredStream()
             markMetric('firstContentAt')
-            if (event.messageId && event.seq != null && !event.isAppend) {
+            const isSameTextSegment = lastSegmentType === 'text' && lastSegmentMessageId
+            const shouldStartNewSegment = event.isAppend === false
+              || !isSameTextSegment
+            if (shouldStartNewSegment) {
               finalizePreviousSegment('text')
-              lastSegmentMessageId = event.messageId
+              lastSegmentMessageId = event.messageId ?? `local_seg_${crypto.randomUUID()}`
+            } else if (!lastSegmentMessageId) {
+              lastSegmentMessageId = event.messageId ?? `local_seg_${crypto.randomUUID()}`
             }
             if (event.content) {
               accumulatedContent = mergeStreamingText(accumulatedContent, event.content)
-              if (event.isAppend && event.messageId) {
-                messageStore.appendToMessage(event.messageId, event.content)
-              } else if (event.messageId && event.seq != null) {
+              const targetId = lastSegmentMessageId
+              const existing = targetId
+                ? messageStore.messagesBySession(sessionId).find(m => m.id === targetId)
+                : undefined
+              if (existing) {
+                messageStore.appendToMessage(targetId!, event.content)
+              } else if (targetId) {
                 messageStore.addMessage({
-                  id: event.messageId, sessionId, requestId: context.requestId,
+                  id: targetId, sessionId, requestId: context.requestId,
                   role: 'assistant', messageType: 'text',
-                  content: event.content, status: 'streaming', seq: event.seq,
+                  content: event.content, status: 'streaming', seq: event.seq ?? 0,
                 }, { persist: false })
               }
             }
@@ -1378,18 +1390,27 @@ export class ConversationService {
           case 'thinking': {
             clearRetryPresentationOnRecoveredStream()
             markMetric('firstThinkingAt')
-            if (event.messageId && event.seq != null && !event.isAppend) {
+            const isSameThinkingSegment = lastSegmentType === 'thinking' && lastSegmentMessageId
+            const shouldStartNewThinkingSegment = event.isAppend === false
+              || !isSameThinkingSegment
+            if (shouldStartNewThinkingSegment) {
               finalizePreviousSegment('thinking')
-              lastSegmentMessageId = event.messageId
+              lastSegmentMessageId = event.messageId ?? `local_seg_${crypto.randomUUID()}`
+            } else if (!lastSegmentMessageId) {
+              lastSegmentMessageId = event.messageId ?? `local_seg_${crypto.randomUUID()}`
             }
             if (event.content) {
-              if (event.isAppend && event.messageId) {
-                messageStore.appendToMessage(event.messageId, event.content)
-              } else if (event.messageId && event.seq != null) {
+              const targetId = lastSegmentMessageId
+              const existing = targetId
+                ? messageStore.messagesBySession(sessionId).find(m => m.id === targetId)
+                : undefined
+              if (existing) {
+                messageStore.appendToMessage(targetId!, event.content)
+              } else if (targetId) {
                 messageStore.addMessage({
-                  id: event.messageId, sessionId, requestId: context.requestId,
+                  id: targetId, sessionId, requestId: context.requestId,
                   role: 'assistant', messageType: 'thinking',
-                  content: event.content, status: 'streaming', seq: event.seq,
+                  content: event.content, status: 'streaming', seq: event.seq ?? 0,
                 }, { persist: false })
               }
             }
@@ -1404,16 +1425,15 @@ export class ConversationService {
           case 'tool_use': {
             clearRetryPresentationOnRecoveredStream()
             markMetric('firstToolAt')
-            if (event.messageId && event.seq != null) {
-              messageStore.addMessage({
-                id: event.messageId, sessionId, requestId: context.requestId,
-                role: 'assistant', messageType: 'tool_use',
-                toolCallId: event.toolCallId, toolName: event.toolName,
-                toolInput: event.toolInput ? JSON.stringify(event.toolInput) : '',
-                toolKind: event.toolKind, toolLocations: event.toolLocations,
-                status: 'streaming', seq: event.seq,
-              }, { persist: false })
-            }
+            const toolUseMessageId = event.messageId ?? `local_seg_${crypto.randomUUID()}`
+            messageStore.addMessage({
+              id: toolUseMessageId, sessionId, requestId: context.requestId,
+              role: 'assistant', messageType: 'tool_use',
+              toolCallId: event.toolCallId, toolName: event.toolName,
+              toolInput: event.toolInput ? JSON.stringify(event.toolInput) : '',
+              toolKind: event.toolKind, toolLocations: event.toolLocations,
+              status: 'streaming', seq: event.seq ?? 0,
+            }, { persist: false })
             // 业务追踪
             if (event.toolName) {
               const toolCallId = resolveToolCallId(event)
@@ -1444,16 +1464,15 @@ export class ConversationService {
               ? event.toolResult
               : JSON.stringify(event.toolResult ?? '')
 
-            if (event.messageId && event.seq != null) {
-              messageStore.addMessage({
-                id: event.messageId, sessionId, requestId: context.requestId,
-                role: 'assistant', messageType: 'tool_result',
-                toolCallId: event.toolCallId,
-                toolResult: resultStr,
-                toolKind: event.toolKind, toolLocations: event.toolLocations,
-                status: 'completed', seq: event.seq,
-              }, { persist: false })
-            }
+            const toolResultMessageId = event.messageId ?? `local_seg_${crypto.randomUUID()}`
+            messageStore.addMessage({
+              id: toolResultMessageId, sessionId, requestId: context.requestId,
+              role: 'assistant', messageType: 'tool_result',
+              toolCallId: event.toolCallId,
+              toolResult: resultStr,
+              toolKind: event.toolKind, toolLocations: event.toolLocations,
+              status: 'completed', seq: event.seq ?? 0,
+            }, { persist: false })
             // 业务追踪
             if (event.toolCallId) {
               const tc = toolCalls.find(t => t.id === event.toolCallId)

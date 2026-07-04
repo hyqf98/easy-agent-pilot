@@ -141,17 +141,10 @@ pub fn list_sessions(project_id: String) -> Result<Vec<Session>, String> {
             SELECT s.id, s.project_id, s.name, s.expert_id, s.agent_id, s.agent_type,
                    s.cli_session_id, s.cli_session_provider, s.status,
                    COALESCE(s.pinned, 0) as pinned,
-                   m.last_message, s.error_message, COALESCE(m.message_count, 0) as message_count,
+                   s.last_message, s.error_message, 0 as message_count,
                    COALESCE(s.plan_mode, 0) as plan_mode,
                    s.created_at, s.updated_at
             FROM sessions s
-            LEFT JOIN (
-                SELECT session_id,
-                       MAX(CASE WHEN typeof(content) = 'text' THEN content END) as last_message,
-                       COUNT(*) as message_count
-                FROM messages
-                GROUP BY session_id
-            ) m ON s.id = m.session_id
             WHERE s.project_id = ?1
             ORDER BY s.pinned DESC, s.updated_at DESC
             "#,
@@ -384,17 +377,10 @@ fn get_session_by_id(conn: &Connection, id: &str) -> Result<Session, String> {
             SELECT s.id, s.project_id, s.name, s.expert_id, s.agent_id, s.agent_type,
                    s.cli_session_id, s.cli_session_provider, s.status,
                    COALESCE(s.pinned, 0) as pinned,
-                   m.last_message, s.error_message, COALESCE(m.message_count, 0) as message_count,
+                   s.last_message, s.error_message, 0 as message_count,
                    COALESCE(s.plan_mode, 0) as plan_mode,
                    s.created_at, s.updated_at
             FROM sessions s
-            LEFT JOIN (
-                SELECT session_id,
-                       MAX(CASE WHEN typeof(content) = 'text' THEN content END) as last_message,
-                       COUNT(*) as message_count
-                FROM messages
-                GROUP BY session_id
-            ) m ON s.id = m.session_id
             WHERE s.id = ?1
             "#,
         )

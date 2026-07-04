@@ -1,4 +1,4 @@
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useProjectStore, type Project } from '@/stores/project'
 import { useSessionStore, type Session } from '@/stores/session'
@@ -8,7 +8,7 @@ import { useAgentStore } from '@/stores/agent'
 import { useSubAgentStore } from '@/stores/subAgent'
 import { useSplitPaneStore } from '@/stores/splitPane'
 import { useSessionView } from '@/composables'
-import { EaIcon, EaButton, EaSkeleton } from '@/components/common'
+import { EaIcon, EaButton } from '@/components/common'
 import { ProjectCreateModal } from '@/components/project'
 import UnifiedPanelConfirmDialog from '../UnifiedPanelConfirmDialog/UnifiedPanelConfirmDialog.vue'
 import UnifiedPanelProjectEntry from '../UnifiedPanelProjectEntry/UnifiedPanelProjectEntry.vue'
@@ -94,10 +94,33 @@ const handleProjectCardClick = async (project: Project) => {
   await sessionStore.loadSessions(project.id)
 }
 
+// 启动恢复：当存在当前会话且其项目未展开时，自动展开并加载会话，
+// 使左侧面板与中间打开的会话保持同步（项目展开、会话可见并选中）。
+// 用 watch(immediate) 兼容两种时序：App.vue 在面板挂载前/后恢复会话。
+let startupAutoExpandDone = false
+const autoExpandForActiveSession = async (sessionId: string | null) => {
+  if (startupAutoExpandDone || !sessionId) {
+    return
+  }
+  const session = sessionStore.sessions.find(item => item.id === sessionId)
+  const targetProjectId = session?.projectId ?? projectStore.currentProjectId
+  if (!targetProjectId || projectStore.isProjectExpanded(targetProjectId)) {
+    return
+  }
+  startupAutoExpandDone = true
+  projectStore.expandProject(targetProjectId)
+  await sessionStore.loadSessions(targetProjectId).catch(() => {})
+}
+
 // 生命周期
 onMounted(async () => {
   await projectStore.loadProjects()
+  await autoExpandForActiveSession(sessionStore.currentSessionId)
   document.addEventListener('keydown', handleModalKeydown)
+})
+
+watch(() => sessionStore.currentSessionId, (sessionId) => {
+  void autoExpandForActiveSession(sessionId)
 })
 
 onUnmounted(() => {
@@ -126,6 +149,11 @@ const handleRefresh = async () => {
   const expandedProjectIds = Array.from(projectStore.expandedProjects)
   const expandedProjects = projectStore.projects.filter(project => expandedProjectIds.includes(project.id))
   await Promise.all(expandedProjects.map(project => sessionStore.loadSessions(project.id, { force: true })))
+
+  // 异步从 ACP 同步 CLI 会话（不阻塞 UI 刷新）
+  await Promise.all(
+    expandedProjects.map(project => sessionStore.syncSessionsFromAcp(project.id).catch(() => {}))
+  )
 }
 
 const handleAddProject = () => {
@@ -290,7 +318,6 @@ const handleOpenProjectFiles = (project: Project) => {
     t,
     EaIcon,
     EaButton,
-    EaSkeleton,
     ProjectCreateModal,
     UnifiedPanelConfirmDialog,
     UnifiedPanelProjectEntry,

@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod acp_sessions;
 pub mod agent_cli_usage;
 pub mod agent_config;
 pub mod agent_plan;
@@ -34,7 +35,6 @@ pub mod project_access;
 pub mod provider_profile;
 pub mod runtime_log;
 pub mod scan;
-pub(crate) mod scan_session_shared;
 pub(crate) mod scan_shared;
 pub mod session;
 pub mod settings;

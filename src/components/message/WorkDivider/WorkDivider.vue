@@ -4,6 +4,7 @@ import { useWorkDivider, type WorkDividerProps } from './useWorkDivider'
 const props = defineProps<WorkDividerProps>()
 const {
   EaIcon,
+  isAwaitingFirstResponse,
   workDurationLabel,
   workDividerLabel,
   workDividerIcon,
@@ -24,7 +25,10 @@ const {
       />
       <span>{{ workDividerLabel }}</span>
     </span>
-    <span class="work-divider__duration">{{ workDurationLabel }}</span>
+    <span
+      v-if="!isAwaitingFirstResponse"
+      class="work-divider__duration"
+    >{{ workDurationLabel }}</span>
   </div>
 </template>
 

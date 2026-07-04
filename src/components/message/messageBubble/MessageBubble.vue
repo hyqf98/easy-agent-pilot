@@ -126,7 +126,6 @@ const {
     ]"
   >
     <div class="message-bubble__body">
-
       <!-- 思考过程：新结构下 thinking 是独立消息行，单条 message 不再内嵌 thinking -->
       <div
         v-if="isAssistant && message.messageType === 'thinking' && message.content"

@@ -1,49 +1,43 @@
-export interface ScannedCliSession {
-  session_id: string
-  session_path: string
-  project_path: string | null
-  first_message: string | null
-  message_count: number
-  created_at: string
-  updated_at: string
+/** ACP session/list 返回的单条会话信息 */
+export interface AcpSessionInfo {
+  sessionId: string
+  cwd: string
+  title: string | null
+  updatedAt: string | null
+  messageCount: number | null
 }
 
-export interface AgentCliSessionsResult {
-  agent_id: string
-  cli_name: string
-  session_root: string
-  sessions: ScannedCliSession[]
-  project_paths: string[]
+/** session/list 的完整结果 */
+export interface AcpSessionListResult {
+  sessions: AcpSessionInfo[]
+  nextCursor: string | null
+  projectPaths: string[]
 }
 
-export interface AgentCliSessionProjectsResult {
-  agent_id: string
-  cli_name: string
-  session_root: string
-  project_paths: string[]
-}
-
-export interface CliSessionMessage {
-  line_no: number
-  message_type: string
-  role: string | null
-  timestamp: string | null
+/** session/load 回放的单个事件 */
+export interface AcpReplayedEvent {
+  eventType: string
   content: string | null
-  raw_json: string
+  role: string | null
+  toolCallId: string | null
+  toolName: string | null
+  toolInput: string | null
+  toolResult: string | null
+  inputTokens: number | null
+  outputTokens: number | null
 }
 
-export interface CliSessionDetail {
-  session_id: string
-  session_path: string
-  project_path: string | null
-  first_message: string | null
-  message_count: number
-  created_at: string
-  updated_at: string
-  messages: CliSessionMessage[]
+/** session/load 回放的完整结果 */
+export interface AcpSessionHistoryResult {
+  sessionId: string
+  events: AcpReplayedEvent[]
 }
 
-export interface DeleteCliSessionsResult {
-  deleted_count: number
-  failed_paths: string[]
+/** Agent 的会话能力探测结果 */
+export interface AcpCapabilities {
+  supportsList: boolean
+  supportsLoad: boolean
+  supportsDelete: boolean
+  supportsClose: boolean
+  supportsResume: boolean
 }

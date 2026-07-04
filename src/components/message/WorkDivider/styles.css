@@ -53,13 +53,52 @@
 
 .work-divider--active .work-divider__status {
   color: var(--workspace-text-primary, var(--color-text-primary));
-  border-color: color-mix(in srgb, var(--color-primary) 24%, var(--workspace-border, var(--color-border)));
-  background: color-mix(in srgb, var(--color-primary) 8%, var(--workspace-control-bg, var(--color-surface)));
+  border-color: var(--workspace-border-strong, var(--color-border));
+  background: var(--workspace-control-hover-bg, var(--color-surface));
 }
 
 .work-divider--active .work-divider__status :deep(svg) {
-  color: var(--color-primary);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
   animation: spin 1s linear infinite;
+}
+
+/* 等待 AI 首个响应：脉冲呼吸效果 */
+.work-divider--awaiting .work-divider__status {
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  border-color: var(--workspace-border-strong, var(--color-border));
+  background: var(--workspace-control-hover-bg, var(--color-surface));
+  animation: work-divider-awaiting-pulse 1.6s ease-in-out infinite;
+}
+
+.work-divider--awaiting .work-divider__status :deep(svg) {
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+  animation: spin 1s linear infinite;
+}
+
+@keyframes work-divider-awaiting-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(38, 38, 38, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgba(38, 38, 38, 0.06);
+  }
+}
+
+[data-theme='dark'] .work-divider--awaiting .work-divider__status :deep(svg) {
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+}
+
+@keyframes work-divider-awaiting-pulse-dark {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.06);
+  }
+}
+
+[data-theme='dark'] .work-divider--awaiting .work-divider__status {
+  animation: work-divider-awaiting-pulse-dark 1.6s ease-in-out infinite;
 }
 
 .work-divider--interrupted .work-divider__status {

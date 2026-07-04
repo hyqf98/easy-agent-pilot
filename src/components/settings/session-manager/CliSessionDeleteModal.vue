@@ -3,12 +3,12 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EaButton, EaIcon, EaModal } from '@/components/common'
 import { displayCliSessionMessage } from '@/utils/sessionManager'
-import type { ScannedCliSession } from '@/types/cliSessionManager'
+import type { AcpSessionInfo } from '@/types/cliSessionManager'
 
 interface Props {
   visible: boolean
   deleting: boolean
-  sessions: ScannedCliSession[]
+  sessions: AcpSessionInfo[]
   error: string
 }
 
@@ -29,7 +29,7 @@ const modalVisible = computed({
 const isBulkDelete = computed(() => props.sessions.length > 1)
 const deletePreviewSessions = computed(() => props.sessions.slice(0, 5))
 
-const displayMessage = (session: ScannedCliSession) =>
+const displayMessage = (session: AcpSessionInfo) =>
   displayCliSessionMessage(session, t('settings.sessionManager.noPreview'))
 </script>
 
@@ -51,13 +51,13 @@ const displayMessage = (session: ScannedCliSession) =>
     >
       <div
         v-for="session in deletePreviewSessions"
-        :key="session.session_path"
+        :key="session.sessionId"
         class="confirm-session"
       >
         <div class="confirm-session__preview">
           {{ displayMessage(session) }}
         </div>
-        <code class="confirm-session__path">{{ session.session_path }}</code>
+        <code class="confirm-session__path">{{ session.sessionId }}</code>
       </div>
 
       <div

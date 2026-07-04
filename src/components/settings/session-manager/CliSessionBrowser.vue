@@ -9,16 +9,15 @@ import {
   getCliProjectName,
   shortenCliSessionId
 } from '@/utils/sessionManager'
-import type { ScannedCliSession } from '@/types/cliSessionManager'
+import type { AcpSessionInfo } from '@/types/cliSessionManager'
 
 interface Props {
   cliName: string
-  sessionRoot: string
-  sessions: ScannedCliSession[]
-  groupedSessions: Record<string, ScannedCliSession[]>
+  sessions: AcpSessionInfo[]
+  groupedSessions: Record<string, AcpSessionInfo[]>
   isLoadingSessions: boolean
   sessionsError: string
-  selectedSessionPaths: string[]
+  selectedSessionIds: string[]
   selectedCount: number
   allVisibleSelected: boolean
 }
@@ -29,14 +28,14 @@ const emit = defineEmits<{
   refresh: []
   toggleSelectAll: []
   requestDeleteSelected: []
-  selectionChange: [sessionPath: string, event: Event]
-  openDetail: [session: ScannedCliSession]
-  requestDelete: [session: ScannedCliSession]
+  selectionChange: [sessionId: string, event: Event]
+  openDetail: [session: AcpSessionInfo]
+  requestDelete: [session: AcpSessionInfo]
 }>()
 
 const { t } = useI18n()
 
-const selectedSessionPathSet = computed(() => new Set(props.selectedSessionPaths))
+const selectedSessionIdSet = computed(() => new Set(props.selectedSessionIds))
 
 const formatRelativeTime = (value: string) => formatCliRelativeTime(value, {
   justNow: t('settings.sessionManager.justNow'),
@@ -45,10 +44,10 @@ const formatRelativeTime = (value: string) => formatCliRelativeTime(value, {
   daysAgo: n => t('settings.sessionManager.daysAgo', { n })
 })
 
-const displayMessage = (session: ScannedCliSession) =>
+const displayMessage = (session: AcpSessionInfo) =>
   displayCliSessionMessage(session, t('settings.sessionManager.noPreview'))
 
-const formatMessageCount = (value: number) => formatCliMessageCount(value)
+const formatMessageCount = (value: number | null) => formatCliMessageCount(value)
 
 const shortSessionId = (sessionId: string) => shortenCliSessionId(sessionId)
 
@@ -88,17 +87,6 @@ const getProjectName = (path: string) =>
           </EaButton>
         </div>
       </div>
-    </div>
-
-    <div
-      v-if="sessionRoot"
-      class="root-path"
-    >
-      <EaIcon
-        name="folder"
-        :size="12"
-      />
-      <code class="root-path__value">{{ sessionRoot }}</code>
     </div>
 
     <div
@@ -156,21 +144,21 @@ const getProjectName = (path: string) =>
         <div class="session-group__list">
           <div
             v-for="session in groupSessions"
-            :key="session.session_path"
-            :class="['session-card', { 'session-card--selected': selectedSessionPathSet.has(session.session_path) }]"
+            :key="session.sessionId"
+            :class="['session-card', { 'session-card--selected': selectedSessionIdSet.has(session.sessionId) }]"
           >
             <div class="session-card__select">
               <input
-                :checked="selectedSessionPathSet.has(session.session_path)"
+                :checked="selectedSessionIdSet.has(session.sessionId)"
                 class="session-card__checkbox"
                 type="checkbox"
-                @change="emit('selectionChange', session.session_path, $event)"
+                @change="emit('selectionChange', session.sessionId, $event)"
               >
             </div>
             <div class="session-card__main">
               <div class="session-card__header">
-                <span class="session-card__id">{{ shortSessionId(session.session_id) }}</span>
-                <span class="session-card__time">{{ formatRelativeTime(session.updated_at) }}</span>
+                <span class="session-card__id">{{ shortSessionId(session.sessionId) }}</span>
+                <span class="session-card__time">{{ session.updatedAt ? formatRelativeTime(session.updatedAt) : '-' }}</span>
               </div>
               <p class="session-card__preview">
                 {{ displayMessage(session) }}
@@ -181,7 +169,7 @@ const getProjectName = (path: string) =>
                     name="message-square"
                     :size="12"
                   />
-                  {{ formatMessageCount(session.message_count) }}
+                  {{ formatMessageCount(session.messageCount) }}
                 </span>
               </div>
             </div>

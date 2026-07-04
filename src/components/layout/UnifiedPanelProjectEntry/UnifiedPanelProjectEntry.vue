@@ -21,6 +21,8 @@ const {
   hiddenSessionCount,
   hasHiddenSessions,
   hasSelectedSessions,
+  isSessionsLoading,
+  isAcpSyncing,
   handleStartEditSession,
   toggleSessionSelection,
   handleProjectDeleteAction,
@@ -70,6 +72,13 @@ const {
         <span class="project-item__name">{{ project.name }}</span>
       </div>
       <div class="project-item__meta">
+        <span
+          v-if="isAcpSyncing"
+          class="project-item__sync-badge"
+        >
+          <span class="project-item__sync-spinner" />
+          <span>{{ t('unified.syncing') }}</span>
+        </span>
         <span class="project-item__time">{{ importedTimeLabel }} {{ t('unified.imported') }}</span>
       </div>
     </div>
@@ -110,6 +119,17 @@ const {
     </div>
 
     <div class="project-item__inline-actions">
+      <button
+        class="project-item__inline-action project-item__inline-action--add"
+        :title="t('session.newSession')"
+        :aria-label="t('session.newSession')"
+        @click.stop="emit('addSession', project.id)"
+      >
+        <EaIcon
+          name="plus"
+          :size="13"
+        />
+      </button>
       <button
         class="project-item__inline-action project-item__inline-action--select"
         :class="{ 'project-item__inline-action--active': isBatchSelectMode }"
@@ -201,7 +221,22 @@ const {
     class="project-content"
   >
     <div class="tab-content tab-content--sessions">
+      <div
+        v-if="isSessionsLoading && sessions.length === 0"
+        class="session-skeleton-list"
+      >
+        <div
+          v-for="i in 3"
+          :key="i"
+          class="session-skeleton"
+        >
+          <span class="session-skeleton__lead" />
+          <span class="session-skeleton__line session-skeleton__line--name" />
+        </div>
+      </div>
+
       <UnifiedPanelSessionList
+        v-else
         :sessions="visibleSessions"
         :current-session-id="currentSessionId"
         :editing-session-id="editingSessionId"
@@ -219,7 +254,7 @@ const {
       />
 
       <button
-        v-if="hasHiddenSessions"
+        v-if="!isSessionsLoading && hasHiddenSessions"
         type="button"
         class="session-more-btn"
         @click="showAllSessions = !showAllSessions"
@@ -229,6 +264,20 @@ const {
           :size="13"
         />
         <span>{{ showAllSessions ? '收起' : `更多 ${hiddenSessionCount}` }}</span>
+      </button>
+
+      <button
+        v-if="!isSessionsLoading"
+        type="button"
+        class="session-add-btn"
+        :title="t('session.newSession')"
+        @click.stop="emit('addSession', project.id)"
+      >
+        <EaIcon
+          name="plus"
+          :size="13"
+        />
+        <span>{{ t('session.newSession') }}</span>
       </button>
     </div>
   </div>

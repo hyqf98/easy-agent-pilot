@@ -103,7 +103,10 @@ export abstract class BaseAgentStrategy implements AgentStrategy {
           const type = raw.type === 'reasoning' ? 'thinking'
             : raw.type === 'reasoning_start' ? 'thinking_start'
             : raw.type
-          if (type === 'message_start' || type === 'session_started') return
+          // session_started 携带 externalSessionId（CLI 外部会话 ID），
+          // 必须放行以便 ConversationService 持久化 runtime binding（用于历史回放）。
+          // message_start 为无负载的起始信号，可安全忽略。
+          if (type === 'message_start') return
 
           const streamEvent: StreamEvent = {
             ...raw,

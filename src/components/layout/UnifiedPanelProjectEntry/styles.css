@@ -142,6 +142,15 @@
   box-shadow: inset 0 0 0 1px var(--workspace-border, var(--color-border));
 }
 
+.project-item__inline-action--add {
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+}
+
+.project-item__inline-action--add:hover {
+  background: var(--workspace-control-hover-bg);
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
 .project-item__meta {
   display: flex;
   align-items: center;
@@ -376,6 +385,33 @@
   color: var(--color-text-primary);
 }
 
+.session-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: calc(100% - var(--spacing-4));
+  min-height: 30px;
+  margin: var(--spacing-1) var(--spacing-2) var(--spacing-2);
+  border: 1px dashed var(--workspace-border, var(--color-border));
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary));
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast) var(--easing-default),
+    color var(--transition-fast) var(--easing-default),
+    border-color var(--transition-fast) var(--easing-default);
+}
+
+.session-add-btn:hover {
+  border-color: var(--workspace-border-strong, var(--color-border));
+  border-style: solid;
+  background: var(--workspace-control-hover-bg, var(--color-surface-hover));
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
 .tab-content--files {
   display: flex;
   min-width: 0;
@@ -541,6 +577,7 @@
   border: none;
   border-radius: 8px;
   background: transparent;
+  position: relative;
 }
 
 .project-item:hover,
@@ -548,6 +585,20 @@
 .project-item--active {
   background: transparent;
   border-color: transparent;
+}
+
+/* 当前项目：左侧强调条 */
+.project-item--active::before {
+  content: '';
+  position: absolute;
+  left: -2px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 60%;
+  border-radius: 0 3px 3px 0;
+  background: var(--workspace-text-primary, var(--color-text-primary));
+  opacity: 0.5;
 }
 
 .project-item:focus-visible {
@@ -645,5 +696,93 @@
 
 .tab-content--sessions {
   overflow: visible;
+}
+
+/* ACP 同步指示器 */
+.project-item__sync-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+  font-size: 11px;
+}
+
+.project-item__sync-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid color-mix(in srgb, var(--workspace-text-tertiary, var(--color-text-tertiary)) 22%, transparent);
+  border-top-color: var(--workspace-text-secondary, var(--color-text-secondary));
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* 会话列表加载骨架 */
+.session-skeleton-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 0 6px;
+}
+
+.session-skeleton {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  padding: 0 7px;
+}
+
+.session-skeleton__lead {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--workspace-control-hover-bg, rgba(0, 0, 0, 0.05));
+  position: relative;
+  overflow: hidden;
+}
+
+.session-skeleton__line {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--workspace-control-hover-bg, rgba(0, 0, 0, 0.05));
+  position: relative;
+  overflow: hidden;
+}
+
+.session-skeleton__line--name {
+  width: 55%;
+}
+
+.session-skeleton__lead::after,
+.session-skeleton__line::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--workspace-panel-bg, #fff) 55%, transparent),
+    transparent
+  );
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+[data-theme='dark'] .session-skeleton__lead::after,
+[data-theme='dark'] .session-skeleton__line::after {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--workspace-panel-bg, #1e293b) 45%, transparent),
+    transparent
+  );
+}
+
+@keyframes skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
 }
 

@@ -161,7 +161,11 @@ export function useMessageList(props: MessageListProps, emit: MessageListEmits) 
 
   /**
    * 渲染项列表：在每回合第一条可见 assistant 消息前插入 WorkDivider。
-   * 每回合只出一条分割线，即使用户发了消息但 AI 还没响应也立即显示。
+   * 若最新可见消息是 user 且该回合尚无 assistant 消息，则在末尾插入一条
+   * awaiting 分割线（等待 AI 首个事件）。
+   *
+   * 将 awaiting 分割线纳入 renderItems（而非独立的 pendingRequestId 元素），
+   * 避免两个同视觉位置的 TransitionGroup 元素 leave 卡住导致重复分割线。
    */
   const renderItems = computed(() => {
     const messages = renderableMessages.value
@@ -176,12 +180,18 @@ export function useMessageList(props: MessageListProps, emit: MessageListEmits) 
       items.push({ type: 'message', key: message.id, message })
     }
 
+    // 末尾 awaiting 分割线：最新可见消息是 user 且该回合无 assistant 消息时追加。
+    if (isAwaitingFirstAssistantEvent.value && latestVisibleMessage.value) {
+      const pendingRequestId = latestVisibleMessage.value.requestId
+      items.push({ type: 'divider', key: `divider-${pendingRequestId}`, requestId: pendingRequestId })
+    }
+
     return items
   })
 
   /**
-   * 等待 AI 响应的 requestId：最新可见消息是 user 且该回合无 assistant 消息时，
-   * 立即显示一条 active 状态的分割线。
+   * 等待 AI 响应的 requestId：保留用于消息列表底部流式状态判断，
+   * awaiting 分割线已纳入 renderItems 统一渲染（见上）。
    */
   const pendingRequestId = computed(() => {
     if (!isAwaitingFirstAssistantEvent.value) return null

@@ -22,7 +22,6 @@ const {
   listRef,
   currentMessages,
   renderItems,
-  pendingRequestId,
   streamStatus,
   resolvedSessionId,
   isExternalMessagesMode,
@@ -105,18 +104,6 @@ const {
               />
             </div>
           </template>
-
-          <!-- 用户发送后等待 AI 首个事件：立即显示 active 分割线 -->
-          <div
-            v-if="pendingRequestId"
-            :key="`pending-${pendingRequestId}`"
-            class="message-list__virtual-item"
-          >
-            <WorkDivider
-              :request-id="pendingRequestId"
-              :messages="[]"
-            />
-          </div>
         </TransitionGroup>
       </template>
 

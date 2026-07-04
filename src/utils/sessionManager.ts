@@ -1,3 +1,5 @@
+import type { AcpSessionInfo, AcpReplayedEvent } from '@/types/cliSessionManager'
+
 interface RelativeTimeLabels {
   justNow: string
   minutesAgo: (minutes: number) => string
@@ -5,20 +7,11 @@ interface RelativeTimeLabels {
   daysAgo: (days: number) => string
 }
 
-interface CliSessionPreviewLike {
-  first_message: string | null
-}
-
-interface CliSessionMessageLike {
-  content: string | null
-  message_type: string
-}
-
-interface SessionMessageFallbackLabels {
-  noPreview: string
-  fileSnapshot: string
-  progress: string
-  noParsedContent: string
+interface EventDisplayFallbackLabels {
+  noContent: string
+  toolCall: string
+  toolResult: string
+  usage: string
 }
 
 export function formatCliRelativeTime(value: string, labels: RelativeTimeLabels): string {
@@ -49,11 +42,14 @@ export function formatCliTime(value: string): string {
   return date.toLocaleString()
 }
 
-export function displayCliSessionMessage(session: CliSessionPreviewLike, noPreview: string): string {
-  return session.first_message || noPreview
+/** 显示会话标题（旧 first_message → 新 title） */
+export function displayCliSessionMessage(session: AcpSessionInfo, noPreview: string): string {
+  return session.title || noPreview
 }
 
-export function formatCliMessageCount(value: number): string {
+/** 格式化消息数量，可能为 null */
+export function formatCliMessageCount(value: number | null): string {
+  if (value === null || value === undefined) return '-'
   return value >= 0 ? String(value) : '-'
 }
 
@@ -68,55 +64,90 @@ export function getCliProjectName(path: string, noProjectLabel: string): string 
   return path.split('/').pop() || path.split('\\').pop() || path
 }
 
-export function buildCliDeleteErrorMessage(failedPaths: string[], partialDeleteLabel: (count: number) => string) {
-  if (!failedPaths.length) return ''
-  return `${partialDeleteLabel(failedPaths.length)}\n${failedPaths.join('\n')}`
-}
-
+/** 获取事件类型的图标名称 */
 export function getCliMessageIcon(type: string) {
   switch (type) {
-    case 'user': return 'user'
-    case 'assistant': return 'bot'
-    case 'summary': return 'file-text'
-    case 'tool_use': return 'wrench'
+    case 'user_message': return 'user'
+    case 'agent_message': return 'bot'
+    case 'agent_thought': return 'brain'
+    case 'tool_call': return 'wrench'
     case 'tool_result': return 'terminal'
-    case 'reasoning': return 'brain'
-    case 'system': return 'settings'
-    case 'progress': return 'activity'
+    case 'usage': return 'activity'
     default: return 'message-square'
   }
 }
 
+/** 获取事件类型的颜色 */
 export function getCliMessageColor(type: string) {
   switch (type) {
-    case 'user': return 'var(--color-primary)'
-    case 'assistant': return 'var(--color-success)'
-    case 'summary': return 'var(--color-warning)'
-    case 'tool_use': return 'var(--color-primary)'
+    case 'user_message': return 'var(--color-primary)'
+    case 'agent_message': return 'var(--color-success)'
+    case 'agent_thought': return 'var(--color-warning)'
+    case 'tool_call': return 'var(--color-primary)'
     case 'tool_result': return 'var(--color-success)'
-    case 'reasoning': return 'var(--color-warning)'
-    case 'system': return 'var(--color-warning)'
-    case 'progress': return 'var(--color-primary)'
+    case 'usage': return 'var(--color-warning)'
     default: return 'var(--color-text-secondary)'
   }
 }
 
+/** 判断事件是否为用户消息 */
+export function isUserEvent(event: AcpReplayedEvent): boolean {
+  return event.eventType === 'user_message' || event.role === 'user'
+}
+
+/** 判断事件是否为 Agent 消息 */
+export function isAgentEvent(event: AcpReplayedEvent): boolean {
+  return event.eventType === 'agent_message' || event.role === 'assistant'
+}
+
+/** 获取事件的展示文本内容 */
 export function getCliMessageDisplayContent(
-  message: CliSessionMessageLike,
-  labels: SessionMessageFallbackLabels
-) {
-  const content = message.content?.trim()
+  event: AcpReplayedEvent,
+  labels: EventDisplayFallbackLabels
+): string {
+  // 工具调用：展示工具名 + 输入
+  if (event.eventType === 'tool_call') {
+    if (event.toolInput?.trim()) {
+      return event.toolInput
+    }
+    return `${labels.toolCall}${event.toolName ? ': ' + event.toolName : ''}`
+  }
+
+  // 工具结果
+  if (event.eventType === 'tool_result') {
+    if (event.toolResult?.trim()) {
+      return event.toolResult
+    }
+    return labels.toolResult
+  }
+
+  // 用量信息
+  if (event.eventType === 'usage') {
+    const input = event.inputTokens ?? 0
+    const output = event.outputTokens ?? 0
+    if (input || output) {
+      return `${labels.usage}: ${input} in / ${output} out`
+    }
+    return labels.usage
+  }
+
+  const content = event.content?.trim()
   if (content) {
     return content
   }
 
-  if (message.message_type === 'file-history-snapshot') {
-    return labels.fileSnapshot
-  }
+  return labels.noContent
+}
 
-  if (message.message_type === 'progress') {
-    return labels.progress
+/** 获取事件的折叠预览文本 */
+export function getEventCollapsedPreview(
+  event: AcpReplayedEvent,
+  labels: EventDisplayFallbackLabels,
+  noPreview: string
+): string {
+  const content = getCliMessageDisplayContent(event, labels)
+  if (!content) {
+    return noPreview
   }
-
-  return labels.noParsedContent
+  return content.replace(/\s+/g, ' ').trim()
 }

@@ -675,7 +675,7 @@ pub fn record_agent_cli_usage(
     let project_id = normalize_reference_id(&conn, "projects", project_id)?;
     let session_id = normalize_reference_id(&conn, "sessions", session_id)?;
     let task_id = normalize_reference_id(&conn, "tasks", task_id)?;
-    let message_id = normalize_reference_id(&conn, "messages", message_id)?;
+    let message_id = normalize_optional_text(message_id);
     let agent_name_snapshot = normalize_optional_text(agent_name_snapshot);
     let user_pricing = fetch_user_model_pricing(&conn, model_id.as_deref());
     let pricing = estimate_pricing(

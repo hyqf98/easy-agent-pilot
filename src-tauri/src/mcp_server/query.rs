@@ -5,7 +5,7 @@
 //! 2. 范围裁剪：根据仓库 `memory_repo_sources`（sourceType=`conversation_history`）的 config，
 //!    对 AI 传入的参数做交集/夹取，越界部分裁剪，保证工具只返回该仓库可见的历史。
 
-use rusqlite::{params_from_iter, Connection};
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
 use crate::commands::support::open_db_connection;
@@ -153,62 +153,11 @@ fn stricter_until(a: Option<&str>, b: Option<&str>) -> Option<String> {
 }
 
 /// 执行裁剪后的查询。返回消息与是否截断标记。
-pub fn run_query(conn: &Connection, params: &QueryHistoryParams) -> Result<Vec<HistoryMessage>, String> {
-    let mut sql = String::from(
-        r#"
-        SELECT m.session_id, s.project_id, m.role, m.message_type, m.content, m.created_at
-        FROM messages m
-        LEFT JOIN sessions s ON s.id = m.session_id
-        WHERE 1=1
-        "#,
-    );
-    let mut bind_values: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
-
-    if let Some(pid) = &params.project_id {
-        sql.push_str(" AND s.project_id = ?");
-        bind_values.push(Box::new(pid.clone()));
-    }
-    if let Some(sid) = &params.session_id {
-        sql.push_str(" AND m.session_id = ?");
-        bind_values.push(Box::new(sid.clone()));
-    }
-    if let Some(since) = &params.since {
-        sql.push_str(" AND m.created_at >= ?");
-        bind_values.push(Box::new(since.clone()));
-    }
-    if let Some(until) = &params.until {
-        sql.push_str(" AND m.created_at <= ?");
-        bind_values.push(Box::new(until.clone()));
-    }
-    if let Some(role) = &params.role {
-        sql.push_str(" AND m.role = ?");
-        bind_values.push(Box::new(role.clone()));
-    }
-
-    sql.push_str(" ORDER BY m.created_at ASC, m.seq ASC LIMIT ?");
-    let limit = params.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, HARD_LIMIT);
-    bind_values.push(Box::new(limit));
-
-    let params_iter = params_from_iter(bind_values.iter().map(|v| v.as_ref()));
-    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-    let rows = stmt
-        .query_map(params_iter, |row| {
-            Ok(HistoryMessage {
-                session_id: row.get(0)?,
-                project_id: row.get(1)?,
-                role: row.get(2)?,
-                message_type: row.get(3)?,
-                content: row.get(4)?,
-                created_at: row.get(5)?,
-            })
-        })
-        .map_err(|e| e.to_string())?;
-
-    let mut out = Vec::new();
-    for row in rows {
-        out.push(row.map_err(|e| e.to_string())?);
-    }
-    Ok(out)
+///
+/// 注意：ACP 消息不再本地落库（由 ACP 协议 session/load 重放历史），
+/// messages 表已废弃。此查询恒返回空列表，保留工具签名以维持 MCP 契约。
+pub fn run_query(_conn: &Connection, _params: &QueryHistoryParams) -> Result<Vec<HistoryMessage>, String> {
+    Ok(Vec::new())
 }
 
 #[cfg(test)]

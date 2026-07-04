@@ -484,13 +484,8 @@ pub fn clear_project_runtime_data(
     };
 
     let cleared_sessions = session_ids.len();
-    let cleared_messages: usize = conn
-        .query_row(
-            "SELECT COUNT(*) FROM messages WHERE session_id IN (SELECT id FROM sessions WHERE project_id = ?1)",
-            [&project_id],
-            |row| row.get(0),
-        )
-        .map_err(|e| e.to_string())?;
+    // messages 表已废弃（ACP 消息不再本地落库，由 session/load 重放历史），恒为 0。
+    let cleared_messages: usize = 0;
     let cleared_plans: usize = conn
         .query_row(
             "SELECT COUNT(*) FROM plans WHERE project_id = ?1",

@@ -3,18 +3,20 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EaIcon, EaModal } from '@/components/common'
 import {
-  formatCliTime,
   getCliMessageColor,
   getCliMessageDisplayContent,
-  getCliMessageIcon
+  getCliMessageIcon,
+  isAgentEvent,
+  isUserEvent,
+  getEventCollapsedPreview
 } from '@/utils/sessionManager'
-import type { CliSessionDetail, CliSessionMessage } from '@/types/cliSessionManager'
+import type { AcpSessionHistoryResult, AcpReplayedEvent } from '@/types/cliSessionManager'
 
 interface Props {
   visible: boolean
   loading: boolean
   error: string
-  detail: CliSessionDetail | null
+  detail: AcpSessionHistoryResult | null
 }
 
 const props = defineProps<Props>()
@@ -30,70 +32,60 @@ const modalVisible = computed({
   set: (value: boolean) => emit('update:visible', value)
 })
 
-const expandedMessageKeys = ref<string[]>([])
-const expandedMessageKeySet = computed(() => new Set(expandedMessageKeys.value))
+const expandedEventKeys = ref<number[]>([])
+const expandedEventKeySet = computed(() => new Set(expandedEventKeys.value))
 
-const formatTime = (value: string) => formatCliTime(value)
+const fallbackLabels = computed(() => ({
+  noContent: t('settings.sessionManager.noPreview'),
+  toolCall: '[Tool Call]',
+  toolResult: '[Tool Result]',
+  usage: '[Usage]'
+}))
 
-const getMessageKey = (message: CliSessionMessage) => `${message.line_no}-${message.message_type}`
+const getEventDisplayContent = (event: AcpReplayedEvent) =>
+  getCliMessageDisplayContent(event, fallbackLabels.value)
 
-const getMessageDisplayContent = (message: CliSessionMessage) =>
-  getCliMessageDisplayContent(message, {
-    noPreview: t('settings.sessionManager.noPreview'),
-    fileSnapshot: '[File Snapshot] 历史文件快照已更新',
-    progress: '[Progress] 当前记录未包含可直接展示的文本内容',
-    noParsedContent: '[No parsed content] 请展开 Raw JSON 查看原始记录'
-  })
-
-const isUserMessage = (message: CliSessionMessage) =>
-  message.message_type === 'user' || message.role === 'user'
-
-const isAssistantMessage = (message: CliSessionMessage) =>
-  message.message_type === 'assistant' || message.role === 'assistant'
-
-const getMessageAlignmentClass = (message: CliSessionMessage) => {
-  if (isAssistantMessage(message)) return 'message-row--assistant'
-  if (isUserMessage(message)) return 'message-row--user'
+const getMessageAlignmentClass = (event: AcpReplayedEvent) => {
+  if (isAgentEvent(event)) return 'message-row--assistant'
+  if (isUserEvent(event)) return 'message-row--user'
   return 'message-row--event'
 }
 
-const getBubbleClass = (message: CliSessionMessage) => {
-  if (isAssistantMessage(message)) return 'message-bubble--assistant'
-  if (isUserMessage(message)) return 'message-bubble--user'
+const getBubbleClass = (event: AcpReplayedEvent) => {
+  if (isAgentEvent(event)) return 'message-bubble--assistant'
+  if (isUserEvent(event)) return 'message-bubble--user'
   return 'message-bubble--event'
 }
 
-const isExpanded = (message: CliSessionMessage) => expandedMessageKeySet.value.has(getMessageKey(message))
+const isExpanded = (index: number) => expandedEventKeySet.value.has(index)
 
-const toggleExpanded = (message: CliSessionMessage) => {
-  const key = getMessageKey(message)
-  const next = new Set(expandedMessageKeys.value)
-
-  if (next.has(key)) {
-    next.delete(key)
+const toggleExpanded = (index: number) => {
+  const next = new Set(expandedEventKeys.value)
+  if (next.has(index)) {
+    next.delete(index)
   } else {
-    next.add(key)
+    next.add(index)
   }
-
-  expandedMessageKeys.value = Array.from(next)
+  expandedEventKeys.value = Array.from(next)
 }
 
-const getCollapsedPreview = (message: CliSessionMessage) => {
-  const content = getMessageDisplayContent(message)
-  if (!content) {
-    return t('settings.sessionManager.noPreview')
-  }
+const getCollapsedPreview = (event: AcpReplayedEvent) =>
+  getEventCollapsedPreview(event, fallbackLabels.value, t('settings.sessionManager.noPreview'))
 
-  return content.replace(/\s+/g, ' ').trim()
+/** 获取事件的原始 JSON 展开（工具类事件展示 toolInput/toolResult） */
+const getRawContent = (event: AcpReplayedEvent): string | null => {
+  if (event.eventType === 'tool_call' && event.toolInput) return event.toolInput
+  if (event.eventType === 'tool_result' && event.toolResult) return event.toolResult
+  return null
 }
 
-watch(() => props.detail?.session_path, () => {
-  expandedMessageKeys.value = []
+watch(() => props.detail?.sessionId, () => {
+  expandedEventKeys.value = []
 })
 
 watch(() => props.visible, (visible) => {
   if (!visible) {
-    expandedMessageKeys.value = []
+    expandedEventKeys.value = []
   }
 })
 </script>
@@ -112,7 +104,7 @@ watch(() => props.visible, (visible) => {
           v-if="detail"
           class="modal-subtitle"
         >
-          {{ detail.message_count }} {{ t('settings.sessionManager.messages') }}
+          {{ detail.events.length }} {{ t('settings.sessionManager.messages') }}
         </span>
       </div>
     </template>
@@ -151,96 +143,77 @@ watch(() => props.visible, (visible) => {
             :size="14"
           />
           <span class="detail-summary__label">ID:</span>
-          <code class="detail-summary__value">{{ detail.session_id }}</code>
-        </div>
-        <div class="detail-summary__item">
-          <EaIcon
-            name="clock"
-            :size="14"
-          />
-          <span class="detail-summary__label">{{ t('settings.sessionManager.updatedAt') }}:</span>
-          <span>{{ formatTime(detail.updated_at) }}</span>
-        </div>
-        <div
-          v-if="detail.project_path"
-          class="detail-summary__item"
-        >
-          <EaIcon
-            name="folder"
-            :size="14"
-          />
-          <span class="detail-summary__label">{{ t('settings.sessionManager.projectPath') }}:</span>
-          <span class="detail-summary__value detail-summary__value--truncate">{{ detail.project_path }}</span>
+          <code class="detail-summary__value">{{ detail.sessionId }}</code>
         </div>
       </div>
 
       <div class="message-feed">
         <div
-          v-for="msg in detail.messages"
-          :key="getMessageKey(msg)"
+          v-for="(event, index) in detail.events"
+          :key="index"
           class="message-row"
-          :class="getMessageAlignmentClass(msg)"
+          :class="getMessageAlignmentClass(event)"
         >
           <div
             class="message-bubble"
-            :class="getBubbleClass(msg)"
+            :class="getBubbleClass(event)"
           >
             <div class="message-item__header">
               <div class="message-item__type">
                 <EaIcon
-                  :name="getCliMessageIcon(msg.message_type)"
+                  :name="getCliMessageIcon(event.eventType)"
                   :size="14"
-                  :style="{ color: getCliMessageColor(msg.message_type) }"
+                  :style="{ color: getCliMessageColor(event.eventType) }"
                 />
-                <span>{{ msg.message_type }}</span>
+                <span>{{ event.eventType }}</span>
                 <span
-                  v-if="msg.role"
+                  v-if="event.toolName"
                   class="message-item__role"
                 >
-                  {{ msg.role }}
+                  {{ event.toolName }}
+                </span>
+                <span
+                  v-else-if="event.role"
+                  class="message-item__role"
+                >
+                  {{ event.role }}
                 </span>
               </div>
               <div class="message-item__meta">
-                <span
-                  v-if="msg.timestamp"
-                  class="message-item__time"
-                >
-                  {{ formatTime(msg.timestamp) }}
-                </span>
                 <button
                   type="button"
                   class="message-item__toggle"
-                  @click="toggleExpanded(msg)"
+                  @click="toggleExpanded(index)"
                 >
                   <EaIcon
-                    :name="isExpanded(msg) ? 'chevron-up' : 'chevron-down'"
+                    :name="isExpanded(index) ? 'chevron-up' : 'chevron-down'"
                     :size="14"
                   />
-                  <span>{{ isExpanded(msg) ? '收起' : '展开' }}</span>
+                  <span>{{ isExpanded(index) ? '收起' : '展开' }}</span>
                 </button>
               </div>
             </div>
 
             <div
-              v-if="!isExpanded(msg)"
+              v-if="!isExpanded(index)"
               class="message-item__preview"
             >
-              {{ getCollapsedPreview(msg) }}
+              {{ getCollapsedPreview(event) }}
             </div>
 
             <div
-              v-else-if="getMessageDisplayContent(msg)"
+              v-else
               class="message-item__content"
             >
-              {{ getMessageDisplayContent(msg) }}
+              {{ getEventDisplayContent(event) }}
             </div>
 
             <details
-              v-if="isExpanded(msg)"
+              v-if="isExpanded(index) && getRawContent(event)"
               class="message-item__raw"
             >
-              <summary>{{ t('settings.sessionManager.rawJson') }}</summary>
-              <pre>{{ msg.raw_json }}</pre>
+              <summary>Raw</summary>
+              <pre>{{ getRawContent(event) }}</pre>
             </details>
           </div>
         </div>

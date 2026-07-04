@@ -62,6 +62,7 @@ const attachmentImageStyle = {
       <button
         type="button"
         class="conversation-composer__attachment-remove"
+        :title="$t('common.delete')"
         @click="removeAttachment(attachment.id)"
       >
         <EaIcon
@@ -93,6 +94,12 @@ const attachmentImageStyle = {
   overflow: hidden;
   border-radius: 14px;
   border: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.conversation-composer__attachment:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.14);
 }
 
 .conversation-composer__attachments--main .conversation-composer__attachment {
@@ -102,6 +109,7 @@ const attachmentImageStyle = {
   border-color: var(--workspace-border, rgba(38, 38, 38, 0.1));
   background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 92%, transparent);
   box-shadow: 0 8px 16px rgba(24, 24, 22, 0.06);
+  animation: attachment-pop-in 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .conversation-composer__attachment-image {
@@ -143,6 +151,19 @@ const attachmentImageStyle = {
 .conversation-composer__attachments--main .conversation-composer__attachment-remove {
   width: 16px;
   height: 16px;
+  opacity: 0.7;
+  transform: none;
+}
+
+@keyframes attachment-pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.8) translateY(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 :global([data-theme='dark']) .conversation-composer__attachment,

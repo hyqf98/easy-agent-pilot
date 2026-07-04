@@ -34,7 +34,6 @@
   cursor: pointer;
   flex-shrink: 0;
   max-width: 160px;
-  transition: all var(--transition-fast) var(--easing-default);
   border: 1px solid transparent;
 }
 
@@ -45,6 +44,20 @@
 .session-tabs__tab--active {
   background-color: var(--workspace-list-active-bg, var(--color-surface-active));
   border-color: var(--workspace-border, var(--color-border));
+  position: relative;
+}
+
+/* active tab 底部强调条 */
+.session-tabs__tab--active::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--workspace-text-primary, var(--color-text-primary));
+  opacity: 0.45;
 }
 
 .session-tabs__tab--active .session-tabs__name {
@@ -56,6 +69,20 @@
 [data-theme='dark'] .session-tabs__tab--active {
   background-color: var(--workspace-list-active-bg, var(--color-surface-active));
   border-color: var(--workspace-border, var(--color-border));
+  position: relative;
+}
+
+/* active tab 底部强调条 */
+.session-tabs__tab--active::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--workspace-text-primary, var(--color-text-primary));
+  opacity: 0.45;
 }
 
 [data-theme='dark'] .session-tabs__tab--active .session-tabs__name {
@@ -66,9 +93,8 @@
   background-color: var(--workspace-list-hover-bg, var(--color-surface-hover));
 }
 
-/* 切换时的视觉反馈 */
+/* 切换时的视觉反馈（已移除 scale 延迟，避免高亮滞后） */
 .session-tabs__tab--switching {
-  transform: scale(0.95);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--workspace-text-primary, var(--color-text-primary)) 18%, transparent);
 }
 

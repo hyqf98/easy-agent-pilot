@@ -1,6 +1,5 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
 import { useNotificationStore } from './notification'
 import { useSessionStore } from './session'
 import { useTokenStore, type CompressionStrategy } from './token'
@@ -9,6 +8,8 @@ import { getErrorMessage } from '@/utils/api'
 import { dedupeMessagesById } from '@/utils/messageDedupe'
 import type { FileEditTrace } from '@/types/fileTrace'
 import type { ToolLocation } from '@/services/conversation/strategies/types'
+import { readSessionDetail } from '@/services/cliSession'
+import { mapAcpEventsToMessages, extractUsageFromEvents } from '@/services/conversation/acpHistoryMapper'
 
 export type MessageRole = 'user' | 'assistant' | 'system'
 export type MessageStatus = 'pending' | 'streaming' | 'completed' | 'error' | 'interrupted'
@@ -115,44 +116,13 @@ export interface Message {
   updatedAt: string
 }
 
-interface RustMessage {
-  id: string
-  sessionId: string
-  requestId: string
-  role: string
-  messageType: string
-  content?: string | null
-  status: string
-  toolCallId?: string | null
-  toolName?: string | null
-  toolInput?: string | null
-  toolResult?: string | null
-  inputTokens?: number | null
-  outputTokens?: number | null
-  cacheReadTokens?: number | null
-  cacheCreationTokens?: number | null
-  model?: string | null
-  costUsd?: number | null
-  attachments?: MessageAttachment[] | null
-  errorMessage?: string | null
-  createdAt: string
-  updatedAt: string
-  seq: number
-}
 
-interface PaginatedRustMessages {
-  messages: RustMessage[]
-  total: number
-  has_more: boolean
-}
 
 // 文件编辑追踪功能在新消息结构下已搁置；保留 FileEditTrace 作为占位类型，
 // 使依赖 trace 的组件（AiEditTracePane 等）在新结构下仍可编译，实际数据恒为空。
 type SessionEditTrace = FileEditTrace
 
-function resolveRawMessageCreatedAt(message?: RustMessage): string | null {
-  return message?.createdAt ?? null
-}
+
 
 /**
  * 纯 (requestId, seq) 比较：仅用于定位/比较场景，不参与渲染排序。
@@ -189,35 +159,6 @@ const EMPTY_ASSISTANT_EDIT_TRACES: SessionEditTrace[] = []
 const EMPTY_TRACE_MAP = new Map<string, { traceId: string, messageId: string, timestamp: string }>()
 const EMPTY_VISIBLE_MESSAGE_TRACES: SessionEditTrace[] = []
 
-interface CreateMessageInput {
-  sessionId: string
-  requestId: string
-  role: string
-  messageType: string
-  content?: string
-  attachments?: string
-  status?: string
-  toolCallId?: string
-  toolName?: string
-  toolInput?: string
-  toolResult?: string
-  inputTokens?: number
-  outputTokens?: number
-  cacheReadTokens?: number
-  cacheCreationTokens?: number
-  model?: string
-  costUsd?: number
-  errorMessage?: string
-  seq?: number
-}
-
-interface UpdateMessageInput {
-  content?: string
-  attachments?: string
-  status?: string
-  errorMessage?: string
-}
-
 // 分页状态
 export interface PaginationState {
   total: number
@@ -236,33 +177,6 @@ interface FlushBufferedMessageOptions {
 
 const MESSAGE_FLUSH_INTERVAL_MS = 300
 
-function transformMessage(rustMsg: RustMessage): Message {
-  return {
-    id: rustMsg.id,
-    sessionId: rustMsg.sessionId,
-    requestId: rustMsg.requestId,
-    role: rustMsg.role as MessageRole,
-    messageType: (rustMsg.messageType as MessageType) ?? 'text',
-    content: rustMsg.content ?? undefined,
-    attachments: rustMsg.attachments?.length ? rustMsg.attachments : undefined,
-    status: rustMsg.status as MessageStatus,
-    toolCallId: rustMsg.toolCallId ?? undefined,
-    toolName: rustMsg.toolName ?? undefined,
-    toolInput: rustMsg.toolInput ?? undefined,
-    toolResult: rustMsg.toolResult ?? undefined,
-    inputTokens: rustMsg.inputTokens ?? undefined,
-    outputTokens: rustMsg.outputTokens ?? undefined,
-    cacheReadTokens: rustMsg.cacheReadTokens ?? undefined,
-    cacheCreationTokens: rustMsg.cacheCreationTokens ?? undefined,
-    model: rustMsg.model ?? undefined,
-    costUsd: rustMsg.costUsd ?? undefined,
-    errorMessage: rustMsg.errorMessage ?? undefined,
-    seq: rustMsg.seq ?? 0,
-    createdAt: rustMsg.createdAt,
-    updatedAt: rustMsg.updatedAt ?? rustMsg.createdAt
-  }
-}
-
 export const useMessageStore = defineStore('message', () => {
   // State
   const messages = ref<Message[]>([])
@@ -276,9 +190,9 @@ export const useMessageStore = defineStore('message', () => {
   const pendingMessageUpdates = new Map<string, Partial<Message>>()
   const pendingMessageTimers = new Map<string, ReturnType<typeof setTimeout>>()
   const inFlightMessageFlushes = new Map<string, Promise<void>>()
-  // 仅存在于内存、不落库的消息 id 集合（如实时思考行：后端 MessageRecorder 已落库，
-  // 前端仅用本地行做流式渲染，避免双写）。这些消息的更新操作会跳过 DB 写入。
-  const localOnlyMessageIds = new Set<string>()
+  // session/load 串行化锁：ACP 每次回放都 spawn 新 CLI 进程，并发会互相拖慢触发超时
+  let loadMessagesInFlightSessionId: string | null = null
+  let loadMessagesInFlight: Promise<void> | null = null
 
   // 默认分页大小
   const PAGE_SIZE = 20
@@ -321,16 +235,6 @@ export const useMessageStore = defineStore('message', () => {
       isLoadingMore: false,
       oldestMessageCreatedAt: null
     }
-  }
-
-  // Actions
-  function buildUpdateMessageInput(updates: Partial<Message>): UpdateMessageInput {
-    const input: UpdateMessageInput = {}
-    if (updates.content !== undefined) input.content = updates.content
-    if (updates.attachments !== undefined) input.attachments = JSON.stringify(updates.attachments)
-    if (updates.status !== undefined) input.status = updates.status
-    if (updates.errorMessage !== undefined) input.errorMessage = updates.errorMessage
-    return input
   }
 
   function setSessionMessages(sessionId: string, nextMessages: Message[]): void {
@@ -424,19 +328,9 @@ export const useMessageStore = defineStore('message', () => {
     }
   }
 
-  async function persistMessageUpdates(id: string, updates: Partial<Message>): Promise<void> {
-    // 仅内存消息（如实时思考行）不落库：避免与后端 MessageRecorder 双写
-    if (localOnlyMessageIds.has(id)) {
-      return
-    }
-
-    const input = buildUpdateMessageInput(updates)
-
-    if (Object.keys(input).length === 0) {
-      return
-    }
-
-    await invoke('update_message_fields', { id, input })
+  async function persistMessageUpdates(): Promise<void> {
+    // 新架构：消息不再本地落库（ACP 协议重放历史），更新已在 applyMessageUpdatesLocally 完成
+    return
   }
 
   function scheduleBufferedMessageFlush(id: string): void {
@@ -480,7 +374,7 @@ export const useMessageStore = defineStore('message', () => {
     pendingMessageUpdates.delete(id)
 
     const notificationStore = useNotificationStore()
-    const flushTask = persistMessageUpdates(id, updates)
+    const flushTask = persistMessageUpdates()
       .catch((error) => {
         pendingMessageUpdates.set(
           id,
@@ -533,81 +427,146 @@ export const useMessageStore = defineStore('message', () => {
     const notificationStore = useNotificationStore()
     const sessionStore = useSessionStore()
     const tokenStore = useTokenStore()
+    // 串行化 session/load：ACP 的 session/load 每次都 spawn 一个新 CLI 进程，
+    // 快速切换会话时并发会互相拖慢甚至触发后端 60s 超时。
+    // 这里用全局串行锁保证同一时刻只有一个 session/load 进行；
+    // 若切换到新会话时上一个还在跑，等它结束后再加载当前会话。
+    while (loadMessagesInFlightSessionId && loadMessagesInFlightSessionId !== sessionId) {
+      const inflight = loadMessagesInFlight
+      if (inflight) {
+        try { await inflight } catch { /* 忽略前一个的错误，独立处理当前会话 */ }
+      }
+      // 循环重检：可能在等待期间又来了更新的请求
+    }
+    if (loadMessagesInFlightSessionId === sessionId && loadMessagesInFlight) {
+      // 同一会话已在加载，直接等它完成即可
+      try { await loadMessagesInFlight } catch { /* 已由首发起方处理 */ }
+      return
+    }
+
     isLoading.value = true
+    loadMessagesInFlightSessionId = sessionId
+    const task = (async () => {
     try {
-      const result = await invoke<PaginatedRustMessages>('list_messages', {
-        sessionId,
-        limit: PAGE_SIZE
-      })
-
-      const nextSessionMessages = result.messages.map(transformMessage)
-
-      const normalizedSessionMessages = nextSessionMessages
-
       const session = sessionStore.sessions.find(item => item.id === sessionId)
-      const sessionProvider = session?.cliSessionProvider?.trim().toLowerCase()
-      const correctedSessionMessages = sessionProvider
-        ? await reconcilePersistedUsageDisplay(sessionId, normalizedSessionMessages)
-        : normalizedSessionMessages
 
-      const latestUsageMessage = [...correctedSessionMessages]
-        .reverse()
-        .find(message => message.messageType === 'usage')
-      const latestContextWindowMessage = [...correctedSessionMessages]
-        .reverse()
-        .find(message => message.messageType === 'context_window')
-      if (latestUsageMessage) {
-        const restoredInputTokens = latestUsageMessage.inputTokens
-        const restoredOutputTokens = latestUsageMessage.outputTokens
-        tokenStore.updateRealtimeTokens(
-          sessionId,
-          restoredInputTokens ?? undefined,
-          restoredOutputTokens ?? undefined,
-          latestUsageMessage.model,
-          latestContextWindowMessage?.inputTokens ?? undefined,
-          latestContextWindowMessage?.outputTokens ?? undefined,
-          latestContextWindowMessage ? 'acp' : undefined
-        )
-      } else if (latestContextWindowMessage) {
-        tokenStore.updateRealtimeTokens(
-          sessionId,
-          undefined,
-          undefined,
-          undefined,
-          latestContextWindowMessage.inputTokens ?? undefined,
-          latestContextWindowMessage.outputTokens ?? undefined,
-          'acp'
-        )
-      } else if (sessionProvider && session) {
-        const snapshot = await readSessionCliUsageSnapshot(session)
-        if (snapshot) {
-          tokenStore.updateRealtimeTokens(
-            sessionId,
-            snapshot.inputTokens || undefined,
-            snapshot.outputTokens || undefined,
-            snapshot.model,
-            snapshot.contextWindowOccupancy ?? undefined,
-            undefined,
-            snapshot.contextWindowOccupancy ? 'snapshot' : undefined
-          )
-        } else {
-          tokenStore.clearRealtimeTokens(sessionId)
+      // 解析 ACP 外部会话 ID：优先 session.cliSessionId（sessions 表列），
+      // 为空时回查 session_runtime_bindings 表（流式期间 registerCliSessionBinding 写入）。
+      // 删除 messages 表后，历史回放完全依赖此绑定，必须双路径解析。
+      let externalSessionId = session?.cliSessionId?.trim() || ''
+      if (!externalSessionId && session) {
+        try {
+          const [{ resolveRuntimeBindingKey, getSessionRuntimeBinding }, { useAgentStore }] = await Promise.all([
+            import('@/services/conversation/runtimeBindings'),
+            import('./agent')
+          ])
+          const agentStore = useAgentStore()
+          const agent = session.agentId
+            ? agentStore.agents.find(a => a.id === session.agentId)
+            : undefined
+          const runtimeKey = agent ? resolveRuntimeBindingKey(agent) : null
+          if (runtimeKey) {
+            const binding = await getSessionRuntimeBinding(sessionId, runtimeKey)
+            if (binding?.externalSessionId) {
+              externalSessionId = binding.externalSessionId
+            }
+          }
+        } catch (bindingError) {
+          console.warn('[MessageStore] resolve runtime binding failed:', bindingError)
         }
-      } else {
-        tokenStore.clearRealtimeTokens(sessionId)
       }
 
-      updateGlobalMessagesForSession(sessionId, correctedSessionMessages)
-      setSessionMessages(sessionId, correctedSessionMessages)
+      // —— ACP 回显路径：优先使用 session/load 回放事件 ——
+      if (externalSessionId && session) {
+        // 动态导入避免循环依赖（project store 依赖 message store）
+        const [{ useAgentStore }, { useProjectStore }] = await Promise.all([
+          import('./agent'),
+          import('./project')
+        ])
+        const agentStore = useAgentStore()
+        const projectStore = useProjectStore()
 
-      // 更新分页状态
-      const oldestMessage = result.messages[0]
-      pagination.value.set(sessionId, {
-        total: result.total,
-        hasMore: result.has_more,
-        isLoadingMore: false,
-        oldestMessageCreatedAt: resolveRawMessageCreatedAt(oldestMessage)
-      })
+        const agent = session.agentId
+          ? agentStore.agents.find(a => a.id === session.agentId)
+          : undefined
+        const agentCmd = agent?.acpCommand || agent?.cliPath || ''
+        const project = projectStore.projects.find(p => p.id === session.projectId)
+        const cwd = project?.path || projectStore.currentProject?.path || ''
+
+        // 启动竞态保护：agentStore 尚未加载完时 agentCmd 可能为空，
+        // 此时跳过 ACP 回显，降级为空列表（后续切换会话时会重新加载）
+        if (!agentCmd) {
+          tokenStore.clearRealtimeTokens(sessionId)
+          updateGlobalMessagesForSession(sessionId, [])
+          setSessionMessages(sessionId, [])
+          pagination.value.set(sessionId, {
+            total: 0,
+            hasMore: false,
+            isLoadingMore: false,
+            oldestMessageCreatedAt: null
+          })
+          return
+        }
+
+        const result = await readSessionDetail(agentCmd, externalSessionId, cwd)
+        const correctedSessionMessages = mapAcpEventsToMessages(sessionId, result.events)
+
+        // 恢复 token 用量（独立 try-catch：快照恢复失败不应影响消息加载）
+        try {
+          const usage = extractUsageFromEvents(result.events)
+          if (usage) {
+            tokenStore.updateRealtimeTokens(
+              sessionId,
+              usage.inputTokens || undefined,
+              usage.outputTokens || undefined,
+              undefined,
+              undefined,
+              undefined,
+              'acp'
+            )
+          } else {
+            const snapshot = await readSessionCliUsageSnapshot(session)
+            if (snapshot) {
+              tokenStore.updateRealtimeTokens(
+                sessionId,
+                snapshot.inputTokens || undefined,
+                snapshot.outputTokens || undefined,
+                snapshot.model,
+                snapshot.contextWindowOccupancy ?? undefined,
+                undefined,
+                snapshot.contextWindowOccupancy ? 'snapshot' : undefined
+              )
+            } else {
+              tokenStore.clearRealtimeTokens(sessionId)
+            }
+          }
+        } catch (tokenError) {
+          console.warn('[MessageStore] token snapshot restore failed, skipping:', tokenError)
+          tokenStore.clearRealtimeTokens(sessionId)
+        }
+
+        updateGlobalMessagesForSession(sessionId, correctedSessionMessages)
+        setSessionMessages(sessionId, correctedSessionMessages)
+
+        // ACP 无分页
+        pagination.value.set(sessionId, {
+          total: correctedSessionMessages.length,
+          hasMore: false,
+          isLoadingMore: false,
+          oldestMessageCreatedAt: correctedSessionMessages[0]?.createdAt ?? null
+        })
+      } else {
+        // —— 非 ACP 会话：消息持久化已移除，返回空列表 ——
+        tokenStore.clearRealtimeTokens(sessionId)
+        updateGlobalMessagesForSession(sessionId, [])
+        setSessionMessages(sessionId, [])
+        pagination.value.set(sessionId, {
+          total: 0,
+          hasMore: false,
+          isLoadingMore: false,
+          oldestMessageCreatedAt: null
+        })
+      }
 
       // 加载文件变更追踪（用于响应底部汇总条与右侧 diff 审查）
       try {
@@ -636,147 +595,56 @@ export const useMessageStore = defineStore('message', () => {
     } finally {
       isLoading.value = false
     }
-  }
-
-  async function reconcilePersistedUsageDisplay(
-    _sessionId: string,
-    messages: Message[]
-  ): Promise<Message[]> {
-    // 新消息结构（一行一事件）下用量是独立 usage 行，不再需要从 assistant 消息的 runtimeNotices 回填
-    return messages
-  }
-
-  // 加载更多历史消息
-  async function loadMoreMessages(sessionId: string) {
-    const notificationStore = useNotificationStore()
-    const currentPagination = getPagination(sessionId)
-
-    // 如果没有更多消息或正在加载，直接返回
-    if (!currentPagination.hasMore || currentPagination.isLoadingMore) {
-      return
-    }
-
-    // 如果没有最早消息的时间戳，无法加载更多
-    if (!currentPagination.oldestMessageCreatedAt) {
-      return
-    }
-
-    // 更新加载状态
-    pagination.value.set(sessionId, {
-      ...currentPagination,
-      isLoadingMore: true
-    })
-
+    })()
+    loadMessagesInFlight = task
     try {
-      const result = await invoke<PaginatedRustMessages>('list_messages', {
-        sessionId,
-        limit: PAGE_SIZE,
-        before: currentPagination.oldestMessageCreatedAt
-      })
+      await task
+    } finally {
+      // 仅在仍是当前会话时清理，避免覆盖更新的请求
+      if (loadMessagesInFlightSessionId === sessionId) {
+        loadMessagesInFlightSessionId = null
+        loadMessagesInFlight = null
+      }
+    }
+  }
 
-      // 将新加载的消息添加到当前会话列表开头，同时保留其他会话消息
-      const newMessages = result.messages.map(transformMessage)
-      const currentSessionMessages = sessionMessages.value.get(sessionId) ?? EMPTY_MESSAGES
-      const nextSessionMessages = dedupeMessagesById([
-        ...newMessages,
-        ...currentSessionMessages
-      ])
-      updateGlobalMessagesForSession(sessionId, nextSessionMessages)
-      setSessionMessages(sessionId, nextSessionMessages)
 
-      // 更新分页状态
-      const oldestMessage = result.messages[0]
-      const resolvedOldestMessageCreatedAt = resolveRawMessageCreatedAt(oldestMessage)
-      const hasMore = result.messages.length > 0
-        && resolvedOldestMessageCreatedAt !== currentPagination.oldestMessageCreatedAt
-        && result.has_more
-      pagination.value.set(sessionId, {
-        total: result.total,
-        hasMore,
-        isLoadingMore: false,
-        oldestMessageCreatedAt: resolvedOldestMessageCreatedAt || currentPagination.oldestMessageCreatedAt
-      })
-    } catch (error) {
-      console.error('Failed to load more messages:', error)
-      notificationStore.databaseError(
-        '加载历史消息失败',
-        getErrorMessage(error),
-        () => loadMoreMessages(sessionId)
-      )
-      // 恢复加载状态
-      pagination.value.set(sessionId, {
+
+  // ACP 会话无分页，loadMore 为 no-op
+  async function loadMoreMessages(_sessionId: string) {
+    const currentPagination = getPagination(_sessionId)
+    if (currentPagination.hasMore) {
+      pagination.value.set(_sessionId, {
         ...currentPagination,
+        hasMore: false,
         isLoadingMore: false
       })
     }
+    return
   }
 
+  // 新架构：消息不再本地落库，历史由 ACP 协议重放（read_acp_session_history），
+  // CLI 自身是会话的唯一数据源。options.persist 参数保留向后兼容，但一律按内存处理。
   async function addMessage(
     message: Omit<Message, 'id' | 'createdAt' | 'updatedAt'> & { id?: string },
     options: { persist?: boolean; createdAt?: string } = {}
   ) {
-    const persist = options.persist !== false
-
-    // 仅内存消息：使用传入的 id（后端已落库），否则生成本地 id；不落库
-    if (!persist) {
-      const id = message.id ?? `local_${typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`}`
-      // 允许调用方指定 createdAt（如 live thinking 行需对齐同回合 text 行的时间，
-      // 使排序反映「先思考后回复」的自然顺序，而非前端创建时刻）
-      const now = options.createdAt ?? new Date().toISOString()
-      const newMessage: Message = {
-        ...message,
-        id,
-        createdAt: now,
-        updatedAt: now
-      } as Message
-      localOnlyMessageIds.add(id)
-      messages.value.push(newMessage)
-      const currentSessionMessages = sessionMessages.value.get(newMessage.sessionId) ?? EMPTY_MESSAGES
-      setSessionMessages(newMessage.sessionId, [...currentSessionMessages, newMessage])
-      return newMessage
-    }
-
-    const notificationStore = useNotificationStore()
-    const input: CreateMessageInput = {
-      sessionId: message.sessionId,
-      requestId: message.requestId,
-      role: message.role,
-      messageType: message.messageType,
-      content: message.content,
-      attachments: message.attachments ? JSON.stringify(message.attachments) : undefined,
-      status: message.status,
-      toolCallId: message.toolCallId,
-      toolName: message.toolName,
-      toolInput: message.toolInput,
-      toolResult: message.toolResult,
-      inputTokens: message.inputTokens,
-      outputTokens: message.outputTokens,
-      cacheReadTokens: message.cacheReadTokens,
-      cacheCreationTokens: message.cacheCreationTokens,
-      model: message.model,
-      costUsd: message.costUsd,
-      errorMessage: message.errorMessage,
-      seq: message.seq
-    }
-
-    try {
-      const rustMsg = await invoke<RustMessage>('create_message', { input })
-      const newMessage = transformMessage(rustMsg)
-      messages.value.push(newMessage)
-      const currentSessionMessages = sessionMessages.value.get(newMessage.sessionId) ?? EMPTY_MESSAGES
-      setSessionMessages(newMessage.sessionId, [...currentSessionMessages, newMessage])
-      return newMessage
-    } catch (error) {
-      console.error('Failed to add message:', error)
-      notificationStore.databaseError(
-        '添加消息失败',
-        getErrorMessage(error),
-        async () => { await addMessage(message, options) }
-      )
-      throw error
-    }
+    const id = message.id ?? `local_${typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`}`
+    // 允许调用方指定 createdAt（如 live thinking 行需对齐同回合 text 行的时间，
+    // 使排序反映「先思考后回复」的自然顺序，而非前端创建时刻）
+    const now = options.createdAt ?? new Date().toISOString()
+    const newMessage: Message = {
+      ...message,
+      id,
+      createdAt: now,
+      updatedAt: now
+    } as Message
+    messages.value.push(newMessage)
+    const currentSessionMessages = sessionMessages.value.get(newMessage.sessionId) ?? EMPTY_MESSAGES
+    setSessionMessages(newMessage.sessionId, [...currentSessionMessages, newMessage])
+    return newMessage
   }
 
   async function updateMessage(id: string, updates: Partial<Message>) {
@@ -784,7 +652,7 @@ export const useMessageStore = defineStore('message', () => {
     applyMessageUpdatesLocally(id, updates)
 
     try {
-      await persistMessageUpdates(id, updates)
+      await persistMessageUpdates()
     } catch (error) {
       console.error('Failed to update message:', error)
       notificationStore.databaseError(
@@ -797,30 +665,17 @@ export const useMessageStore = defineStore('message', () => {
   }
 
   async function deleteMessage(id: string) {
-    const notificationStore = useNotificationStore()
-
-    try {
-      await invoke('delete_message', { id })
-      const index = messages.value.findIndex(m => m.id === id)
-      if (index !== -1) {
-        const deletedMessage = messages.value[index]
-        messages.value.splice(index, 1)
-        const currentSessionMessages = sessionMessages.value.get(deletedMessage.sessionId) ?? EMPTY_MESSAGES
-        const nextSessionMessages = currentSessionMessages.filter(message => message.id !== id)
-        if (nextSessionMessages.length === 0) {
-          clearSessionDerivedState(deletedMessage.sessionId)
-        } else {
-          setSessionMessages(deletedMessage.sessionId, nextSessionMessages)
-        }
+    const index = messages.value.findIndex(m => m.id === id)
+    if (index !== -1) {
+      const deletedMessage = messages.value[index]
+      messages.value.splice(index, 1)
+      const currentSessionMessages = sessionMessages.value.get(deletedMessage.sessionId) ?? EMPTY_MESSAGES
+      const nextSessionMessages = currentSessionMessages.filter(message => message.id !== id)
+      if (nextSessionMessages.length === 0) {
+        clearSessionDerivedState(deletedMessage.sessionId)
+      } else {
+        setSessionMessages(deletedMessage.sessionId, nextSessionMessages)
       }
-    } catch (error) {
-      console.error('Failed to delete message:', error)
-      notificationStore.databaseError(
-        '删除消息失败',
-        getErrorMessage(error),
-        () => deleteMessage(id)
-      )
-      throw error
     }
   }
 
@@ -831,74 +686,47 @@ export const useMessageStore = defineStore('message', () => {
    * 与分页缓冲。后端按 (created_at, seq) 判定顺序，这里复用已排序的会话消息快照。
    */
   async function deleteMessagesAfter(sessionId: string, anchorMessageId: string): Promise<number> {
-    const notificationStore = useNotificationStore()
-
-    try {
-      const deletedCount = await invoke<number>('delete_messages_after', { sessionId, anchorMessageId })
-      if (deletedCount <= 0) {
-        return 0
-      }
-
-      const currentSessionMessages = sessionMessages.value.get(sessionId) ?? EMPTY_MESSAGES
-      const anchorIndex = currentSessionMessages.findIndex(message => message.id === anchorMessageId)
-      if (anchorIndex !== -1) {
-        const remainingSessionMessages = currentSessionMessages.slice(0, anchorIndex + 1)
-        const removedIds = new Set(
-          currentSessionMessages.slice(anchorIndex + 1).map(message => message.id)
-        )
-
-        if (remainingSessionMessages.length === 0) {
-          clearSessionDerivedState(sessionId)
-        } else {
-          setSessionMessages(sessionId, remainingSessionMessages)
-        }
-
-        // 清理全局 messages 数组与缓冲写入状态
-        for (const messageId of removedIds) {
-          const timer = pendingMessageTimers.get(messageId)
-          if (timer) {
-            clearTimeout(timer)
-            pendingMessageTimers.delete(messageId)
-          }
-          pendingMessageUpdates.delete(messageId)
-          inFlightMessageFlushes.delete(messageId)
-        }
-        messages.value = messages.value.filter(message => !removedIds.has(message.id))
-      }
-
-      return deletedCount
-    } catch (error) {
-      console.error('Failed to delete messages after:', error)
-      notificationStore.databaseError(
-        '删除后续消息失败',
-        getErrorMessage(error),
-        () => { void deleteMessagesAfter(sessionId, anchorMessageId) }
-      )
-      throw error
+    const currentSessionMessages = sessionMessages.value.get(sessionId) ?? EMPTY_MESSAGES
+    const anchorIndex = currentSessionMessages.findIndex(message => message.id === anchorMessageId)
+    if (anchorIndex === -1) {
+      return 0
     }
+
+    const remainingSessionMessages = currentSessionMessages.slice(0, anchorIndex + 1)
+    const removedIds = new Set(
+      currentSessionMessages.slice(anchorIndex + 1).map(message => message.id)
+    )
+    const deletedCount = removedIds.size
+
+    if (remainingSessionMessages.length === 0) {
+      clearSessionDerivedState(sessionId)
+    } else {
+      setSessionMessages(sessionId, remainingSessionMessages)
+    }
+
+    // 清理全局 messages 数组与缓冲写入状态
+    for (const messageId of removedIds) {
+      const timer = pendingMessageTimers.get(messageId)
+      if (timer) {
+        clearTimeout(timer)
+        pendingMessageTimers.delete(messageId)
+      }
+      pendingMessageUpdates.delete(messageId)
+      inFlightMessageFlushes.delete(messageId)
+    }
+    messages.value = messages.value.filter(message => !removedIds.has(message.id))
+
+    return deletedCount
   }
 
   async function clearSessionMessages(sessionId: string) {
-    const notificationStore = useNotificationStore()
+    clearSessionMessagesCache(sessionId)
 
-    try {
-      await invoke('clear_session_messages', { sessionId })
-      clearSessionMessagesCache(sessionId)
-
-      const sessionStore = useSessionStore()
-      const session = sessionStore.sessions.find(item => item.id === sessionId)
-      if (session) {
-        session.lastMessage = undefined
-        session.messageCount = 0
-      }
-    } catch (error) {
-      console.error('Failed to clear session messages:', error)
-      notificationStore.databaseError(
-        '清空会话消息失败',
-        getErrorMessage(error),
-        () => clearSessionMessages(sessionId)
-      )
-      throw error
+    const sessionStore = useSessionStore()
+    const session = sessionStore.sessions.find(item => item.id === sessionId)
+    if (session) {
+      session.lastMessage = undefined
+      session.messageCount = 0
     }
   }
 

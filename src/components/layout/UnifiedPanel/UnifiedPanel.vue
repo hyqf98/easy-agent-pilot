@@ -12,7 +12,6 @@ const {
   t,
   EaIcon,
   EaButton,
-  EaSkeleton,
   ProjectCreateModal,
   UnifiedPanelConfirmDialog,
   UnifiedPanelProjectEntry,
@@ -40,7 +39,6 @@ const {
   closeDeleteProjectConfirm,
   confirmDeleteProject,
   handleAddSession,
-  handleCreateSession,
   handleRequestHide,
   handleSelectSession,
   handleTogglePin,
@@ -71,16 +69,6 @@ const {
           <EaIcon
             name="refresh-cw"
             :size="13"
-          />
-        </button>
-        <button
-          class="header-action-btn"
-          :title="t('session.newSession')"
-          @click="handleCreateSession"
-        >
-          <EaIcon
-            name="plus"
-            :size="14"
           />
         </button>
         <button
@@ -116,22 +104,16 @@ const {
         class="project-loading"
       >
         <div
-          v-for="i in 5"
+          v-for="i in 4"
           :key="i"
           class="project-skeleton"
         >
-          <EaSkeleton
-            variant="circle"
-            height="18px"
-            width="18px"
-            animation="wave"
-          />
-          <EaSkeleton
-            variant="text"
-            height="13px"
-            :width="`${60 + Math.random() * 24}%`"
-            animation="wave"
-          />
+          <span class="project-skeleton__arrow" />
+          <span class="project-skeleton__icon" />
+          <div class="project-skeleton__body">
+            <span class="project-skeleton__line project-skeleton__line--name" />
+            <span class="project-skeleton__line project-skeleton__line--meta" />
+          </div>
         </div>
       </div>
 
@@ -163,12 +145,30 @@ const {
         v-else-if="projectStore.projects.length === 0"
         class="project-empty"
       >
+        <div class="project-empty__illustration">
+          <EaIcon
+            name="folder-plus"
+            :size="32"
+            class="project-empty__icon"
+          />
+        </div>
         <p class="project-empty__title">
           {{ t('unified.projectEmptyTitle') }}
         </p>
         <p class="project-empty__hint">
           {{ t('unified.projectEmptyHint') }}
         </p>
+        <EaButton
+          type="secondary"
+          size="small"
+          @click="handleAddProject"
+        >
+          <EaIcon
+            name="plus"
+            :size="12"
+          />
+          <span>{{ t('project.createProject') }}</span>
+        </EaButton>
       </div>
 
       <div
@@ -188,6 +188,8 @@ const {
           :editing-session-id="editingSessionId"
           :editing-session-name="editingSessionName"
           :imported-time-label="formatImportTime(project.createdAt)"
+          :is-sessions-loading="sessionStore.loadingProjectIds.has(project.id)"
+          :is-acp-syncing="sessionStore.syncingProjectIds.has(project.id)"
           @toggle-project="handleProjectCardClick"
           @open-project-files="handleOpenProjectFiles"
           @edit-project="handleEditProject"

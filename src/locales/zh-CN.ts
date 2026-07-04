@@ -232,7 +232,8 @@ const zhCN = {
     monthsAgo: '{months} 个月前',
     yearsAgo: '{years} 年前',
     imported: '导入',
-    messages: '{count} 条消息'
+    messages: '{count} 条消息',
+    syncing: '同步中'
   },
   project: {
     ...enUS.project,
@@ -452,6 +453,7 @@ const zhCN = {
     },
     // 分割线（回合状态机）文案
     workDivider: {
+      awaiting: '等待响应…',
       working: '正在工作',
       completed: '工作完成',
       interrupted: '工作已中断',

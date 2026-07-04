@@ -27,8 +27,6 @@ const { openSessionTarget } = useSessionView()
 
 // 标签栏容器引用
 const tabsContainerRef = ref<HTMLElement | null>(null)
-// 正在切换的标签 ID（用于视觉反馈）
-const switchingTabId = ref<string | null>(null)
 
 const contextMenuState = ref<{
   visible: boolean
@@ -160,13 +158,7 @@ const switchToSession = async (sessionId: string) => {
     return
   }
 
-  switchingTabId.value = sessionId
-
-  try {
-    await openSessionTarget(sessionId)
-  } finally {
-    switchingTabId.value = null
-  }
+  await openSessionTarget(sessionId)
 }
 
 const syncSidebarToSession = (sessionId: string) => {
@@ -358,7 +350,6 @@ watch(() => sessionStore.openSessionIds.join(':'), () => {
     sessionStore,
     splitPaneStore,
     tabsContainerRef,
-    switchingTabId,
     contextMenuState,
     isDragging,
     dragSessionId,

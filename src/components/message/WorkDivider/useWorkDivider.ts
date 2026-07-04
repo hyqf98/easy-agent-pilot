@@ -35,6 +35,9 @@ export function useWorkDivider(props: WorkDividerProps) {
     )
   )
 
+  // 等待 AI 首个事件：本回合尚无任何 assistant 消息
+  const isAwaitingFirstResponse = computed(() => requestAssistantMessages.value.length === 0)
+
   const isRequestActive = computed(() =>
     requestAssistantMessages.value.some(message => message.status === 'streaming')
   )
@@ -69,6 +72,7 @@ export function useWorkDivider(props: WorkDividerProps) {
   })
 
   const workDividerLabel = computed(() => {
+    if (isAwaitingFirstResponse.value) return t('message.workDivider.awaiting')
     switch (requestTerminalStatus.value) {
       case 'active': return t('message.workDivider.working')
       case 'interrupted': return t('message.workDivider.interrupted')
@@ -78,6 +82,7 @@ export function useWorkDivider(props: WorkDividerProps) {
   })
 
   const workDividerIcon = computed(() => {
+    if (isAwaitingFirstResponse.value) return 'loader-circle'
     switch (requestTerminalStatus.value) {
       case 'active': return 'loader-circle'
       case 'interrupted': return 'square'
@@ -86,9 +91,10 @@ export function useWorkDivider(props: WorkDividerProps) {
     }
   })
 
-  const workDividerStatusClass = computed(
-    () => `work-divider--${requestTerminalStatus.value}`
-  )
+  const workDividerStatusClass = computed(() => {
+    if (isAwaitingFirstResponse.value) return 'work-divider--awaiting'
+    return `work-divider--${requestTerminalStatus.value}`
+  })
 
   watch(isRequestActive, (active) => {
     if (active && !tickTimer) {
@@ -112,6 +118,7 @@ export function useWorkDivider(props: WorkDividerProps) {
   return {
     t,
     EaIcon,
+    isAwaitingFirstResponse,
     workDurationLabel,
     workDividerLabel,
     workDividerIcon,

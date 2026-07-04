@@ -7,7 +7,6 @@ const {
   sessionStore,
   splitPaneStore,
   tabsContainerRef,
-  switchingTabId,
   contextMenuState,
   isDragging,
   dragSessionId,
@@ -44,7 +43,6 @@ const {
         class="session-tabs__tab"
         :class="{
           'session-tabs__tab--active': session.id === sessionStore.currentSessionId,
-          'session-tabs__tab--switching': session.id === switchingTabId,
           'session-tabs__tab--dragging': isDragging && dragSessionId === session.id
         }"
         :title="index < 5 ? `${session.name} (Ctrl+${index + 1})` : session.name"

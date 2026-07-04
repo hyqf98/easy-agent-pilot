@@ -17,6 +17,10 @@ export interface UnifiedPanelProjectEntryProps {
   editingSessionId: string | null
   editingSessionName: string
   importedTimeLabel: string
+  /** 会话列表是否正在加载（首次拉取） */
+  isSessionsLoading?: boolean
+  /** 是否正在从 ACP 同步会话 */
+  isAcpSyncing?: boolean
 }
 
 export interface UnifiedPanelProjectEntryEmits {
@@ -210,6 +214,8 @@ export function useUnifiedPanelProjectEntry(props: UnifiedPanelProjectEntryProps
     hasHiddenSessions,
     selectedSessions,
     hasSelectedSessions,
+    isSessionsLoading: computed(() => props.isSessionsLoading ?? false),
+    isAcpSyncing: computed(() => props.isAcpSyncing ?? false),
     handleStartEditSession,
     toggleSessionSelection,
     clearSelectedSessions,

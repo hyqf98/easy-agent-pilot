@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 use anyhow::Result;
 use async_trait::async_trait;
+use rusqlite::params;
 use tauri::{AppHandle, Emitter};
 
 use agent_client_protocol::schema::{
@@ -24,10 +25,10 @@ use crate::commands::conversation::abort::{
     clear_abort_flag, should_abort,
     unregister_session_pid,
 };
-use crate::commands::conversation::message_recorder::{RecordableEvent, RecordResult};
 use crate::commands::conversation::strategy::{AgentExecutionStrategy, AgentRuntimeKind};
 use crate::commands::conversation::types::{AcpStreamEvent, ExecutionRequest, McpServerConfig};
 use crate::commands::mcp_shared::parse_args_string;
+use crate::commands::support::{now_rfc3339, open_db_connection};
 
 pub struct AcpStrategy;
 
@@ -208,18 +209,77 @@ fn resolve_permission_outcome(
     RequestPermissionOutcome::Cancelled
 }
 
-/// 把 `record()` 返回的 `RecordResult`（messageId / seq / isAppend）回填到 StreamEvent，
-/// 供前端通过这三个字段直接创建或追加消息行，无需本地自行生成 ID。
-fn with_record_fields(
-    mut event: AcpStreamEvent,
-    result: &anyhow::Result<RecordResult>,
-) -> AcpStreamEvent {
-    if let Ok(r) = result {
-        event.message_id = r.message_id.clone();
-        event.seq = r.seq;
-        event.is_append = Some(r.is_append);
-    }
-    event
+/// 写入文件变更记录到 file_change_traces 表。
+///
+/// 以 (session_id, tool_call_id, file_path) 为唯一键做 UPSERT：流式期间一个工具
+/// 可能多次更新同一文件，用最后一次（终态）覆盖。保留最早一次的 status，避免
+/// 覆盖用户已采纳/回滚的状态。
+fn write_file_change_trace(
+    session_id: &str,
+    request_id: &str,
+    tool_call_id: &str,
+    file_path: &str,
+    relative_path: &str,
+    change_type: &str,
+    before_content: Option<&str>,
+    after_content: &str,
+) -> Result<(), String> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = now_rfc3339();
+    // seq 不再需要（recorder 移除），使用 0 作为占位
+    let seq: i64 = 0;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
+    conn.execute(
+        "INSERT INTO file_change_traces \
+         (id, session_id, request_id, tool_call_id, file_path, relative_path, change_type, \
+          before_content, after_content, status, created_at, seq) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending', ?10, ?11) \
+         ON CONFLICT(session_id, tool_call_id, file_path) DO UPDATE SET \
+          relative_path = excluded.relative_path, \
+          change_type = excluded.change_type, \
+          before_content = COALESCE(excluded.before_content, file_change_traces.before_content), \
+          after_content = excluded.after_content",
+        params![
+            &id,
+            session_id,
+            request_id,
+            tool_call_id,
+            file_path,
+            relative_path,
+            change_type,
+            before_content,
+            after_content,
+            &now,
+            seq,
+        ],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// 写入 Agent Plan 快照到 agent_plan_snapshots 表。
+///
+/// 以 (session_id, request_id) 为唯一键做 UPSERT：一个回合内 Agent 可能多次
+/// 下发 Plan（全量替换语义），用最后一次（终态）覆盖。
+fn write_agent_plan_snapshot(
+    session_id: &str,
+    request_id: &str,
+    plan_json: &str,
+) -> Result<(), String> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = now_rfc3339();
+    let seq: i64 = 0;
+    let conn = open_db_connection().map_err(|e| e.to_string())?;
+    conn.execute(
+        "INSERT INTO agent_plan_snapshots \
+         (id, session_id, request_id, plan_json, created_at, updated_at, seq) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
+         ON CONFLICT(session_id, request_id) DO UPDATE SET \
+          plan_json = excluded.plan_json, \
+          updated_at = excluded.updated_at, \
+          seq = excluded.seq",
+        params![&id, session_id, request_id, plan_json, &now, &now, seq],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 fn build_permission_event(
@@ -758,13 +818,6 @@ impl AgentExecutionStrategy for AcpStrategy {
         let session_id = request.session_id.clone();
         let request_id = request.request_id.clone();
         let event_name = AgentRuntimeKind::Acp.event_name(&session_id);
-        // 后端成为消息 DB 的唯一写入方：每个事件先落库再 emit 给前端实时渲染
-        let recorder = std::sync::Arc::new(
-            crate::commands::conversation::message_recorder::MessageRecorder::new(
-                session_id.clone(),
-                request_id.clone(),
-            ),
-        );
         let _plan_id = request.plan_id.clone();
         let acp_command = resolve_acp_command(&request.acp_command.clone());
         let working_directory = request.working_directory.clone();
@@ -789,8 +842,7 @@ impl AgentExecutionStrategy for AcpStrategy {
             Err(e) => {
                 let error_msg = format!("Failed to parse ACP command '{}': {}", acp_command, e);
                 log_error!("{}", error_msg);
-                let result = recorder.record(&RecordableEvent::Error(error_msg.clone()));
-                let _ = app.emit(&event_name, &with_record_fields(build_error_event(&session_id, &request_id, error_msg.clone()), &result));
+                let _ = app.emit(&event_name, &build_error_event(&session_id, &request_id, error_msg.clone()));
                 return Err(anyhow::anyhow!(error_msg));
             }
         };
@@ -804,8 +856,7 @@ impl AgentExecutionStrategy for AcpStrategy {
         if prompt_text.trim().is_empty() {
             let error_msg = "No prompt content provided".to_string();
             log_error!("{}", error_msg);
-            let result = recorder.record(&RecordableEvent::Error(error_msg.clone()));
-            let _ = app.emit(&event_name, &with_record_fields(build_error_event(&session_id, &request_id, error_msg.clone()), &result));
+            let _ = app.emit(&event_name, &build_error_event(&session_id, &request_id, error_msg.clone()));
             return Err(anyhow::anyhow!(error_msg));
         }
 
@@ -813,7 +864,6 @@ impl AgentExecutionStrategy for AcpStrategy {
         let session_id_for_handler = session_id.clone();
         let request_id_for_handler = request_id.clone();
         let event_name_for_handler = event_name.clone();
-        let recorder_for_handler = recorder.clone();
 
         // done/清理阶段在闭包外仍需 session_id，提前克隆（闭包会 move 原值）
         let session_id_cleanup = session_id.clone();
@@ -861,23 +911,6 @@ impl AgentExecutionStrategy for AcpStrategy {
                         resolve_permission_outcome(&mode, &request.options)
                     };
 
-                    let outcome_str = match &outcome {
-                        RequestPermissionOutcome::Selected(sel) => {
-                            request.options.iter()
-                                .find(|o| o.option_id == sel.option_id)
-                                .map(|o| format!("{} ({:?})", o.name, o.kind))
-                                .unwrap_or_else(|| "selected".to_string())
-                        }
-                        RequestPermissionOutcome::Cancelled => "cancelled".to_string(),
-                        _ => "unknown".to_string(),
-                    };
-
-                    // 落库：持久化权限决策结果
-                    let _ = recorder_for_handler.record(&RecordableEvent::Permission {
-                        tool_name: tool_title.clone(),
-                        outcome: outcome_str,
-                    });
-
                     let _ = app_for_handler.emit(
                         &event_name_for_handler,
                         &build_permission_event(
@@ -895,7 +928,6 @@ impl AgentExecutionStrategy for AcpStrategy {
                 on_receive_request!(),
             )
             .connect_with(agent, async move |connection| {
-                let recorder_inner = recorder.clone();
                 let mut session_request = if let Some(ref cwd) = working_directory {
                     NewSessionRequest::new(cwd)
                 } else {
@@ -1055,12 +1087,9 @@ impl AgentExecutionStrategy for AcpStrategy {
                 loop {
                     if should_abort(&session_id).await {
                         log_info!("ACP abort requested | session_id={}", session_id);
-                            let result = recorder_inner.record(&RecordableEvent::System(
-                                "Execution cancelled by user.".to_string(),
-                            ));
                             let _ = app.emit(
                                 &event_name,
-                                &with_record_fields(build_system_event(&session_id, &request_id, "Execution cancelled by user.".to_string()), &result),
+                                &build_system_event(&session_id, &request_id, "Execution cancelled by user.".to_string()),
                             );
                         break;
                     }
@@ -1079,8 +1108,7 @@ impl AgentExecutionStrategy for AcpStrategy {
                             now,
                         );
                         log_error!("{}", error_msg);
-                        let result = recorder_inner.record(&RecordableEvent::Error(error_msg.clone()));
-                        let _ = app.emit(&event_name, &with_record_fields(build_error_event(&session_id, &request_id, error_msg.clone()), &result));
+                        let _ = app.emit(&event_name, &build_error_event(&session_id, &request_id, error_msg.clone()));
                         break;
                     }
 
@@ -1100,10 +1128,9 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                                 ContentBlock::Text(t) => t.text.clone(),
                                                                 other => format!("{:?}", other),
                                                             };
-                                                            let result = recorder_inner.record(&RecordableEvent::TextChunk(text.clone()));
                                                             let _ = app.emit(
                                                                 &event_name,
-                                                                &with_record_fields(build_content_event(&session_id, &request_id, text), &result),
+                                                                &build_content_event(&session_id, &request_id, text),
                                                             );
                                                         }
                                                         SessionUpdate::AgentThoughtChunk(chunk) => {
@@ -1111,10 +1138,9 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                                 ContentBlock::Text(t) => t.text.clone(),
                                                                 other => format!("{:?}", other),
                                                             };
-                                                            let result = recorder_inner.record(&RecordableEvent::ThinkingChunk(text.clone()));
                                                             let _ = app.emit(
                                                                 &event_name,
-                                                                &with_record_fields(build_thinking_event(&session_id, &request_id, text), &result),
+                                                                &build_thinking_event(&session_id, &request_id, text),
                                                             );
                                                         }
                                                         SessionUpdate::ToolCall(tool_call) => {
@@ -1128,24 +1154,16 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                                 &tool_call.locations,
                                                                 working_directory.as_deref(),
                                                             ));
-                                                            let result = recorder_inner.record(&RecordableEvent::ToolUse {
-                                                                tool_call_id: tool_call.tool_call_id.to_string(),
-                                                                name: tool_call.title.clone(),
-                                                                input: tool_input_str.clone(),
-                                                            });
                                                             let _ = app.emit(
                                                                 &event_name,
-                                                                &with_record_fields(
-                                                                    build_tool_use_event(
-                                                                        &session_id,
-                                                                        &request_id,
-                                                                        tool_call.tool_call_id.to_string(),
-                                                                        tool_call.title,
-                                                                        tool_input_str,
-                                                                        tool_kind,
-                                                                        tool_locations,
-                                                                    ),
-                                                                    &result,
+                                                                &build_tool_use_event(
+                                                                    &session_id,
+                                                                    &request_id,
+                                                                    tool_call.tool_call_id.to_string(),
+                                                                    tool_call.title,
+                                                                    tool_input_str,
+                                                                    tool_kind,
+                                                                    tool_locations,
                                                                 ),
                                                             );
                                                         }
@@ -1172,11 +1190,6 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                             if let Some(raw_input) = &tool_update.fields.raw_input {
                                                                 let input_str = serde_json::to_string(raw_input).unwrap_or_default();
                                                                 if !input_str.is_empty() && input_str != "{}" {
-                                                                    // 落库：更新已持久化的 tool_use 行的 tool_input
-                                                                    let _ = recorder_inner.record(&RecordableEvent::ToolInputUpdate {
-                                                                        tool_call_id: tool_update.tool_call_id.to_string(),
-                                                                        input: input_str.clone(),
-                                                                    });
                                                                     let input_kind = tool_kind.clone();
                                                                     let input_locs = tool_update.fields.locations
                                                                         .as_ref()
@@ -1213,22 +1226,15 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                                 }
                                                             }
 
-                                                            let result = recorder_inner.record(&RecordableEvent::ToolResult {
-                                                                tool_call_id: tool_update.tool_call_id.to_string(),
-                                                                result: result_text.clone(),
-                                                            });
                                                             let _ = app.emit(
                                                                 &event_name,
-                                                                &with_record_fields(
-                                                                    build_tool_result_event(
-                                                                        &session_id,
-                                                                        &request_id,
-                                                                        tool_update.tool_call_id.to_string(),
-                                                                        result_text,
-                                                                        tool_kind,
-                                                                        tool_locations,
-                                                                    ),
-                                                                    &result,
+                                                                &build_tool_result_event(
+                                                                    &session_id,
+                                                                    &request_id,
+                                                                    tool_update.tool_call_id.to_string(),
+                                                                    result_text,
+                                                                    tool_kind,
+                                                                    tool_locations,
                                                                 ),
                                                             );
 
@@ -1251,73 +1257,75 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                                     before_content: diff.old_text.clone(),
                                                                     after_content: diff.new_text.clone(),
                                                                 };
-                                                                let result = recorder_inner.record(&RecordableEvent::FileEdit {
-                                                                    tool_call_id: tool_call_id.clone(),
-                                                                    file_path: file_path.clone(),
-                                                                    relative_path: relative_path.clone(),
-                                                                    change_type: change_type.to_string(),
-                                                                    before_content: diff.old_text.clone(),
-                                                                    after_content: diff.new_text.clone(),
-                                                                });
+                                                                let result = write_file_change_trace(
+                                                                    &session_id,
+                                                                    &request_id,
+                                                                    &tool_call_id,
+                                                                    &file_path,
+                                                                    &relative_path,
+                                                                    change_type,
+                                                                    diff.old_text.as_deref(),
+                                                                    &diff.new_text,
+                                                                );
+                                                                if let Err(e) = result {
+                                                                    log_error!("Failed to write file_change_trace | session_id={} | error={}", session_id, e);
+                                                                }
                                                                 let _ = app.emit(
                                                                     &event_name,
-                                                                    &with_record_fields(build_file_edit_event(&session_id, &request_id, view), &result),
+                                                                    &build_file_edit_event(&session_id, &request_id, view),
                                                                 );
                                                             }
                                                         }
                                                         SessionUpdate::Plan(plan) => {
                                                             let plan_json = serde_json::to_string(&plan)
                                                                 .unwrap_or_default();
-                                                            // 与所有 SessionUpdate 分支一致的 record + emit 双写：
                                                             // 落库到 agent_plan_snapshots（同回合 UPSERT 为终态），
                                                             // 同时下发 live 事件供右侧计划面板实时更新。
-                                                            let result = recorder_inner.record(&RecordableEvent::AgentPlan {
-                                                                plan_json: plan_json.clone(),
-                                                            });
+                                                            let result = write_agent_plan_snapshot(
+                                                                &session_id,
+                                                                &request_id,
+                                                                &plan_json,
+                                                            );
+                                                            if let Err(e) = result {
+                                                                log_error!("Failed to write agent_plan_snapshot | session_id={} | error={}", session_id, e);
+                                                            }
                                                             let _ = app.emit(
                                                                 &event_name,
-                                                                &with_record_fields(build_plan_event(&session_id, &request_id, plan_json), &result),
+                                                                &build_plan_event(&session_id, &request_id, plan_json),
                                                             );
                                                         }
                                                         SessionUpdate::UsageUpdate(usage) => {
                                                             monitor.note_activity(false);
                                                             let cost_str = usage.cost.as_ref()
                                                                 .map(|c| serde_json::to_string(c).unwrap_or_default());
-                                                            let result = recorder_inner.record(&RecordableEvent::ContextWindow {
-                                                                used: Some(usage.used as u32),
-                                                                size: Some(usage.size as u32),
-                                                            });
                                                             let _ = app.emit(
                                                                 &event_name,
-                                                                &with_record_fields(
-                                                                    AcpStreamEvent {
-                                                                        event_type: "context_window".to_string(),
-                                                                        session_id: session_id.clone(),
-                                                                        request_id: Some(request_id.clone()),
-                                                                        content: cost_str,
-                                                                        tool_name: None,
-                                                                        tool_call_id: None,
-                                                                        tool_input: None,
-                                                                        tool_result: None,
-                                                                        error: None,
-                                                                        input_tokens: Some(usage.used as u32),
-                                                                        output_tokens: Some(usage.size as u32),
-                                                                        raw_input_tokens: None,
-                                                                        raw_output_tokens: None,
-                                                                        cache_read_input_tokens: None,
-                                                                        cache_creation_input_tokens: None,
-                                                                        model: None,
-                                                                        external_session_id: None,
-                                                                        permission_options: None,
-                                                                        file_edit: None,
-                                                                        tool_kind: None,
-                                                                        tool_locations: None,
-                                                                        message_id: None,
-                                                                        seq: None,
-                                                                        is_append: None,
-                                                                    },
-                                                                    &result,
-                                                                ),
+                                                                &AcpStreamEvent {
+                                                                    event_type: "context_window".to_string(),
+                                                                    session_id: session_id.clone(),
+                                                                    request_id: Some(request_id.clone()),
+                                                                    content: cost_str,
+                                                                    tool_name: None,
+                                                                    tool_call_id: None,
+                                                                    tool_input: None,
+                                                                    tool_result: None,
+                                                                    error: None,
+                                                                    input_tokens: Some(usage.used as u32),
+                                                                    output_tokens: Some(usage.size as u32),
+                                                                    raw_input_tokens: None,
+                                                                    raw_output_tokens: None,
+                                                                    cache_read_input_tokens: None,
+                                                                    cache_creation_input_tokens: None,
+                                                                    model: None,
+                                                                    external_session_id: None,
+                                                                    permission_options: None,
+                                                                    file_edit: None,
+                                                                    tool_kind: None,
+                                                                    tool_locations: None,
+                                                                    message_id: None,
+                                                                    seq: None,
+                                                                    is_append: None,
+                                                                },
                                                             );
                                                         }
                                                         SessionUpdate::SessionInfoUpdate(info) => {
@@ -1402,10 +1410,9 @@ impl AgentExecutionStrategy for AcpStrategy {
                                         log_info!("ACP session ended normally | session_id={}", session_id);
                                     } else {
                                         log_error!("ACP read error | session_id={} | error={}", session_id, error_str);
-                                        let result = recorder_inner.record(&RecordableEvent::Error(format!("ACP session error: {}", error_str)));
                                         let _ = app.emit(
                                             &event_name,
-                                            &with_record_fields(build_error_event(&session_id, &request_id, format!("ACP session error: {}", error_str)), &result),
+                                            &build_error_event(&session_id, &request_id, format!("ACP session error: {}", error_str)),
                                         );
                                     }
                                     break;
@@ -1422,27 +1429,16 @@ impl AgentExecutionStrategy for AcpStrategy {
                                 snapshot.cache_read_input_tokens.unwrap_or(0),
                                 snapshot.cache_creation_input_tokens.unwrap_or(0),
                             );
-                            let result = recorder_inner.record(&RecordableEvent::Usage {
-                                input_tokens: snapshot.input_tokens,
-                                output_tokens: snapshot.output_tokens,
-                                cache_read_tokens: snapshot.cache_read_input_tokens,
-                                cache_creation_tokens: snapshot.cache_creation_input_tokens,
-                                model: None,
-                                cost: None,
-                            });
                             let _ = app.emit(
                                 &event_name,
-                                &with_record_fields(
-                                    build_usage_event(
-                                        &session_id,
-                                        &request_id,
-                                        snapshot.input_tokens,
-                                        snapshot.output_tokens,
-                                        snapshot.cache_read_input_tokens,
-                                        snapshot.cache_creation_input_tokens,
-                                        None,
-                                    ),
-                                    &result,
+                                &build_usage_event(
+                                    &session_id,
+                                    &request_id,
+                                    snapshot.input_tokens,
+                                    snapshot.output_tokens,
+                                    snapshot.cache_read_input_tokens,
+                                    snapshot.cache_creation_input_tokens,
+                                    None,
                                 ),
                             );
                             break;
@@ -1459,8 +1455,7 @@ impl AgentExecutionStrategy for AcpStrategy {
                     }
                 }
 
-                // done 阶段：收尾累积行 + 发送 done 事件（闭包内自包含，避免 move 后借用）
-                let _ = recorder_inner.finalize();
+                // done 阶段：发送 done 事件（闭包内自包含，避免 move 后借用）
                 let _ = app.emit(&event_name, &build_done_event(&session_id, &request_id));
                 log_info!("ACP execution completed | session_id={}", session_id);
 

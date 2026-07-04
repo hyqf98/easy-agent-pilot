@@ -72,10 +72,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  min-width: 18px;
-  height: 18px;
-  margin-top: 1px;
+  width: 14px;
+  min-width: 14px;
+  height: 14px;
   flex-shrink: 0;
 }
 
@@ -485,6 +484,21 @@
 
 .session-item--active {
   background: var(--workspace-list-active-bg);
+  position: relative;
+}
+
+/* 当前选中会话：左侧强调条 */
+.session-item--active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 60%;
+  border-radius: 0 3px 3px 0;
+  background: var(--workspace-text-primary, var(--color-text-primary));
+  opacity: 0.5;
 }
 
 .session-item--active:hover {

@@ -11,13 +11,10 @@ const emit = defineEmits<UnifiedPanelSessionListEmits>()
 const {
   t,
   EaIcon,
-  formatRelativeTime,
-  formatSessionCreatedAt,
   sessionListRef,
   openMenuSessionId,
   handleMenuToggle,
   handleCompactAction,
-  getStatusBadgeClass,
   shouldShowSessionStatusIcon,
   handleSessionClick
 } = useUnifiedPanelSessionList(props, emit)
@@ -115,59 +112,7 @@ const {
             >
               {{ session.name }}
             </span>
-            <span class="session-item__time">{{ formatRelativeTime(session.updatedAt) }}</span>
-            <span
-              v-if="session.status === 'paused'"
-              :class="['session-item__status-text', getStatusBadgeClass(session.status)]"
-            >
-              <span
-                class="session-item__status-dot"
-                :class="getStatusBadgeClass(session.status)"
-              />
-              已暂停
-            </span>
           </template>
-        </div>
-
-        <div
-          v-if="editingSessionId !== session.id"
-          class="session-item__meta"
-        >
-          <span
-            v-if="session.agentType"
-            class="session-item__meta-item"
-          >
-            <EaIcon
-              name="bot"
-              :size="10"
-            />
-            {{ session.agentType }}
-          </span>
-          <span
-            v-if="session.messageCount"
-            class="session-item__meta-item"
-          >
-            <EaIcon
-              name="message-square"
-              :size="10"
-            />
-            {{ t('unified.messages', { count: session.messageCount }) }}
-          </span>
-          <span class="session-item__meta-item session-item__meta-item--created">
-            <EaIcon
-              name="calendar"
-              :size="10"
-            />
-            {{ formatSessionCreatedAt(session.createdAt) }}
-          </span>
-        </div>
-
-        <div
-          v-if="session.lastMessage && editingSessionId !== session.id"
-          class="session-item__preview"
-          :title="session.lastMessage"
-        >
-          {{ session.lastMessage }}
         </div>
       </div>
 

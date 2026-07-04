@@ -111,10 +111,21 @@ export async function readCliSessionUsageSnapshot(
     return null
   }
 
-  const snapshot = await invoke<RawCliSessionUsageSnapshot | null>('read_cli_session_usage_snapshot', {
-    provider,
-    cliSessionId
-  })
+  let snapshot: RawCliSessionUsageSnapshot | null
+  try {
+    snapshot = await invoke<RawCliSessionUsageSnapshot | null>('read_cli_session_usage_snapshot', {
+      provider,
+      cliSessionId
+    })
+  } catch (error) {
+    // 该命令为可选能力（token 用量快照用于 UI 提示），后端未注册时静默降级，
+    // 避免每次会话加载/切换都刷屏 WARN。
+    const message = error instanceof Error ? error.message : String(error)
+    if (message.includes('not found') || message.includes('Unsupported')) {
+      return null
+    }
+    throw error
+  }
 
   return snapshot ? normalizeSnapshot(snapshot) : null
 }

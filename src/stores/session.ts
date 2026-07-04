@@ -97,6 +97,8 @@ export const useSessionStore = defineStore('session', () => {
   const openSessionIds = ref<string[]>([])
   const loadedProjectIds = ref<Set<string>>(new Set())
   const loadingProjectIds = ref<Set<string>>(new Set())
+  // 正在从 ACP (CLI 侧) 同步会话的项目 ID 集合
+  const syncingProjectIds = ref<Set<string>>(new Set())
   const EMPTY_SESSIONS: Session[] = []
 
   // Getters
@@ -280,6 +282,9 @@ export const useSessionStore = defineStore('session', () => {
       loadingProjectIds.value.delete(projectId)
       isLoading.value = false
     }
+
+    // 异步从 ACP 同步 CLI 侧最新会话（不阻塞 UI）
+    syncSessionsFromAcp(projectId).catch(() => {})
   }
 
   async function createSession(session: Omit<Session, 'id' | 'createdAt' | 'updatedAt' | 'pinned' | 'messageCount' | 'lastMessage'>) {
@@ -648,6 +653,119 @@ export const useSessionStore = defineStore('session', () => {
     }
   }
 
+  /**
+   * 从 ACP (CLI 侧) 同步会话到应用 sessions 表。
+   * - CLI 有但应用无 → 自动创建应用 session（创建后再 update 补充 cliSessionId/provider）
+   * - 标题变化 → 更新
+   * 异步执行，不阻塞调用方；出错只 console.warn 不弹通知。
+   */
+  async function syncSessionsFromAcp(projectId: string) {
+    syncingProjectIds.value.add(projectId)
+    try {
+      const { useProjectStore } = await import('@/stores/project')
+      const { useAgentStore, inferAgentProvider } = await import('@/stores/agent')
+      const { listSessions: listAcpSessions } = await import('@/services/cliSession')
+
+      const projectStore = useProjectStore()
+      const agentStore = useAgentStore()
+
+      // 确定使用的 agent：优先从当前项目已有会话取，否则取第一个有 acpCommand 的
+      const existingForProject = sessions.value.filter(s => s.projectId === projectId && s.agentId)
+      let agent = existingForProject.length > 0
+        ? agentStore.agents.find(a => a.id === existingForProject[0].agentId)
+        : undefined
+      if (!agent) {
+        agent = agentStore.agents.find(a => (a.acpCommand || a.cliPath))
+      }
+      const agentCmd = agent?.acpCommand || agent?.cliPath || ''
+      if (!agentCmd) return
+
+      const provider = inferAgentProvider(agent) || 'unknown'
+
+      // 不带 cwd 拉取全部会话（跨所有项目路径）
+      const acpResult = await listAcpSessions(agentCmd)
+
+      // cwd → projectId 的解析缓存（同一 cwd 多个会话只创建一次项目）
+      const cwdProjectCache = new Map<string, string | null>()
+
+      const resolveProjectForCwd = async (cwd: string | undefined | null): Promise<string | null> => {
+        if (!cwd) return null
+        if (cwdProjectCache.has(cwd)) return cwdProjectCache.get(cwd)!
+
+        // 每次重新读取最新的项目库（可能上一轮刚创建过）
+        const currentProjects = projectStore.projects
+        const matched = currentProjects.find(p => p.path === cwd)
+          || currentProjects.find(p => cwd.startsWith(p.path))
+        if (matched) {
+          cwdProjectCache.set(cwd, matched.id)
+          return matched.id
+        }
+
+        // 无对应项目 → 按 cwd 自动创建（名字取 basename）
+        const projectName = cwd.split('/').filter(Boolean).pop() || cwd
+        try {
+          const newProject = await projectStore.createProject({
+            name: projectName,
+            path: cwd,
+            memoryLibraryIds: [],
+          })
+          if (newProject) {
+            cwdProjectCache.set(cwd, newProject.id)
+            return newProject.id
+          }
+        } catch (error) {
+          console.warn('[sessionStore] 自动创建项目失败:', error)
+        }
+        cwdProjectCache.set(cwd, null)
+        return null
+      }
+
+      let hasChanges = false
+      for (const acpSession of acpResult.sessions) {
+        // 按 cwd 匹配到对应项目；匹配不到则自动创建
+        const targetProjectId = await resolveProjectForCwd(acpSession.cwd)
+        if (!targetProjectId) continue
+
+        const appSessions = sessions.value.filter(s => s.projectId === targetProjectId)
+        const existing = appSessions.find(s => s.cliSessionId === acpSession.sessionId)
+        if (!existing) {
+          // CLI 有但应用无 → 创建后补充 cliSessionId
+          const newSession = await createSession({
+            projectId: targetProjectId,
+            name: acpSession.title || `CLI Session ${acpSession.sessionId.slice(0, 8)}`,
+            agentId: agent?.id,
+            agentType: agent?.type || provider,
+            status: 'idle',
+          })
+          if (newSession) {
+            await updateSession(newSession.id, {
+              cliSessionId: acpSession.sessionId,
+              cliSessionProvider: provider,
+            })
+          }
+          hasChanges = true
+        } else if (acpSession.title && acpSession.title !== existing.name) {
+          await updateSession(existing.id, { name: acpSession.title })
+          hasChanges = true
+        }
+      }
+
+      if (hasChanges) {
+        // 重新加载所有受影响的项目（用缓存里已解析的 cwd→projectId）
+        const affectedProjectIds = new Set(
+          Array.from(cwdProjectCache.values()).filter(Boolean) as string[]
+        )
+        for (const pid of affectedProjectIds) {
+          await loadSessions(pid, { force: true })
+        }
+      }
+    } catch (error) {
+      console.warn('[sessionStore] ACP 同步失败:', error)
+    } finally {
+      syncingProjectIds.value.delete(projectId)
+    }
+  }
+
   // 监听 openSessionIds 变化并自动保存
   watch(openSessionIds, () => {
     saveOpenSessions()
@@ -668,6 +786,8 @@ export const useSessionStore = defineStore('session', () => {
     openSessionIds,
     loadedProjectIds,
     loadingProjectIds,
+    syncingProjectIds,
+    isProjectSessionsSyncing: (projectId: string) => syncingProjectIds.value.has(projectId),
     // Getters
     currentSession,
     sessionsByProject,
@@ -685,6 +805,7 @@ export const useSessionStore = defineStore('session', () => {
     updateLastMessage,
     isPlanMode,
     setPlanMode,
+    syncSessionsFromAcp,
     // 多会话管理
     openSession,
     closeSession,
