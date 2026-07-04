@@ -758,7 +758,7 @@ function parseFieldAttrs(attrs: string, body: string): FormField | null {
     const m = new RegExp(`${key}\\s*=\\s*("([^"]*)"|'([^']*)')`, 'i').exec(normalized)
     return m ? (m[2] ?? m[3] ?? '') : undefined
   }
-  const name = get('name')
+  const name = get('name') ?? get('id') ?? get('fieldId') ?? get('key')
   if (!name) return null
   const type = (get('type') || 'text') as FormField['type']
 

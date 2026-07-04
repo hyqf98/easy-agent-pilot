@@ -11,7 +11,7 @@ describe('parseStructuredContent — form-request field-tag parsing', () => {
     const blocks = parseStructuredContent(content)
     const formBlock = blocks.find(b => b.type === 'form')
     expect(formBlock).toBeTruthy()
-    expect(formBlock!.type === 'form' && formBlock.formSchema.fields.length).toBe(1)
+    expect(formBlock!.type === 'form' && formBlock!.formSchema.fields.length).toBe(1)
   })
 
   it('parses nested <field> with <options><option> children (model non-JSON format)', () => {
@@ -38,6 +38,25 @@ describe('parseStructuredContent — form-request field-tag parsing', () => {
     expect(projectType!.options!.length).toBe(3)
     expect(projectType!.options![0]).toEqual({ label: 'Web 应用', value: 'web' })
     expect(projectType!.options![2]).toEqual({ label: '移动应用', value: 'mobile' })
+  })
+
+  it('falls back to id attribute when name is absent (glm-5.2 uses id)', () => {
+    const content = `<form-request>
+<title>需求</title>
+<field id="project_type" label="项目类型" type="select" required="true">
+<options>
+<option value="web_app">Web 应用</option>
+</options>
+</field>
+</form-request>`
+    const blocks = parseStructuredContent(content)
+    const formBlock = blocks.find(b => b.type === 'form')
+    expect(formBlock).toBeTruthy()
+    if (formBlock?.type !== 'form') return
+    expect(formBlock.formSchema.fields.length).toBe(1)
+    expect(formBlock.formSchema.fields[0].name).toBe('project_type')
+    expect(formBlock.formSchema.fields[0].options).toBeDefined()
+    expect(formBlock.formSchema.fields[0].options!.length).toBe(1)
   })
 
   it('normalizes fullwidth quotes in field attributes', () => {
