@@ -7,9 +7,9 @@
 - Issue 3: TodoWrite 创建 5 个待办 → localStorage 持久化 → 重新加载会话 → 全部 5 个待办恢复（待办列表 0/5，展开显示「设计数据库表 待办」等）✓
 - Issue 4: 工具气泡渲染「修改 写入文件 greet.js」— 中文名 + 主文件紧凑显示 ✓
 - Issue 5: 工具展开 code max-height=220px(原无限) / result=280px(原360) + 滚动条(scrollHeight 3996 > clientHeight 220)✓
-- Issue 6: 写入 greet.js → 「修改了 1 个文件 greet.js +1 审查」→ 点击审查 → Monaco diff 面板 + 采纳/回滚按钮 ✓（+ raw_input 兜底兼容 OpenCode 的 filePath camelCase）
+- Issue 6: 单文件 greet.js → 「修改了 1 个文件」→ 审查 → Monaco diff + 采纳/回滚 ✓；多文件场景「修改了 3 个文件 config.json +5 / .env +5 / settings.yaml +11 审查」✓（+ raw_input 兜底 + isLastAssistantInRequest 多轮修复）
 - Issue 7: 流式中发送按钮变 square → 点击中断 → 「工作已中断」状态 + Retry 按钮 → 点击 Retry 重新生成 ✓（符合 Claude/ChatGPT/Copilot 规范）
-- Issue 8: AI 输出 <form-request> XML（含 <field> 标签）→ 提交 form_response JSON → 「用户已回答 1 个问题」气泡 → 展开显示 Q&A（color: red）✓（解析器兼容模型变体格式：嵌套 options/option、id 属性回退）
+- Issue 8: AI 输出 <form-request> XML（HTML <form><select><option> 变体）→ **ActiveFormPopup 渲染为可交互弹窗**（framework 字段 + Vue 建议 + 取消/提交按钮）→ 点击提交 → 弹窗关闭 → 「用户已回答 1 个问题」气泡 ✓（解析器兼容全部模型变体：嵌套 field/options、id 回退、HTML 原生表单）
 - Issue 9: 后端审计仅 1 dead fn (build_tokio_cli_command) + 1 unused import (ToolCall)，已清理；cargo check 通过 ✓
 - 复杂场景: 开发 4 文件 Node.js 注册登录系统（server.js/routes/auth.js/data/users.json/package.json）→ 修 bug 任务 → AI 调用 systematic-debugging 技能 + Phase 1 根因调查 → 读取文件 → 发现 bug 不存在 ✓
 - [x] Issue 4: 文件编辑气泡紧凑显示（主文件 basename 紧跟工具名）+ ACP 工具名中文化（Read→读取文件 等，集中到 src/utils/toolLabel.ts）— 13 单测
