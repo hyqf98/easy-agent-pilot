@@ -3,8 +3,10 @@ import { useMessageStore } from '@/stores/message'
 import {
   extractTodoSnapshotFromMessages,
   sortTodoItems,
-  type TodoItem
+  type TodoItem,
+  type TodoSnapshot
 } from '@/utils/todoToolCall'
+import { loadTodoSnapshot, saveTodoSnapshot } from '@/utils/todoPersistence'
 
 export interface ConversationTodoPanelProps {
   sessionId: string | null | undefined
@@ -58,7 +60,26 @@ export function useConversationTodoPanel(props: ConversationTodoPanelProps) {
     return extractTodoSnapshotFromMessages(messages)
   }
 
-  const todoSnapshot = computed(() => parseTodoSnapshot())
+  const messageDerivedSnapshot = computed<TodoSnapshot | null>(() => parseTodoSnapshot())
+
+  // 消息派生的快照非空时持久化（供下次会话恢复兜底）
+  watch(messageDerivedSnapshot, (snapshot) => {
+    if (props.sessionId) {
+      saveTodoSnapshot(props.sessionId, snapshot)
+    }
+  })
+
+  // todoSnapshot：优先用消息派生（CLI 回放），为空时回退到 localStorage 兜底
+  const todoSnapshot = computed<TodoSnapshot | null>(() => {
+    if (messageDerivedSnapshot.value) {
+      return messageDerivedSnapshot.value
+    }
+    // 消息中无 todo（可能 CLI 回放缺失），尝试从 localStorage 恢复
+    if (props.sessionId) {
+      return loadTodoSnapshot(props.sessionId)
+    }
+    return null
+  })
 
   const sortedTodoItems = computed(() => {
     return sortTodoItems(todoSnapshot.value?.items ?? [])
