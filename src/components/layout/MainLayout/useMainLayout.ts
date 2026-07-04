@@ -202,6 +202,7 @@ watch(
 
   return {
     uiStore,
+    fileChangeStore,
     splitPaneStore,
     isRightFilePanelOpen,
     rightFileProject,

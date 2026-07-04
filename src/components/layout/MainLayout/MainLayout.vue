@@ -3,6 +3,7 @@ import { useMainLayout } from './useMainLayout'
 
 const {
   uiStore,
+  fileChangeStore,
   splitPaneStore,
   isRightFilePanelOpen,
   rightFileProject,
@@ -131,6 +132,8 @@ const {
             <FileChangeReviewWorkspace
               v-if="uiStore.mainContentMode === 'fileDiff'"
               class="main-layout__file-editor"
+              :session-id="fileChangeStore.activeReviewSessionId ?? ''"
+              :request-id="fileChangeStore.activeReviewRequestId ?? ''"
               compact
             />
             <template v-else>

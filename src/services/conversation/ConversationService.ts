@@ -1535,10 +1535,19 @@ export class ConversationService {
 
           case 'file_edit':
             if (event.fileEdit) {
-              const exists = editTraces.some(t => t.id === event.fileEdit!.id)
+              // FileEditView 缺少 id/requestId/sessionId/timestamp，这里补全以便按 requestId 过滤
+              const traceId = `${event.fileEdit.toolCallId}::${event.fileEdit.filePath}`
+              const exists = editTraces.some(t => (t.id ?? `${t.toolCallId}::${t.filePath}`) === traceId)
               if (!exists) {
-                editTraces.push(event.fileEdit)
-                try { useFileChangeStore().ingestStreamEdit(sessionId, event.fileEdit) }
+                const enrichedTrace: FileEditTrace = {
+                  ...event.fileEdit,
+                  id: traceId,
+                  sessionId,
+                  requestId: context.requestId,
+                  timestamp: new Date().toISOString()
+                }
+                editTraces.push(enrichedTrace)
+                try { useFileChangeStore().ingestStreamEdit(sessionId, enrichedTrace) }
                 catch (err) { console.error('[fileChange] ingest stream edit failed', err) }
               }
             }

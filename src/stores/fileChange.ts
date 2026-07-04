@@ -175,6 +175,7 @@ export const useFileChangeStore = defineStore('fileChange', () => {
     tracesBySession,
     expandedRequests,
     activeReviewRequestId,
+    activeReviewSessionId: currentSessionId,
     selectedTraceId,
     selectedTrace,
     activeReviewTraces,
