@@ -690,6 +690,72 @@ fn extract_diffs_from_tool_call_content(
         .collect()
 }
 
+/// 当 ACP 工具更新未携带 `ToolCallContent::Diff`（如 OpenCode 等仅下发文本结果或 raw_input 的 CLI）时，
+/// 从 `raw_input`（工具参数 JSON）推导文件变更：识别 file_path/path + content/new_string/write_text。
+///
+/// 返回 (file_path, relative_path, change_type, before_content, after_content) 元组列表；
+/// 仅当工具 kind 为 edit/write 且能定位到 file_path 时返回非空。
+fn extract_file_edits_from_raw_input(
+    raw_input: &serde_json::Value,
+    kind: Option<&str>,
+    working_directory: Option<&str>,
+) -> Vec<RawFileEdit> {
+    // 仅对编辑/写入类工具生效
+    let is_edit_kind = matches!(kind, Some("edit") | Some("write"));
+    let obj = match raw_input {
+        serde_json::Value::Object(map) if is_edit_kind => map,
+        _ => return Vec::new(),
+    };
+
+    // 识别 file_path（ACP/常见工具参数名，兼容 snake_case 与 camelCase）
+    let file_path = obj
+        .get("file_path")
+        .or_else(|| obj.get("filePath"))
+        .or_else(|| obj.get("path"))
+        .or_else(|| obj.get("filename"))
+        .or_else(|| obj.get("fileName"))
+        .or_else(|| obj.get("file"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let Some(file_path) = file_path else { return Vec::new() };
+
+    // 识别写入内容：优先完整 content，其次 new_string（Edit 语义），再次 text/write_text
+    let after_content = obj
+        .get("content")
+        .or_else(|| obj.get("new_string"))
+        .or_else(|| obj.get("text"))
+        .or_else(|| obj.get("write_text"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let Some(after_content) = after_content else { return Vec::new() };
+
+    let before_content = obj.get("old_string").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let relative_path = relative_path_for(&file_path, working_directory);
+    // 推断变更类型：有 before_content 且非空 → modify；否则 → create
+    let change_type = if before_content.as_ref().is_some_and(|s| !s.is_empty()) {
+        "modify"
+    } else {
+        "create"
+    };
+
+    vec![RawFileEdit {
+        file_path,
+        relative_path,
+        change_type: change_type.to_string(),
+        before_content,
+        after_content,
+    }]
+}
+
+/// 从 raw_input 推导的文件编辑中间结构。
+struct RawFileEdit {
+    file_path: String,
+    relative_path: String,
+    change_type: String,
+    before_content: Option<String>,
+    after_content: String,
+}
+
 /// 将 ACP ToolKind 转为稳定的 snake_case 字符串（read/edit/delete/...）。
 ///
 /// ToolKind 本身 `#[serde(rename_all = "snake_case")]`，这里复用 serde 序列化，
@@ -1160,12 +1226,50 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                                     &session_id,
                                                                     &request_id,
                                                                     tool_call.tool_call_id.to_string(),
-                                                                    tool_call.title,
+                                                                    tool_call.title.clone(),
                                                                     tool_input_str,
-                                                                    tool_kind,
+                                                                    tool_kind.clone(),
                                                                     tool_locations,
                                                                 ),
                                                             );
+
+                                                            // 文件变更兜底：初始 ToolCall 已携带 raw_input（file_path + content）时，
+                                                            // 直接从此推导文件变更（适用于仅下发 raw_input 的 CLI，如 OpenCode）。
+                                                            if let Some(raw_input) = tool_call.raw_input.as_ref() {
+                                                                let edits = extract_file_edits_from_raw_input(
+                                                                    raw_input,
+                                                                    tool_kind.as_deref(),
+                                                                    working_directory.as_deref(),
+                                                                );
+                                                                for edit in edits {
+                                                                    let tool_call_id = tool_call.tool_call_id.to_string();
+                                                                    let view = super::super::types::FileEditView {
+                                                                        tool_call_id: tool_call_id.clone(),
+                                                                        file_path: edit.file_path.clone(),
+                                                                        relative_path: edit.relative_path.clone(),
+                                                                        change_type: edit.change_type.clone(),
+                                                                        before_content: edit.before_content.clone(),
+                                                                        after_content: edit.after_content.clone(),
+                                                                    };
+                                                                    let result = write_file_change_trace(
+                                                                        &session_id,
+                                                                        &request_id,
+                                                                        &tool_call_id,
+                                                                        &edit.file_path,
+                                                                        &edit.relative_path,
+                                                                        edit.change_type.as_str(),
+                                                                        edit.before_content.as_deref(),
+                                                                        &edit.after_content,
+                                                                    );
+                                                                    if let Err(e) = result {
+                                                                        log_error!("Failed to write file_change_trace (ToolCall raw_input) | session_id={} | error={}", session_id, e);
+                                                                    }
+                                                                    let _ = app.emit(
+                                                                        &event_name,
+                                                                        &build_file_edit_event(&session_id, &request_id, view),
+                                                                    );
+                                                                }
+                                                            }
                                                         }
                                                         SessionUpdate::ToolCallUpdate(tool_update) => {
                                                             let result_text = tool_update.fields.content
@@ -1238,42 +1342,80 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                                 ),
                                                             );
 
-                                                            // 文件变更追踪：从 ToolCallContent::Diff 捕获修改前/后内容
+                                                            // 文件变更追踪：优先从 ToolCallContent::Diff 捕获精确修改前/后内容
                                                             let diffs = tool_update.fields.content
                                                                 .as_ref()
                                                                 .map(|blocks| extract_diffs_from_tool_call_content(blocks))
                                                                 .unwrap_or_default();
                                                             let kind = tool_update.fields.kind.as_ref();
-                                                            for diff in diffs {
-                                                                let file_path = diff.path.to_string_lossy().into_owned();
-                                                                let relative_path = relative_path_for(&file_path, working_directory.as_deref());
-                                                                let change_type = infer_change_type(&diff.old_text, &diff.new_text, kind);
-                                                                let tool_call_id = tool_update.tool_call_id.to_string();
-                                                                let view = super::super::types::FileEditView {
-                                                                    tool_call_id: tool_call_id.clone(),
-                                                                    file_path: file_path.clone(),
-                                                                    relative_path: relative_path.clone(),
-                                                                    change_type: change_type.to_string(),
-                                                                    before_content: diff.old_text.clone(),
-                                                                    after_content: diff.new_text.clone(),
-                                                                };
-                                                                let result = write_file_change_trace(
-                                                                    &session_id,
-                                                                    &request_id,
-                                                                    &tool_call_id,
-                                                                    &file_path,
-                                                                    &relative_path,
-                                                                    change_type,
-                                                                    diff.old_text.as_deref(),
-                                                                    &diff.new_text,
-                                                                );
-                                                                if let Err(e) = result {
-                                                                    log_error!("Failed to write file_change_trace | session_id={} | error={}", session_id, e);
+                                                            if !diffs.is_empty() {
+                                                                for diff in diffs {
+                                                                    let file_path = diff.path.to_string_lossy().into_owned();
+                                                                    let relative_path = relative_path_for(&file_path, working_directory.as_deref());
+                                                                    let change_type = infer_change_type(&diff.old_text, &diff.new_text, kind);
+                                                                    let tool_call_id = tool_update.tool_call_id.to_string();
+                                                                    let view = super::super::types::FileEditView {
+                                                                        tool_call_id: tool_call_id.clone(),
+                                                                        file_path: file_path.clone(),
+                                                                        relative_path: relative_path.clone(),
+                                                                        change_type: change_type.to_string(),
+                                                                        before_content: diff.old_text.clone(),
+                                                                        after_content: diff.new_text.clone(),
+                                                                    };
+                                                                    let result = write_file_change_trace(
+                                                                        &session_id,
+                                                                        &request_id,
+                                                                        &tool_call_id,
+                                                                        &file_path,
+                                                                        &relative_path,
+                                                                        change_type,
+                                                                        diff.old_text.as_deref(),
+                                                                        &diff.new_text,
+                                                                    );
+                                                                    if let Err(e) = result {
+                                                                        log_error!("Failed to write file_change_trace | session_id={} | error={}", session_id, e);
+                                                                    }
+                                                                    let _ = app.emit(
+                                                                        &event_name,
+                                                                        &build_file_edit_event(&session_id, &request_id, view),
+                                                                    );
                                                                 }
-                                                                let _ = app.emit(
-                                                                    &event_name,
-                                                                    &build_file_edit_event(&session_id, &request_id, view),
-                                                                );
+                                                            } else if let Some(raw_input) = tool_update.fields.raw_input.as_ref() {
+                                                                // 兜底：CLI 未下发 Diff（如 OpenCode 仅 raw_input）时，从工具参数推导文件变更
+                                                                let kind_str = kind.map(tool_kind_to_string);
+                                                                let edits = extract_file_edits_from_raw_input(
+                                                                    raw_input,
+                                                                    kind_str.as_deref(),
+                                                                    working_directory.as_deref(),
+                                                );
+                                                                for edit in edits {
+                                                                    let tool_call_id = tool_update.tool_call_id.to_string();
+                                                                    let view = super::super::types::FileEditView {
+                                                                        tool_call_id: tool_call_id.clone(),
+                                                                        file_path: edit.file_path.clone(),
+                                                                        relative_path: edit.relative_path.clone(),
+                                                                        change_type: edit.change_type.clone(),
+                                                                        before_content: edit.before_content.clone(),
+                                                                        after_content: edit.after_content.clone(),
+                                                                    };
+                                                                    let result = write_file_change_trace(
+                                                                        &session_id,
+                                                                        &request_id,
+                                                                        &tool_call_id,
+                                                                        &edit.file_path,
+                                                                        &edit.relative_path,
+                                                                        edit.change_type.as_str(),
+                                                                        edit.before_content.as_deref(),
+                                                                        &edit.after_content,
+                                                                    );
+                                                    if let Err(e) = result {
+                                                        log_error!("Failed to write file_change_trace (raw_input fallback) | session_id={} | error={}", session_id, e);
+                                                    }
+                                                                    let _ = app.emit(
+                                                                        &event_name,
+                                                                        &build_file_edit_event(&session_id, &request_id, view),
+                                                                    );
+                                                                }
                                                             }
                                                         }
                                                         SessionUpdate::Plan(plan) => {
@@ -1571,7 +1713,7 @@ mod tests {
     use crate::commands::conversation::types::MessageInput;
     use crate::commands::message::MessageAttachment;
     use agent_client_protocol::schema::{
-        Content, Diff, PermissionOption, PermissionOptionId, StopReason, TextContent, ToolCall,
+        Content, Diff, PermissionOption, PermissionOptionId, StopReason, TextContent,
         ToolCallContent, ToolKind, Usage,
     };
 

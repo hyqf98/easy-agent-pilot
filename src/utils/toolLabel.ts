@@ -118,12 +118,14 @@ export function getToolPrimaryFileBasename(toolCall: Pick<ToolCall, 'arguments' 
     return toBasename(loc.relativePath)
   }
 
-  // 回退到参数中的 file_path / path / file
+  // 回退到参数中的 file_path / filePath / path / file（兼容 snake_case 与 camelCase）
   const filePath = toolCall.arguments?.file_path
+    ?? toolCall.arguments?.filePath
     ?? toolCall.arguments?.path
     ?? toolCall.arguments?.relativePath
     ?? toolCall.arguments?.file
     ?? toolCall.arguments?.filename
+    ?? toolCall.arguments?.fileName
   if (typeof filePath === 'string' && filePath.trim()) {
     return toBasename(filePath.trim())
   }

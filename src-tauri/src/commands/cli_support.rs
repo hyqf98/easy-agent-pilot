@@ -387,18 +387,6 @@ pub fn run_cli_command(cli_path: &Path, args: &[&str]) -> std::io::Result<Output
     command.output()
 }
 
-#[cfg(target_os = "windows")]
-pub fn build_tokio_cli_command(cli_path: &str, args: &[String]) -> TokioCommand {
-    let resolved = resolve_cli_executable(Path::new(cli_path));
-    let resolved_str = resolved.to_str().unwrap_or(cli_path);
-    let (executable, wrapped_args) = wrap_for_windows(resolved_str, args);
-    let mut command = TokioCommand::new(&executable);
-    configure_windows_tokio_command(&mut command);
-    configure_cli_tokio_command_env(&mut command, &resolved);
-    command.args(&wrapped_args);
-    command
-}
-
 pub fn get_cli_version(cli_path: &Path) -> Option<String> {
     let is_explicit_path = cli_path.is_absolute() || cli_path.components().count() > 1;
     if is_explicit_path && (!cli_path.exists() || cli_path.is_dir()) {
