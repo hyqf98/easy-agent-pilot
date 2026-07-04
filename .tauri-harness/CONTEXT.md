@@ -1,15 +1,17 @@
 # 当前任务
 端到端测试与优化（demo1 真实 ACP 会话验证）：会话列表 UI、ACP 工具气泡中文化、工具高度、流式状态、待办续接、文件审查、计划/表单、后端清理。
 
-## E2E 验证证据（demo1 + OpenCode CLI + glm-5.2）
+## E2E 验证证据（demo1 + OpenCode CLI + glm-5.2 — 真实 ACP 会话）
 - Issue 1: DOM 检查 — session-add-btn/project-actions/session-menu 移除，hover 显示 ✓
 - Issue 2: 流式中队列第二条 → streamStatus "queue" kind 显示「1 条待发送」✓
+- Issue 3: TodoWrite 创建 5 个待办 → localStorage 持久化 → 重新加载会话 → 全部 5 个待办恢复（待办列表 0/5，展开显示「设计数据库表 待办」等）✓
 - Issue 4: 工具气泡渲染「修改 写入文件 greet.js」— 中文名 + 主文件紧凑显示 ✓
 - Issue 5: 工具展开 code max-height=220px(原无限) / result=280px(原360) + 滚动条(scrollHeight 3996 > clientHeight 220)✓
-- Issue 6: 写入 greet.js → 「修改了 1 个文件 greet.js +1 审查」→ 点击审查 → Monaco diff 面板 + 采纳/回滚按钮 ✓
-- Issue 7: 流式中发送按钮变 square → 点击中断 → 「工作已中断」状态 + Retry 按钮 → 点击 Retry 重新生成 ✓
-- Issue 8: AI 用纯文本提出澄清问题（A/B/C 选项）；form_response JSON 气泡代码已存在，模型未发 <form-request> XML 是模型行为非代码缺陷
-- Issue 9: 后端审计仅 1 dead fn (build_tokio_cli_command) + 1 unused import (ToolCall)，已清理；cargo check 通过
+- Issue 6: 写入 greet.js → 「修改了 1 个文件 greet.js +1 审查」→ 点击审查 → Monaco diff 面板 + 采纳/回滚按钮 ✓（+ raw_input 兜底兼容 OpenCode 的 filePath camelCase）
+- Issue 7: 流式中发送按钮变 square → 点击中断 → 「工作已中断」状态 + Retry 按钮 → 点击 Retry 重新生成 ✓（符合 Claude/ChatGPT/Copilot 规范）
+- Issue 8: AI 输出 <form-request> XML（含 <field> 标签）→ 提交 form_response JSON → 「用户已回答 1 个问题」气泡 → 展开显示 Q&A（color: red）✓（解析器兼容模型变体格式：嵌套 options/option、id 属性回退）
+- Issue 9: 后端审计仅 1 dead fn (build_tokio_cli_command) + 1 unused import (ToolCall)，已清理；cargo check 通过 ✓
+- 复杂场景: 开发 4 文件 Node.js 注册登录系统（server.js/routes/auth.js/data/users.json/package.json）→ 修 bug 任务 → AI 调用 systematic-debugging 技能 + Phase 1 根因调查 → 读取文件 → 发现 bug 不存在 ✓
 - [x] Issue 4: 文件编辑气泡紧凑显示（主文件 basename 紧跟工具名）+ ACP 工具名中文化（Read→读取文件 等，集中到 src/utils/toolLabel.ts）— 13 单测
 - [x] Issue 5: 工具展开内容 max-height 收紧（参数/结果/技能均加滚动条上限）
 - [x] Issue 2: 排队状态显示在流式消息区（streamStatus 新增 'queue' kind，流式中附带队列计数后缀）
