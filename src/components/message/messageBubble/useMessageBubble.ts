@@ -399,6 +399,34 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
 
   const hasToolCallFileChanges = computed(() => toolCallFileTraces.value.length > 0)
 
+  // ── 回合级文件变更汇总（AI 完成后追加在最后一条 assistant 消息下） ────
+  // 仅当当前 assistant 消息是其 requestId 内最后一条可见 assistant 消息时显示，
+  // 汇总整轮所有工具编辑的文件（不按 toolCallId 过滤）。
+  const isLastAssistantInRequest = computed(() => {
+    if (!isAssistant.value || props.sessionMessages) return false
+    const requestId = props.message.requestId
+    if (!requestId) return false
+    const messages = resolvedSessionMessages.value
+    const currentIndex = messages.findIndex(message => message.id === props.message.id)
+    if (currentIndex === -1) return false
+    // 后面不再有同 requestId 的 assistant 消息
+    for (let i = currentIndex + 1; i < messages.length; i += 1) {
+      if (messages[i].role === 'assistant' && messages[i].requestId === requestId) {
+        return false
+      }
+    }
+    return true
+  })
+
+  const requestLevelFileTraces = computed(() => {
+    if (!isLastAssistantInRequest.value) return []
+    const requestId = props.message.requestId
+    if (!requestId) return []
+    return fileChangeStore.getTracesForRequest(props.message.sessionId, requestId)
+  })
+
+  const hasRequestLevelFileChanges = computed(() => requestLevelFileTraces.value.length > 0)
+
   // ── assistant 结构化内容（表单） ──────────────────────────────
   const assistantStructuredBlocks = computed(() => {
     if (!isAssistant.value) {
@@ -601,6 +629,8 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
     isMergedToolResult,
     toolDisplayLive,
     hasToolCallFileChanges,
+    // 回合级文件变更汇总
+    hasRequestLevelFileChanges,
     // 结构化内容
     isAssistantFormOnly,
     resolvedFormResponsesById,

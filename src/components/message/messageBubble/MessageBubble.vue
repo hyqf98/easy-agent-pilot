@@ -53,6 +53,7 @@ const {
   processedUserMessage,
   hasUserText,
   hasToolCallFileChanges,
+  hasRequestLevelFileChanges,
   errorMessage,
   isAssistantFormOnly,
   resolvedFormResponsesById,
@@ -231,6 +232,14 @@ const {
             :preview-max-height="520"
           />
         </div>
+
+        <!-- 回合级文件变更汇总：AI 完成本轮任务后，显示该会话本轮所有编辑的文件 -->
+        <FileChangeSummaryBar
+          v-if="hasRequestLevelFileChanges && !isStreaming"
+          class="message-bubble__request-file-changes"
+          :session-id="message.sessionId"
+          :request-id="message.requestId"
+        />
       </div>
 
       <!-- 操作按钮区：仅用户消息渲染（停止/重试/编辑），assistant 消息无 meta -->

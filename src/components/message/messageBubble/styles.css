@@ -65,6 +65,13 @@
   width: 100%;
 }
 
+/* 回合级文件变更汇总：追加在最后一条 assistant 消息内容下方 */
+.message-bubble__request-file-changes {
+  width: 100%;
+  max-width: min(100%, var(--message-max-width));
+  margin-top: 8px;
+}
+
 .message-bubble--assistant.message-bubble--form-only .message-bubble__body {
   width: min(100%, var(--message-max-width));
   max-width: min(100%, var(--message-max-width));
