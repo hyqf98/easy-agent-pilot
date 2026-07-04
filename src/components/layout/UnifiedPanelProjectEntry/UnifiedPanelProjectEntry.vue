@@ -20,12 +20,10 @@ const {
   visibleSessions,
   hiddenSessionCount,
   hasHiddenSessions,
-  hasSelectedSessions,
   isSessionsLoading,
   isAcpSyncing,
   handleStartEditSession,
   toggleSessionSelection,
-  handleProjectDeleteAction,
   toggleBatchSelectMode,
   closeCompactMenu,
   handleProjectMenuToggle,
@@ -83,41 +81,6 @@ const {
       </div>
     </div>
 
-    <div class="project-item__actions">
-      <button
-        class="project-item__action-btn"
-        :title="t('common.edit')"
-        @click.stop="emit('editProject', project)"
-      >
-        <EaIcon
-          name="edit-2"
-          :size="12"
-        />
-      </button>
-      <button
-        class="project-item__action-btn project-item__action-btn--select"
-        title="批量选择会话"
-        aria-label="批量选择会话"
-        :aria-pressed="isBatchSelectMode"
-        @click.stop="toggleBatchSelectMode"
-      >
-        <EaIcon
-          name="list-checks"
-          :size="12"
-        />
-      </button>
-      <button
-        class="project-item__action-btn project-item__action-btn--danger"
-        :title="hasSelectedSessions ? t('common.batchDelete') : t('common.delete')"
-        @click.stop="handleProjectDeleteAction"
-      >
-        <EaIcon
-          name="x"
-          :size="12"
-        />
-      </button>
-    </div>
-
     <div class="project-item__inline-actions">
       <button
         class="project-item__inline-action project-item__inline-action--add"
@@ -128,30 +91,6 @@ const {
         <EaIcon
           name="plus"
           :size="13"
-        />
-      </button>
-      <button
-        class="project-item__inline-action project-item__inline-action--select"
-        :class="{ 'project-item__inline-action--active': isBatchSelectMode }"
-        title="批量选择会话"
-        aria-label="批量选择会话"
-        :aria-pressed="isBatchSelectMode"
-        @click.stop="toggleBatchSelectMode"
-      >
-        <EaIcon
-          name="list-checks"
-          :size="12"
-        />
-      </button>
-      <button
-        class="project-item__inline-action"
-        title="打开文件管理"
-        aria-label="打开文件管理"
-        @click.stop="emit('openProjectFiles', project)"
-      >
-        <EaIcon
-          name="files"
-          :size="12"
         />
       </button>
     </div>
@@ -264,20 +203,6 @@ const {
           :size="13"
         />
         <span>{{ showAllSessions ? '收起' : `更多 ${hiddenSessionCount}` }}</span>
-      </button>
-
-      <button
-        v-if="!isSessionsLoading"
-        type="button"
-        class="session-add-btn"
-        :title="t('session.newSession')"
-        @click.stop="emit('addSession', project.id)"
-      >
-        <EaIcon
-          name="plus"
-          :size="13"
-        />
-        <span>{{ t('session.newSession') }}</span>
       </button>
     </div>
   </div>

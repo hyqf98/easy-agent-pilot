@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ToolCall } from '@/stores/message'
+import { getToolNameCn, getToolKindLabelCn, getToolPrimaryFileBasename } from '@/utils/toolLabel'
 
 export interface ToolCallDisplayProps {
   toolCall: ToolCall
@@ -60,8 +61,9 @@ export function useToolCallDisplay(props: ToolCallDisplayProps) {
     return 'wrench'
   })
 
-  // 文件位置徽标：按 ToolKind 分组，生成 { icon, tone, label }[]
+  // 文件位置徽标：按 ToolKind 分组，生成 { icon, tone, label, title }[]
   // read → 中性蓝；edit/move → 琥珀；delete → 红；其他 → 灰
+  // 注意：主文件已在工具名后内联显示，这里只展示"额外"的文件（第 2 个起）
   const locationBadges = computed<Array<{ icon: string; tone: string; label: string; title: string }>>(() => {
     const locations = props.toolCall.locations
     if (!locations || locations.length === 0) return []
@@ -85,14 +87,18 @@ export function useToolCallDisplay(props: ToolCallDisplayProps) {
       const name = toBasename(loc.relativePath)
       return loc.line != null ? `${name}:${loc.line}` : name
     }
-    const badges = locations.slice(0, 3).map(loc => ({
+    // 主文件已在工具名后内联显示，徽标从第 2 个文件开始（最多 3 个 + 溢出）
+    const start = hasInlinePrimaryFile.value ? 1 : 0
+    const extra = locations.slice(start, start + 3)
+    const badges = extra.map(loc => ({
       icon,
       tone,
       label: formatLocationLabel(loc),
       title: loc.line != null ? `${loc.relativePath}:${loc.line}` : loc.relativePath
     }))
-    if (locations.length > 3) {
-      badges.push({ icon: 'plus', tone, label: `+${locations.length - 3}`, title: locations.slice(3).map(l => l.relativePath).join('\n') })
+    const remaining = locations.length - start - extra.length
+    if (remaining > 0) {
+      badges.push({ icon: 'plus', tone, label: `+${remaining}`, title: locations.slice(start + 3).map(l => l.relativePath).join('\n') })
     }
     return badges
   })
@@ -144,28 +150,25 @@ export function useToolCallDisplay(props: ToolCallDisplayProps) {
 
   const toolCategoryLabel = computed(() => {
     if (isAgentExecutionTool.value) return '子代理'
-    const kind = props.toolCall.kind
-    if (kind) {
-      switch (kind) {
-        case 'read': return '读取'
-        case 'edit': return '修改'
-        case 'delete': return '删除'
-        case 'move': return '移动'
-        case 'search': return '搜索'
-        case 'execute': return '执行'
-        case 'think': return '思考'
-        case 'fetch': return '获取'
-        default: break
-      }
-    }
+    const kindLabel = getToolKindLabelCn(props.toolCall.kind)
+    if (kindLabel) return kindLabel
     const name = props.toolCall.name.toLowerCase()
     if (name.includes('todo')) return '待办'
-    if (name.includes('bash') || name.includes('shell')) return '命令'
-    if (name.includes('read')) return '读取'
-    if (name.includes('edit') || name.includes('write')) return '修改'
     if (isSkillTool.value) return '技能'
     return '工具'
   })
+
+  // 中文工具显示名（Read → 读取文件）
+  const displayName = computed(() => {
+    if (isAgentExecutionTool.value) return agentExecutionTitle.value
+    return getToolNameCn(props.toolCall.name)
+  })
+
+  // 主文件 basename（紧凑显示在工具名后面，替代右侧徽标）
+  const primaryFile = computed(() => getToolPrimaryFileBasename(props.toolCall))
+
+  // 是否在摘要中已展示主文件，避免徽标重复
+  const hasInlinePrimaryFile = computed(() => Boolean(primaryFile.value))
 
   // 格式化参数
   const animatedArguments = computed(() => {
@@ -233,13 +236,14 @@ export function useToolCallDisplay(props: ToolCallDisplayProps) {
       ?? props.toolCall.arguments?.path
       ?? props.toolCall.arguments?.relativePath
       ?? props.toolCall.arguments?.file
+    // 主文件已在工具名后内联显示，摘要中不再重复文件路径
     if (typeof filePath === 'string' && filePath.trim()) {
       const startLine = props.toolCall.arguments?.start_line ?? props.toolCall.arguments?.line
       const endLine = props.toolCall.arguments?.end_line
       const lineSuffix = typeof startLine === 'number'
         ? (typeof endLine === 'number' && endLine !== startLine ? `:${startLine}-${endLine}` : `:${startLine}`)
         : ''
-      return `${filePath.trim()}${lineSuffix}`
+      return lineSuffix
     }
 
     const firstArgument = Object.entries(props.toolCall.arguments ?? {})[0]
@@ -272,6 +276,8 @@ export function useToolCallDisplay(props: ToolCallDisplayProps) {
     toolIcon,
     locationBadges,
     toolCategoryLabel,
+    displayName,
+    primaryFile,
     isTerminalLikeTool,
     isAgentExecutionTool,
     isSkillTool,

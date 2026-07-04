@@ -11,10 +11,6 @@ const emit = defineEmits<UnifiedPanelSessionListEmits>()
 const {
   t,
   EaIcon,
-  sessionListRef,
-  openMenuSessionId,
-  handleMenuToggle,
-  handleCompactAction,
   shouldShowSessionStatusIcon,
   handleSessionClick
 } = useUnifiedPanelSessionList(props, emit)
@@ -22,7 +18,6 @@ const {
 
 <template>
   <div
-    ref="sessionListRef"
     class="session-list"
   >
     <div
@@ -33,8 +28,7 @@ const {
         {
           'session-item--active': session.id === currentSessionId,
           'session-item--selected': selectedSessionIds.includes(session.id),
-          'session-item--pinned': session.pinned,
-          'session-item--menu-open': openMenuSessionId === session.id
+          'session-item--pinned': session.pinned
         }
       ]"
       @click="handleSessionClick(session)"
@@ -151,55 +145,6 @@ const {
           />
         </button>
       </div>
-
-      <details
-        v-if="editingSessionId !== session.id"
-        class="session-item__menu"
-        @click.stop
-        @toggle="handleMenuToggle(session.id, $event)"
-      >
-        <summary
-          class="session-item__menu-trigger"
-          @click.stop
-        >
-          <EaIcon
-            name="ellipsis-vertical"
-            :size="12"
-          />
-        </summary>
-        <div class="session-item__menu-popover">
-          <button
-            class="session-item__menu-action"
-            @click="handleCompactAction('togglePin', session, $event)"
-          >
-            <EaIcon
-              :name="session.pinned ? 'pin-off' : 'pin'"
-              :size="12"
-            />
-            <span>{{ session.pinned ? t('session.unpin') : t('session.pin') }}</span>
-          </button>
-          <button
-            class="session-item__menu-action"
-            @click="handleCompactAction('startEdit', session, $event)"
-          >
-            <EaIcon
-              name="edit-2"
-              :size="12"
-            />
-            <span>{{ t('common.edit') }}</span>
-          </button>
-          <button
-            class="session-item__menu-action session-item__menu-action--danger"
-            @click="handleCompactAction('delete', session, $event)"
-          >
-            <EaIcon
-              name="x"
-              :size="12"
-            />
-            <span>{{ t('common.delete') }}</span>
-          </button>
-        </div>
-      </details>
     </div>
 
     <div

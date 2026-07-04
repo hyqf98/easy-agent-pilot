@@ -54,8 +54,6 @@ export function useUnifiedPanelProjectEntry(props: UnifiedPanelProjectEntryProps
   ))
   const hiddenSessionCount = computed(() => Math.max(props.sessions.length - SESSION_PREVIEW_LIMIT, 0))
   const hasHiddenSessions = computed(() => hiddenSessionCount.value > 0)
-  const selectedSessions = computed(() => props.sessions.filter(session => selectedSessionIds.value.includes(session.id)))
-  const hasSelectedSessions = computed(() => selectedSessions.value.length > 0)
 
   function handleStartEditSession(session: Session, event: Event) {
     emit('startEditSession', session, event)
@@ -73,26 +71,6 @@ export function useUnifiedPanelProjectEntry(props: UnifiedPanelProjectEntryProps
 
   function clearSelectedSessions() {
     selectedSessionIds.value = []
-  }
-
-  function handleBatchDeleteSessions() {
-    if (!selectedSessions.value.length) {
-      return
-    }
-
-    emit('deleteSessions', selectedSessions.value)
-    selectedSessionIds.value = []
-    isBatchSelectMode.value = false
-  }
-
-  function handleProjectDeleteAction(event: Event) {
-    event.stopPropagation()
-    if (hasSelectedSessions.value) {
-      handleBatchDeleteSessions()
-      return
-    }
-
-    emit('deleteProject', props.project)
   }
 
   function toggleBatchSelectMode(event: Event) {
@@ -212,15 +190,11 @@ export function useUnifiedPanelProjectEntry(props: UnifiedPanelProjectEntryProps
     visibleSessions,
     hiddenSessionCount,
     hasHiddenSessions,
-    selectedSessions,
-    hasSelectedSessions,
     isSessionsLoading: computed(() => props.isSessionsLoading ?? false),
     isAcpSyncing: computed(() => props.isAcpSyncing ?? false),
     handleStartEditSession,
     toggleSessionSelection,
     clearSelectedSessions,
-    handleBatchDeleteSessions,
-    handleProjectDeleteAction,
     toggleBatchSelectMode,
     closeCompactMenu,
     handleProjectMenuToggle,

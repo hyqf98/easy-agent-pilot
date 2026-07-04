@@ -114,6 +114,26 @@
   font-weight: 580;
 }
 
+/* 主文件名紧凑显示在工具名后面（替代右侧徽标） */
+.tool-call__primary-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 12rem;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--tool-muted-meta);
+  font-size: 11px;
+  font-weight: 540;
+}
+
+.tool-call__primary-file > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* 执行中：工具名称从左到右的高亮扫光，完成后（status !== running）自动停止 */
 .tool-call__name--sweep {
   background: linear-gradient(
@@ -224,6 +244,7 @@
   padding: 9px;
   width: 100%;
   max-width: 100%;
+  max-height: min(280px, 34vh);
   box-sizing: border-box;
   border: 0;
   border-radius: 8px;
@@ -235,7 +256,8 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
-  overflow-x: auto;
+  overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .tool-call__code--terminal {
@@ -245,7 +267,7 @@
 }
 
 .tool-call__code--skill {
-  max-height: min(260px, 34vh);
+  max-height: min(220px, 30vh);
   overflow: auto;
   scrollbar-gutter: stable;
 }
@@ -255,13 +277,13 @@
 }
 
 .tool-call__result-content {
-  max-height: min(360px, 42vh);
+  max-height: min(280px, 34vh);
   overflow: auto;
   scrollbar-gutter: stable;
 }
 
 .tool-call--agent-run .tool-call__result-content {
-  max-height: min(420px, 48vh);
+  max-height: min(320px, 38vh);
 }
 
 .tool-call__error-section {

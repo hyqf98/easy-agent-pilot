@@ -17,10 +17,11 @@ const {
   toolIcon,
   locationBadges,
   toolCategoryLabel,
+  displayName,
+  primaryFile,
   isTerminalLikeTool,
   isAgentExecutionTool,
   isSkillTool,
-  agentExecutionTitle,
   animatedArguments,
   animatedResult,
   agentPrompt,
@@ -54,9 +55,21 @@ const {
         <span
           class="tool-call__name"
           :class="{ 'tool-call__name--sweep': toolCall.status === 'running' }"
-        >{{ isAgentExecutionTool ? agentExecutionTitle : toolCall.name }}</span>
+        >{{ displayName }}</span>
+        <!-- 主文件名紧凑显示在工具名后面（替代右侧徽标） -->
+        <span
+          v-if="primaryFile"
+          class="tool-call__primary-file"
+          :title="primaryFile"
+        >
+          <EaIcon
+            name="file"
+            :size="11"
+          />
+          <span>{{ primaryFile }}</span>
+        </span>
         <span class="tool-call__summary">{{ toolSummary }}</span>
-        <!-- 文件位置徽标：读取/写入/修改了哪些文件 -->
+        <!-- 额外文件位置徽标（第 2 个起）：读取/写入/修改了哪些文件 -->
         <span
           v-for="(badge, index) in locationBadges"
           :key="index"
