@@ -84,10 +84,15 @@ export const useFileChangeStore = defineStore('fileChange', () => {
     currentSessionId.value = sessionId
     try {
       const rows = await invoke<FileChangeTraceRow[]>('list_file_change_traces', { sessionId })
-      tracesBySession.value.set(sessionId, rows.map(toTrace))
+      // 创建新 Map 实例确保 Vue 响应式追踪到变更（直接 .set 同一 Map 不一定触发）
+      const next = new Map(tracesBySession.value)
+      next.set(sessionId, rows.map(toTrace))
+      tracesBySession.value = next
     } catch (err) {
       console.error('[fileChange] load failed', err)
-      tracesBySession.value.set(sessionId, [])
+      const next = new Map(tracesBySession.value)
+      next.set(sessionId, [])
+      tracesBySession.value = next
     }
   }
 
@@ -100,13 +105,16 @@ export const useFileChangeStore = defineStore('fileChange', () => {
       t => t.toolCallId === trace.toolCallId && t.filePath === trace.filePath
     )
     const next = { ...trace, sessionId, status: trace.status ?? 'pending' }
+    let updated: FileEditTrace[]
     if (idx >= 0) {
       // 保留已存在的审查状态（避免覆盖用户已采纳/回滚）
-      list[idx] = { ...next, status: list[idx].status ?? next.status }
+      updated = list.map((t, i) => i === idx ? { ...next, status: t.status ?? next.status } : t)
     } else {
-      list.push(next)
+      updated = [...list, next]
     }
-    tracesBySession.value.set(sessionId, [...list])
+    const nextMap = new Map(tracesBySession.value)
+    nextMap.set(sessionId, updated)
+    tracesBySession.value = nextMap
   }
 
   /** 打开右侧审查工作区 */
@@ -168,7 +176,9 @@ export const useFileChangeStore = defineStore('fileChange', () => {
   }
 
   function clearSession(sessionId: string): void {
-    tracesBySession.value.delete(sessionId)
+    const next = new Map(tracesBySession.value)
+    next.delete(sessionId)
+    tracesBySession.value = next
   }
 
   return {

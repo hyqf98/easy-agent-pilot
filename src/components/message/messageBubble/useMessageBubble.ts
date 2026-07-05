@@ -393,7 +393,8 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
     if (props.sessionMessages || !props.message.toolCallId) {
       return []
     }
-    return fileChangeStore.getTracesForSession(props.message.sessionId)
+    // 直接读取响应式 Map 确保依赖追踪
+    return (fileChangeStore.tracesBySession.get(props.message.sessionId) ?? [])
       .filter(trace => trace.toolCallId === props.message.toolCallId)
   })
 
@@ -420,23 +421,20 @@ export function useMessageBubble(props: MessageBubbleProps, emit: MessageBubbleE
 
   const requestLevelFileTraces = computed(() => {
     if (!isLastAssistantInRequest.value) return []
-    // 优先用当前消息的 requestId 查找；若为空（如流式本地行），回退到该会话所有 traces
     const requestId = props.message.requestId
     const sessionId = props.message.sessionId
+    // 直接读取响应式 Map（确保 Vue 能追踪依赖，store 更新后重新计算）
+    const allSessionTraces = sessionId
+      ? (fileChangeStore.tracesBySession.get(sessionId) ?? [])
+      : []
+    // 优先用当前消息的 requestId 查找（同一回合的文件变更）
     if (requestId) {
-      const traces = fileChangeStore.getTracesForRequest(sessionId, requestId)
-      if (traces.length > 0) return traces
+      const sameRequest = allSessionTraces.filter(t => t.requestId === requestId)
+      if (sameRequest.length > 0) return sameRequest
     }
-    // 回退：若该 requestId 无 traces，但当前会话最近一个 request 有 traces，也显示
-    // （多轮场景下 traces 可能挂在不同的 requestId 下）
-    if (sessionId) {
-      const allSessionTraces = fileChangeStore.getTracesForSession(sessionId)
-      if (allSessionTraces.length > 0 && requestId) {
-        // 取与当前 requestId 相同的；若无则取最近的 traces
-        const sameRequest = allSessionTraces.filter(t => t.requestId === requestId)
-        if (sameRequest.length > 0) return sameRequest
-      }
-    }
+    // 回退：历史回放（ACP session/load）会重新生成 requestId，无法与持久化的 traces
+    // requestId 对齐；为避免刷新后文件列表丢失，这里展示该会话全部编辑文件。
+    if (allSessionTraces.length > 0) return allSessionTraces
     return []
   })
 

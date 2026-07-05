@@ -49,7 +49,11 @@ const TOOL_NAME_CN_MAP: Record<string, string> = {
   // 技能 / 子代理
   skill: '调用技能',
   subagent: '委派子代理',
-  delegate: '委派任务'
+  delegate: '委派任务',
+  dispatchagent: '委派子代理',
+  dispatchsubagent: '委派子代理',
+  dispatchparallelagents: '委派子代理',
+  dispatchparallel: '委派子代理'
 }
 
 /**
@@ -63,6 +67,13 @@ export function getToolNameCn(name: string): string {
   // 精确匹配
   if (TOOL_NAME_CN_MAP[key]) {
     return TOOL_NAME_CN_MAP[key]
+  }
+
+  // 工具名本身是文件路径（部分 CLI/OpenCode 把文件写入工具的 title 直接设为路径）：
+  // 不在收起态头部暴露长路径，统一显示「编辑文件」，路径放到展开内容里。
+  // 识别特征：含路径分隔符（/或\）且以文件扩展名结尾。
+  if (/[\\/]/.test(name) && /\.[a-z0-9]{1,8}$/i.test(name) && !name.includes(' ')) {
+    return '编辑文件'
   }
 
   const lower = name.toLowerCase()
@@ -82,7 +93,7 @@ export function getToolNameCn(name: string): string {
   if (lower.includes('search') || lower.includes('find')) return '搜索'
   if (lower.includes('fetch')) return '获取资源'
   if (lower.includes('skill')) return '调用技能'
-  if (lower.includes('subagent') || lower.includes('delegate')) return '委派子代理'
+  if (lower.includes('dispatch') || lower.includes('subagent') || lower.includes('delegate')) return '委派子代理'
   if (lower.includes('task')) return '任务委派'
   if (lower.includes('command')) return '执行命令'
 

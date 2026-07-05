@@ -181,6 +181,8 @@ export const useMessageStore = defineStore('message', () => {
   // State
   const messages = ref<Message[]>([])
   const isLoading = ref(false)
+  // 正在加载消息的会话集合：用于「会话切换时显示加载态」
+  const loadingSessions = ref<Set<string>>(new Set())
   const pagination = ref<Map<string, PaginationState>>(new Map())
   const sessionMessages = ref<Map<string, Message[]>>(new Map())
   const assistantEditTracesBySession = ref<Map<string, SessionEditTrace[]>>(new Map())
@@ -202,6 +204,11 @@ export const useMessageStore = defineStore('message', () => {
   // 避免使用返回函数的 computed（高阶 computed 会丢失对具体 key 的依赖追踪）。
   function messagesBySession(sessionId: string): Message[] {
     return sessionMessages.value.get(sessionId) ?? EMPTY_MESSAGES
+  }
+
+  /** 该会话是否正在加载消息（用于切换会话时显示加载态） */
+  function isLoadingSession(sessionId: string): boolean {
+    return loadingSessions.value.has(sessionId)
   }
 
   const getLatestAssistantTraceIdsByFile = (sessionId: string) => {
@@ -445,7 +452,29 @@ export const useMessageStore = defineStore('message', () => {
     }
 
     isLoading.value = true
+    {
+      const next = new Set(loadingSessions.value)
+      next.add(sessionId)
+      loadingSessions.value = next
+    }
     loadMessagesInFlightSessionId = sessionId
+    // 加载会话级附加数据（文件变更追踪 + Agent Plan 快照）。
+    // 独立执行，无论 ACP 回放成功与否（含 agentCmd 为空的早退路径）都应加载，
+    // 确保刷新后历史会话的文件编辑列表/计划都能回显。
+    const loadSessionAttachments = async () => {
+      try {
+        const { useFileChangeStore } = await import('@/stores/fileChange')
+        void useFileChangeStore().load(sessionId)
+      } catch (err) {
+        console.error('[MessageStore] load file changes failed', err)
+      }
+      try {
+        const { useAgentPlanStore } = await import('@/stores/agentPlan')
+        void useAgentPlanStore().load(sessionId)
+      } catch (err) {
+        console.error('[MessageStore] load agent plan failed', err)
+      }
+    }
     const task = (async () => {
     try {
       const session = sessionStore.sessions.find(item => item.id === sessionId)
@@ -505,6 +534,7 @@ export const useMessageStore = defineStore('message', () => {
             isLoadingMore: false,
             oldestMessageCreatedAt: null
           })
+          void loadSessionAttachments()
           return
         }
 
@@ -568,21 +598,8 @@ export const useMessageStore = defineStore('message', () => {
         })
       }
 
-      // 加载文件变更追踪（用于响应底部汇总条与右侧 diff 审查）
-      try {
-        const { useFileChangeStore } = await import('@/stores/fileChange')
-        void useFileChangeStore().load(sessionId)
-      } catch (err) {
-        console.error('[MessageStore] load file changes failed', err)
-      }
-
-      // 加载 ACP Agent Plan 历史快照（用于右侧计划面板恢复展示）
-      try {
-        const { useAgentPlanStore } = await import('@/stores/agentPlan')
-        void useAgentPlanStore().load(sessionId)
-      } catch (err) {
-        console.error('[MessageStore] load agent plan failed', err)
-      }
+      // 加载文件变更追踪 + Agent Plan 快照（用于回显编辑文件列表/计划面板）
+      void loadSessionAttachments()
     } catch (error) {
       console.error('Failed to load messages:', error)
       updateGlobalMessagesForSession(sessionId, [])
@@ -594,6 +611,9 @@ export const useMessageStore = defineStore('message', () => {
       )
     } finally {
       isLoading.value = false
+      const next = new Set(loadingSessions.value)
+      next.delete(sessionId)
+      loadingSessions.value = next
     }
     })()
     loadMessagesInFlight = task
@@ -768,6 +788,7 @@ export const useMessageStore = defineStore('message', () => {
     PAGE_SIZE,
     // Getters
     messagesBySession,
+    isLoadingSession,
     lastMessage,
     getPagination,
     getAssistantEditTraces,

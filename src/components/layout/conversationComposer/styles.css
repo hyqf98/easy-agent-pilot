@@ -1476,14 +1476,6 @@
   border-color: transparent;
 }
 
-:global([data-theme='dark']) .conversation-composer--main .conversation-composer__send--main,
-:global(.dark) .conversation-composer--main .conversation-composer__send--main {
-  color: var(--workspace-text-primary, #f4f4f0) !important;
-  border-color: transparent !important;
-  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.08)) 90%, transparent) !important;
-  box-shadow: none !important;
-}
-
 :global([data-theme='dark']) .conversation-composer__path,
 :global(.dark) .conversation-composer__path,
 :global([data-theme='dark']) .conversation-composer__queue-pill,
@@ -2074,35 +2066,36 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  min-width: 36px;
+  width: 34px;
+  min-width: 34px;
   height: 30px;
   min-height: 30px;
   padding: 0;
-  border: 1px solid var(--workspace-border, rgba(255, 255, 255, 0.14)) !important;
-  border-radius: 10px !important;
-  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.08)) 88%, transparent) !important;
-  color: var(--workspace-text-secondary, var(--color-text-secondary)) !important;
-  box-shadow: none !important;
+  border: 0 !important;
+  border-radius: 9px !important;
+  background: var(--color-primary, #2563eb) !important;
+  color: #fff !important;
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--color-primary, #2563eb) 30%, transparent) !important;
+  transition: opacity 0.15s ease, transform 0.15s ease;
 }
 
-.conversation-composer__send--main::before {
-  content: '';
-  width: 12px;
-  height: 12px;
-  border-radius: 3px;
-  background: currentColor;
+.conversation-composer__send--main:hover:not(:disabled) {
+  opacity: 0.92;
+  transform: translateY(-1px);
 }
 
-.conversation-composer__send--main:hover {
-  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.12)) 96%, transparent) !important;
-  color: var(--workspace-text-primary, var(--color-text-primary)) !important;
+.conversation-composer__send--main:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.conversation-composer__send--stop {
+  background: var(--color-error, #ef4444) !important;
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--color-error, #ef4444) 30%, transparent) !important;
 }
 
 .conversation-composer__send--main:disabled {
-  border-color: var(--workspace-border, rgba(38, 38, 38, 0.1)) !important;
-  background: color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 96%, transparent) !important;
-  color: var(--color-text-tertiary, rgba(100, 116, 139, 0.86)) !important;
+  background: color-mix(in srgb, var(--workspace-control-bg, rgba(38, 38, 38, 0.06)) 90%, transparent) !important;
+  color: var(--color-text-tertiary, rgba(100, 116, 139, 0.7)) !important;
   box-shadow: none !important;
   cursor: not-allowed;
 }

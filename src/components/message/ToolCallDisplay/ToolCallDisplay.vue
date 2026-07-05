@@ -15,10 +15,9 @@ const {
   toggleExpand,
   statusClass,
   toolIcon,
-  locationBadges,
   toolCategoryLabel,
   displayName,
-  primaryFile,
+  involvedFiles,
   isTerminalLikeTool,
   isAgentExecutionTool,
   isSkillTool,
@@ -35,7 +34,7 @@ const {
     class="tool-call"
     :class="[statusClass, { 'tool-call--compact': compact, 'tool-call--agent-run': isAgentExecutionTool }]"
   >
-    <!-- 工具调用头部：图标 → 类型 → 文件位置徽标 → 展开符号 -->
+    <!-- 工具调用头部：图标 → 类型 → 名称 → 简短摘要（文件路径仅展开后显示） -->
     <button
       type="button"
       class="tool-call__header"
@@ -49,48 +48,58 @@ const {
             :size="13"
           />
         </span>
-        <span
-          class="tool-call__category"
-        >{{ toolCategoryLabel }}</span>
+        <span class="tool-call__category">{{ toolCategoryLabel }}</span>
         <span
           class="tool-call__name"
           :class="{ 'tool-call__name--sweep': toolCall.status === 'running' }"
         >{{ displayName }}</span>
-        <!-- 主文件名紧凑显示在工具名后面（替代右侧徽标） -->
-        <span
-          v-if="primaryFile"
-          class="tool-call__primary-file"
-          :title="primaryFile"
-        >
-          <EaIcon
-            name="file"
-            :size="11"
-          />
-          <span>{{ primaryFile }}</span>
-        </span>
         <span class="tool-call__summary">{{ toolSummary }}</span>
-        <!-- 额外文件位置徽标（第 2 个起）：读取/写入/修改了哪些文件 -->
-        <span
-          v-for="(badge, index) in locationBadges"
-          :key="index"
-          class="tool-call__loc-badge"
-          :class="`tool-call__loc-badge--${badge.tone}`"
-          :title="badge.title"
-        >
-          <EaIcon
-            :name="badge.icon"
-            :size="11"
-          />
-          <span class="tool-call__loc-label">{{ badge.label }}</span>
-        </span>
+        <EaIcon
+          class="tool-call__chevron"
+          :class="{ 'tool-call__chevron--open': isExpanded }"
+          name="chevron-right"
+          :size="12"
+        />
       </div>
     </button>
 
-    <!-- 工具调用内容 -->
+    <!-- 工具调用内容：文件路径 / 参数（输入）/ 结果（输出，如读取的文件内容）均在此处 -->
     <div
       v-show="isExpanded"
       class="tool-call__content"
     >
+      <!-- 文件路径：收起态不显示，展开后在此处集中展示输入/输出涉及的文件 -->
+      <div
+        v-if="involvedFiles.length > 0"
+        class="tool-call__section tool-call__section--files"
+      >
+        <div class="tool-call__section-title">
+          <EaIcon
+            name="file"
+            :size="12"
+          />
+          <span>{{ t('message.files') }}</span>
+        </div>
+        <ul class="tool-call__file-list">
+          <li
+            v-for="(file, index) in involvedFiles"
+            :key="index"
+            class="tool-call__file-item"
+            :title="file.fullPath"
+          >
+            <EaIcon
+              :name="file.icon"
+              :size="11"
+            />
+            <span class="tool-call__file-path">{{ file.fullPath }}</span>
+            <span
+              v-if="file.line"
+              class="tool-call__file-line"
+            >:{{ file.line }}</span>
+          </li>
+        </ul>
+      </div>
+
       <div
         v-if="isAgentExecutionTool && agentPrompt"
         class="tool-call__section tool-call__section--agent-prompt"

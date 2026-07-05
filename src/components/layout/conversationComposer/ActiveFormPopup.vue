@@ -256,11 +256,11 @@ const canSubmitNow = computed(() => currentStep.value >= fields.value.length - 1
 <style scoped>
 .active-form-popup {
   position: relative;
-  margin: 0 0 8px;
-  border-radius: 14px;
+  margin: 0 0 6px;
+  border-radius: 10px;
   border: 1px solid var(--workspace-border, var(--color-border));
   background: var(--workspace-panel-bg, var(--color-bg-primary));
-  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
   overflow: hidden;
 }
 
@@ -268,14 +268,14 @@ const canSubmitNow = computed(() => currentStep.value >= fields.value.length - 1
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 10px 14px 2px;
+  gap: 6px;
+  padding: 6px 10px 0;
 }
 
 .active-form-popup__title {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   min-width: 0;
 }
 
@@ -285,23 +285,26 @@ const canSubmitNow = computed(() => currentStep.value >= fields.value.length - 1
 }
 
 .active-form-popup__label {
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
   color: var(--color-text-secondary);
   white-space: nowrap;
 }
 
 .active-form-popup__step {
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 500;
   color: var(--color-text-tertiary, var(--color-text-secondary));
   font-variant-numeric: tabular-nums;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-border) 40%, transparent);
 }
 
 .active-form-popup__header-actions {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
   flex-shrink: 0;
 }
 
@@ -310,10 +313,10 @@ const canSubmitNow = computed(() => currentStep.value >= fields.value.length - 1
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   flex-shrink: 0;
-  border-radius: 6px;
+  border-radius: 5px;
   border: none;
   background: transparent;
   color: var(--color-text-secondary);
@@ -328,20 +331,20 @@ const canSubmitNow = computed(() => currentStep.value >= fields.value.length - 1
 }
 
 .active-form-popup__nav:disabled {
-  opacity: 0.35;
+  opacity: 0.3;
   cursor: not-allowed;
 }
 
 .active-form-popup__question {
   margin: 0;
-  padding: 4px 14px 2px;
-  font-size: 13px;
-  line-height: 1.5;
+  padding: 2px 10px 0;
+  font-size: 12.5px;
+  line-height: 1.45;
   color: var(--color-text-primary);
 }
 
 .active-form-popup__body {
-  padding: 8px 14px 12px;
+  padding: 6px 10px 8px;
 }
 
 /* 单字段模式：让内部 DynamicForm 完全融入，消除嵌套边框/背景 */
@@ -351,29 +354,44 @@ const canSubmitNow = computed(() => currentStep.value >= fields.value.length - 1
   border-radius: 0;
   box-shadow: none;
   container-type: normal;
+  padding: 0;
 }
 
-/* 动态表单内部由 DynamicForm 自带滚动，这里解除容器查询高度限制 */
+/* 动态表单内部由 DynamicForm 自带滚动，这里收紧高度限制 */
 .active-form-popup__body :deep(.form-body) {
-  max-height: min(42vh, 360px);
+  max-height: min(36vh, 280px);
+  gap: 6px;
+}
+
+/* 收紧 DynamicForm 自带的 footer（单字段时使用） */
+.active-form-popup__body :deep(.form-footer) {
+  margin-top: 6px;
+  gap: 6px;
+}
+
+.active-form-popup__body :deep(.form-footer .btn) {
+  padding: 4px 12px;
+  font-size: 11.5px;
+  min-width: 48px;
 }
 
 /* 分步模式底部操作区 */
 .active-form-popup__footer {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 12px;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
 }
 
 .active-form-popup__btn {
-  padding: 6px 16px;
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 500;
+  padding: 4px 12px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  font-weight: 550;
   cursor: pointer;
   transition: all 0.16s ease;
-  min-width: 56px;
+  min-width: 48px;
 }
 
 .active-form-popup__btn--primary {
@@ -383,7 +401,7 @@ const canSubmitNow = computed(() => currentStep.value >= fields.value.length - 1
 }
 
 .active-form-popup__btn--primary:hover {
-  opacity: 0.88;
+  opacity: 0.9;
 }
 
 .active-form-popup__btn--secondary {
@@ -399,7 +417,7 @@ const canSubmitNow = computed(() => currentStep.value >= fields.value.length - 1
 
 :global([data-theme='dark']) .active-form-popup,
 :global(.dark) .active-form-popup {
-  box-shadow: 0 18px 42px rgba(2, 6, 23, 0.34);
+  box-shadow: 0 12px 32px rgba(2, 6, 23, 0.3);
 }
 
 /* 进出动画 */

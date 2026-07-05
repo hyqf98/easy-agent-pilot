@@ -38,6 +38,12 @@ describe('getToolNameCn', () => {
   it('returns empty string for empty input', () => {
     expect(getToolNameCn('')).toBe('')
   })
+
+  it('工具名为文件路径时降级为「编辑文件」（不在头部暴露长路径）', () => {
+    expect(getToolNameCn('Users/haijun/Work/demo/config.json')).toBe('编辑文件')
+    expect(getToolNameCn('./src/index.ts')).toBe('编辑文件')
+    expect(getToolNameCn('/absolute/path/file.js')).toBe('编辑文件')
+  })
 })
 
 describe('getToolKindLabelCn', () => {

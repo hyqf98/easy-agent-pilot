@@ -102,9 +102,10 @@
   line-height: 1.2;
 }
 
+/* 收起态：仅图标 + 类型 + 名称 + 简短摘要 + 展开箭头（不再显示文件路径） */
 .tool-call__name {
   flex: 0 1 auto;
-  min-width: max-content;
+  min-width: 0;
   max-width: 13rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -114,24 +115,16 @@
   font-weight: 580;
 }
 
-/* 主文件名紧凑显示在工具名后面（替代右侧徽标） */
-.tool-call__primary-file {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 12rem;
-  overflow: hidden;
-  white-space: nowrap;
+/* 展开箭头（chevron），收起态指向右，展开后旋转 90° */
+.tool-call__chevron {
+  flex: 0 0 auto;
+  margin-left: auto;
   color: var(--tool-muted-meta);
-  font-size: 11px;
-  font-weight: 540;
+  transition: transform 0.18s ease;
 }
 
-.tool-call__primary-file > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
+.tool-call__chevron--open {
+  transform: rotate(90deg);
 }
 
 /* 执行中：工具名称从左到右的高亮扫光，完成后（status !== running）自动停止 */
@@ -308,47 +301,51 @@
   height: var(--scrollbar-size-thin);
 }
 
-/* 文件位置徽标：读取/写入/修改了哪些文件 */
-.tool-call__loc-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  flex: 0 0 auto;
-  max-width: 13rem;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--workspace-control-bg, var(--color-bg-secondary)) 80%, transparent);
-  color: var(--workspace-text-secondary, var(--tool-call-meta));
-  font-size: 10.5px;
-  font-weight: 500;
-  line-height: 1.4;
-  white-space: nowrap;
-  overflow: hidden;
+/* 展开内容里的文件路径列表（收起态不显示路径） */
+.tool-call__file-list {
+  margin: 5px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.tool-call__loc-label {
+.tool-call__file-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--tool-call-code-bg, rgba(28, 25, 23, 0.05)) 45%, transparent);
+  color: color-mix(in srgb, var(--workspace-text-secondary, var(--color-text-secondary)) 88%, var(--workspace-text-primary, var(--color-text-primary)));
+  font-family: var(--font-family-mono);
+  font-size: 11.5px;
+  line-height: 1.4;
+  min-width: 0;
+}
+
+.tool-call__file-item > svg {
+  flex-shrink: 0;
+  color: var(--tool-muted-meta);
+}
+
+.tool-call__file-path {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.tool-call__loc-badge--blue {
-  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
-  color: color-mix(in srgb, var(--color-primary) 78%, var(--workspace-text-primary, var(--color-text-primary)));
+.tool-call__file-line {
+  flex-shrink: 0;
+  color: var(--tool-muted-meta);
+  font-variant-numeric: tabular-nums;
 }
 
-.tool-call__loc-badge--amber {
-  background: color-mix(in srgb, #d97706 14%, transparent);
-  color: color-mix(in srgb, #b45309 82%, var(--workspace-text-primary, var(--color-text-primary)));
-}
-
-.tool-call__loc-badge--red {
-  background: color-mix(in srgb, var(--color-error) 12%, transparent);
-  color: color-mix(in srgb, var(--color-error) 78%, var(--workspace-text-primary, var(--color-text-primary)));
-}
-
-.tool-call__loc-badge--neutral {
-  background: color-mix(in srgb, var(--workspace-control-bg, var(--color-bg-secondary)) 80%, transparent);
-  color: var(--workspace-text-secondary, var(--tool-call-meta));
+:global([data-theme='dark']) .tool-call__file-item {
+  background: rgba(0, 0, 0, 0.16);
 }
 
 @keyframes tool-live-pulse {

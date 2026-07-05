@@ -4,32 +4,31 @@
   max-width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 8px;
+  gap: 0;
+  margin-top: 4px;
 }
 
-/* ---- 收起态汇总条 ---- */
+/* ---- 收起态汇总条（与工具/思考一致的扁平可点击头） ---- */
 .file-change-summary__bar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   width: 100%;
   max-width: 100%;
-  height: 30px;
-  padding: 0 10px;
-  border-radius: var(--radius-md, 8px);
-  border: 1px solid var(--workspace-border, rgba(38, 38, 38, 0.1));
-  background: var(--workspace-control-bg, rgba(0, 0, 0, 0.02));
+  min-height: 28px;
+  padding: 0 4px;
+  border-radius: 0;
+  border: 0;
+  background: transparent;
   color: var(--workspace-text-secondary, #6b7280);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: background var(--transition-fast, 0.15s) ease, border-color var(--transition-fast, 0.15s) ease;
+  transition: background var(--transition-fast, 0.15s) ease;
 }
 
 .file-change-summary__bar:hover {
-  background: var(--workspace-control-hover-bg, rgba(0, 0, 0, 0.04));
-  border-color: var(--workspace-border-strong, rgba(38, 38, 38, 0.16));
+  background: color-mix(in srgb, var(--workspace-control-hover-bg, rgba(0, 0, 0, 0.04)) 60%, transparent);
 }
 
 .file-change-summary__icon {
@@ -96,27 +95,27 @@
   transform: rotate(90deg);
 }
 
-/* ---- 展开态文件列表 ---- */
+/* ---- 展开态文件列表（融入气泡，无独立边框卡片，与工具/思考展开一致） ---- */
 .file-change-summary__list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin: 0;
-  padding: 4px;
+  gap: 1px;
+  margin: 2px 0 0;
+  padding: 0 4px;
   list-style: none;
-  border: 1px solid var(--workspace-border, rgba(38, 38, 38, 0.1));
-  border-radius: var(--radius-md, 8px);
-  background: var(--workspace-panel-bg, #ffffff);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .file-change-summary__item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 28px;
-  padding: 0 8px;
-  border-radius: var(--radius-sm, 4px);
-  font-size: 12px;
+  gap: 7px;
+  min-height: 24px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm, 5px);
+  font-size: 11.5px;
   color: var(--workspace-text-primary, #262626);
   cursor: pointer;
   transition: background var(--transition-fast, 0.15s) ease;
@@ -204,7 +203,7 @@
 }
 
 :global([data-theme='dark']) .file-change-summary__bar {
-  background: var(--workspace-control-bg, rgba(255, 255, 255, 0.03));
+  background: transparent;
   color: var(--workspace-text-secondary, #a1a1aa);
 }
 
@@ -213,5 +212,5 @@
 }
 
 :global([data-theme='dark']) .file-change-summary__list {
-  background: var(--workspace-panel-bg, #1b1b1b);
+  background: transparent;
 }

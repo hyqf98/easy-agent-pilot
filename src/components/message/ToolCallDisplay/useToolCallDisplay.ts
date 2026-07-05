@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ToolCall } from '@/stores/message'
-import { getToolNameCn, getToolKindLabelCn, getToolPrimaryFileBasename } from '@/utils/toolLabel'
+import { getToolNameCn, getToolKindLabelCn } from '@/utils/toolLabel'
 
 export interface ToolCallDisplayProps {
   toolCall: ToolCall
@@ -61,46 +61,54 @@ export function useToolCallDisplay(props: ToolCallDisplayProps) {
     return 'wrench'
   })
 
-  // 文件位置徽标：按 ToolKind 分组，生成 { icon, tone, label, title }[]
-  // read → 中性蓝；edit/move → 琥珀；delete → 红；其他 → 灰
-  // 注意：主文件已在工具名后内联显示，这里只展示"额外"的文件（第 2 个起）
-  const locationBadges = computed<Array<{ icon: string; tone: string; label: string; title: string }>>(() => {
-    const locations = props.toolCall.locations
-    if (!locations || locations.length === 0) return []
+  // 文件位置：展开内容里集中展示该工具涉及的文件路径（收起态不显示路径）。
+  // 来源：toolLocations（ACP ToolLocation）+ 参数里的 file_path/path/file/relativePath。
+  // 返回 { icon, fullPath, line? }[]，最多 6 个。
+  const involvedFiles = computed<Array<{ icon: string; fullPath: string; line?: number }>>(() => {
     const kind = props.toolCall.kind
     let icon = 'file'
-    let tone = 'neutral'
     if (kind) {
       switch (kind) {
-        case 'read': icon = 'file-search'; tone = 'blue'; break
-        case 'edit': icon = 'file-pen'; tone = 'amber'; break
-        case 'move': icon = 'folder-input'; tone = 'amber'; break
-        case 'delete': icon = 'file-x'; tone = 'red'; break
-        default: icon = 'file'; tone = 'neutral'
+        case 'read': icon = 'file-search'; break
+        case 'edit': icon = 'file-pen'; break
+        case 'move': icon = 'folder-input'; break
+        case 'delete': icon = 'file-x'; break
+        default: icon = 'file'
       }
     }
-    const toBasename = (relativePath: string) => {
-      const parts = relativePath.split(/[/\\]/)
-      return parts[parts.length - 1] || relativePath
+
+    const seen = new Set<string>()
+    const result: Array<{ icon: string; fullPath: string; line?: number }> = []
+
+    // 1) ACP locations（最权威）
+    for (const loc of props.toolCall.locations ?? []) {
+      const path = loc.relativePath || loc.path
+      if (!path || seen.has(path)) continue
+      seen.add(path)
+      result.push({ icon, fullPath: path, line: loc.line })
     }
-    const formatLocationLabel = (loc: { relativePath: string; line?: number }) => {
-      const name = toBasename(loc.relativePath)
-      return loc.line != null ? `${name}:${loc.line}` : name
+
+    // 2) 参数里常见路径字段兜底
+    const args = props.toolCall.arguments ?? {}
+    const argPaths = [
+      args.file_path, args.filePath, args.path, args.file,
+      args.relativePath, args.relative_path, args.filename, args.fileName,
+      args.target_path, args.targetPath, args.destination, args.dest
+    ]
+    for (const raw of argPaths) {
+      if (typeof raw !== 'string') continue
+      const trimmed = raw.trim()
+      if (!trimmed || seen.has(trimmed)) continue
+      seen.add(trimmed)
+      const line = typeof args.start_line === 'number'
+        ? args.start_line
+        : typeof args.line === 'number'
+          ? args.line
+          : undefined
+      result.push({ icon, fullPath: trimmed, line })
     }
-    // 主文件已在工具名后内联显示，徽标从第 2 个文件开始（最多 3 个 + 溢出）
-    const start = hasInlinePrimaryFile.value ? 1 : 0
-    const extra = locations.slice(start, start + 3)
-    const badges = extra.map(loc => ({
-      icon,
-      tone,
-      label: formatLocationLabel(loc),
-      title: loc.line != null ? `${loc.relativePath}:${loc.line}` : loc.relativePath
-    }))
-    const remaining = locations.length - start - extra.length
-    if (remaining > 0) {
-      badges.push({ icon: 'plus', tone, label: `+${remaining}`, title: locations.slice(start + 3).map(l => l.relativePath).join('\n') })
-    }
-    return badges
+
+    return result.slice(0, 6)
   })
 
   const isTerminalLikeTool = computed(() => {
@@ -113,7 +121,13 @@ export function useToolCallDisplay(props: ToolCallDisplayProps) {
 
   const isAgentExecutionTool = computed(() => {
     const name = props.toolCall.name.toLowerCase()
+    // OpenCode: dispatch_subagent / dispatch_parallel_agents / dispatch_agent
+    // Claude Code: Task
+    // Codex / 通用: agent / subagent / delegate
     return name === 'task'
+      || name.includes('dispatch_agent')
+      || name.includes('dispatch_subagent')
+      || name.includes('dispatch_parallel')
       || name.includes('agent')
       || name.includes('subagent')
       || name.includes('sub_agent')
@@ -129,6 +143,9 @@ export function useToolCallDisplay(props: ToolCallDisplayProps) {
 
   const agentExecutionTitle = computed(() => {
     const agentName = props.toolCall.arguments?.subagent_type
+      ?? props.toolCall.arguments?.subagentType
+      ?? props.toolCall.arguments?.agent_type
+      ?? props.toolCall.arguments?.agentType
       ?? props.toolCall.arguments?.agent
       ?? props.toolCall.arguments?.agentName
       ?? props.toolCall.arguments?.name
@@ -164,11 +181,7 @@ export function useToolCallDisplay(props: ToolCallDisplayProps) {
     return getToolNameCn(props.toolCall.name)
   })
 
-  // 主文件 basename（紧凑显示在工具名后面，替代右侧徽标）
-  const primaryFile = computed(() => getToolPrimaryFileBasename(props.toolCall))
-
-  // 是否在摘要中已展示主文件，避免徽标重复
-  const hasInlinePrimaryFile = computed(() => Boolean(primaryFile.value))
+  // 主文件 basename 已移除头部展示（路径统一放到展开内容里）
 
   // 格式化参数
   const animatedArguments = computed(() => {
@@ -236,26 +249,33 @@ export function useToolCallDisplay(props: ToolCallDisplayProps) {
       ?? props.toolCall.arguments?.path
       ?? props.toolCall.arguments?.relativePath
       ?? props.toolCall.arguments?.file
-    // 主文件已在工具名后内联显示，摘要中不再重复文件路径
+    // 收起态摘要不显示文件路径（路径统一放到展开内容里）
     if (typeof filePath === 'string' && filePath.trim()) {
       const startLine = props.toolCall.arguments?.start_line ?? props.toolCall.arguments?.line
       const endLine = props.toolCall.arguments?.end_line
       const lineSuffix = typeof startLine === 'number'
-        ? (typeof endLine === 'number' && endLine !== startLine ? `:${startLine}-${endLine}` : `:${startLine}`)
+        ? (typeof endLine === 'number' && endLine !== startLine ? ` 第 ${startLine}-${endLine} 行` : ` 第 ${startLine} 行`)
         : ''
-      return lineSuffix
+      const fileCount = (props.toolCall.locations?.length ?? 0)
+      if (fileCount > 1) return `等 ${fileCount} 个文件${lineSuffix}`
+      return lineSuffix || (props.toolCall.status === 'running' ? '处理中...' : '')
     }
 
     const firstArgument = Object.entries(props.toolCall.arguments ?? {})[0]
     if (firstArgument) {
-      const [, value] = firstArgument
+      const [key, value] = firstArgument
+      // 跳过纯路径类参数（避免在摘要里暴露长路径）
+      const pathLikeKeys = ['file_path', 'path', 'file', 'relativePath', 'target_path', 'destination']
+      if (pathLikeKeys.includes(key)) {
+        return props.toolCall.status === 'running' ? '处理中...' : ''
+      }
       const preview = (typeof value === 'string' ? value : JSON.stringify(value))
         .replace(/\s+/g, ' ')
         .trim()
       return preview.length > 120 ? `${preview.slice(0, 120)}...` : preview
     }
 
-    return props.toolCall.status === 'running' ? '等待工具结果...' : ''
+    return props.toolCall.status === 'running' ? '处理中...' : ''
   })
 
   const skillContent = computed(() => {
@@ -274,10 +294,9 @@ export function useToolCallDisplay(props: ToolCallDisplayProps) {
     toggleExpand,
     statusClass,
     toolIcon,
-    locationBadges,
     toolCategoryLabel,
     displayName,
-    primaryFile,
+    involvedFiles,
     isTerminalLikeTool,
     isAgentExecutionTool,
     isSkillTool,

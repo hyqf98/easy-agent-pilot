@@ -181,6 +181,32 @@
   --message-list-bottom-safe-space: 8px;
 }
 
+/* 会话切换/初次加载时的加载态 */
+.message-area__loading {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm, 13px);
+}
+
+.message-area__loading-spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: message-area-loading-spin 0.9s linear infinite;
+}
+
+@keyframes message-area-loading-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* 空状态 */
 .message-area__empty {
   flex: 1;

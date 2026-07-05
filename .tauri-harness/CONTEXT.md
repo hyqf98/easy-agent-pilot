@@ -1,4 +1,33 @@
 # 当前任务
+主会话整体样式优化 + 历史回显增强（2.0.0 主会话体验迭代）。
+
+## 本轮进度（2026-07-04 主会话样式 + 回显增强）
+- [x] 工具气泡收起态精简：移除文件路径徽标/主文件内联，仅保留 图标+类别+名称+摘要+展开箭头；文件路径/读取内容统一放到展开内容里（新增 tool-call__file-list 区块）
+- [x] 工具名为文件路径时降级为「编辑文件」（toolLabel.ts 新增路径检测，不在头部暴露长路径）
+- [x] ActiveFormPopup 紧凑化：圆角 14→10、padding 收紧、按钮 11.5px、footer 间距收紧
+- [x] FileChangeSummaryBar 与气泡一体化：移除独立边框卡片，bar 改为扁平可点击行（与工具/思考展开一致）
+- [x] 会话切换加载态：messageStore 新增 loadingSessions/isLoadingSession，MessageArea 在加载且无缓存消息时显示 spinner
+- [x] 历史会话文件列表回显修复（根因）：loadMessages 早退路径（agentCmd 为空）跳过 fileChangeStore.load → 抽取 loadSessionAttachments 在两条路径都调用；MessageArea 新增 watch 直接 fileChangeStore.load(currentSessionId) 确保必达
+- [x] fileChangeStore 响应式修复：load/ingestStreamEdit/clearSession 改为 new Map() 重新赋值（直接 .set 不触发）；useMessageBubble 改为直接读 fileChangeStore.tracesBySession（确保依赖追踪）+ requestId 不匹配时回退会话全部 traces
+- [x] 子代理显示增强：isAgentExecutionTool 覆盖 OpenCode dispatch_subagent/dispatch_parallel_agents；toolLabel 新增 dispatch* 中文名；agentExecutionTitle 支持 subagent_type/agent_type
+- [x] 发送按钮美化：移除 ::before 装饰方块，改为主色填充（停止态为红色），hover 微上浮
+- [x] 新增 fileChange store 单测（5 tests，含响应式 watchEffect 验证）+ toolLabel 路径检测单测（+1 = 14）
+
+## 验证汇总
+- pnpm typecheck：通过
+- pnpm vitest run src/utils/ + fileChange.test.ts：88 tests 全绿
+- pnpm build：通过（1m2s）
+- **Tauri MCP E2E（DOM 实测，注入模拟会话 + 持久化 traces）**：
+  - Req 1（工具收起态简洁）：`primaryFilesInHeader=0`, `locBadgesInHeader=0`, `chevrons=4` ✓；read 工具展开 `file-section` 含 `src/config.ts:1`、参数(JSON)+结果(文件内容)均在展开区 ✓；路径名工具降级「编辑文件」✓
+  - Req 3+5（文件列表回显+与气泡一体）：注入 user+assistant 消息（共享持久化 requestId）→ `.file-change-summary` 渲染=1 ✓；label「修改了 3 个文件」+ compact「config.json +5 / .env +5 / settings.yaml +11」✓；展开 list border=0px / bg=transparent（无独立卡片，与气泡一体）✓；3 个文件项 config.json +5 / .env +5 / settings.yaml +11 ✓
+  - Req 4（切换加载态）：切换空会话 → `isLoadingSession=true` + `messageCount=0` → `.message-area__loading` 渲染 ✓
+  - Req 6（子代理显示）：注入 `dispatch_subagent`(subagent_type=general-purpose) + `dispatch_parallel_agents` → 2 个 `.tool-call--agent-run` ✓；category「子代理」+ name「general-purpose」(从 subagent_type 提取) + summary「Refactor the auth module」✓；展开含「任务输入」section ✓
+  - Req 7（发送按钮）：`.conversation-composer__send--main` 存在，`::before` 装饰方块=none（已移除）✓
+- 验证方法：opencode 历史 session 存储过期导致回放返回空，改为通过 Pinia store 直接注入模拟消息（user+assistant+tool_use，含 dispatch_subagent/dispatch_parallel_agents/read/路径名 write）+ 复用 demo1 已持久化的 file_change_traces，完整走通渲染管线。
+
+---
+
+# 历史任务
 端到端测试与优化（demo1 真实 ACP 会话验证）：会话列表 UI、ACP 工具气泡中文化、工具高度、流式状态、待办续接、文件审查、计划/表单、后端清理。
 
 ## E2E 验证证据（demo1 + OpenCode CLI + glm-5.2 — 真实 ACP 会话）

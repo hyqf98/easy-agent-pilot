@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, provide } from 'vue'
+import { computed, provide, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EaIcon } from '@/components/common'
 import { MessageList } from '@/components/message'
@@ -10,6 +10,8 @@ import ConversationComposer from '../../conversationComposer/ConversationCompose
 import { useActiveFormRequest } from '@/composables/useActiveFormRequest'
 import { ACTIVE_FORM_ID } from '@/constants/activeForm'
 import { usePermissionStore } from '@/stores/permission'
+import { useMessageStore } from '@/stores/message'
+import { useFileChangeStore } from '@/stores/fileChange'
 import { useMessageArea } from './useMessageArea'
 
 const {
@@ -51,9 +53,26 @@ const {
 const { activeForm } = useActiveFormRequest(() => sessionStore.currentSessionId)
 const { t } = useI18n()
 const permissionStore = usePermissionStore()
+const messageStore = useMessageStore()
 const hasPermissionPrompt = computed(() =>
   Boolean(sessionStore.currentSessionId && permissionStore.getPending(sessionStore.currentSessionId))
 )
+
+// 会话切换/初次加载时显示加载态：该会话正在加载且本地尚无缓存消息
+const isSessionLoading = computed(() => {
+  const sessionId = sessionStore.currentSessionId
+  if (!sessionId) return false
+  if (!messageStore.isLoadingSession(sessionId)) return false
+  return messageStore.messagesBySession(sessionId).length === 0
+})
+
+// 当前会话切换时加载文件变更追踪 + Agent Plan 快照，确保刷新后/异常退出后
+// 历史会话的编辑文件列表、计划面板都能回显（与消息加载路径解耦，确保必达）。
+const fileChangeStore = useFileChangeStore()
+watch(() => sessionStore.currentSessionId, (sessionId) => {
+  if (!sessionId) return
+  void fileChangeStore.load(sessionId)
+}, { immediate: true })
 
 // 将当前激活表单 id 注入消息渲染层，抑制消息流里同表单的内联重复
 const activeFormId = computed(() => activeForm.value?.formId ?? null)
@@ -122,7 +141,15 @@ function handleComposerFormSubmit(values: Record<string, unknown>) {
             'message-area__conversation--trace-active': showDesktopTracePane
           }"
         >
+          <div
+            v-if="isSessionLoading"
+            class="message-area__loading"
+          >
+            <span class="message-area__loading-spinner" />
+            <span class="message-area__loading-text">{{ t('message.loadingSession') }}</span>
+          </div>
           <MessageList
+            v-else
             :key="sessionStore.currentSessionId || 'empty'"
             class="message-area__list"
             :session-id="sessionStore.currentSessionId || undefined"
