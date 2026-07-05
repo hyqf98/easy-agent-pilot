@@ -77,14 +77,23 @@ export function appendPlanSplitInstructionGuard(
         '1. 只输出一个 JSON，用 XML 标签包裹：<form-request> 或 <task-split>。form_request 顶层仅允许 type/question/forms；task_split 顶层仅允许 type/status/summary/tasks。',
         '2. task_split 时，summary 是本轮修改/拆分总结（1-3 句），tasks 是完整任务列表；不要在 XML 标签外重复输出任务列表。',
         `3. ${countRule}`,
-        scopedRule ? `4. ${scopedRule}` : '4. 不要输出 Markdown、代码块、解释性前后文或别名键。'
+        scopedRule ? `4. ${scopedRule}` : '4. 不要输出 Markdown、代码块、解释性前后文或别名键。',
+        '5. 必须使用英文双引号 "，禁止中文双引号 “”、单引号、反引号。',
+        '6. 严格遵循如下示例的字段名与结构（仅替换内容）:',
+        '<task-split>',
+        '{"type":"task_split","status":"DONE","summary":"示例总结。","tasks":[{"id":"t1","title":"示例任务","description":"示例描述","priority":"medium","implementationSteps":["步骤1"],"testSteps":["测试1"],"acceptanceCriteria":["标准1"]}]}',
+        '</task-split>'
       ]
     : [
         'Output constraints:',
         '1. Return exactly one JSON object wrapped in an XML tag: <form-request> or <task-split>. form_request may only use type/question/forms, and task_split may only use type/status/summary/tasks.',
         '2. For task_split, summary is the 1-3 sentence change/split recap and tasks is the full task list; do not repeat the task list outside the XML tag.',
         `3. ${countRule}`,
-        scopedRule ? `4. ${scopedRule}` : '4. Do not output markdown, code fences, prose outside the XML tag, or alias keys.'
+        scopedRule ? `4. ${scopedRule}` : '4. Do not output markdown, code fences, prose outside the XML tag, or alias keys.',
+        '5. Example structure (replace content only, keep field names exact):',
+        '<task-split>',
+        '{"type":"task_split","status":"DONE","summary":"Example summary.","tasks":[{"id":"t1","title":"Example task","description":"Example desc","priority":"medium","implementationSteps":["step1"],"testSteps":["test1"],"acceptanceCriteria":["crit1"]}]}',
+        '</task-split>'
       ]
 
   return `${content.trim()}\n\n${guardLines.filter(Boolean).join('\n')}`.trim()
