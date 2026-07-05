@@ -909,6 +909,7 @@ pub fn update_task(id: String, input: UpdateTaskInput) -> Result<Task, String> {
     bind_update_json(&mut stmt, &mut param_count, &input.input_response, "{}")
         .map_err(|e| e.to_string())?;
     bind_value(&mut stmt, &mut param_count, &id).map_err(|e| e.to_string())?;
+
     stmt.raw_execute().map_err(|e| e.to_string())?;
 
     if !matches!(input.memory_library_ids, UpdateField::Missing) {

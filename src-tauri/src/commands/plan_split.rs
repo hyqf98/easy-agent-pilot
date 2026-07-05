@@ -6,6 +6,7 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 use tauri::{AppHandle, Emitter, Listener, Event};
+use tokio::sync::mpsc;
 
 use super::conversation::abort::get_abort_flag;
 use super::conversation::executor::{get_registry, is_execution_session_active_internal};
@@ -26,6 +27,7 @@ use super::support::{now_rfc3339, open_db_connection};
 ///
 /// 详见 record_plan_split_event 调用处（Layer 2.1）。
 const PERSISTED_PLAN_SPLIT_LOG_TYPES: &[&str] = &[
+    "content",
     "tool_use",
     "tool_result",
     "error",
@@ -1671,24 +1673,29 @@ fn run_split_turn(app: AppHandle, request: ExecutionRequest) {
         // `plan-split-stream-{planId}`。这里订阅 ACP 通道，把每个事件转成
         // `SplitStreamRecord` 后交给 `record_plan_split_event`（它会落库 +
         // 重新发到 `plan-split-stream-{planId}` + 解析 form_request/task_split +
-        // done 时收尾会话）。落库是同步 DB I/O，放到 spawn_blocking 避免阻塞事件循环。
+        // done 时收尾会话）。
+        //
+        // Bug #3 修复：原实现对每个事件 spawn_blocking 一个独立任务并发执行
+        // record_plan_split_event，emit 顺序无保证 → 前端收到 chunk 乱序。
+        // 现在用 mpsc channel + 单 consumer task 串行化处理，保证 emit + DB
+        // 写入按 chunk 到达顺序执行。
         let acp_event_name = format!("acp-stream-{session_id}");
         let listener_app = app.clone();
-        let listener_plan_id = plan_id.clone();
-        let listener_session_id = session_id.clone();
         let handler_app = listener_app.clone();
-        let event_id = listener_app.listen(
-            acp_event_name.as_str(),
-            move |event: Event| {
-                let payload: StreamEvent = match serde_json::from_str(event.payload()) {
-                    Ok(value) => value,
-                    Err(_) => return,
-                };
-                let record = stream_event_to_split_record(&payload);
-                let app_for_record = handler_app.clone();
-                let plan_id_for_record = listener_plan_id.clone();
-                let session_id_for_record = listener_session_id.clone();
-                tauri::async_runtime::spawn_blocking(move || {
+        // 创建无界 channel：listener 立即入队，consumer 串行处理
+        // (tx 端在 listener 闭包里，rx 端在 consumer task 里)
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel::<SplitStreamRecord>();
+        let consumer_plan_id = plan_id.clone();
+        let consumer_session_id = session_id.clone();
+        let consumer_app = handler_app.clone();
+        let consumer_handle = tauri::async_runtime::spawn(async move {
+            while let Some(record) = event_rx.recv().await {
+                // record_plan_split_event 是同步 DB I/O，用 spawn_blocking 但
+                // 在单 consumer 内串行 await，保证顺序
+                let app_for_record = consumer_app.clone();
+                let plan_id_for_record = consumer_plan_id.clone();
+                let session_id_for_record = consumer_session_id.clone();
+                let _ = tauri::async_runtime::spawn_blocking(move || {
                     if let Err(error) = record_plan_split_event(
                         &app_for_record,
                         &plan_id_for_record,
@@ -1704,7 +1711,20 @@ fn run_split_turn(app: AppHandle, request: ExecutionRequest) {
                             ),
                         );
                     }
-                });
+                })
+                .await;
+            }
+        });
+        let event_id = listener_app.listen(
+            acp_event_name.as_str(),
+            move |event: Event| {
+                let payload: StreamEvent = match serde_json::from_str(event.payload()) {
+                    Ok(value) => value,
+                    Err(_) => return,
+                };
+                let record = stream_event_to_split_record(&payload);
+                // 入队，失败说明 consumer 已关闭（拆分结束），丢弃即可
+                let _ = event_tx.send(record);
             },
         );
 
@@ -1712,6 +1732,9 @@ fn run_split_turn(app: AppHandle, request: ExecutionRequest) {
 
         // 执行结束（成功/失败/被取消）后注销监听，避免残留监听器重复处理后续事件
         app.unlisten(event_id);
+
+        // 等待 consumer task 处理完队列中剩余事件，避免拆分完成消息丢失
+        let _ = consumer_handle.await;
 
         if let Err(error) = result {
             let _ = mark_plan_split_failed(&app, &plan_id, &session_id, &error.to_string());
