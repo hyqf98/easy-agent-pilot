@@ -17,6 +17,7 @@ const {
   EaModal,
   EaButton,
   EaIcon,
+  EaSelect,
   MemoryLibraryPicker
 } = usePlanEditDialog(props, emit)
 </script>

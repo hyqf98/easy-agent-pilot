@@ -18,6 +18,73 @@ use super::conversation::types::{ExecutionRequest, MessageInput, StreamEvent};
 use super::message::MessageAttachment;
 use super::support::{now_rfc3339, open_db_connection};
 
+/// 持久化到 plan_split_logs 的"完整事件"白名单。
+///
+/// 轻量增量 token 类型（content / thinking / tool_input_delta）不入库：
+/// 它们仅用于 UI 流式显示，前端 listener 已实时 push 到 logs.value；
+/// 重启后通过 session 的 raw_content/messagesJson 恢复。
+///
+/// 详见 record_plan_split_event 调用处（Layer 2.1）。
+const PERSISTED_PLAN_SPLIT_LOG_TYPES: &[&str] = &[
+    "tool_use",
+    "tool_result",
+    "error",
+    "permission_request",
+    "plan",
+    "system",
+    "usage",
+    "session_started",
+    "file_edit",
+    "form_request",
+    "task_split",
+];
+
+/// 构造精简版 metadata JSON：仅写入非空字段，避免每行重复存全量 null 字段。
+///
+/// Layer 2.2 优化：单行 metadata 从 ~265B 降到 ~30B（典型 tool_use 行）。
+/// 字段顺序保持稳定以利于下游解析（前端 parseStreamPayloadMetadata 已支持 camelCase 容错）。
+fn build_compact_split_log_metadata(event: &SplitStreamRecord) -> Option<String> {
+    let mut map = serde_json::Map::new();
+    if let Some(value) = event.tool_name.as_ref().filter(|v| !v.is_empty()) {
+        map.insert("toolName".to_string(), Value::String(value.clone()));
+    }
+    if let Some(value) = event.tool_call_id.as_ref().filter(|v| !v.is_empty()) {
+        map.insert("toolCallId".to_string(), Value::String(value.clone()));
+    }
+    if let Some(value) = event.tool_input.as_ref().filter(|v| !v.is_empty()) {
+        map.insert("toolInput".to_string(), Value::String(value.clone()));
+    }
+    if let Some(value) = event.tool_result.as_ref().filter(|v| !v.is_empty()) {
+        map.insert("toolResult".to_string(), Value::String(value.clone()));
+    }
+    if let Some(value) = event.error.as_ref().filter(|v| !v.is_empty()) {
+        map.insert("error".to_string(), Value::String(value.clone()));
+    }
+    if let Some(value) = event.model.as_ref().filter(|v| !v.is_empty()) {
+        map.insert("model".to_string(), Value::String(value.clone()));
+    }
+    if let Some(value) = event.external_session_id.as_ref().filter(|v| !v.is_empty()) {
+        map.insert("externalSessionId".to_string(), Value::String(value.clone()));
+    }
+    // token 字段仅在非零时写入（频繁为 null）
+    for (key, value) in [
+        ("inputTokens", event.input_tokens),
+        ("outputTokens", event.output_tokens),
+        ("rawInputTokens", event.raw_input_tokens),
+        ("rawOutputTokens", event.raw_output_tokens),
+        ("cacheReadInputTokens", event.cache_read_input_tokens),
+        ("cacheCreationInputTokens", event.cache_creation_input_tokens),
+    ] {
+        if let Some(n) = value.filter(|n| *n > 0) {
+            map.insert(key.to_string(), Value::Number(serde_json::Number::from(n)));
+        }
+    }
+    if map.is_empty() {
+        return None;
+    }
+    serde_json::to_string(&Value::Object(map)).ok()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlanSplitMessage {
@@ -1434,22 +1501,9 @@ pub fn record_plan_split_event(
 
     let now = now_rfc3339();
     let structured_output = extract_structured_output_payload(&event);
-    let metadata = serde_json::to_string(&serde_json::json!({
-        "toolName": event.tool_name.clone(),
-        "toolCallId": event.tool_call_id.clone(),
-        "toolInput": event.tool_input.clone(),
-        "toolResult": event.tool_result.clone(),
-        "error": event.error.clone(),
-        "inputTokens": event.input_tokens,
-        "outputTokens": event.output_tokens,
-        "rawInputTokens": event.raw_input_tokens,
-        "rawOutputTokens": event.raw_output_tokens,
-        "cacheReadInputTokens": event.cache_read_input_tokens,
-        "cacheCreationInputTokens": event.cache_creation_input_tokens,
-        "model": event.model.clone(),
-        "externalSessionId": event.external_session_id.clone(),
-    }))
-    .ok();
+    // Layer 2.2: metadata 精简 — 只在字段非空时写入，避免每行重复存全量 null 字段
+    // （从 ~265B/行 降到 ~30B/行）
+    let metadata = build_compact_split_log_metadata(&event);
     let content = event
         .content
         .clone()
@@ -1486,7 +1540,16 @@ pub fn record_plan_split_event(
         insert_or_update_session(&conn, &session)?;
     }
 
-    if event.event_type != "done" {
+    // Layer 2.1: 轻量 token 事件（content/thinking/tool_input_delta）不再入库。
+    // 这些类型仅用于 UI 流式显示，前端 listener 已实时 push 到 logs.value；
+    // 重启后通过 session 的 raw_content/messagesJson 恢复（backend 已在 done/fail 时持久化）。
+    // 保留所有"完整事件"类型：tool_use/tool_result/error/permission_request/plan/system/
+    // usage/session_started/file_edit/form_request/task_split。
+    // 这把单次拆分的 plan_split_logs 行数从 ~8000+ 降到 ~200 以内，根治 DB 膨胀。
+    if PERSISTED_PLAN_SPLIT_LOG_TYPES
+        .iter()
+        .any(|t| event.event_type == *t)
+    {
         conn.execute(
             "INSERT INTO plan_split_logs (id, plan_id, session_id, log_type, content, metadata, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",

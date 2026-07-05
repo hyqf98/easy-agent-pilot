@@ -574,6 +574,13 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
   // 每个计划独立的持久监听器，独立于当前激活计划的 streamUnlisten
   const planBackgroundListeners = new Map<string, UnlistenFn>()
 
+  // recover* 结果 memoization 缓存键：相同 (snapshot.id+updatedAt+logs.length) 跳过重算
+  // 解决重试风暴下 session_updated 反复触发 O(N) log-scan 的问题
+  let lastRecoverKey = ''
+  // session_updated 防抖：合并重试风暴下连发的 session_updated 事件
+  let pendingSessionSnapshot: PlanSplitSessionRecord | null = null
+  let sessionUpdateTimer: ReturnType<typeof setTimeout> | null = null
+
   /** 读取指定计划的最新运行态（供 tab 指示器使用） */
   const getPlanRuntimeStatus = computed(() => {
     return (planId: string): PlanSplitSessionStatus | null =>
@@ -600,6 +607,12 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
       streamUnlisten.value()
       streamUnlisten.value = null
     }
+    // 清理 session_updated 防抖定时器，避免 detach 后仍触发 applySessionSnapshot
+    if (sessionUpdateTimer) {
+      clearTimeout(sessionUpdateTimer)
+      sessionUpdateTimer = null
+    }
+    pendingSessionSnapshot = null
   }
 
   /**
@@ -951,11 +964,24 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     }
 
     messages.value = toSplitMessages(snapshot.messagesJson)
-    const parsedResult = recoverSplitResultFromSnapshot(snapshot, logs.value)
-    if (parsedResult) {
-      splitResult.value = parsedResult
-    } else if (!refinementState.value) {
-      splitResult.value = null
+    // Layer 1.1 + 1.2: recover 门控 + memoization
+    // - running 期 backend 不可能写出 result_json（structured_output 解析会立刻转 completed），
+    //   所以 splitResult 当前为空时 log-scan 必然返回空，跳过 O(N) 扫描。
+    // - 非 running 期，用 (snapshot.id+updatedAt+logs.length) 缓存键避免重试风暴下反复 O(N) 重算。
+    const canRecoverResult = snapshot.status !== 'running' || splitResult.value
+    if (canRecoverResult) {
+      const recoverKey = `${snapshot.id ?? ''}|${snapshot.updatedAt ?? ''}|${logs.value.length}`
+      if (recoverKey === lastRecoverKey) {
+        // 命中缓存，保留 splitResult.value（已在上次 recover 中设置）
+      } else {
+        const parsedResult = recoverSplitResultFromSnapshot(snapshot, logs.value)
+        if (parsedResult) {
+          splitResult.value = parsedResult
+        } else if (!refinementState.value) {
+          splitResult.value = null
+        }
+        lastRecoverKey = recoverKey
+      }
     }
     const shouldKeepFormQueue = snapshot.status === 'waiting_input'
     const nextFormQueue = shouldKeepFormQueue
@@ -1181,7 +1207,28 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
           }
           ;(globalThis as { __EASY_AGENT_LAST_PLAN_SPLIT_METRICS?: PlanSplitRuntimeMetrics | null }).__EASY_AGENT_LAST_PLAN_SPLIT_METRICS = runtimeMetrics.value
         }
-        applySessionSnapshot(payload.session, true)
+        // Layer 1.3: 终态立即 apply（保证 completed/failed 等正确处理）；running/waiting_input 防抖合并
+        const isTerminal = ['completed', 'failed', 'stopped'].includes(payload.session.status)
+        if (isTerminal) {
+          if (sessionUpdateTimer) {
+            clearTimeout(sessionUpdateTimer)
+            sessionUpdateTimer = null
+          }
+          pendingSessionSnapshot = null
+          applySessionSnapshot(payload.session, true)
+        } else {
+          pendingSessionSnapshot = payload.session
+          if (!sessionUpdateTimer) {
+            sessionUpdateTimer = setTimeout(() => {
+              sessionUpdateTimer = null
+              const snapshot = pendingSessionSnapshot
+              pendingSessionSnapshot = null
+              if (snapshot && isCurrentPlan(snapshot.planId)) {
+                applySessionSnapshot(snapshot, true)
+              }
+            }, 50)
+          }
+        }
         return
       }
 
