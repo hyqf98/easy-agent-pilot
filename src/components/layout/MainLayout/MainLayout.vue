@@ -9,6 +9,9 @@ const {
   rightFileProject,
   rightDockWidth,
   rightTreeWidth,
+  isRightTaskPanelOpen,
+  rightTaskPlanId,
+  rightTaskDockWidth,
   resizeTarget,
   isFileWorkspaceActive,
   isRightTerminalVisible,
@@ -26,10 +29,12 @@ const {
   FileEditorWorkspace,
   FileChangeReviewWorkspace,
   OfficeViewerWorkspace,
+  RightTaskPanelContent,
   EaIcon,
   handleOpenProjectFiles,
   handleRightFileSelect,
   closeRightFilePanel,
+  closeRightTaskPanel,
   toggleRightTerminal,
   startResize
 } = useMainLayout()
@@ -187,6 +192,38 @@ const {
             class="main-layout__right-terminal"
           />
         </section>
+      </aside>
+
+      <!-- 右侧任务面板：plan 模式下应用级最右侧独立列，承载拆分预览/任务列表 -->
+      <aside
+        v-if="uiStore.appMode === 'plan' && isRightTaskPanelOpen && rightTaskPlanId"
+        class="main-layout__right-dock main-layout__right-task-dock"
+        :style="{ width: `${rightTaskDockWidth}px` }"
+      >
+        <header class="main-layout__task-dock-header">
+          <div class="main-layout__task-dock-title">
+            <EaIcon
+              name="clipboard-list"
+              :size="14"
+            />
+            <span>任务列表</span>
+          </div>
+          <button
+            type="button"
+            class="main-layout__task-dock-close"
+            title="关闭任务面板"
+            aria-label="关闭任务面板"
+            @click="closeRightTaskPanel"
+          >
+            <EaIcon
+              name="x"
+              :size="14"
+            />
+          </button>
+        </header>
+        <div class="main-layout__task-dock-body">
+          <RightTaskPanelContent :plan-id="rightTaskPlanId" />
+        </div>
       </aside>
     </div>
   </div>

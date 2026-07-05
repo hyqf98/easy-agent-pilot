@@ -4,6 +4,7 @@ import { useLayoutStore } from '@/stores/layout'
 import { useUIStore } from '@/stores/ui'
 import { useProjectStore, type Project } from '@/stores/project'
 import { useRightFilePanelStore } from '@/stores/rightFilePanel'
+import { useRightTaskPanelStore } from '@/stores/rightTaskPanel'
 import { useSplitPaneStore } from '@/stores/splitPane'
 import WorkspaceShell from '../WorkspaceShell/WorkspaceShell.vue'
 import BottomTerminalPanel from '../BottomTerminalPanel/BottomTerminalPanel.vue'
@@ -12,6 +13,7 @@ import SessionTabs from '../SessionTabs/SessionTabs.vue'
 import MessageArea from '../messageArea/MessageArea/MessageArea.vue'
 import { SplitContainer } from '../splitPane'
 import { PlanModePanel } from '@/components/plan'
+import RightTaskPanelContent from '@/components/plan/rightTaskPanelContent/RightTaskPanelContent.vue'
 import { MemoryRepoPanel } from '@/components/memory'
 import { SoloModePanel } from '@/components/solo'
 import { SettingsShell } from '@/components/settings'
@@ -38,12 +40,18 @@ const terminalStore = useTerminalStore()
 const sessionStore = useSessionStore()
 const fileChangeStore = useFileChangeStore()
 const rightFilePanelStore = useRightFilePanelStore()
+const rightTaskPanelStore = useRightTaskPanelStore()
 // 通过 storeToRefs 取响应式 ref，避免在 return 时传裸值丢失响应性
 const {
   isRightFilePanelOpen,
   rightDockWidth,
   rightTreeWidth
 } = storeToRefs(rightFilePanelStore)
+const {
+  isRightTaskPanelOpen,
+  rightTaskPlanId,
+  rightTaskDockWidth
+} = storeToRefs(rightTaskPanelStore)
 
 const isRightTerminalVisible = ref(false)
 const resizeTarget = ref<'rightDock' | 'rightTree' | null>(null)
@@ -113,6 +121,12 @@ async function handleRightFileSelect(filePath: string) {
 function closeRightFilePanel() {
   rightFilePanelStore.close()
   isRightTerminalVisible.value = false
+}
+
+function closeRightTaskPanel() {
+  rightTaskPanelStore.close().catch((error) => {
+    console.error('Failed to close right task panel:', error)
+  })
 }
 
 async function toggleRightTerminal() {
@@ -208,6 +222,9 @@ watch(
     rightFileProject,
     rightDockWidth,
     rightTreeWidth,
+    isRightTaskPanelOpen,
+    rightTaskPlanId,
+    rightTaskDockWidth,
     resizeTarget,
     isFileWorkspaceActive,
     isRightTerminalVisible,
@@ -225,10 +242,12 @@ watch(
     FileEditorWorkspace,
     FileChangeReviewWorkspace,
     OfficeViewerWorkspace,
+    RightTaskPanelContent,
     EaIcon,
     handleOpenProjectFiles,
     handleRightFileSelect,
     closeRightFilePanel,
+    closeRightTaskPanel,
     toggleRightTerminal,
     startResize
   }

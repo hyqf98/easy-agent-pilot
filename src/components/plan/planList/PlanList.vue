@@ -8,7 +8,6 @@ import PlanListHeader from '../PlanListHeader/PlanListHeader.vue'
 import PlanListItem from '../PlanListItem/PlanListItem.vue'
 import PlanListStatusTabs from '../PlanListStatusTabs/PlanListStatusTabs.vue'
 import PlanSplitConfigDialog from '../PlanSplitConfigDialog/PlanSplitConfigDialog.vue'
-import TaskSplitDialog from '../taskSplitDialog/TaskSplitDialog.vue'
 import { usePlanListView } from './usePlanList'
 
 const emit = defineEmits<{
@@ -139,8 +138,6 @@ const {
       @close="closeSplitConfigDialog"
       @start="confirmSplitConfigAndStart"
     />
-
-    <TaskSplitDialog />
   </div>
 </template>
 

@@ -6,6 +6,7 @@ import { useAgentSchedulerStore } from '@/stores/agentScheduler'
 import { useTaskExecutionStore } from '@/stores/taskExecution'
 import PlanList from '../planList/PlanList.vue'
 import TaskBoard from '../taskBoard/TaskBoard.vue'
+import PlanSplitConversation from '../planSplitConversation/PlanSplitConversation.vue'
 import TaskExecutionLog from '../taskExecutionLog/TaskExecutionLog.vue'
 import TaskDetail from '../TaskDetail/TaskDetail.vue'
 import PlanProgressDetail from '../PlanProgressDetail/PlanProgressDetail.vue'
@@ -155,6 +156,7 @@ export function usePlanModePanel() {
     isResizing,
     PlanList,
     TaskBoard,
+    PlanSplitConversation,
     TaskExecutionLog,
     TaskDetail,
     PlanProgressDetail,

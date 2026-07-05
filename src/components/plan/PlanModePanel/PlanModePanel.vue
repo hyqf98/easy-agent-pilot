@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { usePlanModePanel } from './usePlanModePanel'
 
 const {
+  planStore,
   activeRole,
   rightPanelOpen,
   rightPanelView,
@@ -11,6 +13,7 @@ const {
   isResizing,
   PlanList,
   TaskBoard,
+  PlanSplitConversation,
   TaskExecutionLog,
   TaskDetail,
   PlanProgressDetail,
@@ -23,6 +26,14 @@ const {
   closeRightPanel,
   startResize
 } = usePlanModePanel()
+
+// 拆分激活：当前选中的计划正在拆分中，中间区域切换为拆分会话
+const isSplitActiveForSelected = computed(() =>
+  planStore.splitDialogVisible
+  && planStore.activeSplitPlanId !== null
+  && (planStore.activeSplitPlanId === selectedPlanId.value
+    || planStore.activeSplitPlanId === planStore.currentPlanId)
+)
 </script>
 
 <template>
@@ -39,8 +50,15 @@ const {
     </template>
 
     <div class="plan-content">
-      <!-- 中间：任务看板 -->
+      <!-- 中间：拆分时显示拆分会话；否则显示任务看板 -->
       <div
+        v-if="isSplitActiveForSelected"
+        class="task-board-container task-board-container--split"
+      >
+        <PlanSplitConversation />
+      </div>
+      <div
+        v-else
         class="task-board-container"
         :class="{ 'task-board-container--with-right': rightPanelOpen }"
       >

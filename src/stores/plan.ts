@@ -6,6 +6,7 @@ import logger from '@/utils/logger'
 import { useTaskExecutionStore } from './taskExecution'
 import { useTaskStore } from './task'
 import { useTaskSplitStore } from './taskSplit'
+import { useRightTaskPanelStore } from './rightTaskPanel'
 import { getErrorMessage } from '@/utils/api'
 import type { Plan, PlanStatus, PlanExecutionStatus, ScheduleStatus, CreatePlanInput, UpdatePlanInput, AgentRole, PlanSplitMode } from '@/types/plan'
 import { DEFAULT_SPLIT_GRANULARITY } from '@/constants/plan'
@@ -376,6 +377,10 @@ export const usePlanStore = defineStore('plan', () => {
     splitDialogContexts.value.set(context.planId, context)
     activeSplitPlanId.value = context.planId
     splitDialogVisible.value = true
+    // 同步打开右侧任务 dock，承载拆分预览/任务列表
+    useRightTaskPanelStore().openForPlan(context.planId).catch((error) => {
+      logger.error('Failed to open right task panel for split:', error)
+    })
   }
 
   function switchSplitDialogTab(planId: string) {
@@ -392,6 +397,10 @@ export const usePlanStore = defineStore('plan', () => {
     }
     if (splitDialogContexts.value.size === 0) {
       splitDialogVisible.value = false
+      // 所有拆分 tab 关闭时同步关 dock
+      useRightTaskPanelStore().close().catch((error) => {
+        logger.error('Failed to close right task panel:', error)
+      })
     }
   }
 
@@ -399,6 +408,10 @@ export const usePlanStore = defineStore('plan', () => {
     splitDialogVisible.value = false
     activeSplitPlanId.value = null
     splitDialogContexts.value.clear()
+    // 同步关闭右侧任务 dock
+    useRightTaskPanelStore().close().catch((error) => {
+      logger.error('Failed to close right task panel:', error)
+    })
   }
 
   // 取消计划定时

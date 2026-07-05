@@ -133,7 +133,16 @@ function buildAssistantDisplayContent(content: string) {
     return summary.summary || `任务拆分完成，共生成 ${summary.count} 个任务。`
   }
 
-  return content.trim()
+  // 即使解析失败（如 chunk 乱序），也剥离 <task-split>/<form-request> JSON 标签：
+  // 这些大段 JSON 对用户无信息价值，结果已通过右侧任务面板展示。
+  const stripped = content
+    .replace(/<task-split[\s>][\s\S]*?<\/task-split>/gi, '')
+    .replace(/<task-split[\s/>][\s\S]*$/gi, '')
+    .replace(/<form-request[\s>][\s\S]*?<\/form-request>/gi, '')
+    .replace(/<form-request[\s/>][\s\S]*$/gi, '')
+    .replace(/<\/?(?:task-split|form-request)\s*>/gi, '')
+    .trim()
+  return stripped
 }
 
 function estimateTokenCountFromText(content?: string | null): number | undefined {
