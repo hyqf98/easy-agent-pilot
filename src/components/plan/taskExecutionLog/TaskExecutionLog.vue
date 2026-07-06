@@ -281,6 +281,8 @@ const {
       >
         <ExecutionTimeline
           :entries="timelineEntries"
+          :group-tool-calls="true"
+          :show-elapsed-meta="true"
           :compact-context-notices="true"
         />
       </div>
