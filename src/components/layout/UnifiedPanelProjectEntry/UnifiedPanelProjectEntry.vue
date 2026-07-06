@@ -14,7 +14,6 @@ const {
   UnifiedPanelSessionList,
   projectItemRef,
   isCompactMenuOpen,
-  showAllSessions,
   isBatchSelectMode,
   selectedSessionIds,
   visibleSessions,
@@ -22,188 +21,178 @@ const {
   hasHiddenSessions,
   isSessionsLoading,
   isAcpSyncing,
+  isProjectRowLoading,
   handleStartEditSession,
   toggleSessionSelection,
   toggleBatchSelectMode,
   closeCompactMenu,
   handleProjectMenuToggle,
-  handleProjectCompactAction
+  handleProjectCompactAction,
+  loadMoreSessions
 } = useUnifiedPanelProjectEntry(props, emit)
 </script>
 
 <template>
-  <div
-    ref="projectItemRef"
-    :class="[
-      'project-item',
-      {
-        'project-item--active': isActive,
-        'project-item--expanded': isExpanded,
-        'project-item--menu-open': isCompactMenuOpen
-      }
-    ]"
-    tabindex="0"
-    role="listitem"
-    :aria-selected="isActive"
-    :aria-expanded="isExpanded"
-    @click="emit('toggleProject', project)"
-    @keydown.enter="emit('toggleProject', project)"
-    @keydown.space.prevent="emit('toggleProject', project)"
-  >
-    <div class="project-item__arrow">
-      <EaIcon
-        name="chevron-right"
-        :size="14"
-        :class="{ 'project-item__arrow--expanded': isExpanded }"
-      />
-    </div>
-
-    <div class="project-item__icon">
-      <EaIcon
-        name="folder"
-        :size="18"
-      />
-    </div>
-
-    <div class="project-item__info">
-      <div class="project-item__header">
-        <span class="project-item__name">{{ project.name }}</span>
-      </div>
-      <div class="project-item__meta">
-        <span
-          v-if="isAcpSyncing"
-          class="project-item__sync-badge"
-        >
-          <span class="project-item__sync-spinner" />
-          <span>{{ t('unified.syncing') }}</span>
-        </span>
-        <span class="project-item__time">{{ importedTimeLabel }} {{ t('unified.imported') }}</span>
-      </div>
-    </div>
-
-    <div class="project-item__inline-actions">
-      <button
-        class="project-item__inline-action project-item__inline-action--add"
-        :title="t('session.newSession')"
-        :aria-label="t('session.newSession')"
-        @click.stop="emit('addSession', project.id)"
-      >
-        <EaIcon
-          name="plus"
-          :size="13"
-        />
-      </button>
-    </div>
-
-    <details
-      class="project-item__menu"
-      @click.stop
-      @toggle="handleProjectMenuToggle"
+  <div class="project-entry">
+    <div
+      ref="projectItemRef"
+      :class="[
+        'project-item',
+        {
+          'project-item--active': isActive,
+          'project-item--expanded': isExpanded,
+          'project-item--menu-open': isCompactMenuOpen
+        }
+      ]"
+      tabindex="0"
+      role="listitem"
+      :aria-selected="isActive"
+      :aria-expanded="isExpanded"
+      @click="emit('toggleProject', project)"
+      @keydown.enter="emit('toggleProject', project)"
+      @keydown.space.prevent="emit('toggleProject', project)"
     >
-      <summary
-        class="project-item__menu-trigger"
-        @click.stop
-      >
-        <EaIcon
-          name="ellipsis-vertical"
-          :size="12"
+      <div class="project-item__arrow">
+        <span
+          v-if="isProjectRowLoading"
+          class="project-item__lead-spinner"
+          :title="isAcpSyncing ? t('unified.syncing') : t('common.loading')"
+          aria-hidden="true"
         />
-      </summary>
-      <div class="project-item__menu-popover">
-        <button
-          class="project-item__menu-action"
-          @click="handleProjectCompactAction('files', project, $event)"
-        >
-          <EaIcon
-            name="files"
-            :size="12"
-          />
-          <span>{{ t('unified.files') }}</span>
-        </button>
-        <button
-          class="project-item__menu-action"
-          @click="handleProjectCompactAction('edit', project, $event)"
-        >
-          <EaIcon
-            name="edit-2"
-            :size="12"
-          />
-          <span>{{ t('common.edit') }}</span>
-        </button>
-        <button
-          type="button"
-          class="project-item__menu-action"
-          @click="toggleBatchSelectMode($event); closeCompactMenu($event)"
-        >
-          <EaIcon
-            name="list-checks"
-            :size="12"
-          />
-          <span>{{ isBatchSelectMode ? t('common.cancel') : '批量选择' }}</span>
-        </button>
-        <button
-          class="project-item__menu-action project-item__menu-action--danger"
-          @click="handleProjectCompactAction('delete', project, $event)"
-        >
-          <EaIcon
-            name="x"
-            :size="12"
-          />
-          <span>{{ t('common.delete') }}</span>
-        </button>
+        <EaIcon
+          v-else
+          name="chevron-right"
+          :size="14"
+          :class="{ 'project-item__arrow--expanded': isExpanded }"
+        />
       </div>
-    </details>
-  </div>
 
-  <div
-    v-if="isExpanded"
-    class="project-content"
-  >
-    <div class="tab-content tab-content--sessions">
-      <div
-        v-if="isSessionsLoading && sessions.length === 0"
-        class="session-skeleton-list"
-      >
-        <div
-          v-for="i in 3"
-          :key="i"
-          class="session-skeleton"
-        >
-          <span class="session-skeleton__lead" />
-          <span class="session-skeleton__line session-skeleton__line--name" />
+      <div class="project-item__icon">
+        <EaIcon
+          name="folder"
+          :size="18"
+        />
+      </div>
+
+      <div class="project-item__info">
+        <div class="project-item__header">
+          <span class="project-item__name">{{ project.name }}</span>
+        </div>
+        <div class="project-item__meta">
+          <span class="project-item__time">{{ importedTimeLabel }} {{ t('unified.imported') }}</span>
         </div>
       </div>
 
-      <UnifiedPanelSessionList
-        v-else
-        :sessions="visibleSessions"
-        :current-session-id="currentSessionId"
-        :editing-session-id="editingSessionId"
-        :editing-session-name="editingSessionName"
-        :selected-session-ids="selectedSessionIds"
-        :selection-mode="isBatchSelectMode"
-        @select="emit('selectSession', $event)"
-        @toggle-select="toggleSessionSelection"
-        @toggle-pin="emit('togglePin', $event)"
-        @start-edit="handleStartEditSession"
-        @save-edit="emit('saveEditSession', $event)"
-        @cancel-edit="emit('cancelEditSession')"
-        @delete="emit('deleteSession', $event)"
-        @update-editing-name="emit('updateEditingName', $event)"
-      />
+      <div class="project-item__inline-actions">
+        <button
+          class="project-item__inline-action project-item__inline-action--add"
+          :title="t('session.newSession')"
+          :aria-label="t('session.newSession')"
+          @click.stop="emit('addSession', project.id)"
+        >
+          <EaIcon
+            name="plus"
+            :size="13"
+          />
+        </button>
+      </div>
 
-      <button
-        v-if="!isSessionsLoading && hasHiddenSessions"
-        type="button"
-        class="session-more-btn"
-        @click="showAllSessions = !showAllSessions"
+      <details
+        class="project-item__menu"
+        @click.stop
+        @toggle="handleProjectMenuToggle"
       >
-        <EaIcon
-          :name="showAllSessions ? 'chevron-up' : 'ellipsis'"
-          :size="13"
+        <summary
+          class="project-item__menu-trigger"
+          @click.stop
+        >
+          <EaIcon
+            name="ellipsis-vertical"
+            :size="12"
+          />
+        </summary>
+        <div class="project-item__menu-popover">
+          <button
+            class="project-item__menu-action"
+            @click="handleProjectCompactAction('files', project, $event)"
+          >
+            <EaIcon
+              name="files"
+              :size="12"
+            />
+            <span>{{ t('unified.files') }}</span>
+          </button>
+          <button
+            class="project-item__menu-action"
+            @click="handleProjectCompactAction('edit', project, $event)"
+          >
+            <EaIcon
+              name="edit-2"
+              :size="12"
+            />
+            <span>{{ t('common.edit') }}</span>
+          </button>
+          <button
+            type="button"
+            class="project-item__menu-action"
+            @click="toggleBatchSelectMode($event); closeCompactMenu($event)"
+          >
+            <EaIcon
+              name="list-checks"
+              :size="12"
+            />
+            <span>{{ isBatchSelectMode ? t('common.cancel') : '批量选择' }}</span>
+          </button>
+          <button
+            class="project-item__menu-action project-item__menu-action--danger"
+            @click="handleProjectCompactAction('delete', project, $event)"
+          >
+            <EaIcon
+              name="x"
+              :size="12"
+            />
+            <span>{{ t('common.delete') }}</span>
+          </button>
+        </div>
+      </details>
+    </div>
+
+    <div
+      v-if="isExpanded"
+      class="project-content"
+    >
+      <div class="tab-content tab-content--sessions">
+        <UnifiedPanelSessionList
+          v-if="sessions.length > 0 || !isSessionsLoading"
+          :sessions="visibleSessions"
+          :current-session-id="currentSessionId"
+          :editing-session-id="editingSessionId"
+          :editing-session-name="editingSessionName"
+          :selected-session-ids="selectedSessionIds"
+          :selection-mode="isBatchSelectMode"
+          @select="emit('selectSession', $event)"
+          @toggle-select="toggleSessionSelection"
+          @toggle-pin="emit('togglePin', $event)"
+          @start-edit="handleStartEditSession"
+          @save-edit="emit('saveEditSession', $event)"
+          @cancel-edit="emit('cancelEditSession')"
+          @delete="emit('deleteSession', $event)"
+          @update-editing-name="emit('updateEditingName', $event)"
         />
-        <span>{{ showAllSessions ? '收起' : `更多 ${hiddenSessionCount}` }}</span>
-      </button>
+
+        <button
+          v-if="!isSessionsLoading && hasHiddenSessions"
+          type="button"
+          class="session-more-btn"
+          @click="loadMoreSessions"
+        >
+          <EaIcon
+            name="chevron-down"
+            :size="13"
+          />
+          <span>加载更多 {{ hiddenSessionCount }}</span>
+        </button>
+      </div>
     </div>
   </div>
 </template>

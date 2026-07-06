@@ -5,7 +5,8 @@ import type { Session } from '@/stores/session'
 import { EaIcon } from '@/components/common'
 import UnifiedPanelSessionList from '../UnifiedPanelSessionList/UnifiedPanelSessionList.vue'
 
-const SESSION_PREVIEW_LIMIT = 5
+const SESSION_INITIAL_LIMIT = 5
+const SESSION_LOAD_MORE_STEP = 10
 
 export interface UnifiedPanelProjectEntryProps {
   project: Project
@@ -44,16 +45,26 @@ export function useUnifiedPanelProjectEntry(props: UnifiedPanelProjectEntryProps
   const { t } = useI18n()
   const projectItemRef = ref<HTMLElement | null>(null)
   const isCompactMenuOpen = ref(false)
-  const showAllSessions = ref(false)
+  const visibleSessionCount = ref(SESSION_INITIAL_LIMIT)
   const isBatchSelectMode = ref(false)
   const selectedSessionIds = ref<string[]>([])
   const visibleSessions = computed(() => (
-    showAllSessions.value
-      ? props.sessions
-      : props.sessions.slice(0, SESSION_PREVIEW_LIMIT)
+    props.sessions.slice(0, visibleSessionCount.value)
   ))
-  const hiddenSessionCount = computed(() => Math.max(props.sessions.length - SESSION_PREVIEW_LIMIT, 0))
+  const hiddenSessionCount = computed(() => Math.max(props.sessions.length - visibleSessionCount.value, 0))
   const hasHiddenSessions = computed(() => hiddenSessionCount.value > 0)
+
+  /** 项目行左侧加载态：会话拉取或 ACP 同步 */
+  const isProjectRowLoading = computed(() =>
+    (props.isSessionsLoading ?? false) || (props.isAcpSyncing ?? false)
+  )
+
+  function loadMoreSessions() {
+    visibleSessionCount.value = Math.min(
+      visibleSessionCount.value + SESSION_LOAD_MORE_STEP,
+      props.sessions.length
+    )
+  }
 
   function handleStartEditSession(session: Session, event: Event) {
     emit('startEditSession', session, event)
@@ -171,11 +182,22 @@ export function useUnifiedPanelProjectEntry(props: UnifiedPanelProjectEntryProps
     (sessions) => {
       const visibleIds = new Set(sessions.map(session => session.id))
       selectedSessionIds.value = selectedSessionIds.value.filter(sessionId => visibleIds.has(sessionId))
-      if (sessions.length <= SESSION_PREVIEW_LIMIT) {
-        showAllSessions.value = false
+      if (sessions.length <= SESSION_INITIAL_LIMIT) {
+        visibleSessionCount.value = SESSION_INITIAL_LIMIT
+      } else if (visibleSessionCount.value > sessions.length) {
+        visibleSessionCount.value = sessions.length
       }
     },
     { deep: true }
+  )
+
+  watch(
+    () => props.isExpanded,
+    (expanded) => {
+      if (!expanded) {
+        visibleSessionCount.value = SESSION_INITIAL_LIMIT
+      }
+    }
   )
 
   return {
@@ -184,12 +206,14 @@ export function useUnifiedPanelProjectEntry(props: UnifiedPanelProjectEntryProps
     UnifiedPanelSessionList,
     projectItemRef,
     isCompactMenuOpen,
-    showAllSessions,
+    visibleSessionCount,
     isBatchSelectMode,
     selectedSessionIds,
     visibleSessions,
     hiddenSessionCount,
     hasHiddenSessions,
+    loadMoreSessions,
+    isProjectRowLoading,
     isSessionsLoading: computed(() => props.isSessionsLoading ?? false),
     isAcpSyncing: computed(() => props.isAcpSyncing ?? false),
     handleStartEditSession,

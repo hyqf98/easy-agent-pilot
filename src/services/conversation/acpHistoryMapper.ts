@@ -8,6 +8,18 @@ function uuid(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
+/** Rust `build_prompt_from_messages` 写入会话的格式：`role:\ncontent` */
+const ACP_ROLE_PREFIX_PATTERN: Record<'user' | 'assistant', RegExp> = {
+  user: /^user\s*:\s*\n?/i,
+  assistant: /^assistant\s*:\s*\n?/i,
+}
+
+/** 剥离 ACP 回放内容中的角色前缀，与实时发送展示对齐 */
+function stripAcpRolePrefix(content: string, role: 'user' | 'assistant'): string {
+  if (!content) return ''
+  return content.replace(ACP_ROLE_PREFIX_PATTERN[role], '')
+}
+
 /**
  * 将 ACP session/load 回放的事件序列映射为前端 Message[]。
  *
@@ -36,7 +48,7 @@ export function mapAcpEventsToMessages(
           requestId: currentRequestId,
           role: 'user' as MessageRole,
           messageType: 'text' as MessageType,
-          content: event.content ?? '',
+          content: stripAcpRolePrefix(event.content ?? '', 'user'),
           status: 'completed' as MessageStatus,
           seq,
           createdAt: now,
@@ -60,7 +72,7 @@ export function mapAcpEventsToMessages(
           requestId: currentRequestId,
           role: 'assistant' as MessageRole,
           messageType: 'text' as MessageType,
-          content: event.content ?? '',
+          content: stripAcpRolePrefix(event.content ?? '', 'assistant'),
           status: 'completed' as MessageStatus,
           seq,
           createdAt: now,

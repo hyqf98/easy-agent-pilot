@@ -10,6 +10,8 @@ import type { FileEditTrace } from '@/types/fileTrace'
 import type { ToolLocation } from '@/services/conversation/strategies/types'
 import { readSessionDetail } from '@/services/cliSession'
 import { mapAcpEventsToMessages, extractUsageFromEvents } from '@/services/conversation/acpHistoryMapper'
+import { isFormResponseMessage } from '@/utils/structuredContent'
+import type { AcpReplayedEvent } from '@/types/cliSessionManager'
 
 export type MessageRole = 'user' | 'assistant' | 'system'
 export type MessageStatus = 'pending' | 'streaming' | 'completed' | 'error' | 'interrupted'
@@ -143,9 +145,37 @@ export function compareMessagesForRender(left: Message, right: Message): number 
 }
 
 export function isVisibleForRender(message: Message): boolean {
-  return message.messageType !== 'usage'
-    && message.messageType !== 'context_window'
+  if (message.messageType === 'usage' || message.messageType === 'context_window') {
+    return false
+  }
+  // form_response 用户消息不在右侧渲染，回显到左侧 assistant 表单
+  if (message.role === 'user' && isFormResponseMessage(message.content)) {
+    return false
+  }
+  return true
 }
+
+export interface LoadMessagesOptions {
+  /** 忽略缓存强制重新拉取 ACP 历史 */
+  force?: boolean
+  /** 有缓存时静默刷新，不展示 loading spinner */
+  background?: boolean
+  /** 低优先级预取（可被当前会话加载插队） */
+  priority?: 'high' | 'low'
+}
+
+interface AcpEventsCacheEntry {
+  events: AcpReplayedEvent[]
+  fetchedAt: number
+}
+
+const ACP_EVENTS_CACHE_TTL_MS = 5 * 60 * 1000
+const acpEventsCache = new Map<string, AcpEventsCacheEntry>()
+const pendingReloadSessionIds = new Set<string>()
+let loadRequestToken = 0
+let loadMessagesInFlightSessionId: string | null = null
+let loadMessagesInFlight: Promise<void> | null = null
+let queuedHighPrioritySessionId: string | null = null
 
 /** @deprecated 旧名保留兼容，内部改用 isVisibleForRender */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -192,9 +222,6 @@ export const useMessageStore = defineStore('message', () => {
   const pendingMessageUpdates = new Map<string, Partial<Message>>()
   const pendingMessageTimers = new Map<string, ReturnType<typeof setTimeout>>()
   const inFlightMessageFlushes = new Map<string, Promise<void>>()
-  // session/load 串行化锁：ACP 每次回放都 spawn 新 CLI 进程，并发会互相拖慢触发超时
-  let loadMessagesInFlightSessionId: string | null = null
-  let loadMessagesInFlight: Promise<void> | null = null
 
   // 默认分页大小
   const PAGE_SIZE = 20
@@ -430,37 +457,91 @@ export const useMessageStore = defineStore('message', () => {
     scheduleBufferedMessageFlush(id)
   }
 
-  async function loadMessages(sessionId: string) {
-    const notificationStore = useNotificationStore()
-    const sessionStore = useSessionStore()
-    const tokenStore = useTokenStore()
-    // 串行化 session/load：ACP 的 session/load 每次都 spawn 一个新 CLI 进程，
-    // 快速切换会话时并发会互相拖慢甚至触发后端 60s 超时。
-    // 这里用全局串行锁保证同一时刻只有一个 session/load 进行；
-    // 若切换到新会话时上一个还在跑，等它结束后再加载当前会话。
-    while (loadMessagesInFlightSessionId && loadMessagesInFlightSessionId !== sessionId) {
-      const inflight = loadMessagesInFlight
-      if (inflight) {
-        try { await inflight } catch { /* 忽略前一个的错误，独立处理当前会话 */ }
-      }
-      // 循环重检：可能在等待期间又来了更新的请求
+  async function loadMessages(sessionId: string, options: LoadMessagesOptions = {}) {
+    const { force = false, background = false, priority = 'high' } = options
+    const cachedMessages = sessionMessages.value.get(sessionId) ?? EMPTY_MESSAGES
+
+    // Stale-while-revalidate：有缓存时立即展示，后台静默刷新
+    if (!force && !background && cachedMessages.length > 0) {
+      void loadMessages(sessionId, { force: true, background: true, priority: 'low' })
+      return
     }
-    if (loadMessagesInFlightSessionId === sessionId && loadMessagesInFlight) {
-      // 同一会话已在加载，直接等它完成即可
+
+    // 同一会话已在加载：非 force 时直接等待
+    if (loadMessagesInFlightSessionId === sessionId && loadMessagesInFlight && !force) {
       try { await loadMessagesInFlight } catch { /* 已由首发起方处理 */ }
       return
     }
 
-    isLoading.value = true
-    {
+    // 高优先级请求插队：取消排队中的低优先级，优先加载当前会话
+    if (
+      priority === 'high'
+      && loadMessagesInFlightSessionId
+      && loadMessagesInFlightSessionId !== sessionId
+      && loadMessagesInFlight
+    ) {
+      loadRequestToken += 1
+      queuedHighPrioritySessionId = sessionId
+      try { await loadMessagesInFlight } catch { /* 忽略被丢弃的请求 */ }
+      if (queuedHighPrioritySessionId === sessionId) {
+        queuedHighPrioritySessionId = null
+      } else {
+        return
+      }
+    } else if (
+      priority === 'low'
+      && loadMessagesInFlightSessionId
+      && loadMessagesInFlightSessionId !== sessionId
+      && loadMessagesInFlight
+    ) {
+      try { await loadMessagesInFlight } catch { /* 忽略 */ }
+    }
+
+    if (loadMessagesInFlightSessionId === sessionId && loadMessagesInFlight && !force) {
+      try { await loadMessagesInFlight } catch { /* 已由首发起方处理 */ }
+      return
+    }
+
+    const requestToken = ++loadRequestToken
+    const showLoadingIndicator = !background || cachedMessages.length === 0
+
+    if (showLoadingIndicator) {
+      isLoading.value = true
       const next = new Set(loadingSessions.value)
       next.add(sessionId)
       loadingSessions.value = next
     }
+
     loadMessagesInFlightSessionId = sessionId
-    // 加载会话级附加数据（文件变更追踪 + Agent Plan 快照）。
-    // 独立执行，无论 ACP 回放成功与否（含 agentCmd 为空的早退路径）都应加载，
-    // 确保刷新后历史会话的文件编辑列表/计划都能回显。
+
+    const task = executeLoadMessages(sessionId, requestToken, showLoadingIndicator)
+    loadMessagesInFlight = task
+
+    try {
+      await task
+    } finally {
+      if (loadMessagesInFlightSessionId === sessionId) {
+        loadMessagesInFlightSessionId = null
+        loadMessagesInFlight = null
+      }
+      // 处理插队期间排队的会话
+      const queuedSessionId = queuedHighPrioritySessionId
+      if (queuedSessionId && queuedSessionId !== sessionId) {
+        queuedHighPrioritySessionId = null
+        void loadMessages(queuedSessionId, { force: true, priority: 'high' })
+      }
+    }
+  }
+
+  async function executeLoadMessages(
+    sessionId: string,
+    requestToken: number,
+    showLoadingIndicator: boolean
+  ): Promise<void> {
+    const notificationStore = useNotificationStore()
+    const sessionStore = useSessionStore()
+    const tokenStore = useTokenStore()
+
     const loadSessionAttachments = async () => {
       try {
         const { useFileChangeStore } = await import('@/stores/fileChange')
@@ -475,13 +556,12 @@ export const useMessageStore = defineStore('message', () => {
         console.error('[MessageStore] load agent plan failed', err)
       }
     }
-    const task = (async () => {
+
+    const isStaleRequest = () => requestToken !== loadRequestToken
+
     try {
       const session = sessionStore.sessions.find(item => item.id === sessionId)
 
-      // 解析 ACP 外部会话 ID：优先 session.cliSessionId（sessions 表列），
-      // 为空时回查 session_runtime_bindings 表（流式期间 registerCliSessionBinding 写入）。
-      // 删除 messages 表后，历史回放完全依赖此绑定，必须双路径解析。
       let externalSessionId = session?.cliSessionId?.trim() || ''
       if (!externalSessionId && session) {
         try {
@@ -491,7 +571,7 @@ export const useMessageStore = defineStore('message', () => {
           ])
           const agentStore = useAgentStore()
           const agent = session.agentId
-            ? agentStore.agents.find(a => a.id === session.agentId)
+            ? agentStore.agents.find(agentItem => agentItem.id === session.agentId)
             : undefined
           const runtimeKey = agent ? resolveRuntimeBindingKey(agent) : null
           if (runtimeKey) {
@@ -505,9 +585,7 @@ export const useMessageStore = defineStore('message', () => {
         }
       }
 
-      // —— ACP 回显路径：优先使用 session/load 回放事件 ——
       if (externalSessionId && session) {
-        // 动态导入避免循环依赖（project store 依赖 message store）
         const [{ useAgentStore }, { useProjectStore }] = await Promise.all([
           import('./agent'),
           import('./project')
@@ -516,15 +594,15 @@ export const useMessageStore = defineStore('message', () => {
         const projectStore = useProjectStore()
 
         const agent = session.agentId
-          ? agentStore.agents.find(a => a.id === session.agentId)
+          ? agentStore.agents.find(agentItem => agentItem.id === session.agentId)
           : undefined
         const agentCmd = agent?.acpCommand || agent?.cliPath || ''
-        const project = projectStore.projects.find(p => p.id === session.projectId)
+        const project = projectStore.projects.find(projectItem => projectItem.id === session.projectId)
         const cwd = project?.path || projectStore.currentProject?.path || ''
 
-        // 启动竞态保护：agentStore 尚未加载完时 agentCmd 可能为空，
-        // 此时跳过 ACP 回显，降级为空列表（后续切换会话时会重新加载）
         if (!agentCmd) {
+          pendingReloadSessionIds.add(sessionId)
+          if (isStaleRequest()) return
           tokenStore.clearRealtimeTokens(sessionId)
           updateGlobalMessagesForSession(sessionId, [])
           setSessionMessages(sessionId, [])
@@ -538,12 +616,28 @@ export const useMessageStore = defineStore('message', () => {
           return
         }
 
-        const result = await readSessionDetail(agentCmd, externalSessionId, cwd)
-        const correctedSessionMessages = mapAcpEventsToMessages(sessionId, result.events)
+        pendingReloadSessionIds.delete(sessionId)
 
-        // 恢复 token 用量（独立 try-catch：快照恢复失败不应影响消息加载）
+        if (isStaleRequest()) return
+
+        let events: AcpReplayedEvent[]
+        const cacheEntry = acpEventsCache.get(externalSessionId)
+        const cacheFresh = cacheEntry
+          && (Date.now() - cacheEntry.fetchedAt) < ACP_EVENTS_CACHE_TTL_MS
+
+        if (cacheFresh) {
+          events = cacheEntry.events
+        } else {
+          const result = await readSessionDetail(agentCmd, externalSessionId, cwd)
+          if (isStaleRequest()) return
+          events = result.events
+          acpEventsCache.set(externalSessionId, { events, fetchedAt: Date.now() })
+        }
+
+        const correctedSessionMessages = mapAcpEventsToMessages(sessionId, events)
+
         try {
-          const usage = extractUsageFromEvents(result.events)
+          const usage = extractUsageFromEvents(events)
           if (usage) {
             tokenStore.updateRealtimeTokens(
               sessionId,
@@ -556,6 +650,7 @@ export const useMessageStore = defineStore('message', () => {
             )
           } else {
             const snapshot = await readSessionCliUsageSnapshot(session)
+            if (isStaleRequest()) return
             if (snapshot) {
               tokenStore.updateRealtimeTokens(
                 sessionId,
@@ -575,10 +670,10 @@ export const useMessageStore = defineStore('message', () => {
           tokenStore.clearRealtimeTokens(sessionId)
         }
 
+        if (isStaleRequest()) return
+
         updateGlobalMessagesForSession(sessionId, correctedSessionMessages)
         setSessionMessages(sessionId, correctedSessionMessages)
-
-        // ACP 无分页
         pagination.value.set(sessionId, {
           total: correctedSessionMessages.length,
           hasMore: false,
@@ -586,7 +681,7 @@ export const useMessageStore = defineStore('message', () => {
           oldestMessageCreatedAt: correctedSessionMessages[0]?.createdAt ?? null
         })
       } else {
-        // —— 非 ACP 会话：消息持久化已移除，返回空列表 ——
+        if (isStaleRequest()) return
         tokenStore.clearRealtimeTokens(sessionId)
         updateGlobalMessagesForSession(sessionId, [])
         setSessionMessages(sessionId, [])
@@ -598,34 +693,59 @@ export const useMessageStore = defineStore('message', () => {
         })
       }
 
-      // 加载文件变更追踪 + Agent Plan 快照（用于回显编辑文件列表/计划面板）
       void loadSessionAttachments()
     } catch (error) {
+      if (isStaleRequest()) return
       console.error('Failed to load messages:', error)
       updateGlobalMessagesForSession(sessionId, [])
       clearSessionDerivedState(sessionId)
       notificationStore.databaseError(
         '加载消息列表失败',
         getErrorMessage(error),
-        () => loadMessages(sessionId)
+        () => loadMessages(sessionId, { force: true })
       )
     } finally {
-      isLoading.value = false
-      const next = new Set(loadingSessions.value)
-      next.delete(sessionId)
-      loadingSessions.value = next
-    }
-    })()
-    loadMessagesInFlight = task
-    try {
-      await task
-    } finally {
-      // 仅在仍是当前会话时清理，避免覆盖更新的请求
-      if (loadMessagesInFlightSessionId === sessionId) {
-        loadMessagesInFlightSessionId = null
-        loadMessagesInFlight = null
+      if (showLoadingIndicator) {
+        isLoading.value = false
+        const next = new Set(loadingSessions.value)
+        next.delete(sessionId)
+        loadingSessions.value = next
       }
     }
+  }
+
+  /** agent 配置就绪后重试因 agentCmd 为空而跳过的会话加载 */
+  function retryPendingReloadSessions(): void {
+    if (pendingReloadSessionIds.size === 0) {
+      return
+    }
+    const sessionIds = [...pendingReloadSessionIds]
+    pendingReloadSessionIds.clear()
+    for (const pendingSessionId of sessionIds) {
+      void loadMessages(pendingSessionId, { force: true, priority: 'low' })
+    }
+  }
+
+  /** 预取已打开 Tab 的历史（低优先级，不影响当前会话） */
+  function prefetchOpenSessionMessages(openSessionIds: string[], currentSessionId: string | null): void {
+    for (const openSessionId of openSessionIds) {
+      if (openSessionId === currentSessionId) {
+        continue
+      }
+      const cached = sessionMessages.value.get(openSessionId)
+      if (cached && cached.length > 0) {
+        continue
+      }
+      void loadMessages(openSessionId, { priority: 'low', background: true })
+    }
+  }
+
+  function invalidateAcpEventsCache(externalSessionId?: string): void {
+    if (externalSessionId) {
+      acpEventsCache.delete(externalSessionId)
+      return
+    }
+    acpEventsCache.clear()
   }
 
 
@@ -798,6 +918,9 @@ export const useMessageStore = defineStore('message', () => {
     // Actions
     loadMessages,
     loadMoreMessages,
+    retryPendingReloadSessions,
+    prefetchOpenSessionMessages,
+    invalidateAcpEventsCache,
     addMessage,
     appendToMessage,
     hasMessage,

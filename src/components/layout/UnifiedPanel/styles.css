@@ -92,6 +92,9 @@
 .project-loading {
   display: flex;
   flex-direction: column;
+  align-self: flex-start;
+  width: 100%;
+  flex: 0 0 auto;
   gap: var(--spacing-2);
 }
 
@@ -384,6 +387,8 @@
 
 .unified-panel__content {
   padding: 0 8px 10px;
+  align-items: stretch;
+  justify-content: flex-start;
 }
 
 .project-list {
@@ -392,7 +397,10 @@
 }
 
 .project-loading {
-  padding: 8px 2px;
+  align-self: flex-start;
+  width: 100%;
+  flex: 0 0 auto;
+  padding: 7px 8px;
   gap: 8px;
 }
 

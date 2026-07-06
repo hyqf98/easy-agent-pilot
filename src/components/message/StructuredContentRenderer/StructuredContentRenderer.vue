@@ -72,8 +72,8 @@ const {
           :disabled="isFormDisabled(block.formSchema.formId)"
           :initial-values="getResolvedFormValues(block.formSchema.formId) ?? undefined"
           :variant="isFormResolved(block.formSchema.formId) ? 'submitted' : 'active'"
-          :show-header="false"
-          :show-submitted-state="false"
+          :show-header="isFormResolved(block.formSchema.formId)"
+          :show-submitted-state="isFormResolved(block.formSchema.formId)"
           @submit="handleFormSubmit(block.formSchema.formId, $event)"
           @cancel="handleFormCancel(block.formSchema.formId)"
         />

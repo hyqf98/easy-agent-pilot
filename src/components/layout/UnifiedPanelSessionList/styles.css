@@ -387,7 +387,8 @@
   flex: 0 1 auto;
   gap: 2px;
   padding: 2px 0 6px;
-  overflow: visible;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .session-item {

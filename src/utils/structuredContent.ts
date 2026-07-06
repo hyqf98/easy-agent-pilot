@@ -1172,6 +1172,14 @@ export function extractFormResponse(content: string): StructuredFormResponse | n
   return null
 }
 
+/** 判断用户消息内容是否为纯 form_response（应在消息流中隐藏，回显到 assistant 表单） */
+export function isFormResponseMessage(content: string | undefined): boolean {
+  if (!content?.trim()) {
+    return false
+  }
+  return extractFormResponse(content) !== null
+}
+
 export function extractTaskSplitResult(content: string): AITaskSplitResult | null {
   const trimmed = content.trim()
   if (!trimmed) {

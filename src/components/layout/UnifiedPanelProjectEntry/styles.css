@@ -512,6 +512,13 @@
   position: relative;
 }
 
+.project-entry {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  width: 100%;
+}
+
 .project-item:hover,
 .project-item--expanded,
 .project-item--active {
@@ -542,6 +549,16 @@
   width: 16px;
   height: 16px;
   color: var(--workspace-text-tertiary);
+}
+
+.project-item__lead-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid color-mix(in srgb, var(--workspace-text-tertiary, var(--color-text-tertiary)) 22%, transparent);
+  border-top-color: var(--workspace-text-secondary, var(--color-text-secondary));
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
 
 .project-item__icon {
@@ -622,7 +639,11 @@
 }
 
 .tab-content--sessions {
-  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  max-height: min(42vh, 360px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* ACP 同步指示器 */

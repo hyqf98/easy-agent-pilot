@@ -85,6 +85,7 @@ function shouldDisplaySession(session: Session): boolean {
 
 // 最大同时打开的会话数量
 export const MAX_OPEN_SESSIONS = 5
+const ACP_SYNC_TTL_MS = 30_000
 
 export const useSessionStore = defineStore('session', () => {
   // State
@@ -99,6 +100,8 @@ export const useSessionStore = defineStore('session', () => {
   const loadingProjectIds = ref<Set<string>>(new Set())
   // 正在从 ACP (CLI 侧) 同步会话的项目 ID 集合
   const syncingProjectIds = ref<Set<string>>(new Set())
+  // 各项目最近一次 ACP 同步时间戳（用于 TTL 去重）
+  const acpSyncTimestamps = ref<Map<string, number>>(new Map())
   const EMPTY_SESSIONS: Session[] = []
 
   // Getters
@@ -284,7 +287,7 @@ export const useSessionStore = defineStore('session', () => {
     }
 
     // 异步从 ACP 同步 CLI 侧最新会话（不阻塞 UI）
-    syncSessionsFromAcp(projectId).catch(() => {})
+    syncSessionsFromAcp(projectId, { force }).catch(() => {})
   }
 
   async function createSession(session: Omit<Session, 'id' | 'createdAt' | 'updatedAt' | 'pinned' | 'messageCount' | 'lastMessage'>) {
@@ -517,6 +520,11 @@ export const useSessionStore = defineStore('session', () => {
     const appStateStore = useAppStateStore()
     appStateStore.setLastSessions([...openSessionIds.value])
 
+    useMessageStore().prefetchOpenSessionMessages(
+      [...openSessionIds.value],
+      currentSessionId.value
+    )
+
     return true
   }
 
@@ -542,10 +550,21 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   function releaseSessionResources(sessionId: string) {
+    const sessionExecutionStore = useSessionExecutionStore()
+    const isSessionActive = sessionExecutionStore.getIsBusy(sessionId)
+      || sessionExecutionStore.getIsStreaming(sessionId)
+      || sessionExecutionStore.getIsSending(sessionId)
+
+    if (isSessionActive) {
+      void import('@/services/conversation').then(({ conversationService }) => {
+        void conversationService.abort(sessionId)
+        conversationService.clearSessionState(sessionId)
+      })
+    }
+
     const windowManager = useWindowManagerStore()
     windowManager.releaseSession(sessionId).catch(console.error)
 
-    const sessionExecutionStore = useSessionExecutionStore()
     sessionExecutionStore.clearExecutionState(sessionId)
   }
 
@@ -659,7 +678,15 @@ export const useSessionStore = defineStore('session', () => {
    * - 标题变化 → 更新
    * 异步执行，不阻塞调用方；出错只 console.warn 不弹通知。
    */
-  async function syncSessionsFromAcp(projectId: string) {
+  async function syncSessionsFromAcp(projectId: string, options: { force?: boolean } = {}) {
+    const { force = false } = options
+    if (!force) {
+      const lastSyncedAt = acpSyncTimestamps.value.get(projectId)
+      if (lastSyncedAt && (Date.now() - lastSyncedAt) < ACP_SYNC_TTL_MS) {
+        return
+      }
+    }
+
     syncingProjectIds.value.add(projectId)
     try {
       const { useProjectStore } = await import('@/stores/project')
@@ -668,22 +695,24 @@ export const useSessionStore = defineStore('session', () => {
 
       const projectStore = useProjectStore()
       const agentStore = useAgentStore()
+      const project = projectStore.projects.find(projectItem => projectItem.id === projectId)
+      const projectCwd = project?.path
 
       // 确定使用的 agent：优先从当前项目已有会话取，否则取第一个有 acpCommand 的
-      const existingForProject = sessions.value.filter(s => s.projectId === projectId && s.agentId)
+      const existingForProject = sessions.value.filter(sessionItem => sessionItem.projectId === projectId && sessionItem.agentId)
       let agent = existingForProject.length > 0
-        ? agentStore.agents.find(a => a.id === existingForProject[0].agentId)
+        ? agentStore.agents.find(agentItem => agentItem.id === existingForProject[0].agentId)
         : undefined
       if (!agent) {
-        agent = agentStore.agents.find(a => (a.acpCommand || a.cliPath))
+        agent = agentStore.agents.find(agentItem => (agentItem.acpCommand || agentItem.cliPath))
       }
       const agentCmd = agent?.acpCommand || agent?.cliPath || ''
       if (!agentCmd) return
 
       const provider = inferAgentProvider(agent) || 'unknown'
 
-      // 不带 cwd 拉取全部会话（跨所有项目路径）
-      const acpResult = await listAcpSessions(agentCmd)
+      // 按项目 cwd 过滤，避免全量扫描误建项目
+      const acpResult = await listAcpSessions(agentCmd, projectCwd ?? undefined)
 
       // cwd → projectId 的解析缓存（同一 cwd 多个会话只创建一次项目）
       const cwdProjectCache = new Map<string, string | null>()
@@ -759,6 +788,8 @@ export const useSessionStore = defineStore('session', () => {
           await loadSessions(pid, { force: true })
         }
       }
+
+      acpSyncTimestamps.value.set(projectId, Date.now())
     } catch (error) {
       console.warn('[sessionStore] ACP 同步失败:', error)
     } finally {
@@ -767,8 +798,12 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   // 监听 openSessionIds 变化并自动保存
-  watch(openSessionIds, () => {
+  watch(openSessionIds, (nextOpenSessionIds) => {
     saveOpenSessions()
+    useMessageStore().prefetchOpenSessionMessages(
+      [...nextOpenSessionIds],
+      currentSessionId.value
+    )
   }, { deep: true })
 
   watch(currentSessionId, (sessionId) => {

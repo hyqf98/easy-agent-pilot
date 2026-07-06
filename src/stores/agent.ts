@@ -151,6 +151,8 @@ export const useAgentStore = defineStore('agent', () => {
       )
     } finally {
       isLoading.value = false
+      const { useMessageStore } = await import('./message')
+      useMessageStore().retryPendingReloadSessions()
     }
   }
 
