@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import DynamicForm from '@/components/plan/dynamicForm/DynamicForm.vue'
+import DynamicForm from '@/views/plan/dynamicForm/DynamicForm.vue'
 import StructuredContentRenderer from '../StructuredContentRenderer/StructuredContentRenderer.vue'
 import ThinkingDisplay from '../ThinkingDisplay/ThinkingDisplay.vue'
 import ToolCallDisplay from '../ToolCallDisplay/ToolCallDisplay.vue'

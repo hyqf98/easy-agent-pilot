@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { EaIcon } from '@/components/common'
-import DynamicForm from '@/components/plan/dynamicForm/DynamicForm.vue'
+import DynamicForm from '@/views/plan/dynamicForm/DynamicForm.vue'
 import {
   TextField,
   TextareaField,
@@ -12,7 +12,7 @@ import {
   DateField,
   SliderField,
   MultiselectField
-} from '@/components/plan/fields'
+} from '@/views/plan/fields'
 import { formEngine } from '@/services/plan'
 import type { DynamicFormSchema, FieldType, FormField } from '@/types/plan'
 import type { Component } from 'vue'

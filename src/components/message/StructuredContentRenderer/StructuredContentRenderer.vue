@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import DynamicForm from '@/components/plan/dynamicForm/DynamicForm.vue'
+import DynamicForm from '@/views/plan/dynamicForm/DynamicForm.vue'
 import MarkdownRenderer from '../MarkdownRenderer/MarkdownRenderer.vue'
 import StructuredResultCard from '../StructuredResultCard/StructuredResultCard.vue'
 import {
