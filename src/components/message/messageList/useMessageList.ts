@@ -208,7 +208,8 @@ export function useMessageList(props: MessageListProps, emit: MessageListEmits) 
   })
 
   const currentExecutionState = computed(() => {
-    executionStateVersion.value
+    // 访问 executionStateVersion.value 以建立响应式依赖，确保状态变更时重新计算
+    void executionStateVersion.value
     return resolvedSessionId.value
       ? sessionExecutionStore.getExecutionState(resolvedSessionId.value)
       : null
