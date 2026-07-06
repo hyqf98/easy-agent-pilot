@@ -3,10 +3,11 @@ import { useI18n } from 'vue-i18n'
 import { invoke } from '@tauri-apps/api/core'
 import { useOverlayDismiss } from '@/composables/useOverlayDismiss'
 import { DEFAULT_SPLIT_GRANULARITY } from '@/constants/plan'
-import { inferAgentProvider, useAgentStore } from '@/stores/agent'
+import { useAgentStore } from '@/stores/agent'
 import { useSubAgentStore } from '@/stores/subAgent'
-import type { Message, MessageAttachment, MessageStatus, ToolCall } from '@/stores/message'
+import type { Message, MessageAttachment, MessageStatus } from '@/stores/message'
 import { useNotificationStore } from '@/stores/notification'
+import { buildTurnAssistantMessages } from '../planSplitConversation/splitChatMessages'
 import { usePlanStore } from '@/stores/plan'
 import { useProjectStore } from '@/stores/project'
 import { useTaskSplitStore } from '@/stores/taskSplit'
@@ -18,19 +19,10 @@ import type {
 } from '@/types/plan'
 import { logger } from '@/utils/logger'
 import { resolveAttachmentPreviewUrl } from '@/utils/attachmentPreview'
-import type { RuntimeNotice } from '@/utils/runtimeNotice'
 import {
-  buildProcessingTimeNotice,
   buildRuntimeNoticeFromSystemContent,
-  buildUsageNotice,
-  isEnvironmentRuntimeNotice,
-  upsertRuntimeNotice
+  isEnvironmentRuntimeNotice
 } from '@/utils/runtimeNotice'
-import {
-  mergeResponseUsageCounts,
-  normalizeRuntimeUsage,
-  type RuntimeUsageCounts
-} from '@/utils/runtimeUsage'
 import { clearMessageListSessionState } from '@/components/message/messageList/useMessageList'
 import {
   containsFormSchema,
@@ -90,26 +82,6 @@ interface SplitTurn {
 function compareTimestamp(left?: string, right?: string) {
   return new Date(left || 0).getTime() - new Date(right || 0).getTime()
 }
-
-function parseLogMetadata(log: PlanSplitLogRecord): Record<string, unknown> | null {
-  if (!log.metadata) {
-    return null
-  }
-
-  if (typeof log.metadata !== 'string') {
-    return log.metadata as unknown as Record<string, unknown>
-  }
-
-  try {
-    const parsed = JSON.parse(log.metadata) as unknown
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : null
-  } catch {
-    return null
-  }
-}
-
 function trimContent(value?: string | null) {
   return (value ?? '').trim()
 }
@@ -144,28 +116,6 @@ function buildAssistantDisplayContent(content: string) {
     .trim()
   return stripped
 }
-
-function estimateTokenCountFromText(content?: string | null): number | undefined {
-  const normalized = trimContent(content)?.replace(/\s+/g, ' ')
-  if (!normalized) {
-    return undefined
-  }
-
-  let hanCharCount = 0
-  let otherCharCount = 0
-
-  for (const char of normalized) {
-    if (/[\u3400-\u9fff]/.test(char)) {
-      hanCharCount += 1
-    } else {
-      otherCharCount += 1
-    }
-  }
-
-  const estimatedTokens = Math.round(hanCharCount + otherCharCount / 4)
-  return estimatedTokens > 0 ? estimatedTokens : undefined
-}
-
 function buildFormRequestContent(question: string, forms: DynamicFormSchema[]) {
   return JSON.stringify({
     type: 'form_request',
@@ -174,242 +124,16 @@ function buildFormRequestContent(question: string, forms: DynamicFormSchema[]) {
   }, null, 2)
 }
 
+function resolveMessageStatus(status: MessageStatus | undefined, fallback: MessageStatus = 'completed'): MessageStatus {
+  return status || fallback
+}
+
 function buildFormResponseContent(formId: string, values: Record<string, unknown>) {
   return JSON.stringify({
     type: 'form_response',
     formId,
     values
   }, null, 2)
-}
-
-function parseToolArguments(raw: unknown): Record<string, unknown> {
-  if (typeof raw !== 'string') {
-    return {}
-  }
-
-  const content = raw.trim()
-  if (!content) {
-    return {}
-  }
-
-  try {
-    const parsed = JSON.parse(content) as unknown
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : { input: parsed }
-  } catch {
-    return { input: content }
-  }
-}
-
-function resolveToolName(metadata: Record<string, unknown> | null) {
-  const toolName = metadata?.toolName
-  return typeof toolName === 'string' && toolName.trim()
-    ? toolName.trim()
-    : 'Tool'
-}
-
-function resolveToolCallId(log: PlanSplitLogRecord, metadata: Record<string, unknown> | null) {
-  const toolCallId = metadata?.toolCallId
-  return typeof toolCallId === 'string' && toolCallId.trim()
-    ? toolCallId.trim()
-    : `tool-${log.id}`
-}
-
-function toToolCall(log: PlanSplitLogRecord, metadata: Record<string, unknown> | null): ToolCall {
-  const toolInput = typeof metadata?.toolInput === 'string' && metadata.toolInput.trim()
-    ? metadata.toolInput.trim()
-    : trimContent(log.content)
-
-  return {
-    id: resolveToolCallId(log, metadata),
-    name: resolveToolName(metadata),
-    arguments: parseToolArguments(toolInput),
-    status: 'running'
-  }
-}
-
-function finalizeToolCalls(toolCalls: ToolCall[], status: MessageStatus): ToolCall[] {
-  if (status === 'streaming') {
-    return toolCalls
-  }
-
-  return toolCalls.map((toolCall) => {
-    if (toolCall.status !== 'running') {
-      return toolCall
-    }
-
-    return {
-      ...toolCall,
-      status: status === 'error' ? 'error' : 'success',
-      errorMessage: status === 'error'
-        ? toolCall.errorMessage || '消息执行失败'
-        : toolCall.errorMessage
-    }
-  })
-}
-
-function resolveMessageStatus(status: MessageStatus, fallback: MessageStatus = 'completed') {
-  return status || fallback
-}
-
-function readMetadataString(metadata: Record<string, unknown> | null, key: string): string | undefined {
-  const value = metadata?.[key]
-  return typeof value === 'string' && value.trim()
-    ? value.trim()
-    : undefined
-}
-
-function readMetadataNumber(
-  metadata: Record<string, unknown> | null,
-  key: string,
-  fallbackKey?: string
-): number | undefined {
-  const value = metadata?.[key] ?? (fallbackKey ? metadata?.[fallbackKey] : undefined)
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value
-  }
-  if (typeof value === 'string' && value.trim()) {
-    const numeric = Number(value)
-    return Number.isFinite(numeric) ? numeric : undefined
-  }
-  return undefined
-}
-
-interface TaskSplitUsageSnapshot {
-  model?: string
-  inputTokens?: number
-  outputTokens?: number
-}
-
-function buildUsageSnapshotFromMetadata(
-  metadata: Record<string, unknown> | null,
-  fallbackModel?: string
-): TaskSplitUsageSnapshot | null {
-  const inputTokens = readMetadataNumber(metadata, 'inputTokens', 'input_tokens')
-  const outputTokens = readMetadataNumber(metadata, 'outputTokens', 'output_tokens')
-  const rawInputTokens = readMetadataNumber(metadata, 'rawInputTokens', 'raw_input_tokens')
-  const rawOutputTokens = readMetadataNumber(metadata, 'rawOutputTokens', 'raw_output_tokens')
-  const model = readMetadataString(metadata, 'model') ?? fallbackModel
-  const resolvedInputTokens = inputTokens ?? rawInputTokens
-  const resolvedOutputTokens = outputTokens ?? rawOutputTokens
-
-  if (resolvedInputTokens === undefined && resolvedOutputTokens === undefined) {
-    return null
-  }
-
-  return {
-    model,
-    inputTokens: resolvedInputTokens,
-    outputTokens: resolvedOutputTokens
-  }
-}
-
-function buildAssistantRuntimeNotices(
-  logs: PlanSplitLogRecord[],
-  fallbackModel?: string,
-  runtimeProvider?: string,
-  fallbackAssistantContent?: string
-): RuntimeNotice[] {
-  if (logs.length === 0) {
-    return []
-  }
-
-  let notices: RuntimeNotice[] | undefined
-  let model = fallbackModel?.trim() || undefined
-  let responseUsage: RuntimeUsageCounts = {}
-  let hasUsage = false
-  let usageBaseline: ReturnType<typeof normalizeRuntimeUsage>['nextBaseline'] = null
-  let latestUsageSnapshot: TaskSplitUsageSnapshot | null = null
-
-  const sortedLogs = [...logs].sort((left, right) => compareTimestamp(left.createdAt, right.createdAt))
-
-  for (const log of sortedLogs) {
-    const metadata = parseLogMetadata(log)
-    const rawContent = trimContent(log.content)
-    const metadataModel = readMetadataString(metadata, 'model')
-    if (metadataModel) {
-      model = metadataModel
-    }
-
-    const usageSnapshot = buildUsageSnapshotFromMetadata(metadata, model)
-    if (usageSnapshot) {
-      latestUsageSnapshot = usageSnapshot
-    }
-
-    if (log.type === 'usage' || log.type === 'message_start') {
-      const normalizedUsage = normalizeRuntimeUsage({
-        provider: runtimeProvider,
-        inputTokens: readMetadataNumber(metadata, 'inputTokens', 'input_tokens'),
-        outputTokens: readMetadataNumber(metadata, 'outputTokens', 'output_tokens'),
-        rawInputTokens: readMetadataNumber(metadata, 'rawInputTokens', 'raw_input_tokens'),
-        rawOutputTokens: readMetadataNumber(metadata, 'rawOutputTokens', 'raw_output_tokens'),
-        cacheReadInputTokens: readMetadataNumber(metadata, 'cacheReadInputTokens', 'cache_read_input_tokens'),
-        cacheCreationInputTokens: readMetadataNumber(metadata, 'cacheCreationInputTokens', 'cache_creation_input_tokens'),
-        baseline: usageBaseline
-      })
-
-      if (normalizedUsage.nextBaseline) {
-        usageBaseline = normalizedUsage.nextBaseline
-      } else {
-        usageBaseline = null
-      }
-
-      if (typeof normalizedUsage.inputTokens === 'number') {
-        hasUsage = true
-      }
-
-      if (typeof normalizedUsage.outputTokens === 'number') {
-        hasUsage = true
-      }
-
-      responseUsage = mergeResponseUsageCounts(responseUsage, {
-        inputTokens: normalizedUsage.inputTokens,
-        outputTokens: normalizedUsage.outputTokens
-      }, runtimeProvider)
-      continue
-    }
-
-    if (log.type === 'system' && rawContent) {
-      const runtimeNotice = buildRuntimeNoticeFromSystemContent(rawContent)
-      if (runtimeNotice && !isEnvironmentRuntimeNotice(runtimeNotice)) {
-        notices = upsertRuntimeNotice(notices, runtimeNotice)
-      }
-    }
-  }
-
-  const fallbackUsageModel = latestUsageSnapshot?.model ?? model
-  const fallbackInputTokens = latestUsageSnapshot?.inputTokens
-  const fallbackOutputTokens = latestUsageSnapshot?.outputTokens
-  const estimatedOutputTokens = estimateTokenCountFromText(fallbackAssistantContent)
-  const resolvedInputTokens = hasUsage ? responseUsage.inputTokens : fallbackInputTokens
-  const resolvedOutputTokens = hasUsage
-    ? (
-        typeof responseUsage.outputTokens === 'number' && responseUsage.outputTokens > 0
-          ? responseUsage.outputTokens
-          : fallbackOutputTokens || estimatedOutputTokens
-      )
-    : (fallbackOutputTokens || estimatedOutputTokens)
-  const shouldShowUsageNotice = latestUsageSnapshot !== null
-    || resolvedInputTokens !== undefined
-    || resolvedOutputTokens !== undefined
-
-  if (shouldShowUsageNotice) {
-    notices = upsertRuntimeNotice(notices, buildUsageNotice({
-      model: hasUsage ? model : fallbackUsageModel,
-      inputTokens: resolvedInputTokens,
-      outputTokens: resolvedOutputTokens
-    }))
-  }
-
-  const startedAt = sortedLogs[0]?.createdAt
-  const finishedAt = sortedLogs[sortedLogs.length - 1]?.createdAt
-  const durationMs = startedAt && finishedAt
-    ? Math.max(0, new Date(finishedAt).getTime() - new Date(startedAt).getTime())
-    : null
-  notices = upsertRuntimeNotice(notices, buildProcessingTimeNotice(durationMs))
-
-  return notices ?? []
 }
 
 function formatFormOptionValue(field: DynamicFormSchema['fields'][number], value: unknown): string {
@@ -858,13 +582,6 @@ export function useTaskSplitDialog() {
     const assistantMessageIndexBySessionId = new Map<string, number>()
     const turns: SplitTurn[] = []
     const messages: Message[] = []
-    const usageModelFallback = taskSplitStore.context?.modelId?.trim()
-      || taskSplitStore.usageModelHint?.trim()
-      || agentStore.agents.find(item => item.id === taskSplitStore.context?.agentId)?.modelId?.trim()
-      || undefined
-    const runtimeProvider = taskSplitStore.context?.agentId
-      ? (inferAgentProvider(agentStore.agents.find(item => item.id === taskSplitStore.context?.agentId)) ?? undefined)
-      : undefined
 
     activePlanMessages.value.forEach((message) => {
       if (message.role === 'user') {
@@ -953,158 +670,65 @@ export function useTaskSplitDialog() {
         updatedAt: turn.userMessage.timestamp
       })
 
-      const thinkingChunks: string[] = []
-      const contentChunks: string[] = []
-      const systemChunks: string[] = []
-      const toolCalls: ToolCall[] = []
-      const toolCallIndexById = new Map<string, number>()
-      const runningToolCallIds: string[] = []
-      let assistantStatus: MessageStatus = 'completed'
-      let assistantErrorMessage = ''
-      let assistantCreatedAt = turn.logs[0]?.createdAt || turn.assistantSummary?.timestamp || turn.userMessage.timestamp
-
-      turn.logs.forEach((log) => {
-        const rawContent = trimContent(log.content)
-        const metadata = parseLogMetadata(log)
-
-        if (!assistantCreatedAt) {
-          assistantCreatedAt = log.createdAt
-        }
-
-        if (log.type === 'usage' || log.type === 'message_start' || log.type === 'tool_input_delta' || log.type === 'thinking_start') {
-          return
-        }
-
-        if (log.type === 'content') {
-          if (rawContent) {
-            contentChunks.push(log.content ?? '')
-          }
-          return
-        }
-
-        if (log.type === 'thinking') {
-          if (rawContent) {
-            thinkingChunks.push(rawContent)
-          }
-          return
-        }
-
-        if (log.type === 'tool_use') {
-          const toolCall = toToolCall(log, metadata)
-          toolCallIndexById.set(toolCall.id, toolCalls.length)
-          toolCalls.push(toolCall)
-          runningToolCallIds.push(toolCall.id)
-          return
-        }
-
-        if (log.type === 'tool_result') {
-          if (!rawContent) {
-            return
-          }
-
-          const toolCallId = resolveToolCallId(log, metadata)
-          const fallbackToolCallId = runningToolCallIds.length > 0
-            ? runningToolCallIds[runningToolCallIds.length - 1]
-            : undefined
-          const matchedToolCallId = toolCallIndexById.has(toolCallId)
-            ? toolCallId
-            : fallbackToolCallId
-          const matchedToolCallIndex = matchedToolCallId
-            ? toolCallIndexById.get(matchedToolCallId)
-            : undefined
-
-          if (matchedToolCallIndex !== undefined) {
-            const matchedToolCall = toolCalls[matchedToolCallIndex]
-            if (matchedToolCall) {
-              matchedToolCall.status = 'success'
-              matchedToolCall.result = rawContent
-              const runningIndex = runningToolCallIds.lastIndexOf(matchedToolCall.id)
-              if (runningIndex >= 0) {
-                runningToolCallIds.splice(runningIndex, 1)
-              }
-              return
+      // 一事件一行 + seq 排序（对齐主会话模型，共享 splitChatMessages 模块）
+      const assistantRequestId = `split-${turn.assistantSummary?.id || turn.userMessage.id}`
+      const turnResult = buildTurnAssistantMessages(
+        turn.logs,
+        turn.userMessage.timestamp,
+        turn.assistantSummary?.timestamp,
+        {
+          sessionId,
+          requestId: assistantRequestId,
+          startSeq: messages.length,
+          isRunning: turnIndex === turns.length - 1 && isSessionRunning.value,
+          normalizeContent: (rawContent: string) => {
+            if (!rawContent) return ''
+            const formRequest = extractFirstFormRequest(rawContent)
+            if (formRequest) {
+              return buildFormRequestContent(formRequest.question || '需要补充信息', formRequest.forms ?? [])
             }
+            return buildAssistantDisplayContent(rawContent)
+          },
+          isEnvironmentSystemContent: (content: string) => {
+            const runtimeNotice = buildRuntimeNoticeFromSystemContent(content)
+            return !!runtimeNotice && isEnvironmentRuntimeNotice(runtimeNotice)
           }
-
-          systemChunks.push(`工具结果\n${rawContent}`)
-          return
         }
+      )
 
-        if (log.type === 'error') {
-          assistantStatus = 'error'
-          assistantErrorMessage = rawContent || splitErrorMessage.value || t('message.failed')
-          return
+      // 没有任何产出，但有持久化摘要 → 构造 fallback text Message
+      if (!turnResult.hasAssistantPayload && turn.assistantSummary?.content) {
+        const fallbackContent = trimContent(turn.assistantSummary.content)
+        if (fallbackContent) {
+          turnResult.messages.push({
+            id: `assistant-${turn.assistantSummary.id || turn.sessionId || turn.userMessage.id}`,
+            sessionId,
+            requestId: assistantRequestId,
+            role: 'assistant',
+            messageType: 'text',
+            content: fallbackContent,
+            status: turnIndex === turns.length - 1 && isSessionRunning.value ? 'streaming' : 'completed',
+            seq: messages.length + turnResult.messages.length,
+            createdAt: turn.assistantSummary.timestamp || turn.userMessage.timestamp,
+            updatedAt: turn.assistantSummary.timestamp || turn.userMessage.timestamp
+          })
         }
+      }
 
-        if (rawContent) {
-          const runtimeNotice = buildRuntimeNoticeFromSystemContent(rawContent)
-          if (runtimeNotice && isEnvironmentRuntimeNotice(runtimeNotice)) {
-            return
-          }
-          systemChunks.push(rawContent)
+      // 设置 retryState（运行中的最后一条）
+      if (turnResult.messages.length > 0) {
+        const lastMsg = turnResult.messages[turnResult.messages.length - 1]
+        if (turnIndex === turns.length - 1 && taskSplitStore.activeRetryState?.current && lastMsg.role === 'assistant') {
+          lastMsg.retryState = { ...taskSplitStore.activeRetryState }
+        }
+      }
+
+      turnResult.messages.forEach((msg) => {
+        messages.push(msg)
+        if (turn.sessionId && msg.role === 'assistant') {
+          assistantMessageIndexBySessionId.set(turn.sessionId, messages.length - 1)
         }
       })
-
-      const rawAssistantContent = contentChunks.join('')
-      const formRequest = rawAssistantContent ? extractFirstFormRequest(rawAssistantContent) : null
-      const normalizedAssistantContent = rawAssistantContent
-        ? (formRequest
-            ? buildFormRequestContent(formRequest.question || '需要补充信息', formRequest.forms ?? [])
-            : buildAssistantDisplayContent(rawAssistantContent))
-        : ''
-      const fallbackContent = turn.assistantSummary?.content || systemChunks.join('\n\n')
-      const finalContent = trimContent(normalizedAssistantContent) || trimContent(fallbackContent)
-      const finalThinking = thinkingChunks
-        .map(item => item.trim())
-        .filter(Boolean)
-        .join('\n\n')
-
-      const isLatestTurn = turnIndex === turns.length - 1
-      const isRunningLatestTurn = isLatestTurn && isSessionRunning.value
-      if (isRunningLatestTurn && !assistantErrorMessage) {
-        assistantStatus = 'streaming'
-      }
-
-      const finalizedToolCalls = finalizeToolCalls(toolCalls, assistantStatus)
-      const assistantRuntimeNotices = buildAssistantRuntimeNotices(
-        turn.logs,
-        usageModelFallback,
-        runtimeProvider,
-        finalContent
-      )
-      const hasAssistantPayload = Boolean(
-        finalContent
-        || finalThinking
-        || finalizedToolCalls.length > 0
-        || assistantRuntimeNotices.length > 0
-        || Boolean(assistantErrorMessage)
-      )
-
-      if (!hasAssistantPayload) {
-        return
-      }
-
-      const assistantMessage: Message = {
-        id: `assistant-${turn.assistantSummary?.id || turn.sessionId || turn.userMessage.id}`,
-        sessionId,
-        requestId: `split-${turn.assistantSummary?.id || turn.userMessage.id}`,
-        role: 'assistant',
-        messageType: 'text',
-        content: finalContent,
-        status: assistantStatus,
-        errorMessage: assistantErrorMessage || undefined,
-        retryState: isRunningLatestTurn && taskSplitStore.activeRetryState?.current
-          ? { ...taskSplitStore.activeRetryState }
-          : undefined,
-        seq: messages.length,
-        createdAt: assistantCreatedAt,
-        updatedAt: assistantCreatedAt
-      }
-
-      messages.push(assistantMessage)
-      if (turn.sessionId) {
-        assistantMessageIndexBySessionId.set(turn.sessionId, messages.length - 1)
-      }
     })
 
     const activeFormId = activeFormSchema.value?.formId

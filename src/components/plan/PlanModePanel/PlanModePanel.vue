@@ -65,9 +65,9 @@ const isSplitActiveForSelected = computed(() =>
         <TaskBoard @task-click="handleTaskClick" />
       </div>
 
-      <!-- 右侧：按需展开 -->
+      <!-- 右侧：按需展开（拆分激活时隐藏，避免与拆分预览面板叠加） -->
       <div
-        v-if="rightPanelOpen"
+        v-if="rightPanelOpen && !isSplitActiveForSelected"
         class="task-detail-container"
         :style="{
           width: rightPanelWidth + 'px',

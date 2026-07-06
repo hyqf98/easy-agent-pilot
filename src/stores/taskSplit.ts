@@ -99,6 +99,59 @@ const STALE_PLAN_SPLIT_SESSION_TIMEOUT_MS = 2_000
 const PLAN_SPLIT_AUTO_RETRY_DELAY_MS = 10_000
 const PLAN_SPLIT_AUTO_RETRY_GROUP = 'cli_failure_retry'
 
+// —— 流式性能与稳定性防护（4 层） ——
+/** 层 1：流式日志 flush 间隔（ms），用 setTimeout 而非 rAF（后台 tab 仍触发） */
+const STREAM_FLUSH_INTERVAL_MS = 50
+/** 层 2：前端 logs 缓冲上限（不影响后端落库，仅限内存） */
+const MAX_PLAN_SPLIT_LOGS = 2000
+/** 层 2：单条 content 字符上限 */
+const MAX_LOG_CONTENT_CHARS = 100_000
+/** 层 3：isProcessing watchdog 超时（ms），无任何流式事件即自动 stop */
+const PROCESSING_TIMEOUT_MS = 120_000
+/** 层 4：连续异常 content 触发熔断的阈值 */
+const ANOMALOUS_CONTENT_STREAK_LIMIT = 5
+/** 层 4：判定「无结构超长」的字符阈值（且无换行） */
+const ANOMALOUS_LONG_CONTENT_CHARS = 20_000
+/** 层 4：匹配 MCP 工具定义 JSON 开头（[{"description"... / {"description"... 等） */
+const TOOL_DEFINITION_PATTERN = /^\s*[{[]*\s*"(?:description|name|inputSchema|tools|type)"\s*:/
+
+// 层 1：流式缓冲（50ms 窗口合并 + 批量 flush，避免每个 token 触发响应式）
+let streamBuffer: PlanSplitLogRecord[] = []
+let streamFlushTimer: ReturnType<typeof setTimeout> | null = null
+
+// 层 3：watchdog 定时器（processing 期间无新事件超时熔断）
+let processingWatchdogTimer: ReturnType<typeof setTimeout> | null = null
+let watchdogPlanId: string | null = null
+
+// 层 4：异常输出连续计数
+let anomalousContentStreak = 0
+
+/**
+ * 层 4：检测单条 content 是否为异常输出（MCP 工具定义 JSON / 无结构超长）。
+ * 纯函数，导出供单测验证。
+ */
+export function isAnomalousContent(content: string): boolean {
+  if (!content) return false
+  if (TOOL_DEFINITION_PATTERN.test(content)) return true
+  if (content.length > ANOMALOUS_LONG_CONTENT_CHARS && !content.includes('\n')) return true
+  return false
+}
+
+/** 层 2：截断单条 content 到 MAX_LOG_CONTENT_CHARS。纯函数，导出供单测验证。 */
+export function clampLogContent(content: string): string {
+  if (content.length <= MAX_LOG_CONTENT_CHARS) return content
+  return content.slice(0, MAX_LOG_CONTENT_CHARS) + '\n…[内容过长已截断]'
+}
+
+export const PLAN_SPLIT_STREAMING_LIMITS = {
+  MAX_PLAN_SPLIT_LOGS,
+  MAX_LOG_CONTENT_CHARS,
+  STREAM_FLUSH_INTERVAL_MS,
+  PROCESSING_TIMEOUT_MS,
+  ANOMALOUS_CONTENT_STREAK_LIMIT,
+  ANOMALOUS_LONG_CONTENT_CHARS
+} as const
+
 interface RustPlanSplitLogRecord {
   id: string
   planId: string
@@ -602,6 +655,140 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
     return formQueue.value[currentFormIndex.value] ?? null
   })
 
+  // —— 层 1/2/3/4 私有辅助函数 ——
+
+  /** 截断单条 content（委托给导出的纯函数） */
+  function clampContent(content: string): string {
+    return clampLogContent(content)
+  }
+
+  /**
+   * 层 1：将缓冲区批量 flush 到 logs（触发一次响应式更新）。
+   * 层 2：flush 后检查上限并裁剪。
+   */
+  function flushStreamBuffer() {
+    if (streamFlushTimer) {
+      clearTimeout(streamFlushTimer)
+      streamFlushTimer = null
+    }
+    if (streamBuffer.length === 0) return
+
+    logs.value = logs.value.concat(streamBuffer)
+    streamBuffer = []
+
+    // 层 2：上限裁剪（保留最新 MAX_PLAN_SPLIT_LOGS 条）
+    if (logs.value.length > MAX_PLAN_SPLIT_LOGS) {
+      logs.value = logs.value.slice(logs.value.length - MAX_PLAN_SPLIT_LOGS)
+    }
+  }
+
+  /**
+   * 层 1：把一条流式 log 加入缓冲。同 turn 同 sessionId 的 content 增量会 append 到尾部，
+   * 避免每个 token 新增一条 → O(N) computed 重算 + 全量 markdown 重渲染。
+   */
+  function bufferStreamLog(record: PlanSplitLogRecord) {
+    if (record.type === 'content' && record.content) {
+      // 查找 buffer 尾部可合并的 content（同 sessionId）
+      const last = streamBuffer[streamBuffer.length - 1]
+      if (last && last.type === 'content' && last.sessionId === record.sessionId) {
+        last.content = clampContent(last.content + record.content)
+        // 层 4：异常检测（基于合并后的 content）
+        if (isAnomalousContent(last.content)) {
+          anomalousContentStreak += 1
+        } else {
+          anomalousContentStreak = 0
+        }
+      } else {
+        record.content = clampContent(record.content)
+        streamBuffer.push(record)
+        if (isAnomalousContent(record.content)) {
+          anomalousContentStreak += 1
+        } else {
+          anomalousContentStreak = 0
+        }
+      }
+    } else {
+      streamBuffer.push(record)
+      // 非 content 事件视为正常产出，重置异常计数
+      anomalousContentStreak = 0
+    }
+
+    // 调度 flush（50ms 窗口合并多个 token）
+    if (!streamFlushTimer) {
+      streamFlushTimer = setTimeout(flushStreamBuffer, STREAM_FLUSH_INTERVAL_MS)
+    }
+  }
+
+  /** 层 3：清除 watchdog */
+  function clearProcessingWatchdog() {
+    if (processingWatchdogTimer) {
+      clearTimeout(processingWatchdogTimer)
+      processingWatchdogTimer = null
+    }
+  }
+
+  /**
+   * 层 3：启动/重置 watchdog。processing 期间若 PROCESSING_TIMEOUT_MS 内
+   * 无任何流式事件，自动 stop_plan_split + 通知。
+   */
+  function resetProcessingWatchdog(planId: string) {
+    watchdogPlanId = planId
+    clearProcessingWatchdog()
+    processingWatchdogTimer = setTimeout(async () => {
+      const currentPlanId = watchdogPlanId
+      clearProcessingWatchdog()
+      if (!currentPlanId) return
+      logger.warn('[TaskSplit] Processing watchdog timeout, auto-stopping', { planId: currentPlanId })
+      isProcessing.value = false
+      try {
+        await invoke('stop_plan_split', { planId: currentPlanId })
+      } catch (error) {
+        logger.error('[TaskSplit] Watchdog stop_plan_split failed:', error)
+      }
+      const { useNotificationStore } = await import('./notification')
+      useNotificationStore().error(
+        'AI 拆分超时',
+        `AI 已 ${Math.round(PROCESSING_TIMEOUT_MS / 1000)} 秒无响应，已自动停止。请检查网络/Agent 配置后重试。`
+      )
+    }, PROCESSING_TIMEOUT_MS)
+  }
+
+  /**
+   * 层 4：检查异常输出 streak 是否达到熔断阈值，触发自动停止。
+   * 返回 true 表示已熔断（调用方应中断后续处理）。
+   */
+  async function checkAnomalousContentCircuitBreaker(planId: string): Promise<boolean> {
+    if (anomalousContentStreak < ANOMALOUS_CONTENT_STREAK_LIMIT) return false
+    anomalousContentStreak = 0
+    logger.warn('[TaskSplit] Anomalous content detected, auto-stopping', { planId })
+    isProcessing.value = false
+    clearProcessingWatchdog()
+    flushStreamBuffer()
+    try {
+      await invoke('stop_plan_split', { planId })
+    } catch (error) {
+      logger.error('[TaskSplit] Anomalous-content stop_plan_split failed:', error)
+    }
+    const { useNotificationStore } = await import('./notification')
+    useNotificationStore().error(
+      'AI 输出异常',
+      '检测到 AI 持续输出异常内容（疑似工具定义或无结构文本），已自动停止。请检查 Agent 配置或更换模型后重试。'
+    )
+    return true
+  }
+
+  /** 清理所有流式防护状态（detach/reset 时调用） */
+  function clearStreamingGuards() {
+    if (streamFlushTimer) {
+      clearTimeout(streamFlushTimer)
+      streamFlushTimer = null
+    }
+    flushStreamBuffer()
+    clearProcessingWatchdog()
+    watchdogPlanId = null
+    anomalousContentStreak = 0
+  }
+
   function detachStream() {
     if (streamUnlisten.value) {
       streamUnlisten.value()
@@ -613,6 +800,8 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
       sessionUpdateTimer = null
     }
     pendingSessionSnapshot = null
+    // 层 1/3/4：flush 残留缓冲 + 清 watchdog + 重置异常计数
+    clearStreamingGuards()
   }
 
   /**
@@ -663,6 +852,8 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
 
   function resetState() {
     cancelAutoRetry()
+    // 层 1/3/4：清理流式缓冲、watchdog、异常计数
+    clearStreamingGuards()
     messages.value = []
     logs.value = []
     isLoadingLogs.value = false
@@ -950,6 +1141,9 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
       currentFormIndex.value = 0
       currentFormId.value = null
       isProcessing.value = false
+      // 层 3：快照清空时清除 watchdog
+      clearProcessingWatchdog()
+      watchdogPlanId = null
       if (!preserveLogs) {
         logs.value = []
       }
@@ -992,7 +1186,15 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
       ? Math.min(snapshot.currentFormIndex ?? 0, nextFormQueue.length - 1)
       : 0
     currentFormId.value = formQueue.value[currentFormIndex.value]?.formId ?? null
+    const wasProcessing = isProcessing.value
     isProcessing.value = snapshot.status === 'running'
+    // 层 3：running 启动 watchdog；非 running 终态清除
+    if (isProcessing.value) {
+      resetProcessingWatchdog(snapshot.planId)
+    } else if (wasProcessing) {
+      clearProcessingWatchdog()
+      watchdogPlanId = null
+    }
 
     if (['completed', 'failed', 'stopped'].includes(snapshot.status)) {
       recordPlanSplitUsage(snapshot)
@@ -1271,7 +1473,10 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
 
       const content = payload.content ?? payload.error ?? payload.toolResult ?? payload.toolInput ?? ''
       const parsedMetadata = parseStreamPayloadMetadata(payload.metadata)
-      logs.value.push({
+      // 层 1：缓冲合并（同 turn 同 sessionId 的 content 增量 append 到尾部）
+      // 层 2：单条 content 截断在 bufferStreamLog 内 clampContent 处理
+      // 层 4：异常输出检测在 bufferStreamLog 内累计 streak
+      bufferStreamLog({
         id: `${payload.sessionId || 'plan'}-${payload.type}-${payload.createdAt || Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         planId: payload.planId,
         sessionId: payload.sessionId || '',
@@ -1280,6 +1485,14 @@ export const useTaskSplitStore = defineStore('taskSplit', () => {
         metadata: buildPersistedLogMetadata(payload, parsedMetadata),
         createdAt: payload.createdAt || new Date().toISOString()
       })
+      // 层 3：收到流式事件说明 AI 还在产出，重置 watchdog
+      if (isProcessing.value && watchdogPlanId === payload.planId) {
+        resetProcessingWatchdog(payload.planId)
+      }
+      // 层 4：异常输出熔断检查（异步，不阻塞事件循环）
+      if (anomalousContentStreak >= ANOMALOUS_CONTENT_STREAK_LIMIT) {
+        void checkAnomalousContentCircuitBreaker(payload.planId)
+      }
     })
   }
 
