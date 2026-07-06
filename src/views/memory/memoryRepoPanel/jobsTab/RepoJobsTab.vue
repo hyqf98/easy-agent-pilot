@@ -1,8 +1,17 @@
 <script setup lang="ts">
-import { useRepoJobsTab, CRON_PRESETS } from './useRepoJobsTab'
-import { EaButton, EaIcon, EaInput, EaModal, EaSelect } from '@/components/common'
+/**
+ * RepoJobsTab — 仓库定时任务 Tab 骨架。
+ * 仅负责模板渲染与 composable 胶水装配，全部逻辑见 useRepoJobsTab.ts。
+ */
+import { useRepoJobsTab } from './useRepoJobsTab'
 
 const {
+  EaButton,
+  EaIcon,
+  EaInput,
+  EaModal,
+  EaSelect,
+  CRON_PRESETS,
   t,
   jobs,
   runs,
@@ -12,6 +21,7 @@ const {
   editingJob,
   draft,
   agentOptions,
+  formatTime,
   openCreateModal,
   openEditModal,
   closeModal,
@@ -19,15 +29,6 @@ const {
   handleDelete,
   handleRunNow
 } = useRepoJobsTab()
-
-function formatTime(value?: string): string {
-  if (!value) return '—'
-  try {
-    return new Date(value).toLocaleString()
-  } catch {
-    return value
-  }
-}
 </script>
 
 <template>

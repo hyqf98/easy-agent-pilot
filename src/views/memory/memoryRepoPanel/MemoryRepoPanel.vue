@@ -1,19 +1,26 @@
 <script setup lang="ts">
-import { useMemoryRepoPanel, type RepoDetailTab } from './useMemoryRepoPanel'
-import { EaButton, EaIcon, EaSidebarSectionHeader } from '@/components/common'
-import WorkspaceShell from '@/components/layout/WorkspaceShell/WorkspaceShell.vue'
-import RepoOverviewTab from './overviewTab/RepoOverviewTab.vue'
-import RepoFilesTab from './filesTab/RepoFilesTab.vue'
-import RepoRunTab from './runTab/RepoRunTab.vue'
-import RepoSourcesTab from './sourcesTab/RepoSourcesTab.vue'
-import RepoJobsTab from './jobsTab/RepoJobsTab.vue'
-import RepoCreateModal from './repoCreateModal/RepoCreateModal.vue'
-import RepoEditModal from './repoEditModal/RepoEditModal.vue'
+/**
+ * MemoryRepoPanel — 记忆库仓库面板骨架。
+ * 仅负责模板渲染与 composable 胶水装配，全部逻辑见 useMemoryRepoPanel.ts。
+ */
+import { useMemoryRepoPanel } from './useMemoryRepoPanel'
 
 const {
+  EaButton,
+  EaIcon,
+  EaSidebarSectionHeader,
+  WorkspaceShell,
+  RepoOverviewTab,
+  RepoFilesTab,
+  RepoRunTab,
+  RepoSourcesTab,
+  RepoJobsTab,
+  RepoCreateModal,
+  RepoEditModal,
   t,
   memoryRepoStore,
   activeTab,
+  tabs,
   createModal,
   editModal,
   activeRepo,
@@ -25,14 +32,6 @@ const {
   handleEditSubmit,
   handleDelete
 } = useMemoryRepoPanel()
-
-const tabs: Array<{ key: RepoDetailTab; label: string }> = [
-  { key: 'overview', label: '概览' },
-  { key: 'files', label: '文件' },
-  { key: 'sources', label: '数据源' },
-  { key: 'run', label: '归纳' },
-  { key: 'jobs', label: '任务' }
-]
 </script>
 
 <template>

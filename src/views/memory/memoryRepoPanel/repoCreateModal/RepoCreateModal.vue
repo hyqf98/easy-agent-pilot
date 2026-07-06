@@ -1,36 +1,19 @@
 <script setup lang="ts">
-import { useRepoCreateModal } from '../useRepoModals'
-import { EaButton, EaInput, EaModal, EaSelect } from '@/components/common'
-import type { CreateMemoryRepoInput } from '@/types/memoryRepo'
+/**
+ * RepoCreateModal — 新建记忆库仓库弹窗骨架。
+ * 仅负责模板渲染与 composable 胶水装配，全部逻辑见 useRepoCreateModal.ts。
+ */
+import {
+  useRepoCreateModal,
+  type RepoCreateModalProps,
+  type RepoCreateModalEmits
+} from './useRepoCreateModal'
 
-defineProps<{
-  visible: boolean
-  loading?: boolean
-}>()
+const props = defineProps<RepoCreateModalProps>()
+const emit = defineEmits<RepoCreateModalEmits>()
 
-const emit = defineEmits<{
-  'update:visible': [value: boolean]
-  submit: [input: CreateMemoryRepoInput]
-}>()
-
-const { draft, agentOptions, formatOptions } = useRepoCreateModal()
-
-function close() {
-  emit('update:visible', false)
-}
-
-function handleSubmit() {
-  const name = draft.value.name.trim()
-  if (!name) return
-  emit('submit', {
-    name,
-    description: draft.value.description.trim() || undefined,
-    format: draft.value.format,
-    systemPrompt: draft.value.systemPrompt.trim() || undefined,
-    agentId: draft.value.agentId || undefined,
-    modelId: draft.value.modelId.trim() || undefined
-  })
-}
+const { EaButton, EaInput, EaModal, EaSelect, draft, agentOptions, formatOptions, close, handleSubmit } =
+  useRepoCreateModal(props, emit)
 </script>
 
 <template>

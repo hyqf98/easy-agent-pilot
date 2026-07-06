@@ -1,3 +1,11 @@
+/**
+ * useRepoJobsTab — 仓库定时任务（RepoJobsTab）Tab 的全部展示层逻辑。
+ *
+ * 职责：
+ * 1. 任务列表加载 / 增删改 / 立即运行 / 运行历史；
+ * 2. 监听 memory:job-trigger 事件，用 MemoryRepoRunner 执行到期任务并回写结果；
+ * 3. 暴露模板所需的子组件、cron 预设、时间格式化与全部操作方法。
+ */
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { useI18n } from 'vue-i18n'
@@ -5,6 +13,7 @@ import { useMemoryRepoStore } from '@/stores/memoryRepo'
 import { useAgentStore } from '@/stores/agent'
 import { useNotificationStore } from '@/stores/notification'
 import { refreshProjectFileTreeView } from '@/components/fileTree'
+import { EaButton, EaIcon, EaInput, EaModal, EaSelect } from '@/components/common'
 import { getErrorMessage } from '@/utils/api'
 import {
   createMemoryJob,
@@ -73,6 +82,16 @@ export function useRepoJobsTab() {
   const agentOptions = computed(() =>
     agentStore.agents.map((a) => ({ label: a.name, value: a.id }))
   )
+
+  /** 格式化时间为本地可读字符串，空值返回「—」。 */
+  function formatTime(value?: string): string {
+    if (!value) return '—'
+    try {
+      return new Date(value).toLocaleString()
+    } catch {
+      return value
+    }
+  }
 
   let unlisten: UnlistenFn | null = null
 
@@ -236,6 +255,15 @@ export function useRepoJobsTab() {
   })
 
   return {
+    // 子组件
+    EaButton,
+    EaIcon,
+    EaInput,
+    EaModal,
+    EaSelect,
+    // 常量
+    CRON_PRESETS,
+    // i18n
     t,
     // state
     jobs,
@@ -248,6 +276,8 @@ export function useRepoJobsTab() {
     // computed
     activeRepo,
     agentOptions,
+    // 工具方法
+    formatTime,
     // actions
     loadJobs,
     loadRuns,

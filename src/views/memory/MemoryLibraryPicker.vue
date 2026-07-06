@@ -1,42 +1,25 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
-import { useMemoryStore } from '@/stores/memory'
+/**
+ * MemoryLibraryPicker — 记忆库挂载选择器骨架。
+ * 仅负责模板渲染与 composable 胶水装配，全部逻辑见 useMemoryLibraryPicker.ts。
+ */
+import {
+  useMemoryLibraryPicker,
+  type MemoryLibraryPickerProps,
+  type MemoryLibraryPickerEmits
+} from './useMemoryLibraryPicker'
 
-const props = withDefaults(defineProps<{
-  modelValue?: string[]
-  title?: string
-  hint?: string
-  emptyText?: string
-}>(), {
+const props = withDefaults(defineProps<MemoryLibraryPickerProps>(), {
   modelValue: () => [],
   title: '挂载记忆库',
   hint: '已选 0 个',
   emptyText: '暂无可挂载的记忆库，请先在记忆管理中创建。'
 })
 
-const emit = defineEmits<{
-  (e: 'update:modelValue', value: string[]): void
-}>()
+const emit = defineEmits<MemoryLibraryPickerEmits>()
 
-const memoryStore = useMemoryStore()
-
-const selectedIds = computed(() => props.modelValue ?? [])
-
-const selectedCountLabel = computed(() => `已选 ${selectedIds.value.length} 个`)
-
-function handleToggle(libraryId: string, checked: boolean) {
-  const nextIds = checked
-    ? Array.from(new Set([...selectedIds.value, libraryId]))
-    : selectedIds.value.filter((id) => id !== libraryId)
-
-  emit('update:modelValue', nextIds)
-}
-
-onMounted(async () => {
-  if (memoryStore.libraries.length === 0 && !memoryStore.isLoadingLibraries) {
-    await memoryStore.loadLibraries()
-  }
-})
+const { memoryStore, selectedIds, selectedCountLabel, handleToggle } =
+  useMemoryLibraryPicker(props, emit)
 </script>
 
 <template>
