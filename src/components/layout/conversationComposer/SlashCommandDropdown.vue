@@ -1,208 +1,25 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { EaIcon } from '@/components/common'
-import type { SlashCommandDescriptor, SlashCommandPanelType } from '@/services/slashCommands'
+import type { SlashCommandDropdownProps, SlashCommandDropdownEmits } from './useSlashCommandDropdown'
+import { useSlashCommandDropdown } from './useSlashCommandDropdown'
 
-const props = defineProps<{
-  visible: boolean
-  position: { x: number; y: number; width: number; height: number }
-  query: string
-  commands: SlashCommandDescriptor[]
-  panelType: SlashCommandPanelType
-}>()
+const props = defineProps<SlashCommandDropdownProps>()
+const emit = defineEmits<SlashCommandDropdownEmits>()
 
-const emit = defineEmits<{
-  select: [command: SlashCommandDescriptor]
-  close: []
-}>()
-
-const { t } = useI18n()
-const dropdownRef = ref<HTMLElement | null>(null)
-const selectedIndex = ref(0)
-const tipVisible = ref(false)
-const tipTop = ref(0)
-const tipLeft = ref(0)
-let tipTimer: ReturnType<typeof setTimeout> | null = null
-
-const selectedCommand = computed(() => props.commands[selectedIndex.value])
-
-function showTip() {
-  if (tipTimer) clearTimeout(tipTimer)
-  tipVisible.value = true
-  tipTimer = setTimeout(() => {
-    tipVisible.value = false
-  }, 2500)
-}
-
-function hideTip() {
-  if (tipTimer) clearTimeout(tipTimer)
-  tipTimer = null
-  tipVisible.value = false
-}
-
-function updateTipPosition() {
-  nextTick(() => {
-    const selectedEl = dropdownRef.value?.querySelector('.slash-command__item--selected') as HTMLElement | null
-    if (!selectedEl) {
-      hideTip()
-      return
-    }
-    const rect = selectedEl.getBoundingClientRect()
-    tipTop.value = rect.top + rect.height / 2
-    tipLeft.value = rect.right + 8
-  })
-}
-
-function onSelectionChange() {
-  showTip()
-  updateTipPosition()
-}
-
-interface DisplayItem {
-  type: 'command'
-  command: SlashCommandDescriptor
-  globalIndex: number
-}
-
-interface DisplayGroup {
-  type: 'group'
-  label: string
-}
-
-type DisplayEntry = DisplayItem | DisplayGroup
-
-const displayEntries = computed(() => {
-  const entries: DisplayEntry[] = []
-  let globalIdx = 0
-
-  const builtinCmds = props.commands.filter(c => c.source !== 'plugin' && c.source !== 'agent')
-  const pluginCmds = props.commands.filter(c => c.source === 'plugin')
-  const agentCmds = props.commands.filter(c => c.source === 'agent')
-
-  if (builtinCmds.length > 0) {
-    entries.push({ type: 'group', label: t('message.slash.builtinGroup') })
-    for (const cmd of builtinCmds) {
-      entries.push({ type: 'command', command: cmd, globalIndex: globalIdx++ })
-    }
-  }
-
-  if (agentCmds.length > 0) {
-    entries.push({ type: 'group', label: t('message.slash.agentGroup') })
-    for (const cmd of agentCmds) {
-      entries.push({ type: 'command', command: cmd, globalIndex: globalIdx++ })
-    }
-  }
-
-  if (pluginCmds.length > 0) {
-    entries.push({ type: 'group', label: t('message.slash.pluginGroup') })
-    for (const cmd of pluginCmds) {
-      entries.push({ type: 'command', command: cmd, globalIndex: globalIdx++ })
-    }
-  }
-
-  return entries
-})
-
-const dropdownStyle = computed(() => {
-  if (!props.position.x || !props.position.y) return {}
-
-  const dropdownHeight = 280
-  const showAbove = window.innerHeight - props.position.y < dropdownHeight
-
-  if (showAbove) {
-    return {
-      left: `${props.position.x}px`,
-      bottom: `${window.innerHeight - props.position.y + 20}px`
-    }
-  }
-
-  return {
-    left: `${props.position.x}px`,
-    top: `${props.position.y + 4}px`
-  }
-})
-
-const emptyLabel = computed(() => {
-  if (props.query.trim()) {
-    return t('message.slash.noMatch')
-  }
-
-  return t('message.slash.hint')
-})
-
-function close() {
-  emit('close')
-}
-
-function select(command: SlashCommandDescriptor) {
-  emit('select', command)
-}
-
-function scrollToSelected() {
-  nextTick(() => {
-    const selectedEl = dropdownRef.value?.querySelector('.slash-command__item--selected')
-    selectedEl?.scrollIntoView({ block: 'nearest' })
-  })
-}
-
-function handleKeyDown(event: KeyboardEvent) {
-  if (!props.visible) return
-
-  switch (event.key) {
-    case 'ArrowUp':
-      event.preventDefault()
-      event.stopPropagation()
-      if (props.commands.length === 0) return
-      selectedIndex.value = selectedIndex.value > 0 ? selectedIndex.value - 1 : props.commands.length - 1
-      scrollToSelected()
-      onSelectionChange()
-      break
-    case 'ArrowDown':
-      event.preventDefault()
-      event.stopPropagation()
-      if (props.commands.length === 0) return
-      selectedIndex.value = selectedIndex.value < props.commands.length - 1 ? selectedIndex.value + 1 : 0
-      scrollToSelected()
-      onSelectionChange()
-      break
-    case 'Enter': {
-      const cmd = props.commands[selectedIndex.value]
-      if (!cmd) return
-      event.preventDefault()
-      event.stopPropagation()
-      select(cmd)
-      break
-    }
-    case 'Escape':
-      event.preventDefault()
-      event.stopPropagation()
-      close()
-      break
-  }
-}
-
-watch(() => props.commands, () => {
-  selectedIndex.value = 0
-  scrollToSelected()
-}, { deep: true })
-
-watch(() => props.visible, (v) => {
-  if (v) {
-    onSelectionChange()
-  } else {
-    hideTip()
-  }
-})
-
-onMounted(() => {
-  document.addEventListener('keydown', handleKeyDown, true)
-})
-
-onUnmounted(() => {
-  document.removeEventListener('keydown', handleKeyDown, true)
-  if (tipTimer) clearTimeout(tipTimer)
-})
+const {
+  EaIcon,
+  t,
+  dropdownRef,
+  selectedIndex,
+  tipVisible,
+  tipTop,
+  tipLeft,
+  selectedCommand,
+  displayEntries,
+  dropdownStyle,
+  emptyLabel,
+  select,
+  onSelectionChange
+} = useSlashCommandDropdown(props, emit)
 </script>
 
 <template>

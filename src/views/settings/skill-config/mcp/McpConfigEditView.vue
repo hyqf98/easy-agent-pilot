@@ -1,102 +1,22 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
-import type { McpConfigScope, McpTransportType, UnifiedMcpConfig } from '@/stores/skillConfig'
-import { EaButton, EaIcon } from '@/components/common'
+import { useMcpConfigEditView, type McpConfigEditViewProps, type McpConfigEditViewEmits } from './useMcpConfigEditView'
 
-interface KeyValueItem {
-  key: string
-  value: string
-}
+const props = defineProps<McpConfigEditViewProps>()
+const emit = defineEmits<McpConfigEditViewEmits>()
 
-const props = defineProps<{
-  config: UnifiedMcpConfig
-}>()
-
-const emit = defineEmits<{
-  back: []
-  save: [config: Partial<UnifiedMcpConfig>, originalId?: string]
-}>()
-
-const { t } = useI18n()
-const isCreating = computed(() => !props.config.id)
-
-const form = ref({
-  name: '',
-  transportType: 'stdio' as McpTransportType,
-  scope: 'user' as McpConfigScope,
-  command: '',
-  args: '',
-  envItems: [] as KeyValueItem[],
-  url: '',
-  headerItems: [] as KeyValueItem[]
-})
-
-const transportOptions: Array<{ label: string; value: McpTransportType }> = [
-  { label: '(STDIO) 标准输入输出', value: 'stdio' },
-  { label: '(SSE) 服务器推送事件', value: 'sse' },
-  { label: '(HTTP) HTTP 请求', value: 'http' }
-]
-
-function toItems(record?: Record<string, string>): KeyValueItem[] {
-  if (!record) return []
-  return Object.entries(record).map(([key, value]) => ({ key, value }))
-}
-
-function toRecord(items: KeyValueItem[]): Record<string, string> | undefined {
-  const record = items.reduce<Record<string, string>>((acc, item) => {
-    if (item.key.trim()) {
-      acc[item.key.trim()] = item.value
-    }
-    return acc
-  }, {})
-
-  return Object.keys(record).length > 0 ? record : undefined
-}
-
-function syncForm(config: UnifiedMcpConfig) {
-  form.value = {
-    name: config.name,
-    transportType: config.transportType,
-    scope: config.scope,
-    command: config.command || '',
-    args: config.args?.join('\n') || '',
-    envItems: toItems(config.env),
-    url: config.url || '',
-    headerItems: toItems(config.headers)
-  }
-}
-
-function addEnvItem() {
-  form.value.envItems.push({ key: '', value: '' })
-}
-
-function removeEnvItem(index: number) {
-  form.value.envItems.splice(index, 1)
-}
-
-function addHeaderItem() {
-  form.value.headerItems.push({ key: '', value: '' })
-}
-
-function removeHeaderItem(index: number) {
-  form.value.headerItems.splice(index, 1)
-}
-
-function handleSave() {
-  emit('save', {
-    name: form.value.name,
-    transportType: form.value.transportType,
-    scope: form.value.scope,
-    command: form.value.command || undefined,
-    args: form.value.args ? form.value.args.split('\n').filter(Boolean) : undefined,
-    env: toRecord(form.value.envItems),
-    url: form.value.url || undefined,
-    headers: toRecord(form.value.headerItems)
-  }, props.config.id)
-}
-
-watch(() => props.config, syncForm, { immediate: true })
+const {
+  EaButton,
+  EaIcon,
+  t,
+  isCreating,
+  form,
+  transportOptions,
+  addEnvItem,
+  removeEnvItem,
+  addHeaderItem,
+  removeHeaderItem,
+  handleSave
+} = useMcpConfigEditView(props, emit)
 </script>
 
 <template>

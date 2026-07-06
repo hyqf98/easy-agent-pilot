@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { EaIcon } from '@/components/common'
-import type { ConversationComposerViewState } from './useConversationComposerView'
+import type { ConversationComposerViewState } from './useConversationComposer'
 
 type Resolved<T> = T extends { value: infer V } ? V : T
 type ParsedInputSegment = Resolved<ConversationComposerViewState['parsedInputText']>[number]

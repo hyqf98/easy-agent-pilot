@@ -1,18 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { EaButton, EaIcon } from '@/components/common'
-import TokenProgressBar from '@/components/common/TokenProgressBar/TokenProgressBar.vue'
-import CompressionConfirmDialog from '@/components/common/CompressionConfirmDialog/CompressionConfirmDialog.vue'
-import { ConversationTodoPanel } from '@/components/message'
-import type { ConversationComposerProps } from './useConversationComposerView'
-import { useConversationComposerView } from './useConversationComposerView'
-import CdPathDropdown from './CdPathDropdown.vue'
-import ConversationComposerAttachments from './ConversationComposerAttachments.vue'
-import ConversationComposerRichTextOverlay from './ConversationComposerRichTextOverlay.vue'
-import ActiveFormPopup from './ActiveFormPopup.vue'
-import PermissionPromptPopup from './PermissionPromptPopup.vue'
-import FileMentionDropdown from './FileMentionDropdown.vue'
-import SlashCommandDropdown from './SlashCommandDropdown.vue'
+import type { ConversationComposerProps, ConversationComposerEmits } from './useConversationComposer'
+import { useConversationComposer } from './useConversationComposer'
 
 const props = withDefaults(defineProps<ConversationComposerProps>(), {
   sessionId: null,
@@ -25,21 +13,21 @@ const props = withDefaults(defineProps<ConversationComposerProps>(), {
   activeForm: null
 })
 
-const emit = defineEmits<{
-  (e: 'focus'): void
-  (e: 'form-submit', values: Record<string, unknown>): void
-  (e: 'form-cancel'): void
-}>()
-
-function handleActiveFormSubmit(values: Record<string, unknown>) {
-  emit('form-submit', values)
-}
-
-function handleActiveFormCancel() {
-  emit('form-cancel')
-}
+const emit = defineEmits<ConversationComposerEmits>()
 
 const {
+  EaButton,
+  EaIcon,
+  TokenProgressBar,
+  CompressionConfirmDialog,
+  ConversationTodoPanel,
+  CdPathDropdown,
+  ConversationComposerAttachments,
+  ConversationComposerRichTextOverlay,
+  ActiveFormPopup,
+  PermissionPromptPopup,
+  FileMentionDropdown,
+  SlashCommandDropdown,
   agentDropdownRef,
   agentOptions,
   buildQueuedMessagePreview,
@@ -91,7 +79,6 @@ const {
   isPlanMode,
   isReasoningDropdownOpen,
   isQueueCollapsed,
-  isSending,
   isUploadingImages,
   mentionSearchText,
   mentionStart,
@@ -136,8 +123,13 @@ const {
   toggleModelDropdown,
   toggleReasoningDropdown,
   toggleQueueCollapsed,
-  tokenUsage
-} = useConversationComposerView(props)
+  tokenUsage,
+  handleActiveFormSubmit,
+  handleActiveFormCancel,
+  isStopButtonMode,
+  sendButtonDisabled,
+  sendButtonTitle
+} = useConversationComposer(props, emit)
 
 defineExpose({
   focusInput,
@@ -145,37 +137,6 @@ defineExpose({
   retryMessage,
   openCompressionDialog: handleOpenCompress,
   startPlanExecution: executeCurrentPlan
-})
-
-const hasDraftContent = computed(() => (
-  inputText.value.trim().length > 0
-  || pendingImages.value.length > 0
-))
-
-const isStopButtonMode = computed(() => (
-  isSending.value && !hasDraftContent.value
-))
-
-const sendButtonDisabled = computed(() => (
-  !props.sessionId
-  || isUploadingImages.value
-  || (!hasDraftContent.value && !isStopButtonMode.value)
-))
-
-const sendButtonTitle = computed(() => {
-  if (!props.sessionId) {
-    return t('message.noSessionSelected')
-  }
-
-  if (isUploadingImages.value) {
-    return t('message.uploadingAttachments')
-  }
-
-  if (isStopButtonMode.value) {
-    return '停止'
-  }
-
-  return '发送'
 })
 </script>
 

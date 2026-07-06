@@ -1,222 +1,28 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
-import type { AgentConfig } from '@/stores/agent'
-import type { CliConfigPaths, CreateVisualSkillInput } from '@/stores/skillConfig'
-import { EaButton, EaIcon, EaStateBlock } from '@/components/common'
-import ConfigFileWorkspace from '@/views/settings/skill-config/common/ConfigFileWorkspace.vue'
+import { useSkillCreateView, type SkillCreateViewProps, type SkillCreateViewEmits } from './useSkillCreateView'
 
-interface ReferenceDraft {
-  id: string
-  title: string
-  summary: string
-  content: string
-}
+const props = defineProps<SkillCreateViewProps>()
+const emit = defineEmits<SkillCreateViewEmits>()
 
-const props = defineProps<{
-  agent: AgentConfig | null
-  cliConfigPaths: CliConfigPaths | null
-  isSaving?: boolean
-}>()
-
-const emit = defineEmits<{
-  back: []
-  save: [input: CreateVisualSkillInput]
-}>()
-
-const { t } = useI18n()
-
-const form = ref({
-  name: '',
-  description: '',
-  instructions: '',
-  includeScriptsDir: false,
-  includeAssetsDir: false,
-})
-
-const references = ref<ReferenceDraft[]>([])
-const previewTab = ref<string>('skill')
-const workspaceMode = ref<'editor' | 'preview'>('editor')
-
-function createReferenceDraft(): ReferenceDraft {
-  return {
-    id: `ref-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    title: '',
-    summary: '',
-    content: '',
-  }
-}
-
-function slugifyName(value: string, fallback: string): string {
-  const slug = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-  return slug || fallback
-}
-
-function buildReferencePreviewItems(items: ReferenceDraft[]) {
-  const usedNames = new Map<string, number>()
-
-  return items.map(item => {
-    const baseName = slugifyName(item.title, 'reference')
-    const count = (usedNames.get(baseName) || 0) + 1
-    usedNames.set(baseName, count)
-
-    const fileName = count === 1 ? `${baseName}.md` : `${baseName}-${count}.md`
-
-    return {
-      ...item,
-      fileName,
-    }
-  })
-}
-
-const skillDirectoryName = computed(() => slugifyName(form.value.name, 'custom-skill'))
-const installPath = computed(() => {
-  if (!props.cliConfigPaths?.skillsDir) {
-    return ''
-  }
-  return `${props.cliConfigPaths.skillsDir}/${skillDirectoryName.value}`
-})
-
-const referencePreviewItems = computed(() => buildReferencePreviewItems(references.value))
-
-function getReferenceFileName(referenceId: string): string {
-  return referencePreviewItems.value.find(item => item.id === referenceId)?.fileName || 'reference.md'
-}
-
-const hasInvalidReference = computed(() =>
-  referencePreviewItems.value.some(item => !item.title.trim() || !item.content.trim())
-)
-
-const canSubmit = computed(() =>
-  Boolean(form.value.name.trim() && form.value.instructions.trim() && !hasInvalidReference.value)
-)
-
-const structureLines = computed(() => {
-  const lines = [
-    `${skillDirectoryName.value}/`,
-    '├── SKILL.md',
-  ]
-
-  if (referencePreviewItems.value.length > 0) {
-    lines.push('├── references/')
-    referencePreviewItems.value.forEach((item, index) => {
-      const isLastReference = index === referencePreviewItems.value.length - 1
-      const isLastBlock = isLastReference && !form.value.includeScriptsDir && !form.value.includeAssetsDir
-      lines.push(`${isLastBlock ? '│   └──' : '│   ├──'} ${item.fileName}`)
-    })
-  }
-
-  if (form.value.includeScriptsDir) {
-    lines.push(form.value.includeAssetsDir ? '├── scripts/' : '└── scripts/')
-  }
-
-  if (form.value.includeAssetsDir) {
-    lines.push('└── assets/')
-  }
-
-  return lines.join('\n')
-})
-
-const generatedSkillMarkdown = computed(() => {
-  const description = form.value.description.trim()
-  const instructions = form.value.instructions.trim()
-
-  const sections = [
-    `---\nname: ${form.value.name.trim()}\ndescription: ${description}\n---`,
-    `# ${form.value.name.trim()}`,
-  ]
-
-  if (description) {
-    sections.push(`## ${t('settings.sdkConfig.skills.builder.overviewTitle')}\n\n${description}`)
-  }
-
-  sections.push(`## ${t('settings.sdkConfig.skills.builder.instructionsTitle')}\n\n${instructions}`)
-
-  if (referencePreviewItems.value.length > 0) {
-    const refs = referencePreviewItems.value.map(item => {
-      const summary = item.summary.trim()
-      return summary
-        ? `- [${item.title.trim()}](references/${item.fileName}) - ${summary}`
-        : `- [${item.title.trim()}](references/${item.fileName})`
-    }).join('\n')
-
-    sections.push(`## ${t('settings.sdkConfig.skills.builder.referencesPreviewTitle')}\n\n${t('settings.sdkConfig.skills.builder.referencesHint')}\n${refs}`)
-  }
-
-  sections.push(`## ${t('settings.sdkConfig.skills.builder.directoryTitle')}\n\n\`\`\`text\n${structureLines.value}\n\`\`\``)
-  return sections.join('\n\n')
-})
-
-const previewFile = computed(() => {
-  if (previewTab.value === 'skill') {
-    return {
-      name: 'SKILL.md',
-      path: `${installPath.value || skillDirectoryName.value}/SKILL.md`,
-      content: generatedSkillMarkdown.value,
-      fileType: 'markdown',
-    }
-  }
-
-  const reference = referencePreviewItems.value.find(item => `ref:${item.id}` === previewTab.value)
-  if (!reference) {
-    return null
-  }
-
-  return {
-    name: reference.fileName,
-    path: `${installPath.value || skillDirectoryName.value}/references/${reference.fileName}`,
-    content: `# ${reference.title.trim() || t('settings.sdkConfig.skills.builder.referenceUntitled')}\n\n${reference.content.trim()}`,
-    fileType: 'markdown',
-  }
-})
-
-function addReference() {
-  const draft = createReferenceDraft()
-  references.value.push(draft)
-  previewTab.value = `ref:${draft.id}`
-  workspaceMode.value = 'editor'
-}
-
-function removeReference(id: string) {
-  references.value = references.value.filter(item => item.id !== id)
-  if (previewTab.value === `ref:${id}`) {
-    previewTab.value = 'skill'
-  }
-}
-
-function handleSubmit() {
-  if (!canSubmit.value) {
-    return
-  }
-
-  emit('save', {
-    name: form.value.name.trim(),
-    description: form.value.description.trim() || undefined,
-    instructions: form.value.instructions.trim(),
-    references: referencePreviewItems.value.map(item => ({
-      title: item.title.trim(),
-      summary: item.summary.trim() || undefined,
-      content: item.content.trim(),
-    })),
-    includeScriptsDir: form.value.includeScriptsDir,
-    includeAssetsDir: form.value.includeAssetsDir,
-  })
-}
-
-watch(referencePreviewItems, (items) => {
-  if (previewTab.value === 'skill') {
-    return
-  }
-
-  const exists = items.some(item => `ref:${item.id}` === previewTab.value)
-  if (!exists) {
-    previewTab.value = 'skill'
-  }
-}, { deep: true })
+const {
+  EaButton,
+  EaIcon,
+  EaStateBlock,
+  ConfigFileWorkspace,
+  t,
+  form,
+  references,
+  workspaceMode,
+  installPath,
+  referencePreviewItems,
+  canSubmit,
+  structureLines,
+  previewFile,
+  getReferenceFileName,
+  addReference,
+  removeReference,
+  handleSubmit
+} = useSkillCreateView(props, emit)
 </script>
 
 <template>

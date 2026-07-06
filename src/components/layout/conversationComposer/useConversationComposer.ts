@@ -1,14 +1,39 @@
+/**
+ * useConversationComposer — ConversationComposer 组件（主会话输入区）的全部业务逻辑。
+ *
+ * 职责：
+ * 1. 装配发送框核心能力（代理全局 useConversationComposer composable）；
+ * 2. 视图层衍生状态：面板类型（主 / 迷你）、计划模式、权限提示、拖拽态、富文本覆盖层判定；
+ * 3. 拖拽文件落位监听（Tauri 窗口级 onDragDropEvent）；
+ * 4. 排队消息的内联编辑（展开 / 折叠、编辑、保存、取消）；
+ * 5. ActiveForm / 权限弹层与发送按钮的桥接（emit form-submit / form-cancel）；
+ * 6. 发送按钮的可用性、标题、停止模式等派生状态。
+ *
+ * 该 composable 不直接操作 DOM，模板 ref 通过返回值暴露给模板使用。
+ */
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, type ComponentPublicInstance } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useI18n } from 'vue-i18n'
-import { useConversationComposer } from '@/composables/useConversationComposer'
+import { useConversationComposer as useConversationComposerCore } from '@/composables/useConversationComposer'
 import type { ActiveFormRequest } from '@/composables/useActiveFormRequest'
 import { useSessionStore } from '@/stores/session'
 import { useSettingsStore } from '@/stores/settings'
 import { useThemeStore } from '@/stores/theme'
 import { usePermissionStore } from '@/stores/permission'
 import type { SlashCommandPanelType } from '@/services/slashCommands'
+import { EaButton, EaIcon } from '@/components/common'
+import TokenProgressBar from '@/components/common/TokenProgressBar/TokenProgressBar.vue'
+import CompressionConfirmDialog from '@/components/common/CompressionConfirmDialog/CompressionConfirmDialog.vue'
+import { ConversationTodoPanel } from '@/components/message'
+import CdPathDropdown from './CdPathDropdown.vue'
+import ConversationComposerAttachments from './ConversationComposerAttachments.vue'
+import ConversationComposerRichTextOverlay from './ConversationComposerRichTextOverlay.vue'
+import ActiveFormPopup from './ActiveFormPopup.vue'
+import PermissionPromptPopup from './PermissionPromptPopup.vue'
+import FileMentionDropdown from './FileMentionDropdown.vue'
+import SlashCommandDropdown from './SlashCommandDropdown.vue'
 
+/** 组件 Props */
 export interface ConversationComposerProps {
   panelType: SlashCommandPanelType
   sessionId?: string | null
@@ -22,11 +47,22 @@ export interface ConversationComposerProps {
   activeForm?: ActiveFormRequest | null
 }
 
+/** 组件 Emits */
+export interface ConversationComposerEmits {
+  (e: 'focus'): void
+  (e: 'form-submit', values: Record<string, unknown>): void
+  (e: 'form-cancel'): void
+}
+
 /**
- * 主会话输入区视图状态。
- * 负责装配发送框能力、拖拽监听、排队消息编辑和主题衍生状态。
+ * ConversationComposer 组件的 composable。
+ * @param props 组件 props
+ * @param emit 组件 emit 函数
  */
-export function useConversationComposerView(props: Readonly<ConversationComposerProps>) {
+export function useConversationComposer(
+  props: Readonly<ConversationComposerProps>,
+  emit: ConversationComposerEmits
+) {
   const { t } = useI18n()
   const settingsStore = useSettingsStore()
   const sessionStore = useSessionStore()
@@ -46,7 +82,7 @@ export function useConversationComposerView(props: Readonly<ConversationComposer
   const isPlanMode = computed(() => Boolean(props.sessionId && sessionStore.isPlanMode(props.sessionId)))
   const hasPermissionPrompt = computed(() => Boolean(props.sessionId && permissionStore.getPending(props.sessionId)))
 
-  const composer = useConversationComposer({
+  const composer = useConversationComposerCore({
     panelType: props.panelType,
     sessionId: computed(() => props.sessionId ?? null),
     projectPath: computed(() => props.workingDirectory || null),
@@ -149,8 +185,66 @@ export function useConversationComposerView(props: Readonly<ConversationComposer
     queuedDraftEditorRefs.set(draftId, element)
   }
 
+  // ── ActiveForm 弹层桥接 ───────────────────────────────────────────────
+  function handleActiveFormSubmit(values: Record<string, unknown>) {
+    emit('form-submit', values)
+  }
+
+  function handleActiveFormCancel() {
+    emit('form-cancel')
+  }
+
+  // ── 发送按钮派生状态 ──────────────────────────────────────────────────
+  const hasDraftContent = computed(() => (
+    composer.inputText.value.trim().length > 0
+    || composer.pendingImages.value.length > 0
+  ))
+
+  const isStopButtonMode = computed(() => (
+    composer.isSending.value && !hasDraftContent.value
+  ))
+
+  const sendButtonDisabled = computed(() => (
+    !props.sessionId
+    || composer.isUploadingImages.value
+    || (!hasDraftContent.value && !isStopButtonMode.value)
+  ))
+
+  const sendButtonTitle = computed(() => {
+    if (!props.sessionId) {
+      return t('message.noSessionSelected')
+    }
+
+    if (composer.isUploadingImages.value) {
+      return t('message.uploadingAttachments')
+    }
+
+    if (isStopButtonMode.value) {
+      return '停止'
+    }
+
+    return '发送'
+  })
+
   return {
+    // 子组件
+    EaButton,
+    EaIcon,
+    TokenProgressBar,
+    CompressionConfirmDialog,
+    ConversationTodoPanel,
+    CdPathDropdown,
+    ConversationComposerAttachments,
+    ConversationComposerRichTextOverlay,
+    ActiveFormPopup,
+    PermissionPromptPopup,
+    FileMentionDropdown,
+    SlashCommandDropdown,
+    // i18n
+    t,
+    // 核心能力
     ...composer,
+    // 视图衍生状态
     composerSendShortcutHint,
     editingQueuedDraftId,
     isDarkTheme,
@@ -162,14 +256,22 @@ export function useConversationComposerView(props: Readonly<ConversationComposer
     isQueueCollapsed,
     queuedDraftEditText,
     rootRef,
+    shouldUseRichTextOverlay,
+    // 排队消息编辑
     saveQueuedMessageEdit,
     setQueuedDraftEditorRef,
-    shouldUseRichTextOverlay,
     startQueuedMessageEdit,
-    t,
     toggleQueueCollapsed,
-    cancelQueuedMessageEdit
+    cancelQueuedMessageEdit,
+    // ActiveForm 弹层
+    handleActiveFormSubmit,
+    handleActiveFormCancel,
+    // 发送按钮
+    hasDraftContent,
+    isStopButtonMode,
+    sendButtonDisabled,
+    sendButtonTitle
   }
 }
 
-export type ConversationComposerViewState = ReturnType<typeof useConversationComposerView>
+export type ConversationComposerViewState = ReturnType<typeof useConversationComposer>

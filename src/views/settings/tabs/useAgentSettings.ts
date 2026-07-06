@@ -12,8 +12,8 @@
  */
 import { useI18n } from 'vue-i18n'
 import { EaButton, EaIcon } from '@/components/common'
-import AgentConfigForm from '@/components/agent/AgentConfigForm.vue'
-import ModelManageModal from '@/components/agent/ModelManageModal.vue'
+import AgentConfigForm from '@/components/agent/AgentConfigForm/AgentConfigForm.vue'
+import ModelManageModal from '@/components/agent/ModelManageModal/ModelManageModal.vue'
 import AgentSettingsDeleteDialog from '@/views/settings/agent-settings/AgentSettingsDeleteDialog.vue'
 import AgentSettingsTable from '@/views/settings/agent-settings/AgentSettingsTable.vue'
 import { useAgentSettingsPage } from '@/views/settings/agent-settings/useAgentSettingsPage'

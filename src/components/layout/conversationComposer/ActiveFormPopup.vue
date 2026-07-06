@@ -1,129 +1,29 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { EaIcon } from '@/components/common'
-import DynamicForm from '@/views/plan/dynamicForm/DynamicForm.vue'
-import {
-  TextField,
-  TextareaField,
-  SelectField,
-  NumberField,
-  CheckboxField,
-  RadioField,
-  DateField,
-  SliderField,
-  MultiselectField
-} from '@/views/plan/fields'
-import { formEngine } from '@/services/plan'
-import type { DynamicFormSchema, FieldType, FormField } from '@/types/plan'
-import type { Component } from 'vue'
+import type { ActiveFormPopupProps, ActiveFormPopupEmits } from './useActiveFormPopup'
+import { useActiveFormPopup } from './useActiveFormPopup'
 
-const props = defineProps<{
-  question: string
-  formSchema: DynamicFormSchema
-}>()
+const props = defineProps<ActiveFormPopupProps>()
+const emit = defineEmits<ActiveFormPopupEmits>()
 
-const emit = defineEmits<{
-  (e: 'submit', values: Record<string, unknown>): void
-  (e: 'cancel'): void
-}>()
-
-// 组件挂载即展示，配合父级 v-if 控制收起时的离场动画
-const visible = ref(true)
-
-// ── 字段组件映射（与 useDynamicForm 保持一致） ─────────────────────────
-const fieldComponentMap: Record<FieldType, Component | null> = {
-  text: TextField,
-  textarea: TextareaField,
-  select: SelectField,
-  number: NumberField,
-  checkbox: CheckboxField,
-  radio: RadioField,
-  date: DateField,
-  slider: SliderField,
-  multiselect: MultiselectField,
-  file: null,
-  code: null
-}
-
-function getFieldComponent(type: FieldType): Component | null {
-  return fieldComponentMap[type] ?? null
-}
-
-// ── 分步表单状态 ───────────────────────────────────────────────────────
-const fields = computed<FormField[]>(() => props.formSchema.fields ?? [])
-const isSingleField = computed(() => fields.value.length <= 1)
-const currentStep = ref(0)
-const formValues = ref<Record<string, unknown>>({})
-const fieldErrors = ref<Record<string, string>>({})
-
-// 初始化默认值 / 建议值
-for (const field of fields.value) {
-  formValues.value[field.name] = field.suggestion ?? field.default ?? undefined
-}
-
-const currentField = computed<FormField | null>(() => fields.value[currentStep.value] ?? null)
-const stepIndicator = computed(() => `${currentStep.value + 1} / ${fields.value.length}`)
-
-function updateFieldValue(name: string, value: unknown): void {
-  formValues.value[name] = value
-  if (fieldErrors.value[name]) {
-    delete fieldErrors.value[name]
-  }
-}
-
-function getFieldError(name: string): string | undefined {
-  return fieldErrors.value[name]
-}
-
-/** 校验当前步骤字段是否可进入下一步 */
-function validateCurrentField(): boolean {
-  const field = currentField.value
-  if (!field) return true
-  // 利用表单引擎的校验逻辑，仅暴露当前字段的错误
-  const { errors } = formEngine.validateFormData(props.formSchema, formValues.value)
-  fieldErrors.value = {}
-  const message = errors[field.name]
-  if (message) {
-    fieldErrors.value[field.name] = message
-    return false
-  }
-  return true
-}
-
-function goPrev(): void {
-  if (currentStep.value > 0) {
-    currentStep.value -= 1
-  }
-}
-
-function goNext(): void {
-  if (!validateCurrentField()) return
-  if (currentStep.value < fields.value.length - 1) {
-    currentStep.value += 1
-  }
-}
-
-function handleSubmit(): void {
-  // 单字段或最后一步：整体校验后提交
-  const { valid, errors } = formEngine.validateFormData(props.formSchema, formValues.value)
-  fieldErrors.value = errors
-  if (valid) {
-    emit('submit', { ...formValues.value })
-  }
-}
-
-/** 单字段直接提交（无需分步） */
-function handleSingleSubmit(): void {
-  handleSubmit()
-}
-
-function handleCancel(): void {
-  visible.value = false
-  emit('cancel')
-}
-
-/** 当前步骤可直接提交（最后一步或单字段） */
-const canSubmitNow = computed(() => currentStep.value >= fields.value.length - 1)
+const {
+  EaIcon,
+  DynamicForm,
+  visible,
+  isSingleField,
+  currentStep,
+  formValues,
+  currentField,
+  stepIndicator,
+  canSubmitNow,
+  getFieldComponent,
+  updateFieldValue,
+  getFieldError,
+  goPrev,
+  goNext,
+  handleSubmit,
+  handleSingleSubmit,
+  handleCancel
+} = useActiveFormPopup(props, emit)
 </script>
 
 <template>

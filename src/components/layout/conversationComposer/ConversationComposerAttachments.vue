@@ -1,45 +1,15 @@
 <script setup lang="ts">
-import { EaIcon } from '@/components/common'
-import AttachmentThumbnail from '@/components/common/AttachmentThumbnail/AttachmentThumbnail.vue'
-import type { ConversationComposerViewState } from './useConversationComposerView'
-import { computed } from 'vue'
+import type { ConversationComposerAttachmentsProps } from './useConversationComposerAttachments'
+import { useConversationComposerAttachments } from './useConversationComposerAttachments'
 
-type Resolved<T> = T extends { value: infer V } ? V : T
-type PendingAttachment = Resolved<ConversationComposerViewState['pendingImages']>[number]
+const props = defineProps<ConversationComposerAttachmentsProps>()
 
-const props = defineProps<{
-  attachments: PendingAttachment[]
-  main: boolean
-  removeAttachment: (attachmentId: string) => void
-}>()
-
-const attachmentWrapperStyle = computed(() => {
-  if (props.main) {
-    return {
-      width: '56px',
-      height: '56px',
-      overflow: 'hidden',
-      borderRadius: '16px',
-      border: '1px solid var(--workspace-border, rgba(38, 38, 38, 0.1))',
-      background: 'color-mix(in srgb, var(--workspace-control-bg, rgba(255, 255, 255, 0.68)) 92%, transparent)',
-      boxShadow: '0 8px 20px rgba(15, 23, 42, 0.08)'
-    }
-  }
-
-  return {
-    width: '68px',
-    height: '68px',
-    overflow: 'hidden',
-    borderRadius: '14px',
-    border: '1px solid color-mix(in srgb, var(--color-border) 72%, transparent)'
-  }
-})
-
-const attachmentImageStyle = {
-  width: '100%',
-  height: '100%',
-  objectFit: 'cover'
-} as const
+const {
+  EaIcon,
+  AttachmentThumbnail,
+  attachmentWrapperStyle,
+  attachmentImageStyle
+} = useConversationComposerAttachments(props)
 </script>
 
 <template>

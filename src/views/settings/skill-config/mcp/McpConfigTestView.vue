@@ -1,106 +1,29 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { useSkillConfigStore, type McpTool, type UnifiedMcpConfig } from '@/stores/skillConfig'
-import { EaButton, EaIcon, EaJsonViewer, EaStateBlock } from '@/components/common'
+import { useMcpConfigTestView, type McpConfigTestViewProps, type McpConfigTestViewEmits } from './useMcpConfigTestView'
 
-const props = defineProps<{
-  config: UnifiedMcpConfig
-}>()
+const props = defineProps<McpConfigTestViewProps>()
+const emit = defineEmits<McpConfigTestViewEmits>()
 
-const emit = defineEmits<{
-  back: []
-}>()
-
-const { t } = useI18n()
-const skillConfigStore = useSkillConfigStore()
-
-const isLoading = ref(false)
-const tools = ref<McpTool[]>([])
-const testError = ref<string | null>(null)
-const selectedTool = ref<McpTool | null>(null)
-const paramValues = ref<Record<string, unknown>>({})
-const isCalling = ref(false)
-const callResult = ref<{ success: boolean; data?: unknown; error?: string } | null>(null)
-const activeTab = ref<'params' | 'result'>('params')
-
-async function loadTools() {
-  isLoading.value = true
-  testError.value = null
-  tools.value = []
-  selectedTool.value = null
-  callResult.value = null
-
-  try {
-    const result = await skillConfigStore.listMcpTools(props.config)
-    if (result.success) {
-      tools.value = result.tools
-    } else {
-      testError.value = result.message || t('settings.mcp.toolTester.loadFailed')
-    }
-  } catch (error) {
-    testError.value = String(error)
-  } finally {
-    isLoading.value = false
-  }
-}
-
-function selectTool(tool: McpTool) {
-  selectedTool.value = tool
-  paramValues.value = {}
-  callResult.value = null
-  activeTab.value = 'params'
-
-  const properties = tool.inputSchema?.properties as Record<string, { default?: unknown }> | undefined
-  if (!properties) return
-
-  for (const [key, prop] of Object.entries(properties)) {
-    if (prop.default !== undefined) {
-      paramValues.value[key] = prop.default
-    }
-  }
-}
-
-async function handleCallTool() {
-  if (!selectedTool.value) return
-
-  isCalling.value = true
-  activeTab.value = 'result'
-  callResult.value = null
-
-  try {
-    const result = await skillConfigStore.callMcpTool(
-      props.config,
-      selectedTool.value.name,
-      paramValues.value
-    )
-
-    callResult.value = {
-      success: result.success,
-      data: result.result,
-      error: result.error
-    }
-  } catch (error) {
-    callResult.value = {
-      success: false,
-      error: String(error)
-    }
-  } finally {
-    isCalling.value = false
-  }
-}
-
-function isRequired(paramName: string): boolean {
-  const required = selectedTool.value?.inputSchema?.required as string[] | undefined
-  return required?.includes(paramName) ?? false
-}
-
-function getParamType(paramName: string): string {
-  const properties = selectedTool.value?.inputSchema?.properties as Record<string, { type?: string }> | undefined
-  return properties?.[paramName]?.type || 'string'
-}
-
-void loadTools()
+const {
+  EaButton,
+  EaIcon,
+  EaJsonViewer,
+  EaStateBlock,
+  t,
+  isLoading,
+  tools,
+  testError,
+  selectedTool,
+  paramValues,
+  isCalling,
+  callResult,
+  activeTab,
+  loadTools,
+  selectTool,
+  handleCallTool,
+  isRequired,
+  getParamType
+} = useMcpConfigTestView(props)
 </script>
 
 <template>
