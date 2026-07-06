@@ -1,93 +1,28 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { EaIcon, EaModal } from '@/components/common'
 import {
-  getCliMessageColor,
-  getCliMessageDisplayContent,
+  useCliSessionDetailModal,
+  type CliSessionDetailModalProps,
+  type CliSessionDetailModalEmits
+} from './useCliSessionDetailModal'
+
+const props = defineProps<CliSessionDetailModalProps>()
+const emit = defineEmits<CliSessionDetailModalEmits>()
+
+const {
+  EaIcon,
+  EaModal,
   getCliMessageIcon,
-  isAgentEvent,
-  isUserEvent,
-  getEventCollapsedPreview
-} from '@/utils/sessionManager'
-import type { AcpSessionHistoryResult, AcpReplayedEvent } from '@/types/cliSessionManager'
-
-interface Props {
-  visible: boolean
-  loading: boolean
-  error: string
-  detail: AcpSessionHistoryResult | null
-}
-
-const props = defineProps<Props>()
-
-const emit = defineEmits<{
-  'update:visible': [value: boolean]
-}>()
-
-const { t } = useI18n()
-
-const modalVisible = computed({
-  get: () => props.visible,
-  set: (value: boolean) => emit('update:visible', value)
-})
-
-const expandedEventKeys = ref<number[]>([])
-const expandedEventKeySet = computed(() => new Set(expandedEventKeys.value))
-
-const fallbackLabels = computed(() => ({
-  noContent: t('settings.sessionManager.noPreview'),
-  toolCall: '[Tool Call]',
-  toolResult: '[Tool Result]',
-  usage: '[Usage]'
-}))
-
-const getEventDisplayContent = (event: AcpReplayedEvent) =>
-  getCliMessageDisplayContent(event, fallbackLabels.value)
-
-const getMessageAlignmentClass = (event: AcpReplayedEvent) => {
-  if (isAgentEvent(event)) return 'message-row--assistant'
-  if (isUserEvent(event)) return 'message-row--user'
-  return 'message-row--event'
-}
-
-const getBubbleClass = (event: AcpReplayedEvent) => {
-  if (isAgentEvent(event)) return 'message-bubble--assistant'
-  if (isUserEvent(event)) return 'message-bubble--user'
-  return 'message-bubble--event'
-}
-
-const isExpanded = (index: number) => expandedEventKeySet.value.has(index)
-
-const toggleExpanded = (index: number) => {
-  const next = new Set(expandedEventKeys.value)
-  if (next.has(index)) {
-    next.delete(index)
-  } else {
-    next.add(index)
-  }
-  expandedEventKeys.value = Array.from(next)
-}
-
-const getCollapsedPreview = (event: AcpReplayedEvent) =>
-  getEventCollapsedPreview(event, fallbackLabels.value, t('settings.sessionManager.noPreview'))
-
-/** 获取事件的原始 JSON 展开（工具类事件展示 toolInput/toolResult） */
-const getRawContent = (event: AcpReplayedEvent): string | null => {
-  if (event.eventType === 'tool_call' && event.toolInput) return event.toolInput
-  if (event.eventType === 'tool_result' && event.toolResult) return event.toolResult
-  return null
-}
-
-watch(() => props.detail?.sessionId, () => {
-  expandedEventKeys.value = []
-})
-
-watch(() => props.visible, (visible) => {
-  if (!visible) {
-    expandedEventKeys.value = []
-  }
-})
+  getCliMessageColor,
+  t,
+  modalVisible,
+  getMessageAlignmentClass,
+  getBubbleClass,
+  isExpanded,
+  toggleExpanded,
+  getCollapsedPreview,
+  getEventDisplayContent,
+  getRawContent
+} = useCliSessionDetailModal(props, emit)
 </script>
 
 <template>

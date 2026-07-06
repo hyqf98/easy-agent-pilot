@@ -1,24 +1,14 @@
 <script setup lang="ts">
-import { EaButton, EaIcon } from '@/components/common'
-import type { ProviderProfile } from '@/stores/providerProfile'
-import { useI18n } from 'vue-i18n'
+import {
+  useProviderProfilesSection,
+  type ProviderProfilesSectionProps,
+  type ProviderProfilesSectionEmits
+} from './useProviderProfilesSection'
 
-defineProps<{
-  loading: boolean
-  profiles: ProviderProfile[]
-  activeProfile: ProviderProfile | null
-  defaultProfile?: ProviderProfile | null
-  switchingId: string | null
-}>()
+defineProps<ProviderProfilesSectionProps>()
+const emit = defineEmits<ProviderProfilesSectionEmits>()
 
-const emit = defineEmits<{
-  add: []
-  edit: [profile: ProviderProfile]
-  switch: [profile: ProviderProfile]
-  delete: [profile: ProviderProfile]
-}>()
-
-const { t } = useI18n()
+const { EaButton, EaIcon, t } = useProviderProfilesSection()
 </script>
 
 <template>

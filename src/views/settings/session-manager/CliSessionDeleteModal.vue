@@ -1,36 +1,19 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { EaButton, EaIcon, EaModal } from '@/components/common'
-import { displayCliSessionMessage } from '@/utils/sessionManager'
-import type { AcpSessionInfo } from '@/types/cliSessionManager'
+import { useCliSessionDeleteModal, type CliSessionDeleteModalProps, type CliSessionDeleteModalEmits } from './useCliSessionDeleteModal'
 
-interface Props {
-  visible: boolean
-  deleting: boolean
-  sessions: AcpSessionInfo[]
-  error: string
-}
+const props = defineProps<CliSessionDeleteModalProps>()
+const emit = defineEmits<CliSessionDeleteModalEmits>()
 
-const props = defineProps<Props>()
-
-const emit = defineEmits<{
-  'update:visible': [value: boolean]
-  confirm: []
-}>()
-
-const { t } = useI18n()
-
-const modalVisible = computed({
-  get: () => props.visible,
-  set: (value: boolean) => emit('update:visible', value)
-})
-
-const isBulkDelete = computed(() => props.sessions.length > 1)
-const deletePreviewSessions = computed(() => props.sessions.slice(0, 5))
-
-const displayMessage = (session: AcpSessionInfo) =>
-  displayCliSessionMessage(session, t('settings.sessionManager.noPreview'))
+const {
+  EaButton,
+  EaIcon,
+  EaModal,
+  t,
+  modalVisible,
+  isBulkDelete,
+  deletePreviewSessions,
+  displayMessage
+} = useCliSessionDeleteModal(props, emit)
 </script>
 
 <template>

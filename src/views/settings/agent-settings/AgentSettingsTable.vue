@@ -1,52 +1,20 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { useI18n } from 'vue-i18n'
-import type { AgentConfig, AgentProvider } from '@/stores/agent'
-import { EaButton, EaIcon, EaStateBlock } from '@/components/common'
+import { useAgentSettingsTable, type AgentSettingsTableProps, type AgentSettingsTableEmits } from './useAgentSettingsTable'
 
-interface Props {
-  agents: AgentConfig[]
-  searchQuery: string
-  filteredCount: number
-  currentPage: number
-  totalPages: number
-  pageNumbers: number[]
-  pageSize: number
-  testingAgentId: string | null
-}
+const props = defineProps<AgentSettingsTableProps>()
+const emit = defineEmits<AgentSettingsTableEmits>()
 
-const props = defineProps<Props>()
-
-const emit = defineEmits<{
-  test: [id: string]
-  manageModels: [agent: AgentConfig]
-  edit: [agent: AgentConfig]
-  delete: [agent: AgentConfig]
-  pageChange: [page: number]
-}>()
-
-const { t } = useI18n()
-
-const showPagination = computed(() => props.filteredCount > props.pageSize)
-
-function getProviderIcon(provider?: AgentProvider): string {
-  if (!provider) return 'bot'
-  return provider === 'claude' ? 'bot' : provider === 'opencode' ? 'terminal' : 'code'
-}
-
-function getProviderText(provider?: AgentProvider): string {
-  if (!provider) return '-'
-  return provider === 'claude' ? 'Claude' : provider === 'opencode' ? 'OpenCode' : 'Codex'
-}
-
-function formatDate(dateStr: string): string {
-  const date = new Date(dateStr)
-  return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
-
-function changePage(page: number) {
-  emit('pageChange', page)
-}
+const {
+  EaButton,
+  EaIcon,
+  EaStateBlock,
+  t,
+  showPagination,
+  getProviderIcon,
+  getProviderText,
+  formatDate,
+  changePage
+} = useAgentSettingsTable(props, emit)
 </script>
 
 <template>

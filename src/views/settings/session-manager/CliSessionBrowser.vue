@@ -1,58 +1,24 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { EaButton, EaIcon } from '@/components/common'
 import {
-  displayCliSessionMessage,
-  formatCliMessageCount,
-  formatCliRelativeTime,
-  getCliProjectName,
-  shortenCliSessionId
-} from '@/utils/sessionManager'
-import type { AcpSessionInfo } from '@/types/cliSessionManager'
+  useCliSessionBrowser,
+  type CliSessionBrowserProps,
+  type CliSessionBrowserEmits
+} from './useCliSessionBrowser'
 
-interface Props {
-  cliName: string
-  sessions: AcpSessionInfo[]
-  groupedSessions: Record<string, AcpSessionInfo[]>
-  isLoadingSessions: boolean
-  sessionsError: string
-  selectedSessionIds: string[]
-  selectedCount: number
-  allVisibleSelected: boolean
-}
+const props = defineProps<CliSessionBrowserProps>()
+const emit = defineEmits<CliSessionBrowserEmits>()
 
-const props = defineProps<Props>()
-
-const emit = defineEmits<{
-  refresh: []
-  toggleSelectAll: []
-  requestDeleteSelected: []
-  selectionChange: [sessionId: string, event: Event]
-  openDetail: [session: AcpSessionInfo]
-  requestDelete: [session: AcpSessionInfo]
-}>()
-
-const { t } = useI18n()
-
-const selectedSessionIdSet = computed(() => new Set(props.selectedSessionIds))
-
-const formatRelativeTime = (value: string) => formatCliRelativeTime(value, {
-  justNow: t('settings.sessionManager.justNow'),
-  minutesAgo: n => t('settings.sessionManager.minutesAgo', { n }),
-  hoursAgo: n => t('settings.sessionManager.hoursAgo', { n }),
-  daysAgo: n => t('settings.sessionManager.daysAgo', { n })
-})
-
-const displayMessage = (session: AcpSessionInfo) =>
-  displayCliSessionMessage(session, t('settings.sessionManager.noPreview'))
-
-const formatMessageCount = (value: number | null) => formatCliMessageCount(value)
-
-const shortSessionId = (sessionId: string) => shortenCliSessionId(sessionId)
-
-const getProjectName = (path: string) =>
-  getCliProjectName(path, t('settings.sessionManager.noProject'))
+const {
+  EaButton,
+  EaIcon,
+  t,
+  selectedSessionIdSet,
+  formatRelativeTime,
+  displayMessage,
+  formatMessageCount,
+  shortSessionId,
+  getProjectName
+} = useCliSessionBrowser(props)
 </script>
 
 <template>

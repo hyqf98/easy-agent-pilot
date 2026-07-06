@@ -1,66 +1,24 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { EaButton, EaIcon, EaModal } from '@/components/common'
-import MonacoCodeEditor from '@/modules/fileEditor/components/monacoCodeEditor/MonacoCodeEditor.vue'
-import { useSettingsStore } from '@/stores/settings'
-import type { CliType } from '@/stores/providerProfile'
-import type { MonacoLanguageId } from '@/modules/fileEditor/types'
-import type { DefaultCliConfigLocateTarget } from '@/composables/useDefaultCliConfigEditor'
+import {
+  useProviderConfigEditorModal,
+  type ProviderConfigEditorModalProps,
+  type ProviderConfigEditorModalEmits
+} from './useProviderConfigEditorModal'
 
-interface ConfigEditorFile {
-  cliType: CliType
-  path: string
-  content: string
-  fileType: 'json' | 'toml'
-}
+const props = defineProps<ProviderConfigEditorModalProps>()
+const emit = defineEmits<ProviderConfigEditorModalEmits>()
 
-const props = defineProps<{
-  visible: boolean
-  loading: boolean
-  saving: boolean
-  file: ConfigEditorFile | null
-  content: string
-  dirty: boolean
-  locateTarget?: DefaultCliConfigLocateTarget | null
-}>()
-
-const emit = defineEmits<{
-  'update:visible': [value: boolean]
-  'update:content': [value: string]
-  reload: []
-  format: []
-  save: []
-}>()
-
-const settingsStore = useSettingsStore()
-
-const languageId = computed<MonacoLanguageId>(() => {
-  if (props.file?.fileType === 'json') {
-    return 'json'
-  }
-  return 'plaintext'
-})
-
-const fileTypeLabel = computed(() => {
-  if (props.file?.fileType === 'json') return 'JSON'
-  if (props.file?.fileType === 'toml') return 'TOML'
-  return 'TEXT'
-})
-
-const title = computed(() => {
-  switch (props.file?.cliType) {
-    case 'claude':
-      return 'Claude 默认配置文件'
-    case 'codex':
-      return 'Codex 默认配置文件'
-    case 'opencode':
-      return 'OpenCode 默认配置文件'
-    default:
-      return '默认配置文件'
-  }
-})
-
-const locateLabel = computed(() => props.locateTarget?.label?.trim() || props.locateTarget?.query?.trim() || '')
+const {
+  EaButton,
+  EaIcon,
+  EaModal,
+  MonacoCodeEditor,
+  settingsStore,
+  languageId,
+  fileTypeLabel,
+  title,
+  locateLabel
+} = useProviderConfigEditorModal(props)
 </script>
 
 <template>

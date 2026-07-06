@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import { useI18n } from 'vue-i18n'
-import { EaButton, EaIcon } from '@/components/common'
-import AgentConfigForm from '@/components/agent/AgentConfigForm.vue'
-import ModelManageModal from '@/components/agent/ModelManageModal.vue'
-import AgentSettingsDeleteDialog from '@/views/settings/agent-settings/AgentSettingsDeleteDialog.vue'
-import AgentSettingsTable from '@/views/settings/agent-settings/AgentSettingsTable.vue'
-import { useAgentSettingsPage } from '@/views/settings/agent-settings/useAgentSettingsPage'
+import { useAgentSettings } from './useAgentSettings'
 
-const { t } = useI18n()
 const {
+  EaButton,
+  EaIcon,
+  AgentConfigForm,
+  ModelManageModal,
+  AgentSettingsDeleteDialog,
+  AgentSettingsTable,
+  t,
   PAGE_SIZE,
   agentStore,
   currentPage,
@@ -36,7 +36,7 @@ const {
   handleCloseModelManage,
   goToPage,
   clearSearch
-} = useAgentSettingsPage()
+} = useAgentSettings()
 </script>
 
 <template>

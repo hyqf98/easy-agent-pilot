@@ -1,20 +1,14 @@
 <script setup lang="ts">
-import { EaIcon } from '@/components/common'
-import type { CliConnectionInfo } from '@/stores/providerProfile'
-import { useI18n } from 'vue-i18n'
+import {
+  useProviderConnectionInfoCard,
+  type ProviderConnectionInfoCardProps,
+  type ProviderConnectionInfoCardEmits
+} from './useProviderConnectionInfoCard'
 
-defineProps<{
-  loading: boolean
-  connection: CliConnectionInfo | null
-  showApiKey: boolean
-}>()
+defineProps<ProviderConnectionInfoCardProps>()
+const emit = defineEmits<ProviderConnectionInfoCardEmits>()
 
-const emit = defineEmits<{
-  toggleApiKey: []
-  openConfigEditor: []
-}>()
-
-const { t } = useI18n()
+const { EaIcon, t } = useProviderConnectionInfoCard()
 </script>
 
 <template>
