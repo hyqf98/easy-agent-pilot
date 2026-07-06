@@ -42,3 +42,29 @@ data/
 # Local reference images / screenshots
 参考示列图/
 参考图*.png
+
+# 开发驾驭规范（本地维护，不入库）
+.tauri-harness/
+
+# GitNexus 代码索引（含 lbug 大文件 + 缓存，仅本地）
+.gitnexus/
+
+# Superpowers 规划/设计临时文档（本地草稿）
+docs/superpowers/
+
+# ACP / CLI 调试 dump（临时数据）
+docs/opencode_acp_raw_events.md
+docs/*_raw_events.md
+
+# E2E 测试产物（截图/快照/trace）
+*.tauri-mcp.png
+e2e-*.png
+*-screenshot.png
+test-screenshots/
+tauri-screenshots/
+playwright-report/
+test-results/
+
+# 本地临时会话上下文 / 进度备忘
+.tauri-harness/CONTEXT.md
+**/CONTEXT.local.md
