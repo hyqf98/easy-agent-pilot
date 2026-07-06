@@ -1,3 +1,18 @@
+/**
+ * skillConfigShared.ts
+ *
+ * 职责：集中存放 useSkillConfigStore 的「纯模块级」代码，与 taskExecutionShared.ts /
+ * taskSplitShared.ts / soloExecutionShared.ts / unattendedShared.ts 范式对齐。
+ *   - 接口 / 类型定义（UnifiedConfigItem / UnifiedMcpConfig / UnifiedSkillConfig /
+ *     UnifiedPluginConfig / CliConfig / RawAgent*Config / Mcp*Result 等）
+ *   - 纯函数 helper（DB / CLI 扫描结果 → 领域模型转换、同步预览项构造、
+ *     MCP 配置输入构造、agent CLI 路径解析、agent 配置 CRUD 的 snake_case 输入构造）
+ *
+ * 主 store（skillConfig.ts）只负责响应式状态、Tauri invoke 与错误通知，所有无副作用、
+ * 可复用的逻辑沉淀于此，通过 `import { ... } from './skillConfigShared'` 引用。
+ */
+import type { AgentConfig } from './agent'
+
 export type ConfigSource = 'database' | 'file'
 
 export interface UnifiedConfigItem {
@@ -369,5 +384,180 @@ export function buildMcpConfigInput(config: UnifiedMcpConfig): McpConfigInput {
     env: config.env,
     url: config.url,
     headers: config.headers,
+  }
+}
+
+/**
+ * 解析智能体实际可用的 CLI 入口：优先 acpCommand，其次 cliPath，最后回退到 provider。
+ * 全 store 多处复用（selectAgent / loadCliConfigs / createMcpConfig 等）。
+ */
+export function resolveAgentCliPath(
+  agent: Pick<AgentConfig, 'acpCommand' | 'cliPath' | 'provider'>
+): string {
+  return agent.acpCommand || agent.cliPath || agent.provider || ''
+}
+
+/**
+ * 构造 CLI MCP 配置更新 payload（command/args/env/url/headers/disabled）。
+ * create 与 update 路径共用此结构。
+ */
+export function buildCliMcpUpdateConfig(
+  config: Pick<UnifiedMcpConfig, 'command' | 'args' | 'env' | 'url' | 'headers' | 'enabled'>
+): {
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  url?: string
+  headers?: Record<string, string>
+  disabled: boolean
+} {
+  return {
+    command: config.command,
+    args: config.args,
+    env: config.env,
+    url: config.url,
+    headers: config.headers,
+    disabled: !config.enabled,
+  }
+}
+
+/** 构造 SDK MCP 配置创建输入（snake_case，写入数据库） */
+export function buildAgentMcpCreateInput(
+  agentId: string,
+  config: Pick<UnifiedMcpConfig, 'name' | 'transportType' | 'command' | 'args' | 'env' | 'url' | 'headers' | 'scope'>
+): {
+  agent_id: string
+  name: string
+  transport_type: string
+  command?: string
+  args?: string
+  env?: string
+  url?: string
+  headers?: string
+  scope: string
+} {
+  return {
+    agent_id: agentId,
+    name: config.name,
+    transport_type: config.transportType,
+    command: config.command,
+    args: config.args?.join('\n'),
+    env: config.env ? JSON.stringify(config.env) : undefined,
+    url: config.url,
+    headers: config.headers ? JSON.stringify(config.headers) : undefined,
+    scope: config.scope,
+  }
+}
+
+/** 构造 SDK MCP 配置更新输入（snake_case，部分字段可缺省） */
+export function buildAgentMcpUpdateInput(
+  updates: Partial<Pick<UnifiedMcpConfig, 'name' | 'transportType' | 'command' | 'args' | 'env' | 'url' | 'headers' | 'scope' | 'enabled'>>
+): {
+  name?: string
+  transport_type?: string
+  command?: string
+  args?: string
+  env?: string
+  url?: string
+  headers?: string
+  scope?: string
+  enabled?: boolean
+} {
+  return {
+    name: updates.name,
+    transport_type: updates.transportType,
+    command: updates.command,
+    args: updates.args?.join('\n'),
+    env: updates.env ? JSON.stringify(updates.env) : undefined,
+    url: updates.url,
+    headers: updates.headers ? JSON.stringify(updates.headers) : undefined,
+    scope: updates.scope,
+    enabled: updates.enabled,
+  }
+}
+
+/** 构造 SDK Skills 配置创建输入（snake_case，写入数据库） */
+export function buildAgentSkillsCreateInput(
+  agentId: string,
+  config: Pick<UnifiedSkillConfig, 'name' | 'description' | 'skillPath' | 'scriptsPath' | 'referencesPath' | 'assetsPath'>
+): {
+  agent_id: string
+  name: string
+  description?: string
+  skill_path: string
+  scripts_path?: string
+  references_path?: string
+  assets_path?: string
+} {
+  return {
+    agent_id: agentId,
+    name: config.name,
+    description: config.description,
+    skill_path: config.skillPath,
+    scripts_path: config.scriptsPath,
+    references_path: config.referencesPath,
+    assets_path: config.assetsPath,
+  }
+}
+
+/** 构造 SDK Skills 配置更新输入（snake_case，部分字段可缺省） */
+export function buildAgentSkillsUpdateInput(
+  updates: Partial<Pick<UnifiedSkillConfig, 'name' | 'description' | 'skillPath' | 'scriptsPath' | 'referencesPath' | 'assetsPath' | 'enabled'>>
+): {
+  name?: string
+  description?: string
+  skill_path?: string
+  scripts_path?: string
+  references_path?: string
+  assets_path?: string
+  enabled?: boolean
+} {
+  return {
+    name: updates.name,
+    description: updates.description,
+    skill_path: updates.skillPath,
+    scripts_path: updates.scriptsPath,
+    references_path: updates.referencesPath,
+    assets_path: updates.assetsPath,
+    enabled: updates.enabled,
+  }
+}
+
+/** 构造 SDK Plugins 配置创建输入（snake_case，写入数据库） */
+export function buildAgentPluginsCreateInput(
+  agentId: string,
+  config: Pick<UnifiedPluginConfig, 'name' | 'version' | 'description' | 'pluginPath'>
+): {
+  agent_id: string
+  name: string
+  version?: string
+  description?: string
+  plugin_path: string
+} {
+  return {
+    agent_id: agentId,
+    name: config.name,
+    version: config.version,
+    description: config.description,
+    plugin_path: config.pluginPath,
+  }
+}
+
+/** 构造 SDK Plugins 配置更新输入（snake_case，部分字段可缺省） */
+export function buildAgentPluginsUpdateInput(
+  updates: Partial<Pick<UnifiedPluginConfig, 'name' | 'version' | 'description' | 'pluginPath' | 'enabled'>>
+): {
+  name?: string
+  version?: string
+  description?: string
+  plugin_path?: string
+  enabled?: boolean
+} {
+  return {
+    name: updates.name,
+    version: updates.version,
+    description: updates.description,
+    plugin_path: updates.pluginPath,
+    enabled: updates.enabled,
   }
 }

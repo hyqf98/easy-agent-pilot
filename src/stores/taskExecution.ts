@@ -21,7 +21,6 @@ import { useSubAgentStore } from '@/stores/subAgent'
 import { useSettingsStore } from '@/stores/settings'
 import { agentExecutor } from '@/services/conversation/AgentExecutor'
 import type { ConversationContext } from '@/services/conversation/strategies/types'
-import { extractFirstFormRequest } from '@/utils/structuredContent'
 import {
   buildExecutionPrompt,
   buildResumeExecutionContext,
@@ -32,7 +31,18 @@ import { resolvePlanTaskAgentSelection } from '@/utils/planExecutionProgress'
 import {
   createExecutionLogEntry,
   createExecutionQueue,
-  createExecutionState
+  createExecutionState,
+  finalizeRunningToolCalls,
+  normalizeCliSessionProvider,
+  resolveTaskContextWindowOccupancy,
+  isMissingRecordError,
+  createFallbackToolCallId,
+  sleep,
+  collectMountedMemoryLibraryIds,
+  parseFormRequest,
+  TASK_EXECUTION_STOPPED_ERROR,
+  TASK_AUTO_RETRY_DELAY_MS,
+  CLI_FAILURE_RETRY_DELAY_MS
 } from './taskExecutionShared'
 import type { PendingLogBuffer } from './taskExecutionShared'
 import { ACTIVE_EXECUTION_STATUSES } from './taskExecutionShared'
@@ -66,7 +76,6 @@ import {
 } from './taskExecutionTaskRuntime'
 import { loadAgentMcpServers } from '@/utils/mcpServerConfig'
 import { mergeToolInputArguments } from '@/utils/toolInput'
-import { getErrorMessage } from '@/utils/api'
 import {
   buildContextStrategyNotice,
   buildUsageNotice,
@@ -91,8 +100,7 @@ import {
   upsertTaskRuntimeBinding
 } from '@/services/conversation/runtimeBindings'
 import {
-  readCliSessionUsageSnapshot,
-  type CliSessionProvider
+  readCliSessionUsageSnapshot
 } from '@/services/usage/cliSessionUsageSnapshot'
 import type { AgentRuntimeKey } from '@/services/conversation/runtimeProfiles'
 import { loadMountedMemoryPrompt } from '@/services/memory/mountedMemoryPrompt'
@@ -102,86 +110,6 @@ import {
   createCliFailureFragment,
   type CliFailureMatch
 } from '@/utils/cliFailureMonitor'
-
-function finalizeRunningToolCalls(toolCalls: ToolCall[]): void {
-  for (const toolCall of toolCalls) {
-    if (toolCall.status === 'running') {
-      toolCall.status = 'success'
-    }
-  }
-}
-
-const TASK_EXECUTION_STOPPED_ERROR = '__TASK_EXECUTION_STOPPED__'
-const TASK_AUTO_RETRY_DELAY_MS = 10_000
-const CLI_FAILURE_RETRY_DELAY_MS = 10_000
-
-function normalizeCliSessionProvider(provider?: string | null): CliSessionProvider | null {
-  const normalizedProvider = provider?.trim().toLowerCase()
-  if (normalizedProvider === 'claude') return 'claude'
-  if (normalizedProvider === 'codex') return 'codex'
-  if (normalizedProvider === 'opencode') return 'opencode'
-  return null
-}
-
-function resolveTaskContextWindowOccupancy(options: {
-  provider?: string | null
-  inputTokens?: number
-  outputTokens?: number
-  rawInputTokens?: number
-  rawOutputTokens?: number
-}): number | undefined {
-  const provider = options.provider?.trim().toLowerCase() ?? ''
-
-  if (provider === 'codex') {
-    const rawInputTokens = typeof options.rawInputTokens === 'number' ? Math.max(0, options.rawInputTokens) : undefined
-    const rawOutputTokens = typeof options.rawOutputTokens === 'number' ? Math.max(0, options.rawOutputTokens) : undefined
-    if (rawInputTokens !== undefined || rawOutputTokens !== undefined) {
-      return (rawInputTokens ?? 0) + (rawOutputTokens ?? 0)
-    }
-  }
-
-  const inputTokens = typeof options.inputTokens === 'number' ? Math.max(0, options.inputTokens) : undefined
-  const outputTokens = typeof options.outputTokens === 'number' ? Math.max(0, options.outputTokens) : undefined
-  if (inputTokens !== undefined || outputTokens !== undefined) {
-    return (inputTokens ?? 0) + (outputTokens ?? 0)
-  }
-
-  const rawInputTokens = typeof options.rawInputTokens === 'number' ? Math.max(0, options.rawInputTokens) : undefined
-  const rawOutputTokens = typeof options.rawOutputTokens === 'number' ? Math.max(0, options.rawOutputTokens) : undefined
-  if (rawInputTokens !== undefined || rawOutputTokens !== undefined) {
-    return (rawInputTokens ?? 0) + (rawOutputTokens ?? 0)
-  }
-
-  return undefined
-}
-
-function isMissingRecordError(error: unknown): boolean {
-  return /query returned no rows/i.test(getErrorMessage(error))
-}
-
-function createFallbackToolCallId(taskId: string): string {
-  return `tool-${taskId}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms)
-  })
-}
-
-function collectMountedMemoryLibraryIds(
-  projectIds: string[] | undefined,
-  planIds: string[] | undefined,
-  taskIds: string[] | undefined
-): string[] {
-  return Array.from(
-    new Set(
-      [...(projectIds ?? []), ...(planIds ?? []), ...(taskIds ?? [])]
-        .map((id) => id.trim())
-        .filter(Boolean)
-    )
-  )
-}
 
 export const useTaskExecutionStore = defineStore('taskExecution', () => {
   // ==================== State ====================
@@ -2178,9 +2106,3 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
   }
 })
 
-/**
- * 解析 AI 输出中的表单请求
- */
-function parseFormRequest(content: string): AIFormRequest | null {
-  return extractFirstFormRequest(content)
-}

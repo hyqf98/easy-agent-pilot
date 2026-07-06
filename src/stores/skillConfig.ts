@@ -8,6 +8,14 @@ import { normalizeCliCommand, type AgentConfig } from './agent'
 import {
   buildSyncPreviewItems,
   buildMcpConfigInput,
+  buildCliMcpUpdateConfig,
+  buildAgentMcpCreateInput,
+  buildAgentMcpUpdateInput,
+  buildAgentSkillsCreateInput,
+  buildAgentSkillsUpdateInput,
+  buildAgentPluginsCreateInput,
+  buildAgentPluginsUpdateInput,
+  resolveAgentCliPath,
   transformCliMcpConfig,
   transformCliPlugin,
   transformCliSkill,
@@ -545,17 +553,10 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
     if (isReadOnly.value) {
       try {
         await invoke('update_cli_mcp_config', {
-          cliPath: selectedAgent.value?.acpCommand || selectedAgent.value?.cliPath || selectedAgent.value?.provider,
+          cliPath: resolveAgentCliPath(selectedAgent.value!),
           cliType: selectedAgent.value?.provider,
           name: config.name,
-          config: {
-            command: config.command,
-            args: config.args,
-            env: config.env,
-            url: config.url,
-            headers: config.headers,
-            disabled: !config.enabled,
-          },
+          config: buildCliMcpUpdateConfig(config),
         })
         await refreshCliConfigs()
       } catch (error) {
@@ -571,17 +572,7 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
       // SDK 类型：写入数据库
       try {
         const rawConfig = await invoke<RawAgentMcpConfig>('create_agent_mcp_config', {
-          input: {
-            agent_id: selectedAgentId.value,
-            name: config.name,
-            transport_type: config.transportType,
-            command: config.command,
-            args: config.args?.join('\n'),
-            env: config.env ? JSON.stringify(config.env) : undefined,
-            url: config.url,
-            headers: config.headers ? JSON.stringify(config.headers) : undefined,
-            scope: config.scope,
-          },
+          input: buildAgentMcpCreateInput(selectedAgentId.value, config),
         })
         mcpConfigs.value.push(transformDbMcpConfig(rawConfig))
         return rawConfig
@@ -613,14 +604,14 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
           cliPath: selectedAgent.value?.cliPath,
           cliType: selectedAgent.value?.provider,
           name: updates.name || config.name,
-          config: {
+          config: buildCliMcpUpdateConfig({
             command: updates.command ?? config.command,
             args: updates.args ?? config.args,
             env: updates.env ?? config.env,
             url: updates.url ?? config.url,
             headers: updates.headers ?? config.headers,
-            disabled: updates.enabled !== undefined ? !updates.enabled : !config.enabled,
-          },
+            enabled: updates.enabled !== undefined ? updates.enabled : config.enabled,
+          }),
         })
         await refreshCliConfigs()
       } catch (error) {
@@ -637,17 +628,7 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
       try {
         const rawConfig = await invoke<RawAgentMcpConfig>('update_agent_mcp_config', {
           id,
-          input: {
-            name: updates.name,
-            transport_type: updates.transportType,
-            command: updates.command,
-            args: updates.args?.join('\n'),
-            env: updates.env ? JSON.stringify(updates.env) : undefined,
-            url: updates.url,
-            headers: updates.headers ? JSON.stringify(updates.headers) : undefined,
-            scope: updates.scope,
-            enabled: updates.enabled,
-          },
+          input: buildAgentMcpUpdateInput(updates),
         })
 
         const index = mcpConfigs.value.findIndex(c => c.id === id)
@@ -722,15 +703,7 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
 
     try {
       const rawConfig = await invoke<RawAgentSkillsConfig>('create_agent_skills_config', {
-        input: {
-          agent_id: selectedAgentId.value,
-          name: config.name,
-          description: config.description,
-          skill_path: config.skillPath,
-          scripts_path: config.scriptsPath,
-          references_path: config.referencesPath,
-          assets_path: config.assetsPath,
-        },
+        input: buildAgentSkillsCreateInput(selectedAgentId.value, config),
       })
       skillsConfigs.value.push(transformDbSkillsConfig(rawConfig))
       return rawConfig
@@ -753,15 +726,7 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
     try {
       const rawConfig = await invoke<RawAgentSkillsConfig>('update_agent_skills_config', {
         id,
-        input: {
-          name: updates.name,
-          description: updates.description,
-          skill_path: updates.skillPath,
-          scripts_path: updates.scriptsPath,
-          references_path: updates.referencesPath,
-          assets_path: updates.assetsPath,
-          enabled: updates.enabled,
-        },
+        input: buildAgentSkillsUpdateInput(updates),
       })
 
       const index = skillsConfigs.value.findIndex(c => c.id === id)
@@ -811,13 +776,7 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
 
     try {
       const rawConfig = await invoke<RawAgentPluginsConfig>('create_agent_plugins_config', {
-        input: {
-          agent_id: selectedAgentId.value,
-          name: config.name,
-          version: config.version,
-          description: config.description,
-          plugin_path: config.pluginPath,
-        },
+        input: buildAgentPluginsCreateInput(selectedAgentId.value, config),
       })
       pluginsConfigs.value.push(transformDbPluginsConfig(rawConfig))
       return rawConfig
@@ -840,13 +799,7 @@ export const useSkillConfigStore = defineStore('skillConfig', () => {
     try {
       const rawConfig = await invoke<RawAgentPluginsConfig>('update_agent_plugins_config', {
         id,
-        input: {
-          name: updates.name,
-          version: updates.version,
-          description: updates.description,
-          plugin_path: updates.pluginPath,
-          enabled: updates.enabled,
-        },
+        input: buildAgentPluginsUpdateInput(updates),
       })
 
       const index = pluginsConfigs.value.findIndex(c => c.id === id)
