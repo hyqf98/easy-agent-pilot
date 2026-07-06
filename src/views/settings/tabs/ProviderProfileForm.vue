@@ -1,527 +1,57 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue'
-import { useI18n } from 'vue-i18n'
-import type { ProviderProfile, CliType, CreateProviderProfileInput, UpdateProviderProfileInput } from '@/stores/providerProfile'
-import { EaButton, EaIcon, EaModal } from '@/components/common'
-import { invoke } from '@tauri-apps/api/core'
+import { useProviderProfileForm, type ProviderProfileFormProps, type ProviderProfileFormEmits } from './useProviderProfileForm'
 
-const OPENCODE_DEFAULT_PROVIDER_NPM = '@ai-sdk/openai-compatible'
-type OpenCodeProviderMode = 'preset' | 'custom'
+const props = defineProps<ProviderProfileFormProps>()
+const emit = defineEmits<ProviderProfileFormEmits>()
 
-const props = defineProps<{
-  visible: boolean
-  profile: ProviderProfile | null
-  cliType: CliType
-}>()
-
-const emit = defineEmits<{
-  'update:visible': [value: boolean]
-  save: [input: CreateProviderProfileInput | UpdateProviderProfileInput]
-}>()
-
-const { t } = useI18n()
-
-// 表单数据
-const form = ref({
-  name: '',
-  apiKey: '',
-  baseUrl: '',
-  providerName: '',
-  mainModel: '',
-  opencodeProviderModels: '',
-  opencodeProviderNpm: '',
-  reasoningModel: '',
-  haikuModel: '',
-  sonnetDefault: '',
-  opusDefault: '',
-  codexModel: ''
-})
-
-// 是否是编辑模式
-const isEditMode = computed(() => !!props.profile)
-const isCurrentConfig = computed(() => isEditMode.value && props.profile?.id === '')
-
-// 弹窗标题
-const modalTitle = computed(() =>
-  isCurrentConfig.value
-    ? t('settings.providerSwitch.form.editCurrentTitle')
-    : isEditMode.value
-    ? t('settings.providerSwitch.form.editTitle')
-    : t('settings.providerSwitch.form.addTitle')
-)
-
-// 保存中状态
-const saving = ref(false)
-
-// 重置表单
-function resetForm() {
-  form.value = {
-    name: '',
-    apiKey: '',
-    baseUrl: '',
-    providerName: '',
-    mainModel: '',
-    opencodeProviderModels: '',
-    opencodeProviderNpm: '',
-    reasoningModel: '',
-    haikuModel: '',
-    sonnetDefault: '',
-    opusDefault: '',
-    codexModel: ''
-  }
-  opencodeProviderModelRows.value = ['']
-}
-
-// 填充表单（编辑模式）
-function populateForm(profile: ProviderProfile) {
-  form.value = {
-    name: profile.name || '',
-    apiKey: profile.apiKey || '',
-    baseUrl: profile.baseUrl || '',
-    providerName: profile.providerName || '',
-    mainModel: profile.mainModel || '',
-    opencodeProviderModels: profile.opencodeProviderModels || '',
-    opencodeProviderNpm: profile.opencodeProviderNpm || '',
-    reasoningModel: profile.reasoningModel || '',
-    haikuModel: profile.haikuModel || '',
-    sonnetDefault: profile.sonnetDefault || '',
-    opusDefault: profile.opusDefault || '',
-    codexModel: profile.codexModel || ''
-  }
-  syncOpenCodeProviderModelRows(profile.opencodeProviderModels || '')
-}
-
-// 关闭弹窗
-function handleClose() {
-  emit('update:visible', false)
-  resetForm()
-}
-
-interface AuthProvider {
-  id: string
-  displayName: string
-  hasKey: boolean
-}
-
-function formatInvokeError(error: unknown): string {
-  if (typeof error === 'string') return error
-  if (error && typeof error === 'object' && 'message' in error) {
-    const message = (error as { message?: unknown }).message
-    return typeof message === 'string' ? message : t('common.unknownError')
-  }
-  return t('common.unknownError')
-}
-
-const opencodeProviders = ref<AuthProvider[]>([])
-const opencodeProvidersLoaded = ref(false)
-const opencodeProvidersLoading = ref(false)
-const opencodeProvidersError = ref('')
-const opencodeModels = ref<string[]>([])
-const opencodeModelsLoading = ref(false)
-const opencodeModelsError = ref('')
-const opencodeModelDropdownOpen = ref(false)
-const opencodeModelSearch = ref('')
-const opencodeProviderDropdownOpen = ref(false)
-const opencodeProviderSearch = ref('')
-const opencodeProviderFilter = ref('')
-const comboboxInputRef = ref<HTMLElement | null>(null)
-const comboboxDropdownStyle = ref<Record<string, string>>({})
-const providerComboboxInputRef = ref<HTMLElement | null>(null)
-const providerDropdownStyle = ref<Record<string, string>>({})
-const opencodeProviderMode = ref<OpenCodeProviderMode>('preset')
-const opencodeProviderModelRows = ref<string[]>([''])
-const showApiKeyValue = ref(false)
-
-const hasOpenCodeProviderOptions = computed(() => opencodeProviders.value.length > 0)
-const isOpenCodeCustomProvider = computed(() => opencodeProviderMode.value === 'custom')
-const hasValidOpenCodeProviderModels = computed(() =>
-  opencodeProviderModelRows.value.some(item => item.trim())
-)
-const isSubmitDisabled = computed(() => {
-  if (!isCurrentConfig.value && !form.value.name.trim()) {
-    return true
-  }
-
-  if (props.cliType !== 'opencode') {
-    return false
-  }
-
-  if (!form.value.providerName.trim() || !form.value.mainModel.trim()) {
-    return true
-  }
-
-  if (!isOpenCodeCustomProvider.value) {
-    return false
-  }
-
-  return !form.value.baseUrl.trim() || !hasValidOpenCodeProviderModels.value
-})
-
-function syncOpenCodeProviderModelRows(raw: string) {
-  const items = raw
-    .split(/\r?\n/)
-    .map(item => item.trim())
-    .filter(Boolean)
-  opencodeProviderModelRows.value = items.length > 0 ? items : ['']
-}
-
-function syncOpenCodeProviderModelsField() {
-  form.value.opencodeProviderModels = opencodeProviderModelRows.value
-    .map(item => item.trim())
-    .filter(Boolean)
-    .join('\n')
-}
-
-function addOpenCodeProviderModelRow() {
-  opencodeProviderModelRows.value.push('')
-}
-
-function removeOpenCodeProviderModelRow(index: number) {
-  if (opencodeProviderModelRows.value.length === 1) {
-    opencodeProviderModelRows.value[0] = ''
-  } else {
-    opencodeProviderModelRows.value.splice(index, 1)
-  }
-  syncOpenCodeProviderModelsField()
-}
-
-watch(
-  () => props.profile,
-  (profile) => {
-    if (profile) {
-      populateForm(profile)
-    } else {
-      resetForm()
-    }
-  },
-  { immediate: true }
-)
-
-function syncOpenCodeProviderMode() {
-  const provider = form.value.providerName.trim()
-  const hasCustomFields = Boolean(
-    form.value.baseUrl.trim()
-    || opencodeProviderModelRows.value.some(item => item.trim())
-    || form.value.opencodeProviderNpm.trim()
-  )
-  const matchesKnownProvider = opencodeProviders.value.some(item => item.id === provider)
-
-  if (hasCustomFields || (provider && !matchesKnownProvider)) {
-    opencodeProviderMode.value = 'custom'
-    if (!form.value.opencodeProviderNpm.trim()) {
-      form.value.opencodeProviderNpm = OPENCODE_DEFAULT_PROVIDER_NPM
-    }
-    return
-  }
-
-  opencodeProviderMode.value = 'preset'
-  syncOpenCodeProviderSearch()
-}
-
-function handleOpenCodeProviderModeChange(mode: OpenCodeProviderMode) {
-  opencodeProviderMode.value = mode
-  opencodeModelsError.value = ''
-  if (mode === 'preset') {
-    form.value.baseUrl = ''
-    form.value.opencodeProviderNpm = ''
-    opencodeProviderModelRows.value = ['']
-    syncOpenCodeProviderModelsField()
-  } else if (!form.value.opencodeProviderNpm.trim()) {
-    form.value.opencodeProviderNpm = OPENCODE_DEFAULT_PROVIDER_NPM
-  }
-}
-
-async function loadOpenCodeProviders() {
-  if (opencodeProvidersLoaded.value) return
-  opencodeProvidersLoading.value = true
-  opencodeProvidersError.value = ''
-  try {
-    const result = await invoke<AuthProvider[]>('read_opencode_auth_providers')
-    opencodeProviders.value = result
-    syncOpenCodeProviderMode()
-    syncOpenCodeProviderSearch()
-  } catch (error) {
-    opencodeProviders.value = []
-    opencodeProvidersError.value = formatInvokeError(error)
-  } finally {
-    opencodeProvidersLoaded.value = true
-    opencodeProvidersLoading.value = false
-  }
-}
-
-async function loadOpenCodeModels(autoOpen = true) {
-  const provider = form.value.providerName.trim()
-  if (!provider) return
-  opencodeModelsLoading.value = true
-  opencodeModelsError.value = ''
-  opencodeModels.value = []
-  opencodeModelSearch.value = ''
-  try {
-    const result = await invoke<string[]>('list_opencode_models', { provider })
-    opencodeModels.value = result
-    if (autoOpen && result.length > 0) {
-      updateDropdownPosition()
-      opencodeModelDropdownOpen.value = true
-    }
-  } catch (error) {
-    opencodeModels.value = []
-    opencodeModelsError.value = formatInvokeError(error)
-  } finally {
-    opencodeModelsLoading.value = false
-  }
-}
-
-async function loadOpenCodeProviderApiKey() {
-  const provider = form.value.providerName.trim()
-  if (!provider) return
-  try {
-    const apiKey = await invoke<string | null>('read_opencode_provider_api_key', { provider })
-    if (apiKey) {
-      form.value.apiKey = apiKey
-    }
-  } catch {
-    // silently ignore
-  }
-}
-
-function handleOpenCodeProviderChange() {
-  loadOpenCodeModels(false)
-  loadOpenCodeProviderApiKey()
-}
-
-const selectedOpenCodeProviderLabel = computed(() => {
-  const provider = opencodeProviders.value.find(item => item.id === form.value.providerName.trim())
-  return provider?.displayName || form.value.providerName.trim()
-})
-
-const filteredProviders = computed(() => {
-  const query = opencodeProviderFilter.value.trim().toLowerCase()
-  if (!query) {
-    return opencodeProviders.value
-  }
-
-  return opencodeProviders.value.filter(provider =>
-    provider.displayName.toLowerCase().includes(query)
-    || provider.id.toLowerCase().includes(query)
-  )
-})
-
-function syncOpenCodeProviderSearch() {
-  opencodeProviderSearch.value = selectedOpenCodeProviderLabel.value
-}
-
-function updateProviderDropdownPosition() {
-  if (!providerComboboxInputRef.value) return
-  const rect = providerComboboxInputRef.value.getBoundingClientRect()
-  providerDropdownStyle.value = {
-    position: 'fixed',
-    top: `${rect.bottom + 4}px`,
-    left: `${rect.left}px`,
-    width: `${rect.width}px`,
-    zIndex: '9999',
-  }
-}
-
-function openProviderDropdown() {
-  opencodeProviderFilter.value = ''
-  updateProviderDropdownPosition()
-  opencodeProviderDropdownOpen.value = true
-}
-
-function onProviderFocus() {
-  syncOpenCodeProviderSearch()
-  openProviderDropdown()
-}
-
-function onProviderInput(event: Event) {
-  const value = (event.target as HTMLInputElement).value
-  opencodeProviderSearch.value = value
-  opencodeProviderFilter.value = value
-  openProviderDropdown()
-}
-
-function onProviderBlur() {
-  opencodeProviderDropdownOpen.value = false
-  opencodeProviderFilter.value = ''
-  syncOpenCodeProviderSearch()
-}
-
-function toggleProviderDropdown() {
-  if (opencodeProviderDropdownOpen.value) {
-    opencodeProviderDropdownOpen.value = false
-    opencodeProviderFilter.value = ''
-    syncOpenCodeProviderSearch()
-    return
-  }
-
-  syncOpenCodeProviderSearch()
-  openProviderDropdown()
-}
-
-function selectOpenCodeProvider(provider: AuthProvider) {
-  form.value.providerName = provider.id
-  opencodeProviderSearch.value = provider.displayName
-  opencodeProviderFilter.value = ''
-  opencodeProviderDropdownOpen.value = false
-  handleOpenCodeProviderChange()
-}
-
-function selectOpenCodeModel(model: string) {
-  form.value.mainModel = model
-  opencodeModelDropdownOpen.value = false
-  opencodeModelSearch.value = ''
-}
-
-function onModelInput(e: Event) {
-  const val = (e.target as HTMLInputElement).value
-  form.value.mainModel = val
-  opencodeModelSearch.value = val
-  if (opencodeModels.value.length > 0) {
-    updateDropdownPosition()
-    opencodeModelDropdownOpen.value = true
-  }
-}
-
-function onModelFocus() {
-  opencodeModelSearch.value = ''
-  if (opencodeModels.value.length > 0) {
-    updateDropdownPosition()
-    opencodeModelDropdownOpen.value = true
-  }
-}
-
-function toggleModelDropdown() {
-  if (opencodeModelDropdownOpen.value) {
-    opencodeModelDropdownOpen.value = false
-  } else {
-    updateDropdownPosition()
-    opencodeModelDropdownOpen.value = true
-  }
-}
-
-function updateDropdownPosition() {
-  if (!comboboxInputRef.value) return
-  const rect = comboboxInputRef.value.getBoundingClientRect()
-  comboboxDropdownStyle.value = {
-    position: 'fixed',
-    top: `${rect.bottom + 4}px`,
-    left: `${rect.left}px`,
-    width: `${rect.width}px`,
-    zIndex: '9999',
-  }
-}
-
-const filteredModels = computed(() => {
-  const q = opencodeModelSearch.value.toLowerCase()
-  if (!q) return opencodeModels.value
-  return opencodeModels.value.filter(m => m.toLowerCase().includes(q))
-})
-
-watch(
-  () => props.visible,
-  (v) => {
-    if (v && props.cliType === 'opencode') {
-      opencodeProvidersLoaded.value = false
-      opencodeProvidersError.value = ''
-      opencodeModelsError.value = ''
-      opencodeProviderDropdownOpen.value = false
-      syncOpenCodeProviderMode()
-      loadOpenCodeProviders()
-      if (form.value.providerName) {
-        nextTick(() => loadOpenCodeModels(false))
-      }
-    } else {
-      opencodeProviderDropdownOpen.value = false
-      opencodeModelDropdownOpen.value = false
-    }
-  },
-  { immediate: true }
-)
-
-watch(
-  () => props.profile,
-  () => {
-    if (props.cliType === 'opencode') {
-      syncOpenCodeProviderModelRows(props.profile?.opencodeProviderModels || '')
-      syncOpenCodeProviderMode()
-      syncOpenCodeProviderSearch()
-    }
-  }
-)
-
-// 提交表单
-async function handleSubmit() {
-  syncOpenCodeProviderModelsField()
-
-  if (isSubmitDisabled.value) {
-    return
-  }
-
-  saving.value = true
-
-  const opencodeProviderNpm = props.cliType === 'opencode' && isOpenCodeCustomProvider.value
-    ? (form.value.opencodeProviderNpm.trim() || OPENCODE_DEFAULT_PROVIDER_NPM)
-    : undefined
-  const opencodeProviderModels = props.cliType === 'opencode' && isOpenCodeCustomProvider.value
-    ? (form.value.opencodeProviderModels.trim() || undefined)
-    : undefined
-
-  try {
-    if (isCurrentConfig.value) {
-      const input: UpdateProviderProfileInput = {
-        apiKey: form.value.apiKey || undefined,
-        baseUrl: form.value.baseUrl || undefined,
-        providerName: form.value.providerName || undefined,
-        mainModel: form.value.mainModel || undefined,
-        opencodeProviderModels,
-        opencodeProviderNpm,
-        reasoningModel: form.value.reasoningModel || undefined,
-        haikuModel: form.value.haikuModel || undefined,
-        sonnetDefault: form.value.sonnetDefault || undefined,
-        opusDefault: form.value.opusDefault || undefined,
-        codexModel: form.value.codexModel || undefined
-      }
-      emit('save', input)
-    } else if (isEditMode.value) {
-      // 编辑模式
-      const input: UpdateProviderProfileInput = {
-        name: form.value.name,
-        apiKey: form.value.apiKey || undefined,
-        baseUrl: form.value.baseUrl || undefined,
-        providerName: form.value.providerName || undefined,
-        mainModel: form.value.mainModel || undefined,
-        opencodeProviderModels,
-        opencodeProviderNpm,
-        reasoningModel: form.value.reasoningModel || undefined,
-        haikuModel: form.value.haikuModel || undefined,
-        sonnetDefault: form.value.sonnetDefault || undefined,
-        opusDefault: form.value.opusDefault || undefined,
-        codexModel: form.value.codexModel || undefined
-      }
-      emit('save', input)
-    } else {
-      // 创建模式
-      const input: CreateProviderProfileInput = {
-        name: form.value.name,
-        cliType: props.cliType,
-        apiKey: form.value.apiKey || undefined,
-        baseUrl: form.value.baseUrl || undefined,
-        providerName: form.value.providerName || undefined,
-        mainModel: form.value.mainModel || undefined,
-        opencodeProviderModels,
-        opencodeProviderNpm,
-        reasoningModel: form.value.reasoningModel || undefined,
-        haikuModel: form.value.haikuModel || undefined,
-        sonnetDefault: form.value.sonnetDefault || undefined,
-        opusDefault: form.value.opusDefault || undefined,
-        codexModel: form.value.codexModel || undefined
-      }
-      emit('save', input)
-    }
-  } finally {
-    saving.value = false
-  }
-}
+const {
+  EaButton,
+  EaIcon,
+  EaModal,
+  OPENCODE_DEFAULT_PROVIDER_NPM,
+  t,
+  form,
+  saving,
+  showApiKeyValue,
+  isCurrentConfig,
+  modalTitle,
+  isSubmitDisabled,
+  opencodeProviders,
+  opencodeProvidersLoading,
+  opencodeProvidersError,
+  hasOpenCodeProviderOptions,
+  filteredProviders,
+  opencodeProviderDropdownOpen,
+  opencodeProviderSearch,
+  providerDropdownStyle,
+  providerComboboxInputRef,
+  opencodeProviderMode,
+  isOpenCodeCustomProvider,
+  opencodeModels,
+  opencodeModelsLoading,
+  opencodeModelsError,
+  opencodeModelDropdownOpen,
+  filteredModels,
+  comboboxDropdownStyle,
+  comboboxInputRef,
+  opencodeProviderModelRows,
+  handleClose,
+  handleSubmit,
+  handleOpenCodeProviderModeChange,
+  onProviderFocus,
+  onProviderInput,
+  onProviderBlur,
+  toggleProviderDropdown,
+  selectOpenCodeProvider,
+  selectOpenCodeModel,
+  onModelInput,
+  onModelFocus,
+  toggleModelDropdown,
+  addOpenCodeProviderModelRow,
+  removeOpenCodeProviderModelRow,
+  syncOpenCodeProviderModelsField,
+  loadOpenCodeModels
+} = useProviderProfileForm(props, emit)
 </script>
 
 <template>
@@ -1008,8 +538,6 @@ async function handleSubmit() {
     </template>
   </EaModal>
 </template>
-
-
 
 <!-- 非 scoped：contentClass 应用在被 teleport 的 EaModal 内容上，需全局样式生效 -->
 <style scoped src="./ProviderProfileForm.css"></style>
