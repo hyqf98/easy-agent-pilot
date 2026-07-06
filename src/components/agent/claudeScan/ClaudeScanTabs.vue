@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** ClaudeScanTabs 组件：Claude 扫描弹窗的 MCP/Skill/Plugin 分类切换标签栏 */
 import type { ClaudeScanTab } from './shared'
 
 defineProps<{

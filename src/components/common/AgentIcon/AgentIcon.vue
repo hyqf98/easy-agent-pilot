@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** AgentIcon 组件：智能体角色 SVG 图标，按 kind 渲染不同角色图形（逻辑见 useAgentIcon.ts） */
 import { useAgentIcon, type AgentIconProps } from './useAgentIcon'
 
 const props = withDefaults(defineProps<AgentIconProps>(), {

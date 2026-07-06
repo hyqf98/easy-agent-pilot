@@ -1,3 +1,4 @@
+/** useProjectCreateModal — ProjectCreateModal 项目创建弹窗组件的 composable，负责表单校验、路径选择与导入提交。 */
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'

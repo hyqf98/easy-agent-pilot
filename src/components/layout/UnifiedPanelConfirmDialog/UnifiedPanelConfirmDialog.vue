@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** UnifiedPanelConfirmDialog 组件：统一面板内的确认弹窗（逻辑见 useUnifiedPanelConfirmDialog.ts） */
 import {
   useUnifiedPanelConfirmDialog,
   type UnifiedPanelConfirmDialogEmits,

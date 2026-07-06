@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** UnifiedPanelSessionList 组件：项目下的会话列表，展示会话并处理点击（逻辑见 useUnifiedPanelSessionList.ts） */
 import {
   useUnifiedPanelSessionList,
   type UnifiedPanelSessionListEmits,

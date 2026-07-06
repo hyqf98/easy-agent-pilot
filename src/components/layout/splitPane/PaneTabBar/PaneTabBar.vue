@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PaneTabBar 组件：分屏窗格的会话标签栏，支持切换/关闭/拖拽与溢出菜单（逻辑见 usePaneTabBar.ts） */
 import { usePaneTabBar, type PaneTabBarEmits, type PaneTabBarProps } from './usePaneTabBar'
 
 const props = defineProps<PaneTabBarProps>()

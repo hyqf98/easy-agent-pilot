@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** TaskBoard 组件：任务看板，按状态列展示任务并支持拖拽与执行控制（逻辑见 useTaskBoard.ts） */
 import { useI18n } from 'vue-i18n'
 import type { Task } from '@/types/plan'
 import { EaIcon } from '@/components/common'

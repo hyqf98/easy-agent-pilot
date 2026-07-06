@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** EaSidebarSectionHeader 组件：侧边栏分区标题栏，含新建/隐藏动作按钮（逻辑见 useEaSidebarSectionHeader.ts） */
 import {
   useEaSidebarSectionHeader,
   type EaSidebarSectionHeaderEmits,

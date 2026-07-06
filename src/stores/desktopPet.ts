@@ -1,3 +1,4 @@
+/** 桌面宠物市场搜索、本地宠物管理与宠物窗口控制的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'

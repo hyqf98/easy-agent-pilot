@@ -1,3 +1,4 @@
+/** 文件编辑追踪（变更类型、审查状态、范围、预览）类型定义。 */
 export type FileEditChangeType = 'create' | 'modify' | 'delete'
 
 /** 文件变更审查状态：pending 待审查 / accepted 已采纳 / rolled_back 已回滚 */

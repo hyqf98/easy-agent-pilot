@@ -1,3 +1,4 @@
+/** useSettingsNav — 设置左侧导航组件的 composable，聚合 tab 分组与描述符并提供切换入口。 */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useUIStore } from '@/stores/ui'

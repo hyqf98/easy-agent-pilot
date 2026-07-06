@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** McpConfigTab 组件：MCP 配置标签页，在列表/编辑/测试视图间切换（逻辑见 useMcpConfigTab.ts） */
 import { useMcpConfigTab, type McpConfigTabProps, type McpConfigTabEmits } from './useMcpConfigTab'
 
 const props = defineProps<McpConfigTabProps>()

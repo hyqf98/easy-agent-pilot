@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** ThinkingDisplay 组件：AI 思考过程展示块，可展开折叠并支持流式跟随（逻辑见 useThinkingDisplay.ts） */
 import { EaIcon } from '@/components/common'
 import { useThinkingDisplay, type ThinkingDisplayProps } from './useThinkingDisplay'
 

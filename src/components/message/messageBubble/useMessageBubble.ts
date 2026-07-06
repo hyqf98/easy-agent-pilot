@@ -1,3 +1,4 @@
+/** useMessageBubble — MessageBubble 消息气泡组件的 composable，负责消息渲染、文件提及解析、工具调用与停止重试。 */
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EaIcon } from '@/components/common'

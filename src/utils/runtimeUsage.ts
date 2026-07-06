@@ -1,3 +1,4 @@
+/** 运行时 Token 用量归一化（含 cache 基线扣减）。 */
 export interface UsageBaseline {
   rawInputTokens: number
   rawOutputTokens: number

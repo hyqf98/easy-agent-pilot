@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PetView 组件：桌面宠物视图，承载宠物宿主、上下文与动作菜单（逻辑见 usePetView.ts） */
 import { usePetView } from './usePetView'
 
 const {

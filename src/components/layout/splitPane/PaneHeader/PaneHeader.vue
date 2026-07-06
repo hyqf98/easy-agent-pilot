@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PaneHeader 组件：分屏窗格的标题栏，含拖拽手柄、标题与关闭（逻辑见 usePaneHeader.ts） */
 import { usePaneHeader, type PaneHeaderProps } from './usePaneHeader'
 
 defineProps<PaneHeaderProps>()

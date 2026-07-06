@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** CompressionMessageBubble 组件：上下文压缩摘要气泡，展示压缩说明与可展开详情（逻辑见 useCompressionMessageBubble.ts） */
 import MarkdownRenderer from '../MarkdownRenderer/MarkdownRenderer.vue'
 import { EaIcon } from '@/components/common'
 import { useCompressionMessageBubble, type CompressionMessageBubbleProps } from './useCompressionMessageBubble'

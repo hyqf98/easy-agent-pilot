@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** SettingsSectionCard 组件：设置页通用分区卡片，含标题/描述/动作与内容插槽（逻辑见 useSettingsSectionCard.ts） */
 import { useSettingsSectionCard, type SettingsSectionCardProps } from './useSettingsSectionCard'
 
 const props = withDefaults(defineProps<SettingsSectionCardProps>(), {

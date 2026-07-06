@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** AiEditTracePane 组件：AI 编辑追踪窗格，按文件分组展示变更并提供 diff 接受/回滚（逻辑见 useAiEditTracePane.ts） */
 import {
   useAiEditTracePane,
   type AiEditTracePaneEmits,

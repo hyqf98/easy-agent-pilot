@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** SplitContainer 组件：分屏容器，管理多个窗格的布局与拖拽新建/关闭（逻辑见 useSplitContainer.ts） */
 import { useSplitContainer } from './useSplitContainer'
 
 const {

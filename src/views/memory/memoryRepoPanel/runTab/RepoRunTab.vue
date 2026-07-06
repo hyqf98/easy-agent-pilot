@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** RepoRunTab 组件：记忆库仓库「运行」标签页，输入归纳指令并运行产出（逻辑见 useRepoRunTab.ts） */
 import { useRepoRunTab } from './useRepoRunTab'
 import { EaButton, EaIcon } from '@/components/common'
 

@@ -1,3 +1,4 @@
+/** 应用级持久化键值状态（最近项目、会话、面板展开等）的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'

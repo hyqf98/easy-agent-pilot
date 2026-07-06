@@ -1,3 +1,4 @@
+/** useTaskEditModal — 任务编辑弹窗组件的 composable，装配任务字段、依赖关系、代理选择与表单校验。 */
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { inferAgentProvider, useAgentStore } from '@/stores/agent'

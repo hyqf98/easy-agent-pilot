@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** TaskListOptimizeModal 组件：任务列表 AI 优化弹窗，选择专家/代理/模型并确认优化（逻辑见 useTaskListOptimizeModal.ts） */
 import { useTaskListOptimizeModal, type TaskListOptimizeModalEmits, type TaskListOptimizeModalProps } from './useTaskListOptimizeModal'
 
 const props = defineProps<TaskListOptimizeModalProps>()

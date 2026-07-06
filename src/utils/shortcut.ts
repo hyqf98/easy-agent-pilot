@@ -1,3 +1,4 @@
+/** 快捷键平台适配（mac、win）、校验与迁移工具。 */
 const PLATFORM_SOURCE = navigator.platform || navigator.userAgent
 const IS_MAC = /mac|iphone|ipad|ipod/i.test(PLATFORM_SOURCE)
 const IS_WINDOWS = /win/i.test(PLATFORM_SOURCE)

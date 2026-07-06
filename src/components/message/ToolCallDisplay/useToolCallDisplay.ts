@@ -1,3 +1,4 @@
+/** useToolCallDisplay — ToolCallDisplay 工具调用展示组件的 composable，负责工具名翻译、状态图标与展开/折叠。 */
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ToolCall } from '@/stores/message'

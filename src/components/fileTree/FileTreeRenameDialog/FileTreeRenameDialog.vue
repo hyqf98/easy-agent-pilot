@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** FileTreeRenameDialog 组件：文件/文件夹重命名对话框（逻辑见 useFileTreeRenameDialog.ts） */
 import { EaButton, EaIcon, EaInput } from '@/components/common'
 import {
   useFileTreeRenameDialog,

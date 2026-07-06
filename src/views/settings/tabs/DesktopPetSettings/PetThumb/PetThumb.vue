@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PetThumb 组件：桌面宠物缩略图，按精灵表生成预览（逻辑见 usePetThumb.ts） */
 import { usePetThumb, type PetThumbProps } from './usePetThumb'
 
 const props = withDefaults(defineProps<PetThumbProps>(), {

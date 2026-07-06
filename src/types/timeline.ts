@@ -1,3 +1,4 @@
+/** 会话时间线（TimelineEntry）渲染模型类型定义。 */
 import type { MessageAttachment, ToolCall } from '@/stores/message'
 import type { DynamicFormSchema } from './plan'
 

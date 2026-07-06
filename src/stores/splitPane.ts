@@ -1,3 +1,4 @@
+/** 会话分屏（多 Pane 网格与拖拽布局）状态的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useSessionStore } from './session'

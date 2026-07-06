@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** EaSkeleton 组件：骨架屏占位块，支持文本/圆形/矩形与多种动画 */
 export interface EaSkeletonProps {
   width?: string
   height?: string

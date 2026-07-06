@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PlanModePanel 组件：计划模式工作区面板，编排计划列表、任务看板、拆分会话与详情（逻辑见 usePlanModePanel.ts） */
 import { computed } from 'vue'
 import { usePlanModePanel } from './usePlanModePanel'
 

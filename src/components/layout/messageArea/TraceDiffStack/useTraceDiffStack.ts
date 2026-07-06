@@ -1,3 +1,4 @@
+/** useTraceDiffStack — TraceDiffStack 编辑差异堆叠组件的 composable，负责 before/after diff 视图、聚焦范围与接受左右两侧。 */
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EaIcon } from '@/components/common'

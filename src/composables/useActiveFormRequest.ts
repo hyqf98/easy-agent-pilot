@@ -1,3 +1,4 @@
+/** 计算当前会话最新且未回答的 AI 表单请求的 composable。 */
 import { computed } from 'vue'
 import { useMessageStore, type Message } from '@/stores/message'
 import { extractFirstFormRequest, extractFormResponse } from '@/utils/structuredContent'

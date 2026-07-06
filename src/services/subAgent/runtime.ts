@@ -1,3 +1,4 @@
+/** 子代理执行运行时：解析上下文并构建子代理系统提示词。 */
 import type { AgentConfig } from '@/stores/agent'
 import type { SubAgent } from '@/stores/subAgent'
 

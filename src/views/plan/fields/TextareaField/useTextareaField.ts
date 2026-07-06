@@ -1,3 +1,4 @@
+/** useTextareaField — 动态表单多行文本字段组件的 composable，桥接 FormField schema 与 v-model 字符串。 */
 import { computed } from 'vue'
 import type { FormField } from '@/types/plan'
 

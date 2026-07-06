@@ -1,3 +1,4 @@
+/** 应用更新服务：串联当前版本读取、更新检测与下载安装流程。 */
 import type {
   AppUpdateCheckResult,
   AppUpdateDownloadEvent,

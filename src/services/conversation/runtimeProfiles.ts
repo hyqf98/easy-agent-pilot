@@ -1,3 +1,4 @@
+/** 智能体运行时画像（各 provider ACP）定义与执行请求构建。 */
 import type { AgentConfig, AgentProvider, AgentType } from '@/stores/agent'
 import { inferAgentProvider } from '@/stores/agent'
 import { appendClaudeMcpAllowedTools } from '@/utils/mcpServerConfig'

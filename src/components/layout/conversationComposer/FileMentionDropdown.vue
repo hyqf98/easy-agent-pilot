@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** FileMentionDropdown 组件：@文件提及下拉建议浮层，支持作用域切换与搜索（逻辑见 useFileMentionDropdown.ts） */
 import type { FileMentionDropdownProps, FileMentionDropdownEmits } from './useFileMentionDropdown'
 import { useFileMentionDropdown } from './useFileMentionDropdown'
 

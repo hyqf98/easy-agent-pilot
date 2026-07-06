@@ -1,3 +1,4 @@
+/** 智能体 CLI 用量统计相关类型（记录输入、查询、汇总、统计响应）。 */
 export type AgentCliUsageGranularity = 'year' | 'month' | 'day'
 export type AgentCliUsageDimension = 'agent' | 'model'
 export type AgentCliUsageProviderFilter = 'all' | 'claude' | 'codex' | 'opencode'

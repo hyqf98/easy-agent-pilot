@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** SlashCommandDropdown 组件：斜杠命令下拉建议浮层（逻辑见 useSlashCommandDropdown.ts） */
 import type { SlashCommandDropdownProps, SlashCommandDropdownEmits } from './useSlashCommandDropdown'
 import { useSlashCommandDropdown } from './useSlashCommandDropdown'
 

@@ -1,3 +1,4 @@
+/** 记忆库（库、原始记录、合并运行）的 Pinia store。 */
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { invoke } from '@tauri-apps/api/core'

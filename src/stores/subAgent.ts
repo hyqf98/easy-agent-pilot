@@ -1,3 +1,4 @@
+/** 子代理（SubAgent）列表与分类的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'

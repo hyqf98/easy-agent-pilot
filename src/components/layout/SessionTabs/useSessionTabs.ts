@@ -1,3 +1,4 @@
+/** useSessionTabs — SessionTabs 顶部会话标签栏组件的 composable，负责会话切换、新建、关闭与拖拽分屏编排。 */
 import { computed, ref, onMounted, nextTick, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSessionStore, type SessionStatus } from '@/stores/session'

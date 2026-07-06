@@ -1,3 +1,4 @@
+/** 会话执行策略相关类型（MCP、上下文、流事件、工具结果）定义。 */
 import type { AgentConfig } from '@/stores/agent'
 import type { Message, MessageAttachment } from '@/stores/message'
 import type { FileEditTrace } from '@/types/fileTrace'

@@ -1,3 +1,4 @@
+/** 会话视图操作（打开、切换、导航）的 composable。 */
 import { useI18n } from 'vue-i18n'
 import { useLayoutStore } from '@/stores/layout'
 import { usePlanStore } from '@/stores/plan'

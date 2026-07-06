@@ -1,3 +1,4 @@
+/** useAttachmentThumbnail — AttachmentThumbnail 组件的 composable，负责消息附件缩略图（图标/图片预览）的展示状态与样式派生。 */
 import { computed, ref, watch } from 'vue'
 import type { StyleValue } from 'vue'
 import type { MessageAttachment } from '@/stores/message'

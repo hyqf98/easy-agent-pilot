@@ -1,3 +1,4 @@
+/** 任务依赖选择（循环依赖检测、可用依赖计算）的 composable 与纯函数。 */
 import type { Task } from '@/types/plan'
 
 /**

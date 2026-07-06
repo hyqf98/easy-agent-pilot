@@ -1,3 +1,4 @@
+/** 会话核心服务：编排消息发送、流式事件、工具调用、权限与用量。 */
 import { MANUAL_STOP_ERROR_MARKER, useMessageStore, type Message, type MessageAttachment, type ToolCall } from '@/stores/message'
 import { invoke } from '@tauri-apps/api/core'
 import { useSessionStore, type Session } from '@/stores/session'

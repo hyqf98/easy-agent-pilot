@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** StructuredContentRenderer 组件：结构化内容渲染器，按区块渲染 Markdown/结果卡片/动态表单（逻辑见 useStructuredContentRenderer.ts） */
 import DynamicForm from '@/views/plan/dynamicForm/DynamicForm.vue'
 import MarkdownRenderer from '../MarkdownRenderer/MarkdownRenderer.vue'
 import StructuredResultCard from '../StructuredResultCard/StructuredResultCard.vue'

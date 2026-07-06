@@ -1,3 +1,4 @@
+/** 读取 ACP CLI 会话用量快照（Token 与上下文占用）。 */
 import { invoke } from '@tauri-apps/api/core'
 
 export type CliSessionProvider = 'claude' | 'codex' | 'opencode'

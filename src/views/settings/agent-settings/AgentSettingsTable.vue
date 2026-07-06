@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** AgentSettingsTable 组件：智能体列表表格，展示名称/供应商/模型并提供编辑/删除/管理（逻辑见 useAgentSettingsTable.ts） */
 import { useAgentSettingsTable, type AgentSettingsTableProps, type AgentSettingsTableEmits } from './useAgentSettingsTable'
 
 const props = defineProps<AgentSettingsTableProps>()

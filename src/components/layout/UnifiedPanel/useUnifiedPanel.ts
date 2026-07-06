@@ -1,3 +1,4 @@
+/** useUnifiedPanel — UnifiedPanel 统一侧边栏组件的 composable，聚合项目/会话列表、新建入口与子代理委派编排。 */
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useProjectStore, type Project } from '@/stores/project'

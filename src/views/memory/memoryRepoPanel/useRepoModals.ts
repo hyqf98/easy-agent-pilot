@@ -1,3 +1,4 @@
+/** useRepoModals — 记忆库仓库创建/编辑弹窗共享的草稿态 composable，被两个弹窗组件复用以维护表单字段与选项。 */
 import { computed, ref } from 'vue'
 import { useAgentStore } from '@/stores/agent'
 import { useMemoryRepoStore } from '@/stores/memoryRepo'

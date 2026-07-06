@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** EaJsonViewer 组件：JSON 查看器，支持折叠展开与复制（逻辑见 useEaJsonViewer.ts） */
 import { useEaJsonViewer, type EaJsonViewerEmits, type EaJsonViewerProps } from './useEaJsonViewer'
 
 const props = withDefaults(defineProps<EaJsonViewerProps>(), {

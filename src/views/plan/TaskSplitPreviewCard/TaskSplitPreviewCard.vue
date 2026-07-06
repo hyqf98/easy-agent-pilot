@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** TaskSplitPreviewCard 组件：拆分预览中的单任务卡片，展示标题/优先级/专家并可编辑（逻辑见 useTaskSplitPreviewCard.ts） */
 import { useTaskSplitPreviewCard, type TaskSplitPreviewCardEmits, type TaskSplitPreviewCardProps } from './useTaskSplitPreviewCard'
 
 const props = defineProps<TaskSplitPreviewCardProps>()

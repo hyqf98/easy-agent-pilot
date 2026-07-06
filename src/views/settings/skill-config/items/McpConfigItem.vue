@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** McpConfigItem 组件：MCP 配置列表条目，展示名称/传输/作用域并提供测试/编辑/删除（逻辑见 useMcpConfigItem.ts） */
 import { useMcpConfigItem, type McpConfigItemProps, type McpConfigItemEmits } from './useMcpConfigItem'
 
 const props = defineProps<McpConfigItemProps>()

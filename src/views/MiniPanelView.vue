@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** MiniPanelView 组件：迷你面板视图，承载精简消息列表与会话输入（逻辑见 useMiniPanelView.ts） */
 import { useMiniPanelView } from './useMiniPanelView'
 
 const {

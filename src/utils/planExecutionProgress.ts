@@ -1,3 +1,4 @@
+/** 计划执行进度快照（任务、文件分组）计算纯函数。 */
 import type { Plan } from '@/types/plan'
 import type { PlanExecutionProgress, PlanExecutionTaskProgress } from '@/types/taskExecution'
 import { groupTaskResultFiles } from '@/utils/taskExecutionResult'

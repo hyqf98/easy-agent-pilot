@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** SessionPanelDialogs 组件：会话面板配套弹窗集合（创建/删除/清空/错误/摘要等）（逻辑见 useSessionPanelDialogs.ts） */
 import { EaButton, EaIcon } from '@/components/common'
 import {
   useSessionPanelDialogs,

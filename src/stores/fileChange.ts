@@ -1,3 +1,4 @@
+/** 文件变更追踪记录（FileChangeTrace）查询与回滚的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** SelectField 组件：动态表单下拉选择字段，支持 AI 建议与「其他」自定义（逻辑见 useSelectField.ts） */
 import { useSelectField, type SelectFieldEmits, type SelectFieldProps } from './useSelectField'
 
 const props = defineProps<SelectFieldProps>()

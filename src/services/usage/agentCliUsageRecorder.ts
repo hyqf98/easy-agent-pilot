@@ -1,3 +1,4 @@
+/** 智能体 CLI 用量记录写入（执行后归一化落库）。 */
 import { invoke } from '@tauri-apps/api/core'
 import { inferAgentProvider, type AgentConfig } from '@/stores/agent'
 import type { RecordAgentCliUsageInput } from '@/types/agentCliUsage'

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** CliSessionDetailModal 组件：CLI 会话详情弹窗，展示消息事件与原始内容（逻辑见 useCliSessionDetailModal.ts） */
 import {
   useCliSessionDetailModal,
   type CliSessionDetailModalProps,

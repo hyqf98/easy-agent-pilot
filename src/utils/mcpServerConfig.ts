@@ -1,3 +1,4 @@
+/** MCP 服务器配置查询、合并与缓存（CLI 与 agent 配置归一）。 */
 import { invoke } from '@tauri-apps/api/core'
 import { type AgentConfig } from '@/stores/agent'
 import type { McpServerConfig } from '@/services/conversation/strategies/types'

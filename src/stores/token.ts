@@ -1,3 +1,4 @@
+/** Token 用量、上下文窗口占用与压缩策略的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'

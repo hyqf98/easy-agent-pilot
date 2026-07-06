@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** UnattendedPanel 组件：无人值守面板，管理微信渠道、线程与运行日志（逻辑见 useUnattendedPanel.ts） */
 import EaSelect from '@/components/common/EaSelect/EaSelect.vue'
 import { useUnattendedPanel } from './useUnattendedPanel'
 

@@ -1,3 +1,4 @@
+/** ACP 工具名称到中文显示名称的映射表。 */
 import type { ToolCall } from '@/stores/message'
 
 /**

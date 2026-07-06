@@ -1,3 +1,4 @@
+/** 窗口物理状态（位置、尺寸、显示器）与右侧 Dock 加宽的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'

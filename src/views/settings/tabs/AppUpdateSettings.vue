@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** AppUpdateSettings 组件：应用更新设置页，展示版本状态并支持检查/下载/安装更新（逻辑见 useAppUpdateSettings.ts） */
 import { useAppUpdateSettings } from './useAppUpdateSettings'
 
 const {

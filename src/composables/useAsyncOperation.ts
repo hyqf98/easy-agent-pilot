@@ -1,3 +1,4 @@
+/** 通用异步操作封装（loading、progress、error）与全局加载态。 */
 import { ref, computed, readonly, shallowRef, type Ref, type ComputedRef } from 'vue'
 import { useNotificationStore } from '@/stores/notification'
 

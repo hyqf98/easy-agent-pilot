@@ -1,3 +1,4 @@
+/** 输入框文件提及（@mention）与行范围引用构建。 */
 import type { ComposerFileMention } from '@/stores/sessionExecution'
 import { getMentionDisplayText, getMentionTitle } from '@/utils/fileMention'
 

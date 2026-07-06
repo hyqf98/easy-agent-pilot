@@ -1,3 +1,4 @@
+/** SOLO 模式执行流程（步骤推进、结果收集）的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** SoloRunCreateDialog 组件：SOLO 运行新建/编辑对话框，采集任务与专家选择（逻辑见 useSoloRunCreateDialog.ts） */
 import { computed } from 'vue'
 import EaButton from '@/components/common/EaButton/EaButton.vue'
 import { EaIcon, EaSelect } from '@/components/common'

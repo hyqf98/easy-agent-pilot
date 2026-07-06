@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PanelHeader 组件：面板通用标题栏，含图标、标题与折叠/新增按钮 */
 import { EaIcon } from '@/components/common'
 
 export interface PanelHeaderProps {

@@ -1,3 +1,4 @@
+/** 计划拆分、重拆分、表单响应等提示词与 JSON Schema 构建。 */
 import i18n from '@/i18n'
 import type { AITaskItem, TaskCountMode } from '@/types/plan'
 

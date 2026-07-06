@@ -1,3 +1,4 @@
+/** 全局 UI 状态（工作模式、设置 Tab、加载态等）的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 

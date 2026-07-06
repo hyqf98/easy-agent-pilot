@@ -1,3 +1,4 @@
+/** useTerminalTabPane — TerminalTabPane 单个终端标签页组件的 composable，负责 xterm 实例创建、自适应、输入与命令建议。 */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'

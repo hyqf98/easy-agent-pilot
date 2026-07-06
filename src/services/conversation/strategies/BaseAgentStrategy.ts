@@ -1,3 +1,4 @@
+/** 会话执行策略基类：事件监听、流式分发、权限与日志。 */
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import type { AgentConfig } from '@/stores/agent'

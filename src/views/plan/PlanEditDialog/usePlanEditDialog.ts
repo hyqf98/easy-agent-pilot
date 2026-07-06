@@ -1,3 +1,4 @@
+/** usePlanEditDialog — 计划编辑弹窗组件的 composable，装配现有计划表单、代理/模型选项与记忆库挂载选择。 */
 import EaModal from '@/components/common/EaModal/EaModal.vue'
 import EaButton from '@/components/common/EaButton/EaButton.vue'
 import { EaIcon, EaSelect } from '@/components/common'

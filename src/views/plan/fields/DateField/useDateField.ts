@@ -1,3 +1,4 @@
+/** useDateField — 动态表单日期字段组件的 composable，桥接 FormField schema 与 v-model 日期字符串。 */
 import { computed } from 'vue'
 import type { FormField } from '@/types/plan'
 

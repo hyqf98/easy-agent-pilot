@@ -1,3 +1,4 @@
+/** 会话上下文压缩服务：按阈值触发并生成压缩摘要。 */
 import { useMessageStore, type Message, type ToolCallSummary } from '@/stores/message'
 import { useSessionStore, type Session } from '@/stores/session'
 import { useSessionExecutionStore } from '@/stores/sessionExecution'

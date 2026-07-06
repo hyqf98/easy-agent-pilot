@@ -1,3 +1,4 @@
+/** useWorkDivider — WorkDivider 工作分隔条组件的 composable，按时间计算并展示相邻消息之间的工作耗时。 */
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EaIcon } from '@/components/common'

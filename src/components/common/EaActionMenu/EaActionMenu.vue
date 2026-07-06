@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** EaActionMenu 组件：操作菜单（下拉动作列表），由触发按钮与选项组成（逻辑见 useEaActionMenu.ts） */
 import {
   useEaActionMenu,
   type EaActionMenuEmits,

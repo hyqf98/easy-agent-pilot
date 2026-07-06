@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** App 组件：应用根节点，装配全局消息、Toast、Loading 与确认弹窗等 Provider（逻辑见 useAppBootstrap.ts） */
 import { useAppBootstrap } from './useAppBootstrap'
 
 const {

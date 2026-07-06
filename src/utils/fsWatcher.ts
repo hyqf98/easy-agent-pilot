@@ -1,3 +1,4 @@
+/** Tauri 文件系统监听封装（含不可用降级告警）。 */
 import { watch, type DebouncedWatchOptions, type UnwatchFn, type WatchEvent } from '@tauri-apps/plugin-fs'
 
 let hasWarnedUnavailable = false

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** AttachmentThumbnail 组件：附件缩略图，支持图片/视频/文件类型预览（逻辑见 useAttachmentThumbnail.ts） */
 import { useAttachmentThumbnail, type AttachmentThumbnailProps } from './useAttachmentThumbnail'
 
 const props = withDefaults(defineProps<AttachmentThumbnailProps>(), {

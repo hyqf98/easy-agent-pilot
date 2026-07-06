@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** ConversationComposer 组件：会话输入组合器，集成输入、@提及、斜杠命令、Token、压缩与权限等（逻辑见 useConversationComposer.ts） */
 import type { ConversationComposerProps, ConversationComposerEmits } from './useConversationComposer'
 import { useConversationComposer } from './useConversationComposer'
 

@@ -1,3 +1,4 @@
+/** useThinkingDisplay — ThinkingDisplay 思考过程展示组件的 composable，管理思考内容展开/折叠与完成后自动收起。 */
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 

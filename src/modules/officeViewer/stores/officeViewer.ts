@@ -1,3 +1,4 @@
+/** Pinia store：管理 Office 文件查看器的当前文件、模式（预览/编辑）、读写与导出 Provider。 */
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { useNotificationStore } from '@/stores/notification'

@@ -1,3 +1,4 @@
+/** MonacoCodeEditor 组件的内部类型定义：高亮范围、搜索目标、Props/Emits 等。 */
 import type { CompletionEntry, MonacoLanguageId } from '../../types'
 
 export interface EditorHighlightRange {

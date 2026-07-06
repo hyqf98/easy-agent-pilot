@@ -1,3 +1,4 @@
+/** 文件提及路径解析（@ 语法、显示名、绝对路径判断）。 */
 export const FILE_MENTION_PATTERN = /@"([^"\n]+)"|@([^\s@"]+)/g
 
 const WINDOWS_ABSOLUTE_PATH = /^[A-Za-z]:[\\/]/

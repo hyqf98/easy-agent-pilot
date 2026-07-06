@@ -1,3 +1,4 @@
+/** Monaco 编辑器环境初始化：注册各语言 worker、可选功能 contribution，并提供主题应用与预热。 */
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
 import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'

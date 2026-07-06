@@ -1,3 +1,4 @@
+/** 迷你面板全局快捷键注册、迁移与校验的 composable。 */
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { isRegistered, register, unregister } from '@tauri-apps/plugin-global-shortcut'

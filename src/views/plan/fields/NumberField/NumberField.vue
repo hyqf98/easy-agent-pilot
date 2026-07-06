@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** NumberField 组件：动态表单数字字段（逻辑见 useNumberField.ts） */
 import { useNumberField, type NumberFieldEmits, type NumberFieldProps } from './useNumberField'
 
 const props = defineProps<NumberFieldProps>()

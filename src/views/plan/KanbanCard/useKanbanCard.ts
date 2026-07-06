@@ -1,3 +1,4 @@
+/** useKanbanCard — KanbanCard 看板任务卡片组件的 composable，派生优先级配色、执行状态与点击/操作交互。 */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useTaskExecutionStore } from '@/stores/taskExecution'

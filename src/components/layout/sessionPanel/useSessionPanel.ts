@@ -1,3 +1,4 @@
+/** useSessionPanel — SessionPanel 会话侧栏组件的 composable，聚合会话列表、新建/删除/重命名与子代理委派编排。 */
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSessionView } from '@/composables'

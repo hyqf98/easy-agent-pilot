@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** ClaudeConfigScanModal 组件：Claude 配置扫描弹窗，展示 MCP/Skill/Plugin 扫描结果并支持选择导入（逻辑见 useClaudeConfigScanModal.ts） */
 import { useClaudeConfigScanModal, type ClaudeConfigScanModalEmits } from './useClaudeConfigScanModal'
 
 const emit = defineEmits<ClaudeConfigScanModalEmits>()

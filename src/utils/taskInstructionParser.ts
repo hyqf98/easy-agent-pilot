@@ -1,3 +1,4 @@
+/** 自然语言任务指令（增删改、重拆、排序）意图解析。 */
 import type { AITaskItem } from '@/types/plan'
 
 /** 意图类型 */

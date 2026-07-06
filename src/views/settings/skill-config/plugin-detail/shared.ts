@@ -1,3 +1,4 @@
+/** 插件详情视图跨组件共享的类型定义：插件分区、内部条目与插件文件内容结构。 */
 export type PluginSection = 'skills' | 'commands' | 'agents'
 
 export interface InternalItem {

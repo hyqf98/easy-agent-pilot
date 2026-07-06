@@ -1,3 +1,4 @@
+/** useMarkdownRenderer — MarkdownRenderer 组件的 composable，装配 markdown-it + highlight.js + mermaid 并处理代码块与链接交互。 */
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import MarkdownIt from 'markdown-it'
 import hljs from 'highlight.js'

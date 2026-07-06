@@ -1,3 +1,4 @@
+/** usePlanSplitConversation — 计划拆分多会话执行组件的 composable，将任务分派到多个独立会话并聚合日志。 */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { invoke } from '@tauri-apps/api/core'

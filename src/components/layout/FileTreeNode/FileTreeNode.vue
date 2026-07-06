@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** FileTreeNode 组件：文件树单个节点，负责展开/折叠、加载与文件选中（逻辑见 useFileTreeNode.ts） */
 import { useFileTreeNode, type FileTreeNodeEmits, type FileTreeNodeProps } from './useFileTreeNode'
 
 const props = defineProps<FileTreeNodeProps>()

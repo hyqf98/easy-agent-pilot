@@ -1,3 +1,4 @@
+/** 智能体 CLI 用量统计的 Pinia store，提供汇总查询、筛选条件与修复操作。 */
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'

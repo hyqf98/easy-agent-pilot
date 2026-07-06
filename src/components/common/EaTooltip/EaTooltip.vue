@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** EaTooltip 组件：通用悬浮提示，按 placement 定位并支持延迟（逻辑见 useEaTooltip.ts） */
 import { useEaTooltip, type EaTooltipProps } from './useEaTooltip'
 
 const props = withDefaults(defineProps<EaTooltipProps>(), {

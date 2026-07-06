@@ -1,3 +1,4 @@
+/** useEaSelect — EaSelect 通用下拉选择组件的 composable，负责选项展开、键盘导航与点选同步 modelValue。 */
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { EaIcon } from '@/components/common'
 import { useSafeOutsideClick } from '@/composables/useSafeOutsideClick'

@@ -1,3 +1,4 @@
+/** 流式打字机效果：用 requestAnimationFrame 平滑追加分段到达的文本。 */
 import { ref, watch, onBeforeUnmount, type Ref } from 'vue'
 
 /**

@@ -1,3 +1,4 @@
+/** useAgentPlanPane — AgentPlanPane 代理计划面板组件的 composable，按 sessionId 订阅 agentPlan/message store 并提供执行/修改/关闭交互。 */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAgentPlanStore } from '@/stores/agentPlan'

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** SkillDetailView 组件：技能详情视图，含工具栏、文件树与配置文件工作区（逻辑见 useSkillDetailView.ts） */
 import { useSkillDetailView, type SkillDetailViewProps, type SkillDetailViewEmits } from './useSkillDetailView'
 
 const props = defineProps<SkillDetailViewProps>()

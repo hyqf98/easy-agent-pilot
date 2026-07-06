@@ -1,3 +1,4 @@
+/** 任务执行（日志、队列、表单请求、结果）的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type {

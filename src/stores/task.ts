@@ -1,3 +1,4 @@
+/** 任务（Task）增删改查与排序的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'

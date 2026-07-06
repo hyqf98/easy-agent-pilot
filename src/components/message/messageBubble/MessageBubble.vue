@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** MessageBubble 组件：单条消息气泡，按消息类型渲染思考/工具/压缩/附件等子块（逻辑见 useMessageBubble.ts） */
 import AttachmentThumbnail from '@/components/common/AttachmentThumbnail/AttachmentThumbnail.vue'
 import StructuredContentRenderer from '../StructuredContentRenderer/StructuredContentRenderer.vue'
 import ThinkingDisplay from '../ThinkingDisplay/ThinkingDisplay.vue'

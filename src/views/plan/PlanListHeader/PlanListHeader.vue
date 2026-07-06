@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PlanListHeader 组件：计划列表头部，提供项目切换选择器 */
 import type { ProjectOption } from '../planListShared'
 import { EaSelect } from '@/components/common'
 

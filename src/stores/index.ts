@@ -1,3 +1,4 @@
+/** 创建 Pinia 实例并统一再导出全部 store 的聚合入口。 */
 import { createPinia } from 'pinia'
 
 export const pinia = createPinia()

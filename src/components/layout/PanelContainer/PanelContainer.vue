@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PanelContainer 组件：侧边栏面板容器，承载 UnifiedPanel 并转发打开项目/隐藏事件 */
 import type { Project } from '@/stores/project'
 import UnifiedPanel from '../UnifiedPanel/UnifiedPanel.vue'
 

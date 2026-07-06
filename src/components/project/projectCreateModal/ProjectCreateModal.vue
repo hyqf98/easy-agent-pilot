@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** ProjectCreateModal 组件：项目新建/编辑表单弹窗，负责名称与路径校验（逻辑见 useProjectCreateModal.ts） */
 import { EaButton, EaIcon } from '@/components/common'
 import {
   useProjectCreateModal,

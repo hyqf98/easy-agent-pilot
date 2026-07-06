@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** TraceDiffStack 组件：编辑追踪的 diff 对比视图，支持逐项导航与左右接受（逻辑见 useTraceDiffStack.ts） */
 import {
   useTraceDiffStack,
   type TraceDiffStackEmits,

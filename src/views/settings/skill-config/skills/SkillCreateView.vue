@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** SkillCreateView 组件：技能新建视图，录入技能信息与引用并预览结构（逻辑见 useSkillCreateView.ts） */
 import { useSkillCreateView, type SkillCreateViewProps, type SkillCreateViewEmits } from './useSkillCreateView'
 
 const props = defineProps<SkillCreateViewProps>()

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** FileTreeCreateDialog 组件：文件/文件夹新建对话框（逻辑见 useFileTreeCreateDialog.ts） */
 import { EaButton, EaIcon, EaInput } from '@/components/common'
 import {
   useFileTreeCreateDialog,

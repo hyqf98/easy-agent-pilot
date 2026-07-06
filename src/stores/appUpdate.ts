@@ -1,3 +1,4 @@
+/** 应用内更新流程状态（检测、下载、安装）的 Pinia store。 */
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { getErrorMessage } from '@/utils/api'

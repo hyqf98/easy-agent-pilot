@@ -1,3 +1,4 @@
+/** usePluginDetail — 插件详情视图组件的 composable，按分区聚合插件内 skills/commands/agents 条目并加载文件。 */
 import { computed, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { Ref } from 'vue'

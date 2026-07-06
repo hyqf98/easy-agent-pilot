@@ -1,3 +1,4 @@
+/** 前端运行时日志写入后端的 IPC 客户端。 */
 import { invoke } from '@tauri-apps/api/core'
 import { getErrorMessage } from '@/utils/api'
 

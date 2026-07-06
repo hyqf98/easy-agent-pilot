@@ -1,3 +1,4 @@
+/** 项目记忆系统提示词构建与片段裁剪。 */
 import type { MemoryLibrary } from '@/types/memory'
 
 const MAX_TOTAL_CHARS = 12000

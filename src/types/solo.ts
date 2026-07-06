@@ -1,3 +1,4 @@
+/** SOLO 模式（运行、步骤、日志、协调者）相关类型定义。 */
 import type { DynamicFormSchema } from './plan'
 import type { ExecutionLogMetadata, TaskTokenUsageWindow } from './taskExecution'
 import type { ToolCall } from '@/stores/message'

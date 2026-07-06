@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** ToolCallDisplay 组件：工具调用展示块，渲染工具图标、参数、结果与状态（逻辑见 useToolCallDisplay.ts） */
 import { EaIcon } from '@/components/common'
 import { useToolCallDisplay, type ToolCallDisplayProps } from './useToolCallDisplay'
 

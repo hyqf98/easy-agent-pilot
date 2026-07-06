@@ -1,3 +1,4 @@
+/** 主题模式（亮、暗、跟随系统）与配色的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'

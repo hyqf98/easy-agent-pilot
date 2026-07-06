@@ -1,3 +1,4 @@
+/** useCliConfigSyncModal — CLI 配置同步弹窗组件的 composable，预览并同步 MCP/Skills/Plugins 与 CLI 配置文件。 */
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AgentConfig } from '@/stores/agent'

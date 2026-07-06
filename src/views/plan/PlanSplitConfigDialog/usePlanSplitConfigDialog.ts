@@ -1,3 +1,4 @@
+/** usePlanSplitConfigDialog — 计划拆分配置弹窗组件的 composable，装配拆分表单、代理/模型选项与提交逻辑。 */
 import EaModal from '@/components/common/EaModal/EaModal.vue'
 import EaButton from '@/components/common/EaButton/EaButton.vue'
 import { EaIcon } from '@/components/common'

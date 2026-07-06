@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** EaSelect 组件：通用下拉选择器，支持占位/禁用与 Teleport 定位下拉（逻辑见 useEaSelect.ts） */
 import { useEaSelect, type EaSelectEmits, type EaSelectProps } from './useEaSelect'
 
 const props = withDefaults(defineProps<EaSelectProps>(), {

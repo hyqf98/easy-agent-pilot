@@ -1,3 +1,4 @@
+/** CLI 执行失败片段采集与匹配规则。 */
 export type CliFailureFragmentSource =
   | 'content'
   | 'error'

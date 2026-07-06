@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** TaskResplitModal 组件：任务重新拆分弹窗，选择粒度/专家/代理/模型并确认（逻辑见 useTaskResplitModal.ts） */
 import { useTaskResplitModal, type TaskResplitModalEmits, type TaskResplitModalProps } from './useTaskResplitModal'
 
 const props = defineProps<TaskResplitModalProps>()

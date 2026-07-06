@@ -1,3 +1,4 @@
+/** 上下文窗口输入解析（支持 k、m 后缀）与格式化。 */
 const CONTEXT_WINDOW_MULTIPLIERS: Record<string, number> = {
   k: 1000,
   m: 1000000

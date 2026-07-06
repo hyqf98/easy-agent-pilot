@@ -1,3 +1,4 @@
+/** 由消息列表构建发送给 agent 的对话消息（含系统提示合成）。 */
 import type { Message, MessageRole } from '@/stores/message'
 import i18n from '@/i18n'
 

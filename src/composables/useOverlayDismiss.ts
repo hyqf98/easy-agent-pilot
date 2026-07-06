@@ -1,3 +1,4 @@
+/** 遮罩层点击外部关闭（基于 pointer 区分）的 composable。 */
 import { ref } from 'vue'
 
 export function useOverlayDismiss(onDismiss: () => void) {

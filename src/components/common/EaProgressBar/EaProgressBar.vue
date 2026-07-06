@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** EaProgressBar 组件：通用进度条，支持百分比/不确定态与多种外观（逻辑见 useEaProgressBar.ts） */
 import { useEaProgressBar, type EaProgressBarProps } from './useEaProgressBar'
 
 const props = withDefaults(defineProps<EaProgressBarProps>(), {

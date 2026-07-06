@@ -1,3 +1,4 @@
+/** 无人值守线程的系统提示词构建。 */
 import type { UnattendedChannel, UnattendedThread } from './types'
 import type { AgentConfig } from '@/stores/agent'
 import type { UnattendedDeliveryCapabilities } from './contextBuilder'

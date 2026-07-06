@@ -1,3 +1,4 @@
+/** useEaTag — EaTag 标签组件的 composable，根据 variant / size / rounded 派生 class 集合。 */
 import { computed } from 'vue'
 
 export type EaTagVariant = 'default' | 'primary' | 'success' | 'info' | 'warning' | 'danger'

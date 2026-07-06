@@ -1,3 +1,4 @@
+/** 记忆合并服务：调用 agent 将原始记忆记录合并进记忆库。 */
 import { agentExecutor } from '@/services/conversation/AgentExecutor'
 import type { ConversationContext } from '@/services/conversation/strategies/types'
 import type { AgentConfig } from '@/stores/agent'

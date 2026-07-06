@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PlanListEmptyState 组件：计划列表空状态提示块 */
 import { EaIcon } from '@/components/common'
 
 defineProps<{

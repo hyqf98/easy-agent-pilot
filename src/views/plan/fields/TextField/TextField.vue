@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** TextField 组件：动态表单单行文本字段（逻辑见 useTextField.ts） */
 import { useTextField, type TextFieldEmits, type TextFieldProps } from './useTextField'
 
 const props = defineProps<TextFieldProps>()

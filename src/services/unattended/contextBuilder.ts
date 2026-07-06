@@ -1,3 +1,4 @@
+/** 无人值守工作区上下文与渠道投递能力构建。 */
 import type { AgentConfig } from '@/stores/agent'
 import type { Project } from '@/stores/project'
 import type { Plan, Task } from '@/types/plan'

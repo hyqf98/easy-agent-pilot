@@ -1,3 +1,4 @@
+/** 文件编辑追踪 Diff 预览（只读 Monaco）的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { getLanguageStrategy } from '@/modules/fileEditor/strategies/registry'

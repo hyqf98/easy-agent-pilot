@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** CheckboxField 组件：动态表单复选框字段（逻辑见 useCheckboxField.ts） */
 import { useCheckboxField, type CheckboxFieldEmits, type CheckboxFieldProps } from './useCheckboxField'
 
 const props = defineProps<CheckboxFieldProps>()

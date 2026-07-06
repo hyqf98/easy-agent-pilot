@@ -1,3 +1,4 @@
+/** 无人值守渠道、线程与事件的 IPC 服务层。 */
 import { invoke } from '@tauri-apps/api/core'
 import type {
   CreateUnattendedChannelInput,

@@ -1,3 +1,4 @@
+/** useMainLayout — MainLayout 主布局组件的 composable，装配各工作模式面板、分屏容器、底部终端及快捷键编排。 */
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useLayoutStore } from '@/stores/layout'

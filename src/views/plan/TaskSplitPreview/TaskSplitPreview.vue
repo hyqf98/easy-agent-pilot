@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** TaskSplitPreview 组件：任务拆分预览，展示任务卡片列表并支持编辑/增删（逻辑见 useTaskSplitPreview.ts） */
 import { useTaskSplitPreview, type TaskSplitPreviewEmits, type TaskSplitPreviewProps } from './useTaskSplitPreview'
 
 const props = defineProps<TaskSplitPreviewProps>()

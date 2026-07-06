@@ -1,3 +1,4 @@
+/** 应用更新适配器的 Mock 实现，用于开发与测试注入。 */
 import type {
   AppUpdateDownloadEvent,
   AppUpdateHandle,

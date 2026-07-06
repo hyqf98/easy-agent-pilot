@@ -1,3 +1,4 @@
+/** 计划级执行运行时派生（计划状态、当前任务）的纯函数。 */
 import type { Task, TaskStatus, Plan } from '@/types/plan'
 import type { ExecutionQueue, TaskExecutionState } from '@/types/taskExecution'
 import { ACTIVE_EXECUTION_STATUSES, TERMINAL_TASK_STATUSES } from './taskExecutionShared'

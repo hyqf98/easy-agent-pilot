@@ -1,3 +1,4 @@
+/** 元素外部点击检测（基于 pointer-down 起始判定）的 composable。 */
 import { onMounted, onUnmounted } from 'vue'
 
 type MaybeElement = HTMLElement | null | undefined

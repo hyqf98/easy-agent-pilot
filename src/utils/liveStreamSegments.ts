@@ -1,3 +1,4 @@
+/** 流式消息分段（文本、思考、工具）合并与视图模型构建。 */
 import { mergeStreamingText } from './mergeStreamingText'
 
 export type LiveStreamSegmentKind = 'text' | 'thinking' | 'tool'

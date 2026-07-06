@@ -1,3 +1,4 @@
+/** useTaskListOptimizeModal — 任务列表优化弹窗组件的 composable，配置优化参数并调用子代理重写任务列表。 */
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAgentStore, useAgentConfigStore } from '@/stores'

@@ -1,3 +1,4 @@
+/** 项目（Project）列表、当前项目及关联 store 联动的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'

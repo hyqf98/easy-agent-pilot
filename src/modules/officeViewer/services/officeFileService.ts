@@ -1,3 +1,4 @@
+/** Office 文件二进制读写服务：通过 Tauri invoke 读取/写入 PDF/DOCX/XLSX/PPTX 字节流。 */
 import { invoke } from '@tauri-apps/api/core'
 
 export async function readBinaryFile(filePath: string): Promise<Uint8Array> {

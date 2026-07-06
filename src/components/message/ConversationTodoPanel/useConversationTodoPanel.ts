@@ -1,3 +1,4 @@
+/** useConversationTodoPanel — ConversationTodoPanel 对话待办面板组件的 composable，从消息流抽取 Todo 快照并持久化展示。 */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useMessageStore } from '@/stores/message'
 import {

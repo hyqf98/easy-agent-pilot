@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** ClaudeScanMcpList 组件：Claude 扫描结果中的 MCP 服务列表，支持全选与单项勾选导入 */
 import { useI18n } from 'vue-i18n'
 import type { ScannedMcpServer } from '@/stores/skillConfigShared'
 

@@ -1,3 +1,4 @@
+/** useExecutionTimeline — ExecutionTimeline 执行时间线组件的 composable，聚合工具调用/思考/表单提交为时间线条目。 */
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'

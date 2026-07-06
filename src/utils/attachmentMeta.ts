@@ -1,3 +1,4 @@
+/** 消息附件分类（图片、视频、音频、pdf、文件）与判断工具。 */
 import type { MessageAttachment } from '@/stores/message'
 
 export type AttachmentKind = 'image' | 'video' | 'audio' | 'pdf' | 'file'

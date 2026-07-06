@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** McpConfigListView 组件：MCP 配置列表视图，含添加/同步/刷新与条目渲染 */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { UnifiedMcpConfig } from '@/stores/skillConfig'

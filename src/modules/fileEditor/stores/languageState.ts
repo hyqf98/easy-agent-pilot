@@ -1,3 +1,4 @@
+/** fileEditor 模块的语言状态解析：根据文件路径解析 Monaco 语言 id 与补全项的纯函数封装。 */
 import { getLanguageStrategy } from '../strategies/registry'
 import type { CompletionEntry, MonacoLanguageId } from '../types'
 

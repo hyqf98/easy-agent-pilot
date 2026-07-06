@@ -1,3 +1,4 @@
+/** useEaToast — EaToast 全局通知组件的 composable，订阅 notification store 并提供复制/关闭等通知交互。 */
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useNotificationStore, type Notification, type NotificationType } from '@/stores/notification'

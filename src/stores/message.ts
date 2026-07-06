@@ -1,3 +1,4 @@
+/** 会话消息流（Message、ToolCall）的核心 Pinia store。 */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useNotificationStore } from './notification'

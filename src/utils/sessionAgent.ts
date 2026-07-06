@@ -1,3 +1,4 @@
+/** 按 sessionId、agentType 解析会话对应的智能体配置。 */
 import type { AgentConfig } from '@/stores/agent'
 import type { Session } from '@/stores/session'
 

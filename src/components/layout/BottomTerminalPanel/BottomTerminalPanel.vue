@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** BottomTerminalPanel 组件：底部终端面板，管理终端标签页的创建/关闭/切换与项目选择（逻辑见 useBottomTerminalPanel.ts） */
 import { useBottomTerminalPanel, type BottomTerminalPanelProps } from './useBottomTerminalPanel'
 
 const props = withDefaults(defineProps<BottomTerminalPanelProps>(), {

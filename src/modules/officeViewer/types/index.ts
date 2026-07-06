@@ -1,3 +1,4 @@
+/** officeViewer 模块的类型定义：OfficeFileType / OfficeViewerMode 联合类型与扩展名→类型映射。 */
 export type OfficeFileType = 'pdf' | 'docx' | 'xlsx' | 'pptx'
 
 export type OfficeViewerMode = 'preview' | 'edit'

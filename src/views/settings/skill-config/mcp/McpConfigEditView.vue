@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** McpConfigEditView 组件：MCP 配置编辑视图，录入名称/传输/命令/环境变量等（逻辑见 useMcpConfigEditView.ts） */
 import { useMcpConfigEditView, type McpConfigEditViewProps, type McpConfigEditViewEmits } from './useMcpConfigEditView'
 
 const props = defineProps<McpConfigEditViewProps>()

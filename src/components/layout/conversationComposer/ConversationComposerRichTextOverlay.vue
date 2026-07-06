@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** ConversationComposerRichTextOverlay 组件：输入框富文本预览覆盖层，按解析片段渲染高亮 */
 import { EaIcon } from '@/components/common'
 import type { ConversationComposerViewState } from './useConversationComposer'
 

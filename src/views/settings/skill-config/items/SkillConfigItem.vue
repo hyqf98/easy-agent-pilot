@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** SkillConfigItem 组件：技能配置列表条目，展示名称并提供详情/编辑/删除 */
 import { useI18n } from 'vue-i18n'
 import type { UnifiedSkillConfig } from '@/stores/skillConfig'
 import { EaButton, EaIcon } from '@/components/common'

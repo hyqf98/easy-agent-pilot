@@ -1,3 +1,4 @@
+/** 内置 Monaco 语言策略集合：为 JS/TS/JSON/Markdown/Python 等提供补全关键字与触发字符。 */
 import type { CompletionEntry } from '../types'
 import type { LanguageStrategy } from './languageStrategy'
 

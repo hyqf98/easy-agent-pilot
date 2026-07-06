@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** SkillsConfigTab 组件：技能配置标签页，展示技能列表与添加/同步等（逻辑见 useSkillsConfigTab.ts） */
 import { useSkillsConfigTab, type SkillsConfigTabProps, type SkillsConfigTabEmits } from './useSkillsConfigTab'
 
 const props = defineProps<SkillsConfigTabProps>()

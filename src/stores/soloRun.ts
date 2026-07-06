@@ -1,3 +1,4 @@
+/** SOLO 运行（SoloRun）记录增删改查的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'

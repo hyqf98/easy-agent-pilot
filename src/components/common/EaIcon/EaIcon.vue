@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** EaIcon 组件：通用图标渲染器，按名称解析并渲染对应图标（逻辑见 useEaIcon.ts） */
 import { useEaIcon, type EaIconProps } from './useEaIcon'
 
 const props = withDefaults(defineProps<EaIconProps>(), {

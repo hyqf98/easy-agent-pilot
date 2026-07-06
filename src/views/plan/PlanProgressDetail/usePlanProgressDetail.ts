@@ -1,3 +1,4 @@
+/** usePlanProgressDetail — 计划执行进度详情组件的 composable，订阅执行进度快照并提供子任务代理选择与控制。 */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfirmDialog } from '@/composables'

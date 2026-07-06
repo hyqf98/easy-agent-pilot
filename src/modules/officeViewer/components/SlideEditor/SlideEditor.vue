@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** SlideEditor 组件：幻灯片查看器，支持页码导航与缩放（逻辑见 useSlideEditor.ts） */
 import {
   useSlideEditor,
   type SlideEditorProps,

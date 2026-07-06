@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** RuntimeNoticeList 组件：运行时通知列表，聚合模型/用量通知并可展开明细（逻辑见 useRuntimeNoticeList.ts） */
 import MarkdownRenderer from '../MarkdownRenderer/MarkdownRenderer.vue'
 import { EaIcon } from '@/components/common'
 import { useRuntimeNoticeList, type RuntimeNoticeListProps } from './useRuntimeNoticeList'

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** EaToast 组件：全局消息提示，渲染通知队列并支持重试/复制/关闭（逻辑见 useEaToast.ts） */
 import { useEaToast } from './useEaToast'
 
 const {

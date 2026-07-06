@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** AgentPlanPane 组件：智能体计划展示窗格，渲染计划 Markdown 并提供确认/修改/执行（逻辑见 useAgentPlanPane.ts） */
 import { EaIcon } from '@/components/common'
 import MarkdownRenderer from '@/components/message/MarkdownRenderer/MarkdownRenderer.vue'
 import { useAgentPlanPane, type AgentPlanPaneEmits, type AgentPlanPaneProps } from './useAgentPlanPane'

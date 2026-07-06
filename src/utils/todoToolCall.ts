@@ -1,3 +1,4 @@
+/** TodoWrite 工具调用解析为 Todo 快照模型。 */
 import type { Message, ToolCall } from '@/stores/message'
 
 export interface TodoItem {

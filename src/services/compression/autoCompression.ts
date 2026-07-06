@@ -1,3 +1,4 @@
+/** 自动压缩触发判定（开关、消息数、用量阈值）的纯函数。 */
 export interface AutoCompressionCheckInput {
   autoCompressionEnabled: boolean
   meaningfulMessageCount: number

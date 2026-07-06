@@ -1,3 +1,4 @@
+/** AI 文件编辑追踪（FileEditTrace）右侧面板 UI 状态的 Pinia store。 */
 import { computed, reactive } from 'vue'
 import { defineStore } from 'pinia'
 import type { FileEditTrace } from '@/types/fileTrace'

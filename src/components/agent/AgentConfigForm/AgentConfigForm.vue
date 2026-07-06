@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** AgentConfigForm 组件：智能体配置表单视图层，负责名称/供应商等字段的渲染与提交（逻辑见 useAgentConfigForm.ts） */
 import { useAgentConfigForm, type AgentConfigFormProps, type AgentConfigFormEmits } from './useAgentConfigForm'
 
 const props = defineProps<AgentConfigFormProps>()

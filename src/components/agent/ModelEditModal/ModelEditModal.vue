@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** ModelEditModal 组件：模型新增/编辑弹窗，负责模型 ID、上下文窗口、计费等字段录入（逻辑见 useModelEditModal.ts） */
 import { useModelEditModal } from './useModelEditModal'
 
 const props = defineProps<{

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PanelResizer 组件：面板拖拽分隔条，按方向与宽度约束调整相邻面板（逻辑见 usePanelResizer.ts） */
 import { usePanelResizer, type PanelResizerEmits, type PanelResizerProps } from './usePanelResizer'
 
 const props = withDefaults(defineProps<PanelResizerProps>(), {

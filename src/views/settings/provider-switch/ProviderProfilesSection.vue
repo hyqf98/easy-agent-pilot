@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** ProviderProfilesSection 组件：供应商配置档案分区，展示当前档案并支持切换/编辑（逻辑见 useProviderProfilesSection.ts） */
 import {
   useProviderProfilesSection,
   type ProviderProfilesSectionProps,

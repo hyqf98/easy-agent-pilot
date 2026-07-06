@@ -1,3 +1,4 @@
+/** usePlanList — 计划列表组件的 composable，负责加载、创建、编辑、删除计划与草稿保存编排。 */
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useConfirmDialog } from '@/composables'

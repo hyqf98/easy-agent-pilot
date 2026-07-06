@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PluginDetailToolbar 组件：插件详情工具栏，含返回、面包屑、编辑/保存/删除等动作 */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { UnifiedPluginConfig } from '@/stores/skillConfig'

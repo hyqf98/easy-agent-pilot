@@ -1,3 +1,4 @@
+/** 计划视图 barrel 导出：聚合 PlanModePanel/PlanList/TaskBoard/DynamicForm 等计划相关组件。 */
 export { default as PlanModeSwitch } from './PlanModeSwitch/PlanModeSwitch.vue'
 export { default as PlanModePanel } from './PlanModePanel/PlanModePanel.vue'
 export { default as PlanList } from './planList/PlanList.vue'

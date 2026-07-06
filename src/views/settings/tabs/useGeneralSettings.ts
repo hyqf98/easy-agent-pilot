@@ -1,3 +1,4 @@
+/** useGeneralSettings — 通用设置组件的 composable，提供语言、迷你面板快捷键等通用项的读写。 */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '@/stores/settings'

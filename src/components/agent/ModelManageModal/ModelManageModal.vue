@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** ModelManageModal 组件：模型管理弹窗，负责模型列表展示、搜索、同步与增删改（逻辑见 useModelManageModal.ts） */
 import { useModelManageModal } from './useModelManageModal'
 
 const props = defineProps<{

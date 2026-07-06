@@ -1,3 +1,4 @@
+/** useFileTreeNode — FileTreeNode 单个树节点组件的 composable，负责目录展开/折叠、子节点加载与文件图标解析。 */
 import { computed, ref } from 'vue'
 import type { FileTreeNode } from '@/stores/project'
 import { useProjectStore } from '@/stores/project'

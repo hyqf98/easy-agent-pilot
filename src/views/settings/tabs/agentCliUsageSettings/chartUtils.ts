@@ -1,3 +1,4 @@
+/** Agent CLI 用量设置中的 ECharts 图表构建工具：将用量数据组装为趋势/堆叠图的 option 与格式化函数。 */
 import type { Composer } from 'vue-i18n'
 import type * as echarts from 'echarts'
 import type { AgentCliUsageStackedPoint } from '@/types/agentCliUsage'

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** ExecutionTimeline 组件：执行时间线，按区块渲染思考/工具调用/表单/通知等执行过程（逻辑见 useExecutionTimeline.ts） */
 import DynamicForm from '@/views/plan/dynamicForm/DynamicForm.vue'
 import StructuredContentRenderer from '../StructuredContentRenderer/StructuredContentRenderer.vue'
 import ThinkingDisplay from '../ThinkingDisplay/ThinkingDisplay.vue'

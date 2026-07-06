@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** ProviderSwitchTabs 组件：供应商 CLI 类型切换标签栏（claude/codex/opencode） */
 import type { CliType } from '@/stores/providerProfile'
 import { EaIcon } from '@/components/common'
 import { useI18n } from 'vue-i18n'

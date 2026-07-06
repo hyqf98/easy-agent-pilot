@@ -1,3 +1,4 @@
+/** useTaskBoard — 任务看板组件的 composable，负责按状态分列、拖拽排序、依赖校验与执行编排。 */
 import { ref, computed, watch, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { usePlanStore } from '@/stores/plan'

@@ -1,3 +1,4 @@
+/** useStructuredContentRenderer — StructuredContentRenderer 结构化内容渲染组件的 composable，解析结构化内容并提供表单交互注入。 */
 import { computed, inject } from 'vue'
 import { ACTIVE_FORM_ID } from '@/constants/activeForm'
 import { parseStructuredContent } from '@/utils/structuredContent'

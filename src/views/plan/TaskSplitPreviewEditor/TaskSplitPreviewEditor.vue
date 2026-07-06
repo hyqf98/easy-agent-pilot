@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** TaskSplitPreviewEditor 组件：拆分预览任务编辑表单，含标题/描述/优先级/步骤/依赖等（逻辑见 useTaskSplitPreviewEditor.ts） */
 import { useTaskSplitPreviewEditor, type TaskSplitPreviewEditorEmits, type TaskSplitPreviewEditorProps } from './useTaskSplitPreviewEditor'
 
 const props = defineProps<TaskSplitPreviewEditorProps>()

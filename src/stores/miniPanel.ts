@@ -1,3 +1,4 @@
+/** 迷你面板（Mini Panel）状态与工作目录解析的 Pinia store。 */
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { invoke } from '@tauri-apps/api/core'

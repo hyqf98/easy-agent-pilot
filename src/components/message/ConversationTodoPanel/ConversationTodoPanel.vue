@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** ConversationTodoPanel 组件：会话级待办面板，展示待办快照与完成度并支持折叠（逻辑见 useConversationTodoPanel.ts） */
 import { EaIcon } from '@/components/common'
 import { useConversationTodoPanel, type ConversationTodoPanelProps } from './useConversationTodoPanel'
 

@@ -1,3 +1,4 @@
+/** useBottomTerminalPanel — BottomTerminalPanel 底部终端面板组件的 composable，负责终端 tab 选择、面板高度拖拽与展开折叠。 */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import EaIcon from '@/components/common/EaIcon/EaIcon.vue'

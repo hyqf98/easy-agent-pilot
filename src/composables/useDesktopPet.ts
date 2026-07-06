@@ -1,3 +1,4 @@
+/** 桌面宠物全局开关与设置同步的 composable（仅主窗口实例化）。 */
 import { onMounted, onUnmounted, watch } from 'vue'
 import { listen } from '@tauri-apps/api/event'
 import { useSettingsStore } from '@/stores/settings'

@@ -1,3 +1,4 @@
+/** useThemeSettings — 主题设置组件的 composable，提供主题模式与预设主色切换。 */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore, presetThemeColors } from '@/stores/theme'

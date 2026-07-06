@@ -1,3 +1,4 @@
+/** 解析当前配置模型的上下文窗口大小（默认、已知、覆盖）。 */
 import type { AgentModelConfig } from '@/stores/agentConfig'
 import { resolveKnownContextWindow } from '@/utils/modelContextWindow'
 

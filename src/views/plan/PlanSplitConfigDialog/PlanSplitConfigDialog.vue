@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PlanSplitConfigDialog 组件：计划拆分配置选择对话框（逻辑见 usePlanSplitConfigDialog.ts） */
 import {
   usePlanSplitConfigDialog,
   type PlanSplitConfigDialogEmits,

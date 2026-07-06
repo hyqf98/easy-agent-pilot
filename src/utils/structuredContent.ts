@@ -1,3 +1,4 @@
+/** 结构化内容（表单请求、执行结果、任务拆分 JSON）抽取与构建。 */
 import type {
   AIFormRequest,
   AITaskItem,

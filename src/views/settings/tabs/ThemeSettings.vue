@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** ThemeSettings 组件：主题设置页，含主题模式、主题色与预设选择（逻辑见 useThemeSettings.ts） */
 import { useThemeSettings } from './useThemeSettings'
 
 const {

@@ -1,3 +1,4 @@
+/** 子代理定义同步到 CLI 配置文件（写盘）的 IPC 服务。 */
 import { invoke } from '@tauri-apps/api/core'
 import type { AgentConfig } from '@/stores/agent'
 import type { SubAgent } from '@/stores/subAgent'

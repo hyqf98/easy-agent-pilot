@@ -1,3 +1,4 @@
+/** 任务执行状态描述符（文案、颜色）映射。 */
 import type { BlockReason, TaskStatus } from '@/types/plan'
 import type { ExecutionStatus } from '@/types/taskExecution'
 

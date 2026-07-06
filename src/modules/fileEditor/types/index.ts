@@ -1,3 +1,4 @@
+/** fileEditor 模块的公共类型定义：MonacoLanguageId 联合类型、补全项、文件内容负载等。 */
 export type MonacoLanguageId =
   | 'plaintext'
   | 'javascript'

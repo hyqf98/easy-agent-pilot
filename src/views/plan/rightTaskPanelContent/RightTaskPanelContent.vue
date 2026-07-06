@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** RightTaskPanelContent 组件：右侧任务面板内容，展示拆分预览或任务列表（逻辑见 useRightTaskPanelContent.ts） */
 import { useI18n } from 'vue-i18n'
 import { useRightTaskPanelContent, type RightTaskPanelContentProps } from './useRightTaskPanelContent'
 

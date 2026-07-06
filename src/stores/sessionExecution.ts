@@ -1,3 +1,4 @@
+/** 会话执行期输入态（草稿、附件、文件提及）的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { MessageAttachment } from './message'

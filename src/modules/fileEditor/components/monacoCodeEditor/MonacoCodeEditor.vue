@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** MonacoCodeEditor 组件：基于 Monaco 的代码编辑器，支持补全、高亮与右键发送选区（逻辑见 useMonacoCodeEditor.ts） */
 import {
   useMonacoCodeEditor,
   type MonacoCodeEditorEmits,

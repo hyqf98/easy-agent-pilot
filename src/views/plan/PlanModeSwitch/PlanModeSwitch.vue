@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PlanModeSwitch 组件：计划模式内部子模式切换器（逻辑见 usePlanModeSwitch.ts） */
 import { usePlanModeSwitch, type PlanModeSwitchEmits, type PlanModeSwitchProps } from './usePlanModeSwitch'
 
 const props = defineProps<PlanModeSwitchProps>()

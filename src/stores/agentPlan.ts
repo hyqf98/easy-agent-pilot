@@ -1,3 +1,4 @@
+/** ACP Agent Plan 快照的读写与持久化的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'

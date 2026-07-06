@@ -1,3 +1,4 @@
+/** usePaneWrapper — PaneWrapper 分屏窗格包装组件的 composable，负责挂载消息列表/输入框、自动滚动与执行状态展示。 */
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EaIcon } from '@/components/common'

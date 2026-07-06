@@ -1,3 +1,4 @@
+/** useRepoSourcesTab — 记忆库仓库「数据源」Tab 的 composable，配置 query_conversation_history 工具的可见范围上界。 */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useMemoryRepoStore } from '@/stores/memoryRepo'

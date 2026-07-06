@@ -1,3 +1,4 @@
+/** 智能体（Agent）配置与在线状态的 Pinia store，管理 agent 列表、类型、provider 及增删改查。 */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'

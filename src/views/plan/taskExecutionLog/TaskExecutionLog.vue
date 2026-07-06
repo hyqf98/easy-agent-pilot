@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** TaskExecutionLog 组件：任务执行日志面板，展示状态、Token、待办与执行时间线（逻辑见 useTaskExecutionLog.ts） */
 import { useI18n } from 'vue-i18n'
 import ExecutionTimeline from '@/components/message/ExecutionTimeline/ExecutionTimeline.vue'
 import DynamicForm from '@/views/plan/dynamicForm/DynamicForm.vue'

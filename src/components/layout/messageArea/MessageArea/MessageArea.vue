@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** MessageArea 组件：会话消息主区域，编排消息列表、追踪面板与输入组合器（逻辑见 useMessageArea.ts） */
 import { computed, provide, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EaIcon } from '@/components/common'

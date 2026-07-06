@@ -1,3 +1,4 @@
+/** 语言策略注册表：维护内置 + 自定义策略，按文件扩展名解析并查询当前适用的 LanguageStrategy。 */
 import { builtinLanguageStrategies } from './builtinStrategies'
 import type { LanguageStrategy, LanguageStrategyContext } from './languageStrategy'
 

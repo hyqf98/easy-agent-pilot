@@ -1,3 +1,4 @@
+/** 计划拆分编排器：与 agent 多轮交互产出任务拆分 JSON。 */
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import type { AgentConfig } from '@/stores/agent'

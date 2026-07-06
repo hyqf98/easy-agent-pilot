@@ -1,3 +1,4 @@
+/** useTaskSplitPreviewEditor — 拆分预览任务内联编辑器组件的 composable，负责字段编辑、记忆库选择与外部点击收起。 */
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import MemoryLibraryPicker from '@/views/memory/MemoryLibraryPicker.vue'

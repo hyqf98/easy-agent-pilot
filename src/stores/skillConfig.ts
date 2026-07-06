@@ -1,3 +1,4 @@
+/** 智能体技能、MCP、插件配置同步预览与构建的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'

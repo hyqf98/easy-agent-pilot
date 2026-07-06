@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** FileTreeContextMenu 组件：文件树右键菜单，提供发送会话、新建、重命名、删除等动作（逻辑见 useFileTreeContextMenu.ts） */
 import { EaIcon } from '@/components/common'
 import {
   useFileTreeContextMenu,

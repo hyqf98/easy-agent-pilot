@@ -1,3 +1,4 @@
+/** useEaLoadingOverlay — EaLoadingOverlay 全局加载遮罩组件的 composable，订阅全局加载态并派生标题、进度与可取消状态。 */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useGlobalLoading } from '@/composables'

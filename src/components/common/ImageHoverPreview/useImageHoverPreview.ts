@@ -1,3 +1,4 @@
+/** useImageHoverPreview — ImageHoverPreview 组件的 composable，管理图片悬浮预览的可见性、定位与悬停计时。 */
 import { computed, nextTick, onBeforeUnmount, ref, watch, type StyleValue } from 'vue'
 
 export interface ImageHoverPreviewProps {

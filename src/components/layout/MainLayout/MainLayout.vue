@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** MainLayout 组件：主工作区布局骨架，编排侧边栏、会话、消息、文件、任务等面板（逻辑见 useMainLayout.ts） */
 import { useMainLayout } from './useMainLayout'
 
 const {

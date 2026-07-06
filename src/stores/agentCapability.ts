@@ -1,3 +1,4 @@
+/** 解析 ACP 下发的可用命令（available_commands）并维护会话能力的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { AvailableCommandInfo } from '@/services/conversation/strategies/types'

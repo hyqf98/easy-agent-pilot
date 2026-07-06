@@ -1,3 +1,4 @@
+/** ACP 会话历史展示辅助（相对时间、事件回退文案）。 */
 import type { AcpSessionInfo, AcpReplayedEvent } from '@/types/cliSessionManager'
 
 interface RelativeTimeLabels {

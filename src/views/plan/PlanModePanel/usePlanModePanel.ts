@@ -1,3 +1,4 @@
+/** usePlanModePanel — 计划模式主面板组件的 composable，编排计划列表、任务看板、拆分会话、执行日志与详情联动。 */
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { usePlanStore } from '@/stores/plan'
 import { useTaskStore } from '@/stores/task'

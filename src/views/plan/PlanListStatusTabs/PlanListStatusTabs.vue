@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PlanListStatusTabs 组件：计划列表状态分类标签栏，含各状态计数 */
 import type { PlanTabKey } from '../planListShared'
 
 defineProps<{

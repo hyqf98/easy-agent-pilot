@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PluginEditModal 组件：插件新增/编辑弹窗（逻辑见 usePluginEditModal.ts） */
 import { usePluginEditModal, type PluginEditModalProps, type PluginEditModalEmits } from './usePluginEditModal'
 
 const props = defineProps<PluginEditModalProps>()

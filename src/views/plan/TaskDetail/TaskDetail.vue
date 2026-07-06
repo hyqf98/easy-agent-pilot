@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** TaskDetail 组件：任务详情面板，展示任务内容、依赖与执行配置并支持编辑/停止/重试（逻辑见 useTaskDetail.ts） */
 import { useTaskDetail } from './useTaskDetail'
 
 const {

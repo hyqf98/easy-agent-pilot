@@ -1,3 +1,4 @@
+/** usePetView — 桌面宠物悬浮窗视图的 composable，管理宠物精灵图、动作切换、聊天模拟与窗口生命周期。 */
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { invoke } from '@tauri-apps/api/core'

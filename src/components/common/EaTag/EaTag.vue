@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** EaTag 组件：通用标签，按 variant/size/rounded 渲染样式（逻辑见 useEaTag.ts） */
 import { useEaTag, type EaTagProps } from './useEaTag'
 
 const props = withDefaults(defineProps<EaTagProps>(), {

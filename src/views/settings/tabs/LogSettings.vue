@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** LogSettings 组件：日志设置页，展示日志摘要、文件列表与内容并支持监听/刷新/清理（逻辑见 useLogSettings.ts） */
 import { useLogSettings } from './useLogSettings'
 
 const {

@@ -1,3 +1,4 @@
+/** useTaskSplitDialog — 任务拆分对话框组件的 composable，配置参数并调用子代理生成拆分任务预览。 */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { invoke } from '@tauri-apps/api/core'

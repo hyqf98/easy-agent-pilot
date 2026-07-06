@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** ProjectPanel 组件：项目面板，展示项目列表与文件树并支持增删改（逻辑见 useProjectPanel.ts） */
 import { EaButton, EaIcon, EaSkeleton } from '@/components/common'
 import { FileTree } from '@/components/fileTree'
 import { ProjectCreateModal } from '@/components/project'

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** McpTestView 组件：MCP 工具调试页，展示工具列表并支持参数调用与结果查看（逻辑见 useMcpTestView.ts） */
 import { useMcpTestView } from './useMcpTestView'
 
 const {

@@ -1,3 +1,4 @@
+/** SOLO 模式协调者、步骤提示词与上下文裁剪构建。 */
 import type {
   SoloCoordinatorBlockResult,
   SoloCoordinatorDecision,

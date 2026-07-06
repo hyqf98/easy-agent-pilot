@@ -1,3 +1,4 @@
+/** Slash 命令描述符注册表（内置、插件、agent 命令）与响应式状态。 */
 import { reactive } from 'vue'
 import { useAgentCapabilityStore } from '@/stores/agentCapability'
 

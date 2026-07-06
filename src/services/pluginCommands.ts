@@ -1,3 +1,4 @@
+/** 插件 Slash 命令的加载（带缓存）与 IPC 查询。 */
 import { invoke } from '@tauri-apps/api/core'
 import type { SlashCommandDescriptor, SlashCommandPanelType } from '@/services/slashCommands'
 

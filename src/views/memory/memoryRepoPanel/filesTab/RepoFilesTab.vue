@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** RepoFilesTab 组件：记忆库仓库「文件」标签页，左侧文件树 + 右侧编辑工作区（逻辑见 useRepoFilesTab.ts） */
 import { useRepoFilesTab } from './useRepoFilesTab'
 import { FileTree } from '@/components/fileTree'
 import { FileEditorWorkspace } from '@/modules/fileEditor'

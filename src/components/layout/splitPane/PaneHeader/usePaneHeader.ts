@@ -1,3 +1,4 @@
+/** usePaneHeader — PaneHeader 分屏窗格标题栏组件的 composable，负责标题展示、聚焦高亮、关闭与拖拽事件透传。 */
 import { useI18n } from 'vue-i18n'
 import { EaIcon } from '@/components/common'
 

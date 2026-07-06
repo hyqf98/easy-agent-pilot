@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** TaskEditModal 组件：任务新建/编辑弹窗，含标题/描述/优先级/步骤/依赖等表单（逻辑见 useTaskEditModal.ts） */
 import EaModal from '@/components/common/EaModal/EaModal.vue'
 import MemoryLibraryPicker from '@/views/memory/MemoryLibraryPicker.vue'
 import {

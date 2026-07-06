@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** RepoOverviewTab 组件：记忆库仓库「概览」标签页，展示仓库元信息并支持导出（逻辑见 useRepoOverviewTab.ts） */
 import { useRepoOverviewTab } from './useRepoOverviewTab'
 import { EaButton, EaIcon } from '@/components/common'
 

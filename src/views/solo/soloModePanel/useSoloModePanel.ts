@@ -1,3 +1,4 @@
+/** useSoloModePanel — SoloModePanel 单飞模式面板组件的 composable，编排单飞运行列表、创建/编辑与执行日志。 */
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { open } from '@tauri-apps/plugin-dialog'
 import { useConfirmDialog } from '@/composables'

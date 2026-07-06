@@ -1,3 +1,4 @@
+/** useKanbanColumn — KanbanColumn 看板列组件的 composable，负责按状态聚合任务、拖拽排序与计数展示。 */
 import { ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import draggable from 'vuedraggable'

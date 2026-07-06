@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PluginsConfigTab 组件：插件配置标签页，展示插件列表与添加/同步等（逻辑见 usePluginsConfigTab.ts） */
 import { usePluginsConfigTab, type PluginsConfigTabProps, type PluginsConfigTabEmits } from './usePluginsConfigTab'
 
 const props = defineProps<PluginsConfigTabProps>()

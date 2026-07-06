@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PetPreview 组件：桌面宠物预览舞台，加载并渲染宠物动画（逻辑见 usePetPreview.ts） */
 import { usePetPreview, type PetPreviewProps } from './usePetPreview'
 
 const props = withDefaults(defineProps<PetPreviewProps>(), {

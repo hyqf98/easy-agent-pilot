@@ -1,3 +1,4 @@
+/** 已知模型的上下文窗口大小匹配表与解析。 */
 const KNOWN_CONTEXT_WINDOWS: Array<{ pattern: RegExp; contextWindow: number }> = [
   { pattern: /^gpt-5\.5$/i, contextWindow: 1_000_000 },
   { pattern: /^gpt-5\.4$/i, contextWindow: 1_050_000 },

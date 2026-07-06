@@ -1,3 +1,4 @@
+/** useTaskExecutionLog — 任务执行日志组件的 composable，聚合执行时间线、工具调用与表单结构化内容展示。 */
 import { computed, ref, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useTaskExecutionStore } from '@/stores/taskExecution'
 import { useTaskStore } from '@/stores/task'

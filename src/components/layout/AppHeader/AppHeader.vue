@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** AppHeader 组件：顶部模式切换导航条，按模式项切换工作区模式（逻辑见 useAppHeader.ts） */
 import { useAppHeader } from './useAppHeader'
 
 const { t, uiStore, modeItems, setMode, EaIcon } = useAppHeader()

@@ -1,3 +1,4 @@
+/** useRightTaskPanelContent — 右侧任务面板内容组件的 composable，按 planId 订阅任务并提供拆分预览入口。 */
 import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { usePlanStore } from '@/stores/plan'

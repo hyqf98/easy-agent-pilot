@@ -1,3 +1,4 @@
+/** 多窗口上下文（label、类型、projectId）的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'

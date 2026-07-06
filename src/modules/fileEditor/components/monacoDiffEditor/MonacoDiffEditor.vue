@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** MonacoDiffEditor 组件：基于 Monaco 的 diff 对比编辑器（逻辑见 useMonacoDiffEditor.ts） */
 import {
   useMonacoDiffEditor,
   type MonacoDiffEditorProps

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** EaLoading 组件：加载指示器（spinner + 文案），按尺寸渲染（逻辑见 useEaLoading.ts） */
 import { useEaLoading, type EaLoadingProps } from './useEaLoading'
 
 const props = withDefaults(defineProps<EaLoadingProps>(), {

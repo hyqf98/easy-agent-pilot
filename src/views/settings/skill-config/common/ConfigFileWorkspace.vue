@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** ConfigFileWorkspace 组件：配置文件查看/编辑工作区，支持 Markdown 渲染与 Monaco 编辑（逻辑见 useConfigFileWorkspace.ts） */
 import {
   useConfigFileWorkspace,
   CONFIG_FILE_WORKSPACE_DEFAULTS,

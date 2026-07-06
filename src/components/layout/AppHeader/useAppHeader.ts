@@ -1,3 +1,4 @@
+/** useAppHeader — AppHeader 顶部导航栏组件的 composable，提供应用模式（聊天/计划/单飞/记忆/设置）切换与模式项配置。 */
 import { useI18n } from 'vue-i18n'
 import { useUIStore, type AppMode } from '@/stores/ui'
 import { EaIcon } from '@/components/common'

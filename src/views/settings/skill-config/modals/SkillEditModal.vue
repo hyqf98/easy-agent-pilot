@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** SkillEditModal 组件：技能新增/编辑弹窗（逻辑见 useSkillEditModal.ts） */
 import { useSkillEditModal, type SkillEditModalProps, type SkillEditModalEmits } from './useSkillEditModal'
 
 const props = defineProps<SkillEditModalProps>()

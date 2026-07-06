@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** DynamicForm 组件：基于 schema 的动态表单，按字段渲染并校验提交（逻辑见 useDynamicForm.ts） */
 import type { DynamicFormSchema } from '@/types/plan'
 import { useDynamicForm, type DynamicFormEmits } from './useDynamicForm'
 

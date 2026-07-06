@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** FileChangeSummaryBar 组件：文件变更摘要条，展示变更数量、类型与待审入口（逻辑见 useFileChangeSummaryBar.ts） */
 import { EaIcon } from '@/components/common'
 import { useFileChangeSummaryBar, type FileChangeSummaryBarProps } from './useFileChangeSummaryBar'
 

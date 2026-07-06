@@ -1,3 +1,4 @@
+/** 内置终端 Tab 与会话管理的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'

@@ -1,3 +1,4 @@
+/** 工具调用日志解析、表单 Schema 归一与映射。 */
 import type { ToolCall } from '@/stores/message'
 import type { AIFormRequest, DynamicFormSchema } from '@/types/plan'
 import { normalizeFormSchemaForRendering, normalizeFormSchemasForRendering } from './formSchema'

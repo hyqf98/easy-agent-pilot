@@ -1,3 +1,4 @@
+/** useMessageList — MessageList 消息列表组件的 composable，负责虚拟滚动定位、自动滚动到底与新消息提示。 */
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, type ComponentPublicInstance } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {

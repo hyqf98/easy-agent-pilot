@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** SoloRunList 组件：SOLO 运行列表，按状态分组展示并提供新建入口（逻辑见 useSoloRunList.ts） */
 import { useSoloRunList } from './useSoloRunList'
 import type { SoloRunListProps, SoloRunListEmits } from './useSoloRunList'
 

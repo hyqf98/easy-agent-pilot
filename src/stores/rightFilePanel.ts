@@ -1,3 +1,4 @@
+/** 右侧文件审查面板全局开关与绑定的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { useUIStore } from './ui'

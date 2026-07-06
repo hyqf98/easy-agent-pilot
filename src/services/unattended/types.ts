@@ -1,3 +1,4 @@
+/** 无人值守（渠道、线程、账户、事件）相关类型定义。 */
 export interface UnattendedChannel {
   id: string
   channelType: string

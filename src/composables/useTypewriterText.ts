@@ -1,3 +1,4 @@
+/** 文本打字机效果（按速率分块输出）的 composable。 */
 import { computed, onBeforeUnmount, ref, watch, type MaybeRefOrGetter, toValue } from 'vue'
 
 interface TypewriterOptions {

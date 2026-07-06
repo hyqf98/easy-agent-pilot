@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** UnifiedPanel 组件：统一侧边栏面板，聚合项目/会话的展示与增删改管理（逻辑见 useUnifiedPanel.ts） */
 import {
   useUnifiedPanel,
   type UnifiedPanelEmits,

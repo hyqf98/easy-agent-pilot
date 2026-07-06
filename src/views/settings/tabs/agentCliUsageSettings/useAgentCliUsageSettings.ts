@@ -1,3 +1,4 @@
+/** useAgentCliUsageSettings — Agent CLI 用量统计设置组件的 composable，装配用量查询、图表渲染与指标切换。 */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import { useI18n } from 'vue-i18n'

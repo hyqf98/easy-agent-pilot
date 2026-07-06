@@ -1,3 +1,4 @@
+/** ACP CLI 会话列表、历史详情与能力探测的 IPC 封装。 */
 import { invoke } from '@tauri-apps/api/core'
 import type {
   AcpSessionListResult,

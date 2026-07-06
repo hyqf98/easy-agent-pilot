@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** FileChangeReviewWorkspace 组件：文件变更审阅工作区，按 trace 列表提供 diff、接受与回滚（逻辑见 useFileChangeReviewWorkspace.ts） */
 import {
   useFileChangeReviewWorkspace,
   type FileChangeReviewWorkspaceProps

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** ProviderProfileForm 组件：供应商档案新增/编辑表单弹窗，含密钥、模型与 opencode 提供商选择（逻辑见 useProviderProfileForm.ts） */
 import { useProviderProfileForm, type ProviderProfileFormProps, type ProviderProfileFormEmits } from './useProviderProfileForm'
 
 const props = defineProps<ProviderProfileFormProps>()

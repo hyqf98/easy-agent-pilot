@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** WorkspaceShell 组件：工作区外壳，含可折叠侧边栏、AppHeader 与主舞台插槽（逻辑见 useWorkspaceShell.ts） */
 import { useWorkspaceShell, type WorkspaceShellProps } from './useWorkspaceShell'
 
 const props = withDefaults(defineProps<WorkspaceShellProps>(), {

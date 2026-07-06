@@ -1,3 +1,4 @@
+/** 挂载到会话的记忆库与仓库提示词加载（带缓存）。 */
 import { useMemoryStore } from '@/stores/memory'
 import { useMemoryRepoStore } from '@/stores/memoryRepo'
 import type { MemoryLibrary } from '@/types/memory'

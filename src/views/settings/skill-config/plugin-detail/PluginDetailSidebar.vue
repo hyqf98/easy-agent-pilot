@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PluginDetailSidebar 组件：插件详情侧边栏，按当前分区列出条目并支持选择 */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EaIcon } from '@/components/common'

@@ -1,3 +1,4 @@
+/** 会话（Session）列表与当前会话状态的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'

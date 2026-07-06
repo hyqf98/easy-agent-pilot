@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** McpConfigTestView 组件：MCP 配置测试视图，列出工具并支持参数调用与结果查看（逻辑见 useMcpConfigTestView.ts） */
 import { useMcpConfigTestView, type McpConfigTestViewProps, type McpConfigTestViewEmits } from './useMcpConfigTestView'
 
 const props = defineProps<McpConfigTestViewProps>()

@@ -1,3 +1,4 @@
+/** 消息输入框组合逻辑（发送、附件、提及、草稿）的 composable。 */
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { invoke } from '@tauri-apps/api/core'

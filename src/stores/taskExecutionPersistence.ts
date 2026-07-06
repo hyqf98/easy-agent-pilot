@@ -1,3 +1,4 @@
+/** 任务执行日志与结果记录的后端持久化（IPC 读写）。 */
 import { invoke } from '@tauri-apps/api/core'
 import type {
   CreateExecutionLogInput,

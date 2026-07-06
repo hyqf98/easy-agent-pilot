@@ -1,3 +1,4 @@
+/** usePlanCreateDialog — 计划创建弹窗组件的 composable，装配表单字段、代理/模型选项与记忆库挂载选择。 */
 import EaModal from '@/components/common/EaModal/EaModal.vue'
 import EaButton from '@/components/common/EaButton/EaButton.vue'
 import { EaIcon, EaSelect } from '@/components/common'

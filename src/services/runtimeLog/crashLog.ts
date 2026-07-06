@@ -1,3 +1,4 @@
+/** 崩溃日志读取（条目与状态）的 IPC 封装。 */
 import { invoke } from '@tauri-apps/api/core'
 import { getErrorMessage } from '@/utils/api'
 

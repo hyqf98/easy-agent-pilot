@@ -1,3 +1,4 @@
+/** 为 Monaco 注册 Vue 单文件组件语言（基于 HTML 派生），处理自闭合标签等 SFC 语法。 */
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api'
 import { conf as htmlConf, language as htmlLanguage } from 'monaco-editor/esm/vs/basic-languages/html/html'
 

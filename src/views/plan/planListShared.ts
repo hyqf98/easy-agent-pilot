@@ -1,3 +1,4 @@
+/** 计划列表相关弹窗跨组件共享的类型定义：任务统计、代理/模型选项与各弹窗表单状态。 */
 import type { Plan } from '@/types/plan'
 
 export interface PlanTaskStats {

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** SessionTabs 组件：顶部会话标签栏，支持切换/关闭/拖拽排序与右键菜单分屏（逻辑见 useSessionTabs.ts） */
 import { useSessionTabs } from './useSessionTabs'
 
 const {

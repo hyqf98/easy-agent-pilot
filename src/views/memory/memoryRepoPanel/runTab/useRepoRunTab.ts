@@ -1,3 +1,4 @@
+/** useRepoRunTab — 记忆库仓库「归纳」Tab 的 composable，输入指令以仓库为工作区跑 ACP agent 并流式展示输出。 */
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useMemoryRepoStore } from '@/stores/memoryRepo'

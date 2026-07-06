@@ -1,3 +1,4 @@
+/** 智能体详细配置（MCP、CLI 路径、密钥等）的 Pinia store 及相关类型定义。 */
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'

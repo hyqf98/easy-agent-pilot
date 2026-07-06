@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** ActiveFormPopup 组件：AI 主动询问的表单弹层，按字段步骤收集用户输入（逻辑见 useActiveFormPopup.ts） */
 import type { ActiveFormPopupProps, ActiveFormPopupEmits } from './useActiveFormPopup'
 import { useActiveFormPopup } from './useActiveFormPopup'
 

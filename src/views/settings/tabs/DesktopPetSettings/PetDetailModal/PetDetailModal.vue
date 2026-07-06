@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PetDetailModal 组件：桌面宠物详情弹窗，展示预览、动画与下载/使用（逻辑见 usePetDetailModal.ts） */
 import { useDetailModal, type PetDetailModalEmits, type PetDetailModalProps } from './usePetDetailModal'
 
 const props = withDefaults(defineProps<PetDetailModalProps>(), {

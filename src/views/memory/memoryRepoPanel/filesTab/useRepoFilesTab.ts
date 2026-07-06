@@ -1,3 +1,4 @@
+/** useRepoFilesTab — 记忆库仓库「文件」Tab 的 composable，复用主会话 FileTree/FileEditorWorkspace 以仓库目录为根进行文件管理。 */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useMemoryRepoStore } from '@/stores/memoryRepo'
 import { useFileEditorStore, openProjectFileInWorkspace } from '@/modules/fileEditor'

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** SessionPanelItem 组件：会话列表单个条目，展示名称、状态并支持重命名（逻辑见 useSessionPanelItem.ts） */
 import { useSessionPanelItem, type SessionPanelItemEmits, type SessionPanelItemProps } from './useSessionPanelItem'
 
 const props = defineProps<SessionPanelItemProps>()

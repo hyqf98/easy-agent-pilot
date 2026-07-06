@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** UnifiedPanelProjectEntry 组件：侧边栏单个项目条目，展示并展开其会话列表与批量操作（逻辑见 useUnifiedPanelProjectEntry.ts） */
 import {
   useUnifiedPanelProjectEntry,
   type UnifiedPanelProjectEntryEmits,

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** DateField 组件：动态表单日期字段（逻辑见 useDateField.ts） */
 import { useDateField, type DateFieldEmits, type DateFieldProps } from './useDateField'
 
 const props = defineProps<DateFieldProps>()

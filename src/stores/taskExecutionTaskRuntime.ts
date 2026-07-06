@@ -1,3 +1,4 @@
+/** 单任务执行运行时派生（停止标记、状态映射）的纯函数。 */
 import type { AIFormRequest, Task, TaskInputRequest } from '@/types/plan'
 import type { RustExecutionLog, TaskExecutionState } from '@/types/taskExecution'
 import type { ToolCall } from '@/stores/message'

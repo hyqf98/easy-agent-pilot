@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PlanSplitConversation 组件：计划拆分会话区，承载拆分对话与任务预览/确认（逻辑见 usePlanSplitConversation.ts） */
 import { useI18n } from 'vue-i18n'
 import EaButton from '@/components/common/EaButton/EaButton.vue'
 import MessageList from '@/components/message/messageList/MessageList.vue'

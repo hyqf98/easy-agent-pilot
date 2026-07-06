@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PluginDetailView 组件：插件详情视图，含工具栏、分区标签、侧边栏与文件工作区（逻辑见 usePluginDetail.ts） */
 import { computed, onUnmounted, watch, toRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { UnifiedPluginConfig } from '@/stores/skillConfig'

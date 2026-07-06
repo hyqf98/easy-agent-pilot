@@ -1,3 +1,4 @@
+/** useUnifiedPanelSessionList — UnifiedPanelSessionList 会话列表组件的 composable，负责会话选择、勾选、置顶、内联重命名等交互。 */
 import { useI18n } from 'vue-i18n'
 import type { Session } from '@/stores/session'
 import { useSessionExecutionStore } from '@/stores/sessionExecution'

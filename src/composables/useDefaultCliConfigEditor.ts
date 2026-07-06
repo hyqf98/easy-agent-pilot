@@ -1,3 +1,4 @@
+/** 默认 CLI 配置文件定位、读取与编辑的 composable。 */
 import { computed, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useI18n } from 'vue-i18n'

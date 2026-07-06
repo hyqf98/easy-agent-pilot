@@ -1,3 +1,4 @@
+/** useSubAgentConfig — 设置页子代理管理标签页的 composable，按 CLI 类型加载/编辑/删除子代理委派配置。 */
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSubAgentStore, type SubAgent } from '@/stores/subAgent'

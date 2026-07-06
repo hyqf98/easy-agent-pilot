@@ -1,3 +1,4 @@
+/** useProjectPanel — ProjectPanel 项目面板组件的 composable，负责文件树挂载、刷新监听与文件打开到编辑器工作区。 */
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useProjectStore, type Project } from '@/stores/project'

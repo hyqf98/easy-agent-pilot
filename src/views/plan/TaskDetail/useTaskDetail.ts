@@ -1,3 +1,4 @@
+/** useTaskDetail — 任务详情面板组件的 composable，聚合任务字段、依赖关系、代理选择与编辑弹窗。 */
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAgentStore } from '@/stores/agent'

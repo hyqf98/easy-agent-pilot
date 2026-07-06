@@ -1,3 +1,4 @@
+/** usePaneTabBar — PaneTabBar 分屏标签栏组件的 composable，负责标签列表、会话状态图标、关闭与拖拽分屏。 */
 import { computed, ref, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSessionStore, type SessionStatus } from '@/stores/session'

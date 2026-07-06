@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PermissionPromptPopup 组件：工具调用权限请求弹层，展示工具与选项供用户授权（逻辑见 usePermissionPromptPopup.ts） */
 import type { PermissionPromptPopupProps, PermissionPromptPopupEmits } from './usePermissionPromptPopup'
 import { usePermissionPromptPopup } from './usePermissionPromptPopup'
 

@@ -1,3 +1,4 @@
+/** 设置页 tab 描述符与分组配置：注册各设置 tab 组件、图标、标题 key 与分组归类。 */
 import { markRaw, type Component } from 'vue'
 import type { SettingsTab } from '@/stores/ui'
 import GeneralSettings from './tabs/GeneralSettings.vue'

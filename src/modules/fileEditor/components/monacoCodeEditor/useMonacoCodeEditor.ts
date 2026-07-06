@@ -1,3 +1,4 @@
+/** useMonacoCodeEditor — MonacoCodeEditor 组件的 composable，负责编辑器实例生命周期、主题、高亮、搜索与选区菜单装配。 */
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api'
 import { useThemeStore } from '@/stores/theme'

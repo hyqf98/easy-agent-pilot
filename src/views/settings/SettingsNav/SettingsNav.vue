@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** SettingsNav 组件：设置侧边导航，分组展示设置标签并支持隐藏（逻辑见 useSettingsNav.ts） */
 import { useSettingsNav, type SettingsNavEmits } from './useSettingsNav'
 
 const emit = defineEmits<SettingsNavEmits>()

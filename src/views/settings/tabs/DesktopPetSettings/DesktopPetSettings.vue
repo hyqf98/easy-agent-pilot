@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** DesktopPetSettings 组件：桌面宠物设置页，管理开关/置顶与本地/远程宠物浏览下载（逻辑见 useDesktopPetSettings.ts） */
 import { useDesktopPetSettings } from './useDesktopPetSettings'
 
 const {

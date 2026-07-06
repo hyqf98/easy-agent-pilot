@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** SettingsContent 组件：设置内容区，按当前标签渲染对应设置组件与标题（逻辑见 useSettingsContent.ts） */
 import { useSettingsContent } from './useSettingsContent'
 
 const { t, EaIcon, activeTabDescriptor } = useSettingsContent()

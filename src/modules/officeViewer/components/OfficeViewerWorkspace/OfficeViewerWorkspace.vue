@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** OfficeViewerWorkspace 组件：Office 文档查看工作区，含工具栏与对应查看器及保存（逻辑见 useOfficeViewerWorkspace.ts） */
 import {
   useOfficeViewerWorkspace,
   type OfficeViewerWorkspaceProps

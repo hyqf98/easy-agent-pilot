@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PlanList 组件：计划列表面板，聚合状态标签、条目与创建/编辑/拆分对话框（逻辑见 usePlanList.ts） */
 import type { Plan } from '@/types/plan'
 import { EaSidebarSectionHeader } from '@/components/common'
 import PlanCreateDialog from '../PlanCreateDialog/PlanCreateDialog.vue'

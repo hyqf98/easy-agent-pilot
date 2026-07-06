@@ -1,3 +1,4 @@
+/** 智能体模型显示标签（provider、modelId、displayName）格式化。 */
 import type { AgentProvider } from '@/stores/agent'
 
 interface AgentModelLabelInput {

@@ -1,3 +1,4 @@
+/** useCompressionMessageBubble — CompressionMessageBubble 压缩消息气泡组件的 composable，负责气泡宽度锁定与展开/折叠。 */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { type Message } from '@/stores/message'

@@ -1,3 +1,4 @@
+/** 主会话语言策略等会话级系统提示词构建。 */
 import i18n from '@/i18n'
 import type { McpServerConfig } from './strategies/types'
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PlanModeBanner 组件：计划模式横幅，提示当前处于计划模式并提供执行/取消入口 */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EaButton, EaIcon } from '@/components/common'

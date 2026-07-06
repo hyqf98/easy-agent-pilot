@@ -1,3 +1,4 @@
+/** 解析 CLI 配置中的当前模型并提供模型标识提示。 */
 import { invoke } from '@tauri-apps/api/core'
 import type { AgentConfig } from '@/stores/agent'
 

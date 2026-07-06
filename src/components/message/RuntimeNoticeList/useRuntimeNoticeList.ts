@@ -1,3 +1,4 @@
+/** useRuntimeNoticeList — RuntimeNoticeList 运行时通知列表组件的 composable，将通知与用量摘要归并展示。 */
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { RuntimeNotice } from '@/utils/runtimeNotice'

@@ -1,3 +1,4 @@
+/** useAgentRoleBadge — AgentRoleBadge 角色徽章组件的 composable，根据角色配置派生图标、标签与尺寸。 */
 import { computed } from 'vue'
 import type { AgentRole } from '@/types/plan'
 import { getAgentRoleConfig } from '@/types/plan'

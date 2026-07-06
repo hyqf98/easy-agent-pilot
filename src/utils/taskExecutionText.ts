@@ -1,3 +1,4 @@
+/** 任务执行文本（结果摘要、恢复上下文日志）构建。 */
 import type { Task } from '@/types/plan'
 import type {
   ExecutionLogEntry,

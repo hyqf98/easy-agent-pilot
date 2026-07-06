@@ -1,3 +1,4 @@
+/** useDynamicForm — DynamicForm 动态表单组件的 composable，按 schema 装配字段组件并驱动 formEngine 校验与提交。 */
 import { ref, computed, watch, type Component } from 'vue'
 import type { DynamicFormSchema, FieldType } from '@/types/plan'
 import { formEngine } from '@/services/plan'

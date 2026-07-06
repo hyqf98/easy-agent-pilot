@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** AgentManagementSettings 组件：智能体管理设置页，按标签切换子代理/供应商/会话/技能等子页（逻辑见 useAgentManagementSettings.ts） */
 import { useAgentManagementSettings } from './useAgentManagementSettings'
 
 const {

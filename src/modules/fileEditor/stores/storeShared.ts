@@ -1,3 +1,4 @@
+/** fileEditor store 的共享常量与纯函数：大文件判定、未保存确认文案、选区范围与文件名解析。 */
 const LARGE_FILE_SIZE_BYTES = 512 * 1024
 const LARGE_FILE_LINE_COUNT = 8000
 

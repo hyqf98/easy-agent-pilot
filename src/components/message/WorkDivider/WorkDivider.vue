@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** WorkDivider 组件：工作分段分隔条，展示等待/耗时等分段状态（逻辑见 useWorkDivider.ts） */
 import { useWorkDivider, type WorkDividerProps } from './useWorkDivider'
 
 const props = defineProps<WorkDividerProps>()

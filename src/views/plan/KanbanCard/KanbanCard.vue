@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** KanbanCard 组件：看板任务卡片，展示任务信息与启动/停止/重试等操作（逻辑见 useKanbanCard.ts） */
 import { useKanbanCard, type KanbanCardEmits, type KanbanCardProps } from './useKanbanCard'
 
 const props = defineProps<KanbanCardProps>()

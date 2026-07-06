@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** KanbanColumn 组件：看板单列，承载任务卡片并支持拖拽排序与列级执行控制（逻辑见 useKanbanColumn.ts） */
 import { useKanbanColumn, type KanbanColumnEmits, type KanbanColumnProps } from './useKanbanColumn'
 
 const props = withDefaults(defineProps<KanbanColumnProps>(), {

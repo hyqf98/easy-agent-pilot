@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** TextareaField 组件：动态表单多行文本字段（逻辑见 useTextareaField.ts） */
 import { useTextareaField, type TextareaFieldEmits, type TextareaFieldProps } from './useTextareaField'
 
 const props = defineProps<TextareaFieldProps>()

@@ -1,3 +1,4 @@
+/** Todo 快照本地持久化（localStorage 兜底恢复）。 */
 import type { TodoSnapshot } from './todoToolCall'
 
 /**

@@ -1,3 +1,4 @@
+/** 命令式确认弹窗（基于 Promise）状态管理 composable。 */
 import { ref, readonly, type Ref } from 'vue'
 import type { ConfirmDialogType } from '@/components/common/EaConfirmDialog/useEaConfirmDialog'
 

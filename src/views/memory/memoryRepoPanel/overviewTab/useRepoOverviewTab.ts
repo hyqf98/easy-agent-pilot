@@ -1,3 +1,4 @@
+/** useRepoOverviewTab — 记忆库仓库「概览」Tab 的 composable，只读展示仓库元数据并提供导出为标准 Skills 包。 */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { save } from '@tauri-apps/plugin-dialog'

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** CliConfigSyncModal 组件：跨智能体 CLI 配置同步弹窗，选择源/目标并勾选导入（逻辑见 useCliConfigSyncModal.ts） */
 import { EaButton, EaIcon, EaModal, EaSelect } from '@/components/common'
 import {
   useCliConfigSyncModal,

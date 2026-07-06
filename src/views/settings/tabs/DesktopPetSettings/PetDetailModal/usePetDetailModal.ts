@@ -1,3 +1,4 @@
+/** usePetDetailModal — 桌面宠物详情弹窗组件的 composable，提供大图预览、9 种动画状态切换与下载/使用操作。 */
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EaButton, EaModal } from '@/components/common'

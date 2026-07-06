@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** EaInput 组件：通用输入框，支持错误态、自动聚焦与外部 focus/select 暴露（逻辑见 useEaInput.ts） */
 import { useEaInput, type EaInputEmits, type EaInputProps } from './useEaInput'
 
 const props = withDefaults(defineProps<EaInputProps>(), {

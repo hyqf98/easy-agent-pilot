@@ -1,3 +1,4 @@
+/** CLI 提供者配置（claude、codex、opencode 连接信息）的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'

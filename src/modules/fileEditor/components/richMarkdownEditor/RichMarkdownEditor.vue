@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** RichMarkdownEditor 组件：富文本 Markdown 编辑器，处理输入、按键、粘贴与中文合成（逻辑见 useRichMarkdownEditor.ts） */
 import {
   useRichMarkdownEditor,
   type RichMarkdownEditorEmits,

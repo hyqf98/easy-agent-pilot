@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PlanProgressDetail 组件：计划进度详情，展示统计、状态卡片、失败任务与任务行（逻辑见 usePlanProgressDetail.ts） */
 import { usePlanProgressDetail, type PlanProgressDetailEmits, type PlanProgressDetailProps } from './usePlanProgressDetail'
 
 const props = defineProps<PlanProgressDetailProps>()

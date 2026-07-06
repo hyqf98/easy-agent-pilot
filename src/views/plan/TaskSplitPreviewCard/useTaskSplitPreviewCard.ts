@@ -1,3 +1,4 @@
+/** useTaskSplitPreviewCard — 拆分预览单任务卡片组件的 composable，派生优先级配色并触发编辑/删除。 */
 import { onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSubAgentStore } from '@/stores/subAgent'

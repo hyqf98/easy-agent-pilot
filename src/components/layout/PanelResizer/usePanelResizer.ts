@@ -1,3 +1,4 @@
+/** usePanelResizer — PanelResizer 面板拖拽分隔条组件的 composable，计算拖拽过程中宽度变化并约束在最小/最大范围内。 */
 import { ref, onUnmounted } from 'vue'
 
 export interface PanelResizerProps {

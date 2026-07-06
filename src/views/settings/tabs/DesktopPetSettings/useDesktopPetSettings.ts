@@ -1,3 +1,4 @@
+/** useDesktopPetSettings — 桌面宠物设置页组件的 composable，管理启用开关、我的宠物/宠物市场子 tab 与详情弹窗。 */
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '@/stores/settings'

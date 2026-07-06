@@ -1,3 +1,4 @@
+/** useSoloRunCreateDialog — 单飞运行创建/编辑弹窗组件的 composable，装配表单字段、协调/专家代理选项与提交。 */
 import { computed, ref, watch } from 'vue'
 import type { SoloAgentOption, SoloCreateFormState, SoloRunFormMode } from '../soloShared'
 

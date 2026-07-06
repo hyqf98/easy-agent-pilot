@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** MarkdownRenderer 组件：Markdown 内容渲染器（逻辑见 useMarkdownRenderer.ts） */
 import { useMarkdownRenderer, type MarkdownRendererProps } from './useMarkdownRenderer'
 
 const props = withDefaults(defineProps<MarkdownRendererProps>(), {

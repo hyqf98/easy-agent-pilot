@@ -1,3 +1,4 @@
+/** useWorkspaceShell — WorkspaceShell 工作区外壳组件的 composable，负责侧边栏显隐、宽度拖拽与初始/最小/最大宽度约束。 */
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EaIcon } from '@/components/common'

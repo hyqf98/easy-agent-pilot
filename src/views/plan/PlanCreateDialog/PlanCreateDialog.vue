@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PlanCreateDialog 组件：新建计划对话框，采集计划表单并可选启动拆分（逻辑见 usePlanCreateDialog.ts） */
 import type { PlanCreateFormState } from '../planListShared'
 import {
   usePlanCreateDialog,

@@ -1,3 +1,4 @@
+/** 应用设置（AppSettings）读写与 CLI 状态的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'

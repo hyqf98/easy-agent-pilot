@@ -1,3 +1,4 @@
+/** usePlanModeSwitch — 计划模式开关组件的 composable，提供 chat/plan 模式切换的 v-model 桥接。 */
 import { computed } from 'vue'
 
 export type AppMode = 'chat' | 'plan'

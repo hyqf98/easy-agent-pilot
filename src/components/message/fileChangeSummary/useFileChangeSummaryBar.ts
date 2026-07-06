@@ -1,3 +1,4 @@
+/** useFileChangeSummaryBar — FileChangeSummaryBar 文件变更摘要条组件的 composable，订阅 fileChange store 并按 toolCallId 过滤变更。 */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useFileChangeStore } from '@/stores/fileChange'

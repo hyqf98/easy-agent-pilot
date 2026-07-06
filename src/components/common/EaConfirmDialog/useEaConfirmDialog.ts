@@ -1,3 +1,4 @@
+/** useEaConfirmDialog — EaConfirmDialog 确认对话框组件的 composable，负责危险/警告操作的确认交互、ESC/遮罩关闭与按钮聚焦。 */
 import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import EaButton from '../EaButton/EaButton.vue'

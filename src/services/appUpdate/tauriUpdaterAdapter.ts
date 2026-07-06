@@ -1,3 +1,4 @@
+/** 基于 Tauri updater 插件的应用更新适配器实现。 */
 import { getVersion } from '@tauri-apps/api/app'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { relaunch } from '@tauri-apps/plugin-process'

@@ -1,3 +1,4 @@
+/** useCheckboxField — 动态表单复选框字段组件的 composable，桥接 FormField schema 与 v-model 布尔值。 */
 import { computed } from 'vue'
 import type { FormField } from '@/types/plan'
 

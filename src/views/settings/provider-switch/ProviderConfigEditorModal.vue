@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** ProviderConfigEditorModal 组件：供应商配置文件编辑弹窗，含 Monaco 与定位/保存（逻辑见 useProviderConfigEditorModal.ts） */
 import {
   useProviderConfigEditorModal,
   type ProviderConfigEditorModalProps,

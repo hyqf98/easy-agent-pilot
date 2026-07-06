@@ -1,3 +1,4 @@
+/** 会话运行时绑定（外部 sessionId 映射）的 IPC 读写。 */
 import { invoke } from '@tauri-apps/api/core'
 import type { AgentConfig } from '@/stores/agent'
 import { resolveAgentRuntimeProfile, type AgentRuntimeKey } from './runtimeProfiles'

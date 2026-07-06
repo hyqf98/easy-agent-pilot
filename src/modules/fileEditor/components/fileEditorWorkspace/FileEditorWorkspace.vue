@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** FileEditorWorkspace 组件：文件编辑工作区，含工具栏、Monaco 与富文本编辑器及保存（逻辑见 useFileEditorWorkspace.ts） */
 import {
   useFileEditorWorkspace,
   type FileEditorWorkspaceProps

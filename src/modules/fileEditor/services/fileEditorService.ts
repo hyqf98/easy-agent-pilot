@@ -1,3 +1,4 @@
+/** 文件编辑器与 Tauri 后端对接的薄封装：读取/写入项目文件、删除、重命名等文件 IO 服务。 */
 import { invoke } from '@tauri-apps/api/core'
 import type { FileContentPayload, ProjectFileContent } from '../types'
 

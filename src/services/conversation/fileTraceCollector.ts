@@ -1,3 +1,4 @@
+/** 从工具调用收集文件编辑追踪（FileEditTrace）与回滚片段。 */
 import { readProjectFile } from '@/modules/fileEditor/services/fileEditorService'
 import type { ToolCall } from '@/stores/message'
 import type { FileEditChangeType, FileEditRange, FileEditTrace } from '@/types/fileTrace'

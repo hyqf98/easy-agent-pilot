@@ -1,3 +1,4 @@
+/** 动态表单 Schema 处理（选项归一、条件、校验、渲染预处理）。 */
 import type { DynamicFormSchema, FieldType, FormField, FormFieldOption } from '@/types/plan'
 
 const OPTION_FIELD_TYPES = new Set<FieldType>(['select', 'radio', 'multiselect'])

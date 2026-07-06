@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** TaskSplitDialog 组件：任务拆分全屏对话框，承载拆分会话、预览与确认（逻辑见 useTaskSplitDialog.ts） */
 import { useI18n } from 'vue-i18n'
 import EaButton from '@/components/common/EaButton/EaButton.vue'
 import EaConfirmDialog from '@/components/common/EaConfirmDialog/EaConfirmDialog.vue'

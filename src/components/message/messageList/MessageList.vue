@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** MessageList 组件：消息列表，负责消息渲染、虚拟滚动、加载更多与回到底部（逻辑见 useMessageList.ts） */
 import { useI18n } from 'vue-i18n'
 import { EaIcon } from '@/components/common'
 import MessageBubble from '../messageBubble/MessageBubble.vue'

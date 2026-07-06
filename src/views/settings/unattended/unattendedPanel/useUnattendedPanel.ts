@@ -1,3 +1,4 @@
+/** useUnattendedPanel — 无人值守面板组件的 composable，聚合无人值守通道、事件记录与执行编排。 */
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { SelectOption } from '@/components/common/EaSelect/useEaSelect'

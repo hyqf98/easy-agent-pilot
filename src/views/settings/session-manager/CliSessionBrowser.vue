@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** CliSessionBrowser 组件：CLI 会话浏览器，展示会话列表并支持多选/查看/删除（逻辑见 useCliSessionBrowser.ts） */
 import {
   useCliSessionBrowser,
   type CliSessionBrowserProps,

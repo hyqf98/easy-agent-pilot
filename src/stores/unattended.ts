@@ -1,3 +1,4 @@
+/** 无人值守渠道（微信等）线程、事件与意图调度的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'

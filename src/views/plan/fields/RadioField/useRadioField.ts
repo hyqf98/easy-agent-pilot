@@ -1,3 +1,4 @@
+/** useRadioField — 动态表单单选字段组件的 composable，维护选项列表、选中态与主题样式。 */
 import { computed, ref, watch } from 'vue'
 import type { FormField } from '@/types/plan'
 import { useThemeStore } from '@/stores/theme'

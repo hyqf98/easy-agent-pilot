@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** RadioField 组件：动态表单单选字段，支持 AI 建议与「其他」自定义（逻辑见 useRadioField.ts） */
 import { useRadioField, type RadioFieldEmits, type RadioFieldProps } from './useRadioField'
 
 const props = defineProps<RadioFieldProps>()

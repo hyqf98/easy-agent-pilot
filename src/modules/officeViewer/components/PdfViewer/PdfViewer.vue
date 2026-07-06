@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PdfViewer 组件：PDF 查看器，支持页码导航与缩放（逻辑见 usePdfViewer.ts） */
 import {
   usePdfViewer,
   type PdfViewerProps,

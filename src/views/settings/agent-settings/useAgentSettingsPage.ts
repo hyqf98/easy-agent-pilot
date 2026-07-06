@@ -1,3 +1,4 @@
+/** useAgentSettingsPage — Agent 设置页（代理列表）的 composable，负责代理分页、搜索、编辑/删除弹窗与模型管理编排。 */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useAgentStore, type AgentConfig } from '@/stores/agent'
 import { useUIStore } from '@/stores/ui'

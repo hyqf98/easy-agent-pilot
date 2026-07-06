@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** MultiselectField 组件：动态表单多选字段，支持 AI 建议与「其他」自定义（逻辑见 useMultiselectField.ts） */
 import { useMultiselectField, type MultiselectFieldEmits, type MultiselectFieldProps } from './useMultiselectField'
 
 const props = defineProps<MultiselectFieldProps>()

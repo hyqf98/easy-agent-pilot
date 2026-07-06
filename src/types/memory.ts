@@ -1,3 +1,4 @@
+/** 记忆库（库、原始记录、合并运行）相关类型定义。 */
 export interface MemoryLibrary {
   id: string
   name: string

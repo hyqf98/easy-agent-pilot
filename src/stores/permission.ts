@@ -1,3 +1,4 @@
+/** ACP 工具权限询问（待决策请求）的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'

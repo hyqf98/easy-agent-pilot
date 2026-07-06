@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** GeneralSettings 组件：通用设置页，含语言、字号、压缩策略、ACP 权限等（逻辑见 useGeneralSettings.ts） */
 import { useGeneralSettings } from './useGeneralSettings'
 
 const {

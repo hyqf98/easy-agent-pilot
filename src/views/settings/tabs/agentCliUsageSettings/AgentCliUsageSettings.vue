@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** AgentCliUsageSettings 组件：智能体 CLI 用量统计页，展示概览卡片与趋势图表（逻辑见 useAgentCliUsageSettings.ts） */
 import { EaButton, EaSelect, EaStateBlock } from '@/components/common'
 import SettingsSectionCard from '@/views/settings/common/SettingsSectionCard.vue'
 import { useAgentCliUsageSettings } from './useAgentCliUsageSettings'

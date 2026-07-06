@@ -1,3 +1,4 @@
+/** 动态表单字段组件 barrel 导出：聚合 TextField/TextareaField/SelectField 等全部字段组件。 */
 export { default as TextField } from './TextField/TextField.vue'
 export { default as TextareaField } from './TextareaField/TextareaField.vue'
 export { default as SelectField } from './SelectField/SelectField.vue'

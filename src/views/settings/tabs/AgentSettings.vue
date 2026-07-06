@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** AgentSettings 组件：智能体设置页，展示列表并支持搜索/新增/编辑/删除/测试/模型管理（逻辑见 useAgentSettings.ts） */
 import { useAgentSettings } from './useAgentSettings'
 
 const {

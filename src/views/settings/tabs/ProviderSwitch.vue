@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** ProviderSwitch 组件：供应商切换设置页，编排类型标签、连接信息、档案列表与编辑器（逻辑见 useProviderSwitch.ts） */
 import { useProviderSwitch } from './useProviderSwitch'
 
 const {

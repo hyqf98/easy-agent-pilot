@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** SoloExecutionLogPanel 组件：SOLO 执行日志面板，展示状态、Token、时间线与动态表单输入（逻辑见 useSoloExecutionLogPanel.ts） */
 import { useSoloExecutionLogPanel } from './useSoloExecutionLogPanel'
 import type { SoloExecutionLogPanelProps } from './useSoloExecutionLogPanel'
 

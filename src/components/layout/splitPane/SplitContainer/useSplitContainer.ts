@@ -1,3 +1,4 @@
+/** useSplitContainer — SplitContainer 分屏容器组件的 composable，负责窗格布局、拖拽放置区与跨窗格 tab 拖拽编排。 */
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EaIcon } from '@/components/common'

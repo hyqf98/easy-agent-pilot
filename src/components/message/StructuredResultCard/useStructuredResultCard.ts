@@ -1,3 +1,4 @@
+/** useStructuredResultCard — StructuredResultCard 结构化结果卡片组件的 composable，按文件变更分组展示执行结果。 */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { StructuredExecutionResult } from '@/utils/structuredContent'

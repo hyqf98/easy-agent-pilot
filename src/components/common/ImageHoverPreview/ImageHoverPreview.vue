@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** ImageHoverPreview 组件：图片悬浮预览，鼠标悬停时弹出放大图（逻辑见 useImageHoverPreview.ts） */
 import { useImageHoverPreview, type ImageHoverPreviewProps } from './useImageHoverPreview'
 
 const props = withDefaults(defineProps<ImageHoverPreviewProps>(), {

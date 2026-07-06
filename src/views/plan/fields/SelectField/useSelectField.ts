@@ -1,3 +1,4 @@
+/** useSelectField — 动态表单下拉选择字段组件的 composable，负责展开、键盘导航、外部点击收起与选中同步。 */
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import type { FormField } from '@/types/plan'
 import { useSafeOutsideClick } from '@/composables/useSafeOutsideClick'

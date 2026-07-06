@@ -1,3 +1,4 @@
+/** 记忆库仓库（Memory Repo）文件树与读写的 Pinia store。 */
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { useNotificationStore } from './notification'

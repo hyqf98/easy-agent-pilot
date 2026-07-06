@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** TokenProgressBar 组件：会话 Token 用量环形进度条，悬停展示明细（逻辑见 useTokenProgressBar.ts） */
 import { useTokenProgressBar, type TokenProgressBarEmits, type TokenProgressBarProps } from './useTokenProgressBar'
 
 const props = withDefaults(defineProps<TokenProgressBarProps>(), {

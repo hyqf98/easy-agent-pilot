@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** EaButton 组件：通用按钮的展示与点击交互（逻辑见 useEaButton.ts） */
 import {
   useEaButton,
   type EaButtonEmits,

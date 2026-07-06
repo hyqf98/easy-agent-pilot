@@ -1,3 +1,4 @@
+/** 将 ACP 回放事件映射为前端消息（Message）列表与用量。 */
 import type { AcpReplayedEvent } from '@/types/cliSessionManager'
 import type { Message, MessageRole, MessageType, MessageStatus } from '@/stores/message'
 

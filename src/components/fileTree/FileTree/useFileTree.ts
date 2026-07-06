@@ -1,3 +1,4 @@
+/** useFileTree — FileTree 文件树组件的 composable，负责项目目录树加载、文件系统监听、节点展开与上下文菜单装配。 */
 import { computed, h, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { invoke } from '@tauri-apps/api/core'

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** EaConfirmDialog 组件：通用确认弹窗，提供标题/消息与确认取消按钮（逻辑见 useEaConfirmDialog.ts） */
 import {
   useEaConfirmDialog,
   type EaConfirmDialogEmits,

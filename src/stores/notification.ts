@@ -1,3 +1,4 @@
+/** 全局通知（成功、警告、错误及重试）的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { ErrorType, classifyError, getErrorMessage } from '@/utils/api'

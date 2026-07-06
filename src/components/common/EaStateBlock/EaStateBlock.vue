@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** EaStateBlock 组件：状态提示块（空/错误/加载等），含图标、标题与描述（逻辑见 useEaStateBlock.ts） */
 import { useEaStateBlock, type EaStateBlockProps } from './useEaStateBlock'
 
 const props = withDefaults(defineProps<EaStateBlockProps>(), {

@@ -1,3 +1,4 @@
+/** useSettingsContent — 设置内容区组件的 composable，根据激活 tab 派生对应描述符与渲染组件。 */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useUIStore } from '@/stores/ui'

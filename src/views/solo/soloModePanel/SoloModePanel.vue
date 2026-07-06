@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** SoloModePanel 组件：SOLO 模式工作区面板，编排运行列表、创建对话框与执行日志（逻辑见 useSoloModePanel.ts） */
 import SoloExecutionLogPanel from '../SoloExecutionLogPanel.vue'
 import SoloRunCreateDialog from '../soloRunCreateDialog/SoloRunCreateDialog.vue'
 import SoloRunList from '../SoloRunList.vue'

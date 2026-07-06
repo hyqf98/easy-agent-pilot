@@ -1,3 +1,4 @@
+/** 跨项目发送文件提及到目标会话草稿的 composable。 */
 import { useI18n } from 'vue-i18n'
 import { useProjectStore } from '@/stores/project'
 import { useSessionExecutionStore, type ComposerFileMention } from '@/stores/sessionExecution'

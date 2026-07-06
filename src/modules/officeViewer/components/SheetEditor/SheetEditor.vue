@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** SheetEditor 组件：电子表格查看器（逻辑见 useSheetEditor.ts） */
 import {
   useSheetEditor,
   type SheetEditorProps,

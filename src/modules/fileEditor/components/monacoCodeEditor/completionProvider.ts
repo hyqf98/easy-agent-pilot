@@ -1,3 +1,4 @@
+/** 为 Monaco 代码编辑器构造补全 Provider，将策略补全项映射为 monaco CompletionItem 并注册触发字符。 */
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api'
 import type { CompletionKind, MonacoLanguageId } from '../../types'
 import type { MonacoCodeEditorProps } from './types'

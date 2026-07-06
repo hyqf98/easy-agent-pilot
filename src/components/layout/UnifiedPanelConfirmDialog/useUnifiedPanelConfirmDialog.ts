@@ -1,3 +1,4 @@
+/** useUnifiedPanelConfirmDialog — UnifiedPanelConfirmDialog 统一面板确认弹窗组件的 composable，负责确认/取消事件透传。 */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EaButton, EaIcon } from '@/components/common'

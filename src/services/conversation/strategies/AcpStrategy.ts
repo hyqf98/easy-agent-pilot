@@ -1,3 +1,4 @@
+/** 基于 ACP 协议的会话执行策略实现。 */
 import { BaseAgentStrategy } from './BaseAgentStrategy'
 import type { AgentConfig } from '@/stores/agent'
 import { matchesAgentRuntimeProfile, type AgentRuntimeKey } from '../runtimeProfiles'

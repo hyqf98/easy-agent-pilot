@@ -1,3 +1,4 @@
+/** Pinia store：管理文件编辑器工作区的已打开文件、激活文件、脏标记、读写与 Office 文件分发。 */
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { readFile } from '@tauri-apps/plugin-fs'

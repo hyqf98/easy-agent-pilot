@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** SessionPanel 组件：会话面板，展示会话列表并支持搜索、重命名、删除与摘要等（逻辑见 useSessionPanel.ts） */
 import { EaIcon, EaButton, EaSkeleton, EaStateBlock } from '@/components/common'
 import type { Session } from '@/stores/session'
 import PanelHeader from '../PanelHeader/PanelHeader.vue'

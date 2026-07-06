@@ -1,3 +1,4 @@
+/** useUniverEngine — Office 文档/表格编辑器 composable，封装 Univer 引擎实例创建、locale 解析与卸载。 */
 import { LocaleType, createUniver, mergeLocales } from '@univerjs/presets'
 import { ref, onBeforeUnmount } from 'vue'
 import { useSettingsStore } from '@/stores/settings'

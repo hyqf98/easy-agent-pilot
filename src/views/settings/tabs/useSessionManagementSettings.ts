@@ -1,3 +1,4 @@
+/** useSessionManagementSettings — 会话管理设置组件的 composable，负责 CLI 会话列表加载、查看详情与删除。 */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAgentStore, type AgentConfig } from '@/stores/agent'

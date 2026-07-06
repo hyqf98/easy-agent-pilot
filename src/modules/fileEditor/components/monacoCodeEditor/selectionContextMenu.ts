@@ -1,3 +1,4 @@
+/** Monaco 代码编辑器选区右键菜单的控制器：维护菜单坐标状态并桥接键盘/指针事件与编辑器 emit。 */
 import { ref } from 'vue'
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api'
 import type { MonacoCodeEditorEmits } from './types'

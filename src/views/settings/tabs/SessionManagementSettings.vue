@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** SessionManagementSettings 组件：CLI 会话管理设置页，按代理/项目/时间筛选会话并支持查看/删除（逻辑见 useSessionManagementSettings.ts） */
 import { EaButton, EaIcon, EaSelect, EaActionMenu } from '@/components/common'
 import CliSessionBrowser from '@/views/settings/session-manager/CliSessionBrowser.vue'
 import CliSessionDeleteModal from '@/views/settings/session-manager/CliSessionDeleteModal.vue'

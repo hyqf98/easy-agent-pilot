@@ -1,3 +1,4 @@
+/** useTokenProgressBar — TokenProgressBar 组件的 composable，订阅 token/session store 并管理用量浮层的展开/压缩触发。 */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { formatTokenCount, useTokenStore, type TokenLevel } from '@/stores/token'
 import { useSessionStore } from '@/stores/session'

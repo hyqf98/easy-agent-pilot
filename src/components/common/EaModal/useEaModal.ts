@@ -1,3 +1,4 @@
+/** useEaModal — EaModal 通用模态框组件的 composable，负责可见性驱动的 body 滚动锁定与遮罩/ESC 关闭交互。 */
 import { watch } from 'vue'
 import { useOverlayDismiss } from '@/composables/useOverlayDismiss'
 

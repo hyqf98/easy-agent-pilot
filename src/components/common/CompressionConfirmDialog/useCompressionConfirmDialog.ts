@@ -1,3 +1,4 @@
+/** useCompressionConfirmDialog — CompressionConfirmDialog 组件的 composable，负责 Token 超限压缩确认弹窗的可见性与确认/取消交互。 */
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EaIcon } from '@/components/common'

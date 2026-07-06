@@ -1,3 +1,4 @@
+/** useMultiselectField — 动态表单多选字段组件的 composable，维护下拉展开、选项勾选与主题样式。 */
 import { ref, computed, watch } from 'vue'
 import type { FormField } from '@/types/plan'
 import { useThemeStore } from '@/stores/theme'

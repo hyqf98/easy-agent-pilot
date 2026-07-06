@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** CliSessionDeleteModal 组件：CLI 会话删除确认弹窗（逻辑见 useCliSessionDeleteModal.ts） */
 import { useCliSessionDeleteModal, type CliSessionDeleteModalProps, type CliSessionDeleteModalEmits } from './useCliSessionDeleteModal'
 
 const props = defineProps<CliSessionDeleteModalProps>()

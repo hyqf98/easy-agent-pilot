@@ -1,3 +1,4 @@
+/** 推理强度（ReasoningEffortLevel）及各 provider 可选项定义。 */
 export type ReasoningEffortLevel = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 export interface ReasoningEffortOption {

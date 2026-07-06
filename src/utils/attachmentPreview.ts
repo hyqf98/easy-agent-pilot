@@ -1,3 +1,4 @@
+/** 消息附件预览地址解析（convertFileSrc，带缓存）。 */
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import type { MessageAttachment } from '@/stores/message'
 import { isImageAttachment } from '@/utils/attachmentMeta'

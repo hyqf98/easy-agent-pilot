@@ -1,3 +1,4 @@
+/** 运行时通知（context 策略、用量提示）构建与 IPC 查询。 */
 import { invoke } from '@tauri-apps/api/core'
 import { normalizeCliCommand, type AgentConfig } from '@/stores/agent'
 

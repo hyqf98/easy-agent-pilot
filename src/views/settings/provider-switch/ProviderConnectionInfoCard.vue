@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** ProviderConnectionInfoCard 组件：CLI 连接信息卡片，展示当前连接状态与操作（逻辑见 useProviderConnectionInfoCard.ts） */
 import {
   useProviderConnectionInfoCard,
   type ProviderConnectionInfoCardProps,

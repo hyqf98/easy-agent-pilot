@@ -1,3 +1,4 @@
+/** 主布局面板状态（左侧面板、项目 Tab、排序、智能体筛选）的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { ref, watch, computed } from 'vue'
 

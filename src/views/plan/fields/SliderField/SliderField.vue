@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** SliderField 组件：动态表单滑块字段（逻辑见 useSliderField.ts） */
 import { useSliderField, type SliderFieldEmits, type SliderFieldProps } from './useSliderField'
 
 const props = defineProps<SliderFieldProps>()

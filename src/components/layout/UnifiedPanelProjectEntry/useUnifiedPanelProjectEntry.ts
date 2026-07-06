@@ -1,3 +1,4 @@
+/** useUnifiedPanelProjectEntry — UnifiedPanelProjectEntry 项目条目组件的 composable，负责项目展开、会话列表懒加载与展示。 */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Project } from '@/stores/project'

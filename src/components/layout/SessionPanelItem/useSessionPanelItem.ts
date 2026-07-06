@@ -1,3 +1,4 @@
+/** useSessionPanelItem — SessionPanelItem 会话列表项组件的 composable，负责会话高亮、编辑态、选中态与操作菜单展示。 */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EaIcon } from '@/components/common'

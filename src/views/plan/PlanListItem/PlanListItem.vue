@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PlanListItem 组件：计划列表单条目，展示计划信息并触发选中/拆分/编辑/删除 */
 import type { PlanListItemViewModel } from '../planListShared'
 
 defineProps<{

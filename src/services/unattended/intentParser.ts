@@ -1,3 +1,4 @@
+/** 无人值守意图解析（结构化响应到任务、计划草稿）。 */
 import type { TaskPriority, TaskStatus } from '@/types/plan'
 
 export type UnattendedIntentType =

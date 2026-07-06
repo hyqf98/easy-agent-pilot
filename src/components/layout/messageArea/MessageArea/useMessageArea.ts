@@ -1,3 +1,4 @@
+/** useMessageArea — MessageArea 主消息区组件的 composable，聚合消息渲染、Token 压缩、计划/追踪面板与发送编排。 */
 import { computed, onMounted, onUnmounted, ref, watch, type ComponentPublicInstance } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Message } from '@/stores/message'

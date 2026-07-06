@@ -1,3 +1,4 @@
+/** 子代理原生委派能力探测（按 provider 判断是否支持 CLI 原生子代理委派）。 */
 import type { AgentConfig } from '@/stores/agent'
 
 /**

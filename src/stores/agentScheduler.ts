@@ -1,3 +1,4 @@
+/** 智能体角色调度（当前角色与历史记录）的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { AgentRole, AgentRoleConfig } from '@/types/plan'

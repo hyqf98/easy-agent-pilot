@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** AgentSettingsDeleteDialog 组件：智能体删除确认弹窗 */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EaButton, EaIcon } from '@/components/common'

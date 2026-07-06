@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PaneWrapper 组件：分屏单个窗格外壳，组合标签栏、消息列表与输入（逻辑见 usePaneWrapper.ts） */
 import { usePaneWrapper, type PaneWrapperEmits, type PaneWrapperProps } from './usePaneWrapper'
 
 const props = defineProps<PaneWrapperProps>()

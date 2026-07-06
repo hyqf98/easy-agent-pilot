@@ -1,3 +1,4 @@
+/** 任务执行结果文件分组（生成、修改、删除）与内容构建。 */
 import { buildStructuredResultContent } from '@/utils/structuredContent'
 
 interface ResultRecordLike {

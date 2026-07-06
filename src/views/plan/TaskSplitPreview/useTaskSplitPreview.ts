@@ -1,3 +1,4 @@
+/** useTaskSplitPreview — 任务拆分预览容器组件的 composable，管理拆分结果列表的展示、编辑、增删与确认提交。 */
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AITaskItem, TaskPriority } from '@/types/plan'

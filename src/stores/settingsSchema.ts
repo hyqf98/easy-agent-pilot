@@ -1,3 +1,4 @@
+/** 应用设置 AppSettings 的类型定义、默认值与序列化、反序列化。 */
 import { DEFAULT_MINI_PANEL_SHORTCUT, migrateMiniPanelShortcut } from '@/utils/shortcut'
 
 export interface AppSettings {

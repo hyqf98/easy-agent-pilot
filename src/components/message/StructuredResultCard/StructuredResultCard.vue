@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** StructuredResultCard 组件：结构化结果卡片，展示标题、摘要与变更文件分组（逻辑见 useStructuredResultCard.ts） */
 import { useStructuredResultCard, type StructuredResultCardProps } from './useStructuredResultCard'
 
 const props = defineProps<StructuredResultCardProps>()

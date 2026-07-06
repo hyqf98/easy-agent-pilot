@@ -1,3 +1,4 @@
+/** useAiEditTracePane — AiEditTracePane AI 编辑追踪面板组件的 composable，负责文件编辑差异堆叠、接受/回滚与打开工作区。 */
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EaButton, EaIcon } from '@/components/common'

@@ -1,3 +1,4 @@
+/** 全局 composables 的统一再导出。 */
 export { useAsyncOperation, useGlobalLoading } from './useAsyncOperation'
 export type {
   AsyncOperationState,

@@ -1,3 +1,4 @@
+/** useTaskResplitModal — 任务重新拆分弹窗组件的 composable，配置粒度并调用子代理对既有任务再次拆分。 */
 import { ref, computed, watch } from 'vue'
 import { useAgentStore, useAgentConfigStore } from '@/stores'
 import { useSubAgentStore } from '@/stores/subAgent'

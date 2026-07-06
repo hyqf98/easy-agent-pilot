@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** CdPathDropdown 组件：/cd 切换工作目录的下拉建议浮层（逻辑见 useCdPathDropdown.ts） */
 import type { CdPathDropdownProps, CdPathDropdownEmits } from './useCdPathDropdown'
 import { useCdPathDropdown } from './useCdPathDropdown'
 

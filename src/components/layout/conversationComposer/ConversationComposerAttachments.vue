@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** ConversationComposerAttachments 组件：输入区附件缩略图列表，支持移除（逻辑见 useConversationComposerAttachments.ts） */
 import type { ConversationComposerAttachmentsProps } from './useConversationComposerAttachments'
 import { useConversationComposerAttachments } from './useConversationComposerAttachments'
 

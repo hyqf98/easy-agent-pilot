@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** FileTree 组件：文件树面板，提供搜索、展开、增删改与右键菜单（逻辑见 useFileTree.ts） */
 import { NTree } from 'naive-ui'
 import { EaButton, EaIcon } from '@/components/common'
 import FileTreeContextMenu from '../FileTreeContextMenu/FileTreeContextMenu.vue'

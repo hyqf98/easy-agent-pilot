@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** TerminalTabPane 组件：单个终端标签页内容区，渲染输入缓冲与命令补全提示（逻辑见 useTerminalTabPane.ts） */
 import { useTerminalTabPane, type TerminalTabPaneProps } from './useTerminalTabPane'
 
 const props = defineProps<TerminalTabPaneProps>()

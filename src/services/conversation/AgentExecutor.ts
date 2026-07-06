@@ -1,3 +1,4 @@
+/** 智能体执行器：按 agent 配置选择并调度会话执行策略。 */
 import type { AgentConfig } from '@/stores/agent'
 import type { AgentStrategy, ConversationContext, StreamEvent } from './strategies/types'
 import { AcpStrategy } from './strategies/AcpStrategy'

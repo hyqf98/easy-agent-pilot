@@ -1,3 +1,4 @@
+/** 计划（Plan）及其执行、调度状态的 Pinia store。 */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'

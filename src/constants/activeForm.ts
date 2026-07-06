@@ -1,3 +1,4 @@
+/** 当前主会话激活 AI 表单 ID 的 Vue 注入键常量。 */
 import type { InjectionKey, Ref } from 'vue'
 
 /**

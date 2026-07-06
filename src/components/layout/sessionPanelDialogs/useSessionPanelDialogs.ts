@@ -1,3 +1,4 @@
+/** useSessionPanelDialogs — SessionPanelDialogs 会话面板弹窗集合组件的 composable，统一映射新建/删除/清空/错误/摘要等弹窗可见性。 */
 import { useI18n } from 'vue-i18n'
 import type { Session } from '@/stores/session'
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** RepoSourcesTab 组件：记忆库仓库「来源」标签页，配置项目白名单与时间/数量上限（逻辑见 useRepoSourcesTab.ts） */
 import { useRepoSourcesTab } from './useRepoSourcesTab'
 import { EaButton, EaIcon } from '@/components/common'
 

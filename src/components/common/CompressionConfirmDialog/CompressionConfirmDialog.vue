@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** CompressionConfirmDialog 组件：上下文压缩确认弹窗，展示用量并选择压缩策略（逻辑见 useCompressionConfirmDialog.ts） */
 import {
   useCompressionConfirmDialog,
   type CompressionConfirmDialogEmits,

@@ -1,3 +1,4 @@
+/** useSliderField — 动态表单滑块字段组件的 composable，桥接 FormField schema 与 v-model 数值。 */
 import { computed } from 'vue'
 import type { FormField } from '@/types/plan'
 

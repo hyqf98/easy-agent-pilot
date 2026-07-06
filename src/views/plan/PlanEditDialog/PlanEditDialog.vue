@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** PlanEditDialog 组件：编辑计划对话框，修改计划信息与调度（逻辑见 usePlanEditDialog.ts） */
 import type { PlanEditFormState } from '../planListShared'
 import {
   usePlanEditDialog,

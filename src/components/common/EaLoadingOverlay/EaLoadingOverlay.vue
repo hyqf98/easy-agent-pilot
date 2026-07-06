@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/** EaLoadingOverlay 组件：全屏加载遮罩，展示进度与可取消按钮（逻辑见 useEaLoadingOverlay.ts） */
 import {
   useEaLoadingOverlay,
   type EaLoadingOverlayEmits,
