@@ -1,55 +1,22 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import type { UnifiedMcpConfig } from '@/stores/skillConfig'
-import McpConfigEditView from '../mcp/McpConfigEditView.vue'
-import McpConfigListView from '../mcp/McpConfigListView.vue'
-import McpConfigTestView from '../mcp/McpConfigTestView.vue'
+import { useMcpConfigTab, type McpConfigTabProps, type McpConfigTabEmits } from './useMcpConfigTab'
 
-const props = defineProps<{
-  configs: UnifiedMcpConfig[]
-  isReadOnly: boolean
-  isLoading: boolean
-  canSync?: boolean
-  canRefresh?: boolean
-  canOpenFile?: boolean
-}>()
+const props = defineProps<McpConfigTabProps>()
+const emit = defineEmits<McpConfigTabEmits>()
 
-const emit = defineEmits<{
-  (e: 'refresh'): void
-  (e: 'sync'): void
-  (e: 'open-file'): void
-  (e: 'save', config: Partial<UnifiedMcpConfig>, originalId?: string): void
-  (e: 'delete', config: UnifiedMcpConfig): void
-}>()
-
-const testingConfig = ref<UnifiedMcpConfig | null>(null)
-const editingConfig = ref<UnifiedMcpConfig | null>(null)
-
-const isTesting = computed(() => testingConfig.value !== null)
-const isEditing = computed(() => editingConfig.value !== null)
-const showList = computed(() => !isTesting.value && !isEditing.value)
-
-function handleAdd() {
-  editingConfig.value = {
-    id: '',
-    name: '',
-    enabled: true,
-    source: 'database',
-    isReadOnly: false,
-    transportType: 'stdio',
-    scope: 'user'
-  } as UnifiedMcpConfig
-}
-
-function goBackToList() {
-  testingConfig.value = null
-  editingConfig.value = null
-}
-
-function handleSave(config: Partial<UnifiedMcpConfig>, originalId?: string) {
-  emit('save', config, originalId)
-  goBackToList()
-}
+const {
+  McpConfigListView,
+  McpConfigEditView,
+  McpConfigTestView,
+  testingConfig,
+  editingConfig,
+  isTesting,
+  isEditing,
+  showList,
+  handleAdd,
+  goBackToList,
+  handleSave,
+} = useMcpConfigTab(props, emit)
 </script>
 
 <template>

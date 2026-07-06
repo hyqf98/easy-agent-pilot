@@ -1,71 +1,21 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
-import type { UnifiedSkillConfig } from '@/stores/skillConfig'
-import { EaButton, EaIcon, EaModal } from '@/components/common'
+import { useSkillEditModal, type SkillEditModalProps, type SkillEditModalEmits } from './useSkillEditModal'
 
-const props = defineProps<{
-  visible: boolean
-  config: UnifiedSkillConfig | null
-}>()
+const props = defineProps<SkillEditModalProps>()
+const emit = defineEmits<SkillEditModalEmits>()
 
-const emit = defineEmits<{
-  'update:visible': [value: boolean]
-  save: [config: Partial<UnifiedSkillConfig>, originalId?: string]
-}>()
-
-const { t } = useI18n()
-
-const form = ref({
-  name: '',
-  description: '',
-  skillPath: '',
-})
-
-const isEdit = computed(() => !!props.config?.id)
-const title = computed(() =>
-  isEdit.value ? t('settings.sdkConfig.skills.edit') : t('settings.sdkConfig.skills.add')
-)
-const isValid = computed(() => Boolean(form.value.name.trim() && form.value.skillPath.trim()))
-
-function resetForm() {
-  form.value = {
-    name: '',
-    description: '',
-    skillPath: '',
-  }
-}
-
-watch(() => props.config, (config) => {
-  if (!config) {
-    resetForm()
-    return
-  }
-
-  form.value = {
-    name: config.name,
-    description: config.description || '',
-    skillPath: config.skillPath,
-  }
-}, { immediate: true })
-
-function close() {
-  emit('update:visible', false)
-}
-
-function handleSave() {
-  if (!isValid.value) {
-    return
-  }
-
-  emit('save', {
-    name: form.value.name.trim(),
-    description: form.value.description.trim() || undefined,
-    skillPath: form.value.skillPath.trim(),
-  }, props.config?.id)
-
-  close()
-}
+const {
+  EaButton,
+  EaIcon,
+  EaModal,
+  t,
+  form,
+  isEdit,
+  title,
+  isValid,
+  close,
+  handleSave,
+} = useSkillEditModal(props, emit)
 </script>
 
 <template>

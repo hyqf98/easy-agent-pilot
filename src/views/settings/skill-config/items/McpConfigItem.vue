@@ -1,61 +1,19 @@
 <script setup lang="ts">
-import { useI18n } from 'vue-i18n'
-import { computed } from 'vue'
-import type { UnifiedMcpConfig } from '@/stores/skillConfig'
-import { EaButton, EaIcon } from '@/components/common'
+import { useMcpConfigItem, type McpConfigItemProps, type McpConfigItemEmits } from './useMcpConfigItem'
 
-const props = defineProps<{
-  config: UnifiedMcpConfig
-  isReadOnly: boolean
-}>()
+const props = defineProps<McpConfigItemProps>()
+const emit = defineEmits<McpConfigItemEmits>()
 
-const emit = defineEmits<{
-  (e: 'test', config: UnifiedMcpConfig): void
-  (e: 'edit', config: UnifiedMcpConfig): void
-  (e: 'delete', config: UnifiedMcpConfig): void
-}>()
-
-const { t } = useI18n()
-
-const isBuiltin = computed(() => props.config.transportType === 'builtin')
-
-function getTransportIcon(transport: string) {
-  switch (transport) {
-    case 'stdio': return 'lucide:terminal'
-    case 'sse': return 'lucide:radio'
-    case 'http': return 'lucide:globe'
-    case 'builtin': return 'lucide:cpu'
-    default: return 'lucide:plug'
-  }
-}
-
-function getTransportLabel(transport: string) {
-  if (transport === 'builtin') {
-    return 'BUILT-IN'
-  }
-  return transport.toUpperCase()
-}
-
-function getScopeLabel(scope: string) {
-  return t(`settings.agent.scan.scopeTypes.${scope}`)
-}
-
-function getCommandDisplay() {
-  if (props.config.transportType === 'builtin') {
-    return t('settings.mcp.builtinServer')
-  }
-  if (props.config.url) {
-    return props.config.url
-  }
-  if (props.config.command) {
-    const parts = [props.config.command]
-    if (props.config.args?.length) {
-      parts.push(...props.config.args)
-    }
-    return parts.join(' ')
-  }
-  return '-'
-}
+const {
+  EaButton,
+  EaIcon,
+  t,
+  isBuiltin,
+  getTransportIcon,
+  getTransportLabel,
+  getScopeLabel,
+  getCommandDisplay,
+} = useMcpConfigItem(props)
 </script>
 
 <template>

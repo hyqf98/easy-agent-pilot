@@ -1,33 +1,19 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { useI18n } from 'vue-i18n'
-import type { UnifiedSkillConfig } from '@/stores/skillConfig'
-import SkillConfigItem from '../items/SkillConfigItem.vue'
-import { EaButton, EaIcon, EaStateBlock, EaActionMenu, type ActionMenuItem } from '@/components/common'
+import { useSkillsConfigTab, type SkillsConfigTabProps, type SkillsConfigTabEmits } from './useSkillsConfigTab'
 
-const props = defineProps<{
-  configs: UnifiedSkillConfig[]
-  isReadOnly: boolean
-  isLoading: boolean
-  canSync?: boolean
-}>()
+const props = defineProps<SkillsConfigTabProps>()
+const emit = defineEmits<SkillsConfigTabEmits>()
 
-const emit = defineEmits<{
-  (e: 'add'): void
-  (e: 'sync'): void
-  (e: 'detail', config: UnifiedSkillConfig): void
-  (e: 'edit', config: UnifiedSkillConfig): void
-  (e: 'delete', config: UnifiedSkillConfig): void
-}>()
-
-const { t } = useI18n()
-
-// 次要操作收入溢出菜单（同步），主操作「添加」常驻
-const overflowItems = computed<ActionMenuItem[]>(() => {
-  return props.canSync
-    ? [{ key: 'sync', label: t('settings.integration.sync.button'), icon: 'arrow-right-left' }]
-    : []
-})
+const {
+  EaButton,
+  EaIcon,
+  EaStateBlock,
+  EaActionMenu,
+  SkillConfigItem,
+  t,
+  overflowItems,
+  handleOverflowSelect,
+} = useSkillsConfigTab(props, emit)
 </script>
 
 <template>
@@ -51,7 +37,7 @@ const overflowItems = computed<ActionMenuItem[]>(() => {
         <EaActionMenu
           v-if="overflowItems.length"
           :items="overflowItems"
-          @select="(key) => key === 'sync' && emit('sync')"
+          @select="handleOverflowSelect"
         />
       </div>
     </div>

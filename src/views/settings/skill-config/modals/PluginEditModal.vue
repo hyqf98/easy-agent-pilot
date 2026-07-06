@@ -1,75 +1,21 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
-import type { UnifiedPluginConfig } from '@/stores/skillConfig'
-import { EaButton, EaIcon, EaModal } from '@/components/common'
+import { usePluginEditModal, type PluginEditModalProps, type PluginEditModalEmits } from './usePluginEditModal'
 
-const props = defineProps<{
-  visible: boolean
-  config: UnifiedPluginConfig | null
-}>()
+const props = defineProps<PluginEditModalProps>()
+const emit = defineEmits<PluginEditModalEmits>()
 
-const emit = defineEmits<{
-  'update:visible': [value: boolean]
-  save: [config: Partial<UnifiedPluginConfig>, originalId?: string]
-}>()
-
-const { t } = useI18n()
-
-const form = ref({
-  name: '',
-  version: '',
-  description: '',
-  pluginPath: '',
-})
-
-const isEdit = computed(() => Boolean(props.config?.id))
-const title = computed(() =>
-  isEdit.value ? t('settings.sdkConfig.plugins.edit') : t('settings.sdkConfig.plugins.add')
-)
-const isValid = computed(() => Boolean(form.value.name.trim() && form.value.pluginPath.trim()))
-
-function resetForm() {
-  form.value = {
-    name: '',
-    version: '',
-    description: '',
-    pluginPath: '',
-  }
-}
-
-watch(() => props.config, (config) => {
-  if (!config) {
-    resetForm()
-    return
-  }
-
-  form.value = {
-    name: config.name,
-    version: config.version || '',
-    description: config.description || '',
-    pluginPath: config.pluginPath,
-  }
-}, { immediate: true })
-
-function close() {
-  emit('update:visible', false)
-}
-
-function handleSave() {
-  if (!isValid.value) {
-    return
-  }
-
-  emit('save', {
-    name: form.value.name.trim(),
-    version: form.value.version.trim() || undefined,
-    description: form.value.description.trim() || undefined,
-    pluginPath: form.value.pluginPath.trim(),
-  }, props.config?.id)
-
-  close()
-}
+const {
+  EaButton,
+  EaIcon,
+  EaModal,
+  t,
+  form,
+  isEdit,
+  title,
+  isValid,
+  close,
+  handleSave,
+} = usePluginEditModal(props, emit)
 </script>
 
 <template>

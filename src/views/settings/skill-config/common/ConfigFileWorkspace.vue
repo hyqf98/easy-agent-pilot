@@ -1,62 +1,25 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { useSettingsStore } from '@/stores/settings'
-import { EaIcon } from '@/components/common'
-import { getLanguageStrategy } from '@/modules/fileEditor'
-import MonacoCodeEditor from '@/modules/fileEditor/components/monacoCodeEditor/MonacoCodeEditor.vue'
-import MarkdownRenderer from '@/components/message/MarkdownRenderer/MarkdownRenderer.vue'
+import {
+  useConfigFileWorkspace,
+  CONFIG_FILE_WORKSPACE_DEFAULTS,
+  type ConfigFileWorkspaceProps,
+  type ConfigFileWorkspaceEmits
+} from './useConfigFileWorkspace'
 
-interface WorkspaceFile {
-  name: string
-  path: string
-  content: string
-  fileType: string
-}
+const props = withDefaults(defineProps<ConfigFileWorkspaceProps>(), CONFIG_FILE_WORKSPACE_DEFAULTS)
+const emit = defineEmits<ConfigFileWorkspaceEmits>()
 
-const props = withDefaults(defineProps<{
-  loading?: boolean
-  editing?: boolean
-  file: WorkspaceFile | null
-  editContent: string
-  editPlaceholder?: string
-  emptyText: string
-  maxWidth?: string
-  padding?: string
-}>(), {
-  loading: false,
-  editing: false,
-  editPlaceholder: '',
-  maxWidth: '960px',
-  padding: 'var(--spacing-6)',
-})
-
-const emit = defineEmits<{
-  (e: 'update:editContent', value: string): void
-  (e: 'save'): void
-}>()
-
-const settingsStore = useSettingsStore()
-
-const isMarkdown = computed(() => props.file?.fileType === 'markdown')
-
-// 复用文件编辑器的语言策略，将文件路径解析为 Monaco 语言 id
-const monacoLanguage = computed(() => {
-  if (!props.file?.path) return 'plaintext'
-  return getLanguageStrategy(props.file.path).monacoLanguageId
-})
-
-const contentStyle = computed(() => ({
-  '--config-file-workspace-max-width': props.maxWidth,
-  '--config-file-workspace-padding': props.padding,
-}))
-
-function handleInput(value: string): void {
-  emit('update:editContent', value)
-}
-
-function handleSaveShortcut(): void {
-  emit('save')
-}
+const {
+  EaIcon,
+  MonacoCodeEditor,
+  MarkdownRenderer,
+  settingsStore,
+  isMarkdown,
+  monacoLanguage,
+  contentStyle,
+  handleInput,
+  handleSaveShortcut,
+} = useConfigFileWorkspace(props, emit)
 </script>
 
 <template>
