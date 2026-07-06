@@ -1,4 +1,10 @@
-import { computed, onMounted } from 'vue'
+/** 文件编辑工作区视图状态：聚合工具栏数据、图片预览（viewerjs）与选中代码发送到会话的行为。 */
+import { computed, onBeforeUnmount, onMounted, nextTick, ref, watch } from 'vue'
+import Viewer from 'viewerjs'
+import 'viewerjs/dist/viewer.css'
+import { EaButton, EaIcon } from '@/components/common'
+import MonacoCodeEditor from '../monacoCodeEditor/MonacoCodeEditor.vue'
+import RichMarkdownEditor from '../richMarkdownEditor/RichMarkdownEditor.vue'
 import { useSessionFileReference } from '@/composables'
 import { useSettingsStore } from '@/stores/settings'
 import { createFileLineRangeMention } from '@/utils/composerFileMention'
@@ -6,11 +12,15 @@ import { prewarmMonacoEditor } from '../../monaco/setup'
 import { useFileEditorStore } from '../../stores/fileEditor'
 import type { MarkdownEditorMode } from '../../types'
 
+export interface FileEditorWorkspaceProps {
+  compact?: boolean
+}
+
 /**
- * 文件编辑工作区视图状态。
- * 负责聚合工具栏展示数据和选中代码发送到会话的行为。
+ * 文件编辑工作区状态机。
+ * 负责聚合工具栏展示数据、图片预览（viewerjs）生命周期和选中代码发送到会话的行为。
  */
-export function useFileEditorWorkspace() {
+export function useFileEditorWorkspace(props: Readonly<FileEditorWorkspaceProps>) {
   const fileEditorStore = useFileEditorStore()
   const settingsStore = useSettingsStore()
   const { sendFileReferencesToSession } = useSessionFileReference()
@@ -32,6 +42,20 @@ export function useFileEditorWorkspace() {
     }
 
     return '编辑'
+  })
+
+  const editorFontSize = computed(() => {
+    if (!props.compact) {
+      return settingsStore.settings.editorFontSize
+    }
+
+    return Math.min(settingsStore.settings.editorFontSize, 12)
+  })
+
+  const unsupportedExtension = computed(() => {
+    if (fileEditorStore.previewMode !== 'unsupported' || !fileEditorStore.activeFilePath) return ''
+    const lastDot = fileEditorStore.activeFilePath.lastIndexOf('.')
+    return lastDot >= 0 ? fileEditorStore.activeFilePath.slice(lastDot + 1).toUpperCase() : ''
   })
 
   const handleSave = async (): Promise<void> => {
@@ -58,6 +82,55 @@ export function useFileEditorWorkspace() {
     fileEditorStore.setMarkdownMode(mode)
   }
 
+  const imageContainerRef = ref<HTMLElement | null>(null)
+  let viewerInstance: Viewer | null = null
+
+  function destroyViewer(): void {
+    if (viewerInstance) {
+      viewerInstance.destroy()
+      viewerInstance = null
+    }
+  }
+
+  watch(
+    () => fileEditorStore.imageUrl,
+    async (url) => {
+      destroyViewer()
+      if (!url || fileEditorStore.previewMode !== 'image') return
+
+      await nextTick()
+      if (!imageContainerRef.value) return
+
+      const img = imageContainerRef.value.querySelector('img')
+      if (!img) return
+
+      viewerInstance = new Viewer(imageContainerRef.value, {
+        inline: false,
+        toolbar: {
+          zoomIn: true,
+          zoomOut: true,
+          oneToOne: true,
+          reset: true,
+          prev: false,
+          next: false,
+          rotateLeft: true,
+          rotateRight: true,
+          flipHorizontal: true,
+          flipVertical: true,
+        },
+        title: false,
+        navbar: false,
+        tooltip: true,
+        scalable: true,
+        transition: true,
+      })
+    }
+  )
+
+  onBeforeUnmount(() => {
+    destroyViewer()
+  })
+
   onMounted(() => {
     if (typeof window !== 'undefined') {
       const run = () => {
@@ -74,11 +147,18 @@ export function useFileEditorWorkspace() {
 
   return {
     fileEditorStore,
+    settingsStore,
+    markdownModeText,
+    saveStatusText,
+    editorFontSize,
+    unsupportedExtension,
+    imageContainerRef,
     handleMarkdownModeChange,
     handleSave,
     handleSendSelectionToSession,
-    markdownModeText,
-    saveStatusText,
-    settingsStore
+    EaButton,
+    EaIcon,
+    MonacoCodeEditor,
+    RichMarkdownEditor
   }
 }

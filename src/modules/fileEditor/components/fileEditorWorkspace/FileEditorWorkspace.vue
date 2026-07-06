@@ -1,90 +1,29 @@
 <script setup lang="ts">
-import { computed, ref, watch, onBeforeUnmount, nextTick } from 'vue'
-import Viewer from 'viewerjs'
-import 'viewerjs/dist/viewer.css'
-import { EaButton, EaIcon } from '@/components/common'
-import MonacoCodeEditor from '../monacoCodeEditor/MonacoCodeEditor.vue'
-import RichMarkdownEditor from '../richMarkdownEditor/RichMarkdownEditor.vue'
-import { useFileEditorWorkspace } from './useFileEditorWorkspace'
+import {
+  useFileEditorWorkspace,
+  type FileEditorWorkspaceProps
+} from './useFileEditorWorkspace'
 
-const props = withDefaults(defineProps<{
-  compact?: boolean
-}>(), {
+const props = withDefaults(defineProps<FileEditorWorkspaceProps>(), {
   compact: false
 })
 
 const {
   fileEditorStore,
+  settingsStore,
+  markdownModeText,
+  saveStatusText,
+  editorFontSize,
+  unsupportedExtension,
+  imageContainerRef,
   handleMarkdownModeChange,
   handleSave,
   handleSendSelectionToSession,
-  markdownModeText,
-  saveStatusText,
-  settingsStore
-} = useFileEditorWorkspace()
-
-const imageContainerRef = ref<HTMLElement | null>(null)
-let viewerInstance: Viewer | null = null
-
-const editorFontSize = computed(() => {
-  if (!props.compact) {
-    return settingsStore.settings.editorFontSize
-  }
-
-  return Math.min(settingsStore.settings.editorFontSize, 12)
-})
-
-const unsupportedExtension = computed(() => {
-  if (fileEditorStore.previewMode !== 'unsupported' || !fileEditorStore.activeFilePath) return ''
-  const lastDot = fileEditorStore.activeFilePath.lastIndexOf('.')
-  return lastDot >= 0 ? fileEditorStore.activeFilePath.slice(lastDot + 1).toUpperCase() : ''
-})
-
-function destroyViewer(): void {
-  if (viewerInstance) {
-    viewerInstance.destroy()
-    viewerInstance = null
-  }
-}
-
-watch(
-  () => fileEditorStore.imageUrl,
-  async (url) => {
-    destroyViewer()
-    if (!url || fileEditorStore.previewMode !== 'image') return
-
-    await nextTick()
-    if (!imageContainerRef.value) return
-
-    const img = imageContainerRef.value.querySelector('img')
-    if (!img) return
-
-    viewerInstance = new Viewer(imageContainerRef.value, {
-      inline: false,
-      toolbar: {
-        zoomIn: true,
-        zoomOut: true,
-        oneToOne: true,
-        reset: true,
-        prev: false,
-        next: false,
-        rotateLeft: true,
-        rotateRight: true,
-        flipHorizontal: true,
-        flipVertical: true,
-      },
-      title: false,
-      navbar: false,
-      tooltip: true,
-      scalable: true,
-      transition: true,
-    })
-  }
-)
-
-onBeforeUnmount(() => {
-  destroyViewer()
-})
+  EaButton,
+  EaIcon,
+  MonacoCodeEditor,
+  RichMarkdownEditor
+} = useFileEditorWorkspace(props)
 </script>
 
 <template>
