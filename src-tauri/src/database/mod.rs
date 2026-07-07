@@ -1,9 +1,62 @@
 use anyhow::Result;
-use rusqlite::{Connection, OptionalExtension};
 
 use crate::commands::support::{
     MEMORY_CHUNKS_FTS_TABLE_SQL, MEMORY_SEARCH_TRIGGERS_SQL, RAW_MEMORY_FTS_TABLE_SQL,
 };
+use crate::db;
+use rbs::Value;
+
+// ============================================================================
+// rbatis 执行辅助函数
+//
+// schema 初始化/迁移阶段都是一次性 DDL/DML，没有 ORM 实体，统一走裸 SQL：
+// - execute_raw：执行无返回的 SQL（DDL/DML，含分号分隔的多语句 batch）
+// - query_count_i64：执行返回单行单列整型的查询（COUNT(*) / SELECT 1 ...）
+// - table_has_column / table_exists 的 PRAGMA/sqlite_master 查询也用这些辅助。
+//
+// rbdc-sqlite 的 VirtualStatement 会按 ';' 切分，单次 exec() 即可执行多语句，
+// 等价于 rusqlite 的 execute_batch。
+// ============================================================================
+
+/// 执行一条（或多条分号分隔的）SQL，不返回行数据。
+///
+/// 用于建表/建索引/ALTER/UPDATE 等 DDL/DML；对应原 `conn.execute(sql, [])`
+/// 与 `conn.execute_batch(sql)`。
+async fn execute_raw(sql: &str) -> Result<()> {
+    db::rb().exec(sql, vec![]).await?;
+    Ok(())
+}
+
+/// 执行返回单行单列整型的查询，解析第一行第一列的 i64 值。
+///
+/// 用于 COUNT(*) 等标量查询；对应原 `conn.query_row(sql, [], |row| row.get(0))`。
+/// 无行返回时（空表等场景视 SQL 而定）返回 Ok(0)。
+async fn query_count_i64(sql: &str) -> Result<i64> {
+    let value = db::rb().query(sql, vec![]).await?;
+    // 查询结果形如 Value::Array(rows)；取第一行，其内部为单元素 Map，取其 value。
+    if let Value::Array(rows) = &value {
+        if let Some(first_row) = rows.first() {
+            if let Value::Map(m) = first_row {
+                if let Some((_, v)) = m.into_iter().next() {
+                    return Ok(value_to_i64(v));
+                }
+            }
+        }
+    }
+    Ok(0)
+}
+
+/// 把 rbs::Value 转成 i64（兼容 I32/I64/U32/U64/Null 等）。
+fn value_to_i64(v: &Value) -> i64 {
+    match v {
+        Value::I64(n) => *n,
+        Value::I32(n) => *n as i64,
+        Value::U32(n) => *n as i64,
+        Value::U64(n) => *n as i64,
+        Value::Null => 0,
+        _ => 0,
+    }
+}
 
 /// 数据库初始化 SQL 脚本
 const INIT_SQL: &str = r#"
@@ -729,43 +782,39 @@ const INIT_SQL: &str = r#"
 ///
 /// 旧库可能仍存在 messages 表（及其索引），这里统一 DROP，保证新库与旧库
 /// 都不再保留该表。历史数据已确认抛弃。
-fn drop_legacy_messages_table(conn: &Connection) -> Result<()> {
-    conn.execute_batch(
+async fn drop_legacy_messages_table() -> Result<()> {
+    execute_raw(
         r#"
         DROP INDEX IF EXISTS idx_messages_request;
         DROP INDEX IF EXISTS idx_messages_session_type;
         DROP INDEX IF EXISTS idx_messages_session_created;
         DROP TABLE IF EXISTS messages;
         "#,
-    )?;
+    )
+    .await?;
     Ok(())
 }
 
-fn table_has_column(conn: &Connection, table_name: &str, column_name: &str) -> Result<bool> {
-    let pragma_sql = format!("PRAGMA table_info({})", table_name);
-    let mut stmt = conn.prepare(&pragma_sql)?;
-    let mut rows = stmt.query([])?;
-
-    while let Some(row) = rows.next()? {
-        let name: String = row.get(1)?;
-        if name == column_name {
-            return Ok(true);
-        }
-    }
-
-    Ok(false)
+async fn table_has_column(table_name: &str, column_name: &str) -> Result<bool> {
+    // 使用 pragma_table_info 表值函数 + COUNT，把"列是否存在"变成标量查询，
+    // 避免遍历 PRAGMA 多行结果（rbatis 标量解析更简单）。
+    // table_name/column_name 来自代码常量，非用户输入，直接拼接是安全的。
+    let sql = format!(
+        "SELECT COUNT(*) FROM pragma_table_info('{}') WHERE name = '{}'",
+        table_name, column_name
+    );
+    let count = query_count_i64(&sql).await?;
+    Ok(count > 0)
 }
 
 /// 检测表是否存在（用于条件迁移）。
-fn table_exists(conn: &Connection, table_name: &str) -> Result<bool> {
-    conn.query_row(
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
-        [table_name],
-        |_| Ok(()),
-    )
-    .optional()
-    .map(|opt| opt.is_some())
-    .map_err(Into::into)
+async fn table_exists(table_name: &str) -> Result<bool> {
+    let sql = format!(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '{}'",
+        table_name
+    );
+    let count = query_count_i64(&sql).await?;
+    Ok(count > 0)
 }
 
 /// 将旧 `agent_experts`（专家团队）表迁移为 `sub_agents`（子代理）表。
@@ -776,10 +825,10 @@ fn table_exists(conn: &Connection, table_name: &str) -> Result<bool> {
 ///   `default_model_id`，补默认值给新增的 `tools`/`disallowed_tools`/`model`/
 ///   `permission_mode`/`max_turns`），随后 DROP 旧表；
 /// - 补建索引。
-fn migrate_agent_experts_to_sub_agents(conn: &Connection) -> Result<()> {
-    let sub_agents_ready = table_has_column(conn, "sub_agents", "prompt")?;
+async fn migrate_agent_experts_to_sub_agents() -> Result<()> {
+    let sub_agents_ready = table_has_column("sub_agents", "prompt").await?;
     if !sub_agents_ready {
-        conn.execute_batch(
+        execute_raw(
             r#"
             CREATE TABLE IF NOT EXISTS sub_agents (
                 id TEXT PRIMARY KEY,
@@ -803,15 +852,16 @@ fn migrate_agent_experts_to_sub_agents(conn: &Connection) -> Result<()> {
                 updated_at TEXT NOT NULL
             );
             "#,
-        )?;
+        )
+        .await?;
     }
 
     // 旧表存在则把 persona 数据迁移过来，再删除旧表。
     // runtime_agent_id / default_model_id 故意不迁移：执行器选择已上移到
     // session/plan/soloRun 实体列，子代理不再持有载体绑定。
-    if table_exists(conn, "agent_experts")? {
+    if table_exists("agent_experts").await? {
         println!("Migrating agent_experts -> sub_agents ...");
-        conn.execute_batch(
+        execute_raw(
             r#"
             INSERT OR IGNORE INTO sub_agents (
                 id, builtin_code, name, description, prompt,
@@ -827,18 +877,20 @@ fn migrate_agent_experts_to_sub_agents(conn: &Connection) -> Result<()> {
             FROM agent_experts;
             DROP TABLE agent_experts;
             "#,
-        )?;
+        )
+        .await?;
         println!("agent_experts migrated to sub_agents.");
     }
 
-    conn.execute_batch(
+    execute_raw(
         "CREATE INDEX IF NOT EXISTS idx_sub_agents_enabled_order ON sub_agents(is_enabled, sort_order, updated_at DESC)",
-    )?;
+    )
+    .await?;
     Ok(())
 }
 
 /// 初始化数据库
-pub fn init_database() -> Result<()> {
+pub async fn init_database() -> Result<()> {
     // 获取持久化目录
     let persistence_dir = crate::commands::get_persistence_dir_path()?;
     let db_path = persistence_dir.join("data").join("easy-agent.db");
@@ -849,20 +901,24 @@ pub fn init_database() -> Result<()> {
 
     println!("Database path: {:?}", db_path);
 
-    // 打开数据库连接
-    let conn = Connection::open(&db_path)?;
+    // 初始化 rbatis 连接池（替代原 Connection::open）。
+    // db::init_db 内部以 sqlite://<path> 初始化全局 RBatis 单例。
+    let db_path_str = db_path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("invalid database path: non-utf8"))?;
+    db::init_db(db_path_str)?;
 
     // 启用 WAL 模式以支持并发读写，避免 "database is locked" 错误
-    conn.execute_batch("PRAGMA journal_mode = WAL")?;
+    execute_raw("PRAGMA journal_mode = WAL").await?;
     // 启用外键约束（SQLite 默认不启用）
-    conn.execute("PRAGMA foreign_keys = OFF", [])?;
+    execute_raw("PRAGMA foreign_keys = OFF").await?;
 
     // 执行初始化 SQL
-    conn.execute_batch(INIT_SQL)?;
+    execute_raw(INIT_SQL).await?;
 
     // messages 表已废弃（ACP 消息由 session/load 重放历史，不再本地落库）。
     // 旧库若仍存在该表则 DROP，保证新旧库都不再保留。
-    drop_legacy_messages_table(&conn)?;
+    drop_legacy_messages_table().await?;
 
     // 执行迁移（忽略列已存在的错误）
     // SQLite 不支持 IF NOT EXISTS 用于 ALTER TABLE ADD COLUMN
@@ -894,7 +950,7 @@ pub fn init_database() -> Result<()> {
 
     for migration in migrations {
         // 忽略"列已存在"错误
-        if let Err(e) = conn.execute(migration, []) {
+        if let Err(e) = execute_raw(migration).await {
             let err_str = e.to_string();
             if !err_str.contains("duplicate column name") {
                 println!("Migration warning: {}", e);
@@ -910,7 +966,7 @@ pub fn init_database() -> Result<()> {
     ];
 
     for migration in agent_migrations {
-        if let Err(e) = conn.execute(migration, []) {
+        if let Err(e) = execute_raw(migration).await {
             let err_str = e.to_string();
             if !err_str.contains("duplicate column name") {
                 println!("Agent migration warning: {}", e);
@@ -931,7 +987,7 @@ pub fn init_database() -> Result<()> {
     ];
 
     for migration in unified_agent_migrations {
-        if let Err(e) = conn.execute(migration, []) {
+        if let Err(e) = execute_raw(migration).await {
             let err_str = e.to_string();
             if !err_str.contains("duplicate column name") {
                 println!("Unified agent migration warning: {}", e);
@@ -939,32 +995,32 @@ pub fn init_database() -> Result<()> {
         }
     }
 
-    if !table_has_column(&conn, "solo_runs", "participant_expert_ids_json")? {
-        conn.execute(
+    if !table_has_column("solo_runs", "participant_expert_ids_json").await? {
+        execute_raw(
             "ALTER TABLE solo_runs ADD COLUMN participant_expert_ids_json TEXT NOT NULL DEFAULT '[]'",
-            [],
-        )?;
+        )
+        .await?;
     }
 
-    if !table_has_column(&conn, "solo_runs", "execution_path")? {
-        conn.execute(
+    if !table_has_column("solo_runs", "execution_path").await? {
+        execute_raw(
             "ALTER TABLE solo_runs ADD COLUMN execution_path TEXT NOT NULL DEFAULT ''",
-            [],
-        )?;
-        conn.execute(
+        )
+        .await?;
+        execute_raw(
             "UPDATE solo_runs SET execution_path = COALESCE((SELECT path FROM projects WHERE projects.id = solo_runs.project_id), '') WHERE execution_path = ''",
-            [],
-        )?;
+        )
+        .await?;
     }
 
     // themes 表统一加 updated_at（与其他配置表保持一致）
-    if !table_has_column(&conn, "themes", "updated_at")? {
-        conn.execute(
+    if !table_has_column("themes", "updated_at").await? {
+        execute_raw(
             "ALTER TABLE themes ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
-            [],
-        )?;
+        )
+        .await?;
         // 用已有 created_at 回填，保证非空
-        conn.execute("UPDATE themes SET updated_at = created_at WHERE updated_at = ''", [])?;
+        execute_raw("UPDATE themes SET updated_at = created_at WHERE updated_at = ''").await?;
     }
 
     // skills 表添加新字段（从市场安装的 skills）
@@ -979,7 +1035,7 @@ pub fn init_database() -> Result<()> {
     ];
 
     for migration in skills_migrations {
-        if let Err(e) = conn.execute(migration, []) {
+        if let Err(e) = execute_raw(migration).await {
             let err_str = e.to_string();
             if !err_str.contains("duplicate column name") {
                 println!("Skills migration warning: {}", e);
@@ -994,7 +1050,7 @@ pub fn init_database() -> Result<()> {
     ];
 
     for migration in index_migrations {
-        if let Err(e) = conn.execute(migration, []) {
+        if let Err(e) = execute_raw(migration).await {
             println!("Skills index migration warning: {}", e);
         }
     }
@@ -1014,7 +1070,7 @@ pub fn init_database() -> Result<()> {
             rolled_back_at TEXT
         )
     "#;
-    if let Err(e) = conn.execute(history_table_sql, []) {
+    if let Err(e) = execute_raw(history_table_sql).await {
         println!("MCP install history table migration warning: {}", e);
     }
 
@@ -1024,7 +1080,7 @@ pub fn init_database() -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_mcp_install_history_mcp ON mcp_install_history(mcp_name)",
     ];
     for migration in history_index_migrations {
-        if let Err(e) = conn.execute(migration, []) {
+        if let Err(e) = execute_raw(migration).await {
             println!("MCP install history index migration warning: {}", e);
         }
     }
@@ -1047,14 +1103,14 @@ pub fn init_database() -> Result<()> {
             updated_at TEXT NOT NULL
         )
     "#;
-    if let Err(e) = conn.execute(agent_models_table_sql, []) {
+    if let Err(e) = execute_raw(agent_models_table_sql).await {
         println!("Agent models table migration warning: {}", e);
     }
 
     // 创建索引
     let agent_models_index_sql =
         "CREATE INDEX IF NOT EXISTS idx_agent_models_agent ON agent_models(agent_id)";
-    if let Err(e) = conn.execute(agent_models_index_sql, []) {
+    if let Err(e) = execute_raw(agent_models_index_sql).await {
         println!("Agent models index migration warning: {}", e);
     }
 
@@ -1066,7 +1122,7 @@ pub fn init_database() -> Result<()> {
     ];
 
     for migration in agent_models_migrations {
-        if let Err(e) = conn.execute(migration, []) {
+        if let Err(e) = execute_raw(migration).await {
             let err_str = e.to_string();
             if !err_str.contains("duplicate column name") {
                 println!("Agent models migration warning: {}", e);
@@ -1075,10 +1131,11 @@ pub fn init_database() -> Result<()> {
     }
 
     // sub_agents 表添加 is_system 字段（系统级子代理，配置页隐藏）
-    if let Err(e) = conn.execute(
+    if let Err(e) = execute_raw(
         "ALTER TABLE sub_agents ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0",
-        [],
-    ) {
+    )
+    .await
+    {
         let err_str = e.to_string();
         if !err_str.contains("duplicate column name") {
             println!("Sub agents migration warning: {}", e);
@@ -1102,7 +1159,7 @@ pub fn init_database() -> Result<()> {
     ];
 
     for migration in plans_migrations {
-        if let Err(e) = conn.execute(migration, []) {
+        if let Err(e) = execute_raw(migration).await {
             let err_str = e.to_string();
             if !err_str.contains("duplicate column name") {
                 println!("Plans migration warning: {}", e);
@@ -1118,7 +1175,7 @@ pub fn init_database() -> Result<()> {
             PRIMARY KEY (plan_id, library_id)
         )
     "#;
-    if let Err(e) = conn.execute(plan_memory_libraries_table_sql, []) {
+    if let Err(e) = execute_raw(plan_memory_libraries_table_sql).await {
         println!("Plan memory libraries table migration warning: {}", e);
     }
 
@@ -1147,7 +1204,7 @@ pub fn init_database() -> Result<()> {
     ];
 
     for migration in tasks_migrations {
-        if let Err(e) = conn.execute(migration, []) {
+        if let Err(e) = execute_raw(migration).await {
             let err_str = e.to_string();
             if !err_str.contains("duplicate column name") {
                 println!("Tasks migration warning: {}", e);
@@ -1155,15 +1212,16 @@ pub fn init_database() -> Result<()> {
         }
     }
 
-    if let Err(e) = conn.execute(
+    if let Err(e) = execute_raw(
         "CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id, task_order, created_at)",
-        [],
-    ) {
+    )
+    .await
+    {
         println!("Tasks project index migration warning: {}", e);
     }
 
-    if table_has_column(&conn, "tasks", "project_id")? {
-        if let Err(e) = conn.execute(
+    if table_has_column("tasks", "project_id").await? {
+        if let Err(e) = execute_raw(
             r#"
             UPDATE tasks
             SET project_id = (
@@ -1178,12 +1236,13 @@ pub fn init_database() -> Result<()> {
                 WHERE plans.id = tasks.plan_id
               )
             "#,
-            [],
-        ) {
+        )
+        .await
+        {
             println!("Tasks project backfill from plans warning: {}", e);
         }
 
-        if let Err(e) = conn.execute(
+        if let Err(e) = execute_raw(
             r#"
             UPDATE tasks
             SET project_id = (
@@ -1200,8 +1259,9 @@ pub fn init_database() -> Result<()> {
                 WHERE sessions.id = tasks.session_id
               )
             "#,
-            [],
-        ) {
+        )
+        .await
+        {
             println!("Tasks project backfill from sessions warning: {}", e);
         }
     }
@@ -1214,15 +1274,15 @@ pub fn init_database() -> Result<()> {
             PRIMARY KEY (task_id, library_id)
         )
     "#;
-    if let Err(e) = conn.execute(task_memory_libraries_table_sql, []) {
+    if let Err(e) = execute_raw(task_memory_libraries_table_sql).await {
         println!("Task memory libraries table migration warning: {}", e);
     }
 
-    if !table_has_column(&conn, "solo_runs", "memory_library_ids_json")? {
-        conn.execute(
+    if !table_has_column("solo_runs", "memory_library_ids_json").await? {
+        execute_raw(
             "ALTER TABLE solo_runs ADD COLUMN memory_library_ids_json TEXT NOT NULL DEFAULT '[]'",
-            [],
-        )?;
+        )
+        .await?;
     }
 
     let solo_run_memory_libraries_table_sql = r#"
@@ -1233,7 +1293,7 @@ pub fn init_database() -> Result<()> {
             PRIMARY KEY (run_id, library_id)
         )
     "#;
-    if let Err(e) = conn.execute(solo_run_memory_libraries_table_sql, []) {
+    if let Err(e) = execute_raw(solo_run_memory_libraries_table_sql).await {
         println!("SOLO run memory libraries table migration warning: {}", e);
     }
 
@@ -1262,7 +1322,7 @@ pub fn init_database() -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_task_runtime_bindings_runtime ON task_runtime_bindings(runtime_key, updated_at DESC)",
     ];
     for migration in runtime_binding_tables {
-        if let Err(e) = conn.execute(migration, []) {
+        if let Err(e) = execute_raw(migration).await {
             println!("Runtime binding migration warning: {}", e);
         }
     }
@@ -1310,13 +1370,13 @@ pub fn init_database() -> Result<()> {
         "#,
     ];
     for migration in runtime_binding_backfills {
-        if let Err(e) = conn.execute(migration, []) {
+        if let Err(e) = execute_raw(migration).await {
             println!("Runtime binding backfill warning: {}", e);
         }
     }
 
     // agent_experts -> sub_agents 迁移（表重建 + persona 数据保留）
-    migrate_agent_experts_to_sub_agents(&conn)?;
+    migrate_agent_experts_to_sub_agents().await?;
 
     // task_split_sessions 表（存储AI原始输出和解析状态）
     let task_split_sessions_table_sql = r#"
@@ -1333,14 +1393,14 @@ pub fn init_database() -> Result<()> {
             updated_at TEXT NOT NULL
         )
     "#;
-    if let Err(e) = conn.execute(task_split_sessions_table_sql, []) {
+    if let Err(e) = execute_raw(task_split_sessions_table_sql).await {
         println!("Task split sessions table migration warning: {}", e);
     }
 
     // 创建索引
     let task_split_sessions_index_sql =
         "CREATE INDEX IF NOT EXISTS idx_task_split_sessions_plan ON task_split_sessions(plan_id)";
-    if let Err(e) = conn.execute(task_split_sessions_index_sql, []) {
+    if let Err(e) = execute_raw(task_split_sessions_index_sql).await {
         println!("Task split sessions index migration warning: {}", e);
     }
 
@@ -1358,7 +1418,7 @@ pub fn init_database() -> Result<()> {
         "ALTER TABLE task_split_sessions ADD COLUMN task_count_mode TEXT NOT NULL DEFAULT 'min'",
     ];
     for migration in task_split_sessions_migrations {
-        if let Err(e) = conn.execute(migration, []) {
+        if let Err(e) = execute_raw(migration).await {
             let err_str = e.to_string();
             if !err_str.contains("duplicate column name") {
                 println!("Task split sessions migration warning: {}", e);
@@ -1377,7 +1437,7 @@ pub fn init_database() -> Result<()> {
             created_at TEXT NOT NULL
         )
     "#;
-    if let Err(e) = conn.execute(plan_split_logs_table_sql, []) {
+    if let Err(e) = execute_raw(plan_split_logs_table_sql).await {
         println!("Plan split logs table migration warning: {}", e);
     }
 
@@ -1386,7 +1446,7 @@ pub fn init_database() -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_plan_split_logs_session ON plan_split_logs(session_id, created_at ASC)",
     ];
     for migration in plan_split_logs_indexes {
-        if let Err(e) = conn.execute(migration, []) {
+        if let Err(e) = execute_raw(migration).await {
             println!("Plan split logs index migration warning: {}", e);
         }
     }
@@ -1406,7 +1466,7 @@ pub fn init_database() -> Result<()> {
             created_at TEXT NOT NULL
         )
     "#;
-    if let Err(e) = conn.execute(task_execution_results_table_sql, []) {
+    if let Err(e) = execute_raw(task_execution_results_table_sql).await {
         println!("Task execution results table migration warning: {}", e);
     }
 
@@ -1415,7 +1475,7 @@ pub fn init_database() -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_task_execution_results_task_created ON task_execution_results(task_id, created_at DESC)",
     ];
     for migration in task_execution_results_indexes {
-        if let Err(e) = conn.execute(migration, []) {
+        if let Err(e) = execute_raw(migration).await {
             println!("Task execution results index migration warning: {}", e);
         }
     }
@@ -1447,7 +1507,7 @@ pub fn init_database() -> Result<()> {
             created_at TEXT NOT NULL
         )
     "#;
-    if let Err(e) = conn.execute(agent_cli_usage_table_sql, []) {
+    if let Err(e) = execute_raw(agent_cli_usage_table_sql).await {
         println!("Agent CLI usage table migration warning: {}", e);
     }
 
@@ -1460,7 +1520,7 @@ pub fn init_database() -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_session_time ON agent_cli_usage_records(session_id, occurred_at DESC)",
     ];
     for migration in agent_cli_usage_indexes {
-        if let Err(e) = conn.execute(migration, []) {
+        if let Err(e) = execute_raw(migration).await {
             println!("Agent CLI usage index migration warning: {}", e);
         }
     }
@@ -1472,12 +1532,12 @@ pub fn init_database() -> Result<()> {
         "DROP TABLE IF EXISTS memory_categories",
     ];
     for migration in cleanup_legacy_memory_tables {
-        if let Err(e) = conn.execute(migration, []) {
+        if let Err(e) = execute_raw(migration).await {
             println!("Legacy memory cleanup warning: {}", e);
         }
     }
 
-    let needs_memory_rebuild = !table_has_column(&conn, "memory_libraries", "content_md")?;
+    let needs_memory_rebuild = !table_has_column("memory_libraries", "content_md").await?;
     if needs_memory_rebuild {
         let rebuild_tables = [
             "DROP TABLE IF EXISTS memory_merge_runs",
@@ -1488,7 +1548,7 @@ pub fn init_database() -> Result<()> {
             "DROP TABLE IF EXISTS memory_libraries",
         ];
         for migration in rebuild_tables {
-            if let Err(e) = conn.execute(migration, []) {
+            if let Err(e) = execute_raw(migration).await {
                 println!("Memory rebuild cleanup warning: {}", e);
             }
         }
@@ -1504,7 +1564,7 @@ pub fn init_database() -> Result<()> {
             updated_at TEXT NOT NULL
         )
     "#;
-    if let Err(e) = conn.execute(memory_libraries_table_sql, []) {
+    if let Err(e) = execute_raw(memory_libraries_table_sql).await {
         println!("Memory libraries table migration warning: {}", e);
     }
 
@@ -1520,7 +1580,7 @@ pub fn init_database() -> Result<()> {
             updated_at TEXT NOT NULL
         )
     "#;
-    if let Err(e) = conn.execute(raw_memory_records_table_sql, []) {
+    if let Err(e) = execute_raw(raw_memory_records_table_sql).await {
         println!("Raw memory records table migration warning: {}", e);
     }
 
@@ -1537,7 +1597,7 @@ pub fn init_database() -> Result<()> {
             created_at TEXT NOT NULL
         )
     "#;
-    if let Err(e) = conn.execute(memory_merge_runs_table_sql, []) {
+    if let Err(e) = execute_raw(memory_merge_runs_table_sql).await {
         println!("Memory merge runs table migration warning: {}", e);
     }
 
@@ -1549,7 +1609,7 @@ pub fn init_database() -> Result<()> {
             PRIMARY KEY (project_id, library_id)
         )
     "#;
-    if let Err(e) = conn.execute(project_memory_libraries_table_sql, []) {
+    if let Err(e) = execute_raw(project_memory_libraries_table_sql).await {
         println!("Project memory libraries table migration warning: {}", e);
     }
 
@@ -1564,7 +1624,7 @@ pub fn init_database() -> Result<()> {
             updated_at TEXT NOT NULL
         )
     "#;
-    if let Err(e) = conn.execute(memory_library_chunks_table_sql, []) {
+    if let Err(e) = execute_raw(memory_library_chunks_table_sql).await {
         println!("Memory library chunks table migration warning: {}", e);
     }
 
@@ -1578,23 +1638,23 @@ pub fn init_database() -> Result<()> {
             PRIMARY KEY (session_id, source_type, source_id)
         )
     "#;
-    if let Err(e) = conn.execute(session_memory_reference_history_table_sql, []) {
+    if let Err(e) = execute_raw(session_memory_reference_history_table_sql).await {
         println!(
             "Session memory reference history table migration warning: {}",
             e
         );
     }
 
-    if let Err(e) = conn.execute(RAW_MEMORY_FTS_TABLE_SQL, []) {
+    if let Err(e) = execute_raw(RAW_MEMORY_FTS_TABLE_SQL).await {
         println!("Raw memory FTS table migration warning: {}", e);
     }
 
-    if let Err(e) = conn.execute(MEMORY_CHUNKS_FTS_TABLE_SQL, []) {
+    if let Err(e) = execute_raw(MEMORY_CHUNKS_FTS_TABLE_SQL).await {
         println!("Memory library chunks FTS table migration warning: {}", e);
     }
 
     for migration in MEMORY_SEARCH_TRIGGERS_SQL {
-        if let Err(e) = conn.execute(migration, []) {
+        if let Err(e) = execute_raw(migration).await {
             println!("Memory search trigger migration warning: {}", e);
         }
     }
@@ -1614,16 +1674,16 @@ pub fn init_database() -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_session_memory_reference_history_message ON session_memory_reference_history(message_id, created_at DESC)",
     ];
     for migration in memory_indexes {
-        if let Err(e) = conn.execute(migration, []) {
+        if let Err(e) = execute_raw(migration).await {
             println!("Memory index migration warning: {}", e);
         }
     }
 
-    if let Err(e) = maybe_rebuild_fts_index(&conn, "raw_memory_records_fts", "raw_memory_records") {
+    if let Err(e) = maybe_rebuild_fts_index("raw_memory_records_fts", "raw_memory_records").await {
         println!("Raw memory FTS rebuild warning: {}", e);
     }
     if let Err(e) =
-        maybe_rebuild_fts_index(&conn, "memory_library_chunks_fts", "memory_library_chunks")
+        maybe_rebuild_fts_index("memory_library_chunks_fts", "memory_library_chunks").await
     {
         println!("Memory chunk FTS rebuild warning: {}", e);
     }
@@ -1634,7 +1694,7 @@ pub fn init_database() -> Result<()> {
         "ALTER TABLE agent_cli_usage_records ADD COLUMN cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0",
     ];
     for migration in usage_cache_migrations {
-        if let Err(e) = conn.execute(migration, []) {
+        if let Err(e) = execute_raw(migration).await {
             let err_str = e.to_string();
             if !err_str.contains("duplicate column name") {
                 println!("Usage cache migration warning: {}", e);
@@ -1647,7 +1707,7 @@ pub fn init_database() -> Result<()> {
         "ALTER TABLE agents ADD COLUMN acp_command TEXT",
     ];
     for migration in acp_migrations {
-        if let Err(e) = conn.execute(migration, []) {
+        if let Err(e) = execute_raw(migration).await {
             let err_str = e.to_string();
             if !err_str.contains("duplicate column name") {
                 println!("ACP agent migration warning: {}", e);
@@ -1657,26 +1717,109 @@ pub fn init_database() -> Result<()> {
 
     // ==================== Memory repos 2.0 ====================
     // 记忆库重构为磁盘标准 Skills 包仓库：DB 仅存元数据，内容落到文件系统。
-    if let Err(e) = init_memory_repos_schema(&conn) {
+    if let Err(e) = init_memory_repos_schema().await {
         println!("Memory repos schema migration warning: {}", e);
+    }
+
+    // ==================== 清理废弃的 messages 外键约束 ====================
+    // agent_cli_usage_records 和 session_memory_reference_history 有
+    // FOREIGN KEY (message_id) REFERENCES messages(id)，但 messages 表已废弃 DROP。
+    // 删除这些表行时 SQLite 外键检查会报 "no such table: main.messages"。
+    // 重建表去掉坏外键（数据保留）。
+    if let Err(e) = drop_legacy_messages_foreign_keys().await {
+        println!("Legacy messages FK cleanup warning: {}", e);
     }
 
     println!("Database initialized successfully");
     Ok(())
 }
 
-fn maybe_rebuild_fts_index(conn: &Connection, fts_table: &str, source_table: &str) -> Result<()> {
+/// 重建 agent_cli_usage_records 和 session_memory_reference_history，
+/// 去掉对已废弃 messages 表的外键引用（数据保留）。
+///
+/// 幂等：用 table_has_column 守卫（加一个 _fk_cleaned 标记列），
+/// 只在未清理时执行一次重建。
+async fn drop_legacy_messages_foreign_keys() -> Result<()> {
+    // agent_cli_usage_records：重建去掉 message_id 外键
+    if !table_has_column("agent_cli_usage_records", "_fk_cleaned").await? {
+        execute_raw("ALTER TABLE agent_cli_usage_records RENAME TO _agent_cli_usage_records_old").await?;
+        let new_sql = r#"CREATE TABLE agent_cli_usage_records (
+            execution_id TEXT PRIMARY KEY,
+            execution_mode TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            agent_id TEXT,
+            agent_name_snapshot TEXT,
+            model_id TEXT,
+            project_id TEXT,
+            session_id TEXT,
+            task_id TEXT,
+            message_id TEXT,
+            input_tokens INTEGER NOT NULL DEFAULT 0,
+            output_tokens INTEGER NOT NULL DEFAULT 0,
+            total_tokens INTEGER NOT NULL DEFAULT 0,
+            cache_read_input_tokens INTEGER NOT NULL DEFAULT 0,
+            cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0,
+            call_count INTEGER NOT NULL DEFAULT 1,
+            estimated_input_cost_usd REAL,
+            estimated_output_cost_usd REAL,
+            estimated_total_cost_usd REAL,
+            pricing_status TEXT NOT NULL DEFAULT 'missing_usage',
+            pricing_version TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            _fk_cleaned INTEGER NOT NULL DEFAULT 1
+        )"#;
+        execute_raw(new_sql).await?;
+        execute_raw("INSERT INTO agent_cli_usage_records (execution_id, execution_mode, provider, agent_id, agent_name_snapshot, model_id, project_id, session_id, task_id, message_id, input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, call_count, estimated_input_cost_usd, estimated_output_cost_usd, estimated_total_cost_usd, pricing_status, pricing_version, occurred_at, created_at) SELECT execution_id, execution_mode, provider, agent_id, agent_name_snapshot, model_id, project_id, session_id, task_id, message_id, input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, call_count, estimated_input_cost_usd, estimated_output_cost_usd, estimated_total_cost_usd, pricing_status, pricing_version, occurred_at, created_at FROM _agent_cli_usage_records_old").await?;
+        execute_raw("DROP TABLE _agent_cli_usage_records_old").await?;
+        // 重建索引
+        let indexes = [
+            "CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_occurred ON agent_cli_usage_records(occurred_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_provider_time ON agent_cli_usage_records(provider, occurred_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_agent_time ON agent_cli_usage_records(agent_id, occurred_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_model_time ON agent_cli_usage_records(model_id, occurred_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_mode_time ON agent_cli_usage_records(execution_mode, occurred_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_agent_cli_usage_session_time ON agent_cli_usage_records(session_id, occurred_at DESC)",
+        ];
+        for idx in indexes {
+            execute_raw(idx).await?;
+        }
+    }
+
+    // session_memory_reference_history：重建去掉 message_id 外键
+    if !table_has_column("session_memory_reference_history", "_fk_cleaned").await? {
+        execute_raw("ALTER TABLE session_memory_reference_history RENAME TO _session_memory_reference_history_old").await?;
+        execute_raw(r#"CREATE TABLE session_memory_reference_history (
+            session_id TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            message_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (session_id, source_type, source_id),
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+            _fk_cleaned INTEGER NOT NULL DEFAULT 1
+        )"#).await?;
+        execute_raw("INSERT INTO session_memory_reference_history (session_id, source_type, source_id, message_id, created_at) SELECT session_id, source_type, source_id, message_id, created_at FROM _session_memory_reference_history_old").await?;
+        execute_raw("DROP TABLE _session_memory_reference_history_old").await?;
+        execute_raw("CREATE INDEX IF NOT EXISTS idx_session_memory_reference_history_session ON session_memory_reference_history(session_id, created_at DESC)").await?;
+        execute_raw("CREATE INDEX IF NOT EXISTS idx_session_memory_reference_history_message ON session_memory_reference_history(message_id, created_at DESC)").await?;
+    }
+
+    Ok(())
+}
+
+async fn maybe_rebuild_fts_index(fts_table: &str, source_table: &str) -> Result<()> {
     let source_count_sql = format!("SELECT COUNT(*) FROM {}", source_table);
     let fts_count_sql = format!("SELECT COUNT(*) FROM {}", fts_table);
-    let source_count: i64 = conn.query_row(&source_count_sql, [], |row| row.get(0))?;
-    let fts_count: i64 = conn.query_row(&fts_count_sql, [], |row| row.get(0))?;
+    let source_count: i64 = query_count_i64(&source_count_sql).await?;
+    let fts_count: i64 = query_count_i64(&fts_count_sql).await?;
 
     if source_count == fts_count {
         return Ok(());
     }
 
     let rebuild_sql = format!("INSERT INTO {}({}) VALUES('rebuild')", fts_table, fts_table);
-    conn.execute(&rebuild_sql, [])?;
+    execute_raw(&rebuild_sql).await?;
     Ok(())
 }
 
@@ -1684,7 +1827,7 @@ fn maybe_rebuild_fts_index(conn: &Connection, fts_table: &str, source_table: &st
 ///
 /// 幂等创建：新表用 `CREATE TABLE IF NOT EXISTS`；列以 `table_has_column` 守卫增量补加，
 /// 与本文件既有迁移风格保持一致（SQLite 不支持 IF NOT EXISTS 用于 ALTER）。
-fn init_memory_repos_schema(conn: &Connection) -> Result<()> {
+async fn init_memory_repos_schema() -> Result<()> {
     let table_sql = [
         // 记忆库仓库元数据（内容落到 repo_path 指向的磁盘目录）
         r#"
@@ -1749,21 +1892,21 @@ fn init_memory_repos_schema(conn: &Connection) -> Result<()> {
         "#,
     ];
     for sql in table_sql {
-        conn.execute(sql, [])?;
+        execute_raw(sql).await?;
     }
 
     // 增量列守卫（兼容旧库升级到新表）
-    if !table_has_column(conn, "memory_repos", "internal_tools_enabled")? {
-        conn.execute("ALTER TABLE memory_repos ADD COLUMN internal_tools_enabled INTEGER NOT NULL DEFAULT 1", [])?;
+    if !table_has_column("memory_repos", "internal_tools_enabled").await? {
+        execute_raw("ALTER TABLE memory_repos ADD COLUMN internal_tools_enabled INTEGER NOT NULL DEFAULT 1").await?;
     }
-    if !table_has_column(conn, "memory_repos", "enabled")? {
-        conn.execute("ALTER TABLE memory_repos ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1", [])?;
+    if !table_has_column("memory_repos", "enabled").await? {
+        execute_raw("ALTER TABLE memory_repos ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1").await?;
     }
-    if !table_has_column(conn, "memory_jobs", "agent_id")? {
-        conn.execute("ALTER TABLE memory_jobs ADD COLUMN agent_id TEXT", [])?;
+    if !table_has_column("memory_jobs", "agent_id").await? {
+        execute_raw("ALTER TABLE memory_jobs ADD COLUMN agent_id TEXT").await?;
     }
-    if !table_has_column(conn, "memory_jobs", "model_id")? {
-        conn.execute("ALTER TABLE memory_jobs ADD COLUMN model_id TEXT", [])?;
+    if !table_has_column("memory_jobs", "model_id").await? {
+        execute_raw("ALTER TABLE memory_jobs ADD COLUMN model_id TEXT").await?;
     }
 
     let index_sql = [
@@ -1775,7 +1918,7 @@ fn init_memory_repos_schema(conn: &Connection) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_memory_job_runs_repo ON memory_job_runs(repo_id, started_at DESC)",
     ];
     for sql in index_sql {
-        conn.execute(sql, [])?;
+        execute_raw(sql).await?;
     }
 
     Ok(())

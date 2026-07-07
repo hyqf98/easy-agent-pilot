@@ -1,9 +1,9 @@
-use anyhow::Result;
-use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
-use super::support::open_db_connection;
+use crate::db;
+use crate::mappers::window as window_mapper;
+
 /// 窗口上下文信息
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -69,47 +69,33 @@ pub fn get_window_context(window: tauri::Window) -> WindowContext {
 }
 /// 锁定会话到窗口
 #[tauri::command]
-pub fn lock_session(session_id: String, window_label: String) -> Result<(), String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    conn.execute(
-        "INSERT OR REPLACE INTO window_session_locks (session_id, window_label, locked_at) VALUES (?1, ?2, strftime('%s', 'now'))",
-        [&session_id, &window_label],
-    )
-    .map_err(|e| e.to_string())?;
+pub async fn lock_session(session_id: String, window_label: String) -> Result<(), String> {
+    window_mapper::lock_session(db::rb(), &session_id, &window_label)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 /// 释放会话锁定
 #[tauri::command]
-pub fn release_session(session_id: String) -> Result<(), String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    conn.execute(
-        "DELETE FROM window_session_locks WHERE session_id = ?1",
-        [&session_id],
-    )
-    .map_err(|e| e.to_string())?;
+pub async fn release_session(session_id: String) -> Result<(), String> {
+    window_mapper::release_session(db::rb(), &session_id)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 /// 检查会话是否被锁定
 #[tauri::command]
-pub fn is_session_locked(session_id: String) -> Result<Option<String>, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    let mut stmt = conn
-        .prepare("SELECT window_label FROM window_session_locks WHERE session_id = ?1")
+pub async fn is_session_locked(session_id: String) -> Result<Option<String>, String> {
+    let row = window_mapper::is_session_locked(db::rb(), &session_id)
+        .await
         .map_err(|e| e.to_string())?;
-    let result = stmt
-        .query_row([&session_id], |row| row.get::<_, String>(0))
-        .optional()
-        .map_err(|e| e.to_string())?;
-    Ok(result)
+    Ok(row.into_iter().next().and_then(|r| r.window_label))
 }
 /// 释放窗口的所有会话锁定
 #[tauri::command]
-pub fn release_window_sessions(window_label: String) -> Result<(), String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    conn.execute(
-        "DELETE FROM window_session_locks WHERE window_label = ?1",
-        [&window_label],
-    )
-    .map_err(|e| e.to_string())?;
+pub async fn release_window_sessions(window_label: String) -> Result<(), String> {
+    window_mapper::release_window_sessions(db::rb(), &window_label)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(())
 }

@@ -1,9 +1,16 @@
 mod commands;
 mod database;
+mod db;
 mod logging;
+mod mappers;
 mod mcp_server;
+mod models;
 mod scheduler;
 mod unattended;
+
+// rbatis 宏（#[html_sql]、#[py_sql]、crud!、impled!）需要 macro_use 才能在 crate 内任意模块使用
+#[macro_use]
+extern crate rbatis;
 
 fn log_bootstrap_error(tag: &str, message: &str) {
     eprintln!("{}: {}", tag, message);
@@ -33,7 +40,6 @@ pub fn run() {
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
@@ -67,7 +73,9 @@ pub fn run() {
                 log_bootstrap_error("Persistence", &format!("Failed to initialize persistence directories: {}", e));
             }
 
-            if let Err(e) = database::init_database() {
+            // 初始化数据库（schema + 迁移）。init_database 内部会调用 db::init_db 初始化 RBatis 连接池。
+            // 顺序：先建表/迁移，再让业务命令可用。
+            if let Err(e) = tauri::async_runtime::block_on(database::init_database()) {
                 log_bootstrap_error("Database", &format!("Failed to initialize database: {}", e));
             }
 
@@ -107,7 +115,6 @@ pub fn run() {
             commands::cli::check_cli_paths_migration_needed,
             commands::cli::get_pending_migration_count,
             commands::cli::migrate_cli_paths_to_agents,
-            // CLI Installer commands
             commands::cli_installer::detect_package_managers,
             commands::cli_installer::get_cli_install_options,
             commands::cli_installer::install_cli,
@@ -188,7 +195,6 @@ pub fn run() {
             commands::mini_panel::show_mini_panel,
             commands::mini_panel::hide_mini_panel,
             commands::mini_panel::toggle_mini_panel,
-            // Desktop Pet commands
             commands::desktop_pet::search_codex_pets,
             commands::desktop_pet::get_codex_pet_detail,
             commands::desktop_pet::download_codex_pet,
@@ -218,22 +224,18 @@ pub fn run() {
             commands::agent_cli_usage::query_agent_cli_usage_stats,
             commands::agent_cli_usage::query_session_usage_summary,
             commands::agent_cli_usage::repair_agent_cli_usage_history,
-            // Agent MCP Config commands
             commands::agent_config::list_agent_mcp_configs,
             commands::agent_config::create_agent_mcp_config,
             commands::agent_config::update_agent_mcp_config,
             commands::agent_config::delete_agent_mcp_config,
-            // Agent Skills Config commands
             commands::agent_config::list_agent_skills_configs,
             commands::agent_config::create_agent_skills_config,
             commands::agent_config::update_agent_skills_config,
             commands::agent_config::delete_agent_skills_config,
-            // Agent Plugins Config commands
             commands::agent_config::list_agent_plugins_configs,
             commands::agent_config::create_agent_plugins_config,
             commands::agent_config::update_agent_plugins_config,
             commands::agent_config::delete_agent_plugins_config,
-            // Agent Models Config commands
             commands::agent_config::list_agent_models,
             commands::agent_config::create_agent_model,
             commands::agent_config::update_agent_model,
@@ -259,7 +261,6 @@ pub fn run() {
             commands::acp_sessions::read_acp_session_history,
             commands::acp_sessions::delete_session_by_id,
             commands::acp_sessions::probe_acp_session_capabilities,
-            // CLI Config commands
             commands::cli_config::get_cli_config_paths,
             commands::cli_config::read_default_cli_config_file,
             commands::cli_config::write_default_cli_config_file,
@@ -270,7 +271,6 @@ pub fn run() {
             commands::cli_config::sync_cli_items,
             commands::cli_config::open_config_file,
             commands::cli_config::get_cli_capabilities,
-            // Provider Profile commands (CC-Switch)
             commands::provider_profile::list_provider_profiles,
             commands::provider_profile::get_provider_profile,
             commands::provider_profile::create_provider_profile,
@@ -285,7 +285,6 @@ pub fn run() {
             commands::provider_profile::read_opencode_auth_providers,
             commands::provider_profile::list_opencode_models,
             commands::provider_profile::read_opencode_provider_api_key,
-            // Skill Plugin commands
             commands::skill_plugin::list_skill_all_files,
             commands::skill_plugin::create_cli_skill_scaffold,
             commands::skill_plugin::get_plugin_details,
@@ -295,7 +294,6 @@ pub fn run() {
             commands::skill_plugin::read_file_content,
             commands::skill_plugin::write_file_content,
             commands::skill_plugin::list_directory_files,
-            // Conversation commands
             commands::conversation::executor::execute_agent,
             commands::conversation::executor::is_execution_session_active,
             commands::conversation::abort_agent_execution,
@@ -303,7 +301,6 @@ pub fn run() {
             commands::conversation::respond_permission,
             commands::conversation::running_tasks::list_running_executions,
             commands::conversation::running_tasks::force_abort_execution,
-            // Plan Mode commands
             commands::plan::list_plans,
             commands::plan::get_plan,
             commands::plan::create_plan,
@@ -323,7 +320,6 @@ pub fn run() {
             commands::plan_split::stop_plan_split,
             commands::plan_split::reset_plan_split_turn_for_restart,
             commands::plan_split::clear_plan_split_session,
-            // Task commands
             commands::task::list_tasks,
             commands::task::list_project_unplanned_tasks,
             commands::task::get_task,
@@ -343,7 +339,6 @@ pub fn run() {
             commands::task::save_split_session,
             commands::task::get_split_session,
             commands::task::delete_split_session,
-            // Task Execution commands
             commands::task_execution::create_task_execution_log,
             commands::task_execution::update_task_execution_log,
             commands::task_execution::list_task_execution_logs,
@@ -353,7 +348,6 @@ pub fn run() {
             commands::task_execution::list_recent_plan_results,
             commands::task_execution::list_plan_execution_progress,
             commands::task_execution::clear_plan_execution_results,
-            // SOLO Mode commands
             commands::solo::list_solo_runs,
             commands::solo::get_solo_run,
             commands::solo::create_solo_run,
@@ -369,7 +363,6 @@ pub fn run() {
             commands::solo::get_solo_runtime_binding,
             commands::solo::upsert_solo_runtime_binding,
             commands::solo::delete_solo_runtime_binding,
-            // Unattended commands
             commands::unattended::list_unattended_channels,
             commands::unattended::create_unattended_channel,
             commands::unattended::update_unattended_channel,
@@ -387,7 +380,6 @@ pub fn run() {
             commands::unattended::record_unattended_event,
             commands::unattended::send_unattended_text,
             commands::unattended::process_unattended_structured_intent,
-            // Memory commands
             commands::memory::list_memory_libraries,
             commands::memory::get_memory_library,
             commands::memory::create_memory_library,
@@ -403,7 +395,6 @@ pub fn run() {
             commands::memory::record_session_memory_references,
             commands::memory::list_memory_merge_runs,
             commands::memory::merge_raw_memories_into_library,
-            // Memory repo commands
             commands::memory_repo::list_memory_repos,
             commands::memory_repo::get_memory_repo,
             commands::memory_repo::create_memory_repo,
@@ -414,7 +405,6 @@ pub fn run() {
             commands::memory_repo::upsert_memory_repo_source,
             commands::memory_repo::migrate_legacy_memory_libraries,
             commands::memory_repo::export_memory_repo,
-            // Memory job commands
             commands::memory_job::list_memory_jobs,
             commands::memory_job::create_memory_job,
             commands::memory_job::update_memory_job,
@@ -422,15 +412,12 @@ pub fn run() {
             commands::memory_job::trigger_memory_job,
             commands::memory_job::list_memory_job_runs,
             commands::memory_job::record_memory_job_run,
-            // App State commands
             commands::app_state::get_app_state,
             commands::app_state::set_app_state,
             commands::app_state::get_app_states,
-            // Project Access commands
             commands::project_access::record_project_access,
             commands::project_access::get_recent_projects,
             commands::project_access::delete_project_access_log,
-            // Window commands
             commands::window::open_project_in_new_window,
             commands::window::get_window_context,
             commands::window::lock_session,

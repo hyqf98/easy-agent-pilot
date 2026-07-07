@@ -11,7 +11,6 @@ use rmcp::{
 };
 
 use super::query::{clamp_params, load_repo_scope, run_query, QueryHistoryParams};
-use crate::commands::support::open_db_connection;
 
 /// 工具入参 schema（暴露给 AI）。
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -61,7 +60,7 @@ impl MemoryRepoMcpServer {
         name = "query_conversation_history",
         description = "查询本应用（Easy Agent Pilot）保存的对话历史消息。可按项目、会话、时间范围、角色过滤。返回消息内容用于归纳/分析。"
     )]
-    fn query_conversation_history(
+    async fn query_conversation_history(
         &self,
         Parameters(params): Parameters<QueryHistoryToolParams>,
     ) -> String {
@@ -75,7 +74,7 @@ impl MemoryRepoMcpServer {
         };
 
         // 1. 加载仓库数据源上界
-        let scope = match load_repo_scope(&self.repo_id) {
+        let scope = match load_repo_scope(&self.repo_id).await {
             Ok(scope) => scope,
             Err(e) => return format!("加载数据源范围失败: {e}"),
         };
@@ -83,12 +82,8 @@ impl MemoryRepoMcpServer {
         // 2. 裁剪入参
         let (effective, summary) = clamp_params(&params, &scope);
 
-        // 3. 查询
-        let conn = match open_db_connection() {
-            Ok(conn) => conn,
-            Err(e) => return format!("打开数据库失败: {e}"),
-        };
-        let messages = match run_query(&conn, &effective) {
+        // 3. 查询（messages 表已废弃，恒返回空）
+        let messages = match run_query(&effective) {
             Ok(rows) => rows,
             Err(e) => return format!("查询失败: {e}"),
         };

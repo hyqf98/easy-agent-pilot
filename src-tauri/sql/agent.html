@@ -1,0 +1,76 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!-- 查询全部智能体（按更新时间倒序）。type 列取别名为 agent_type 以匹配行映射字段。 -->
+  <select id="list_agents">
+    `select id, name, type as agent_type, provider, cli_path, api_key, base_url, model_id, custom_model_enabled,`
+    ` mode, model, status, test_message, tested_at, created_at, updated_at, acp_command`
+    ` from agents order by updated_at desc`
+  </select>
+
+  <!-- 按 id 查询单个智能体 -->
+  <select id="get_agent_by_id">
+    `select id, name, type as agent_type, provider, cli_path, api_key, base_url, model_id, custom_model_enabled,`
+    ` mode, model, status, test_message, tested_at, created_at, updated_at, acp_command`
+    ` from agents where id = #{id}`
+  </select>
+
+  <!-- 新建智能体。列 type 的值由参数 agent_type 提供。 -->
+  <insert id="create_agent">
+    `insert into agents (id, name, type, provider, cli_path, api_key, base_url, model_id, custom_model_enabled,`
+    ` mode, model, status, acp_command, created_at, updated_at)`
+    ` values (#{id}, #{name}, #{agent_type}, #{provider}, #{cli_path}, #{api_key}, #{base_url}, #{model_id},`
+    ` #{custom_model_enabled}, #{mode}, #{model}, #{status}, #{acp_command}, #{created_at}, #{updated_at})`
+  </insert>
+
+  <!--
+    动态更新智能体。
+    取代旧 UpdateSqlBuilder（push 字段 + bind_optional 顺序绑参）的隐性耦合：
+    这里 <set> + <if> 让"哪些列参与更新"完全由参数是否 Some 决定，顺序无关。
+    updated_at 始终更新（与旧实现一致）。
+  -->
+  <update id="update_agent">
+    `update agents`
+    <set>
+      ` updated_at = #{updated_at},`
+      <if test="name != null">` name = #{name},`</if>
+      <if test="agent_type != null">` type = #{agent_type},`</if>
+      <if test="provider != null">` provider = #{provider},`</if>
+      <if test="cli_path != null">` cli_path = #{cli_path},`</if>
+      <if test="api_key != null">` api_key = #{api_key},`</if>
+      <if test="base_url != null">` base_url = #{base_url},`</if>
+      <if test="model_id != null">` model_id = #{model_id},`</if>
+      <if test="custom_model_enabled != null">` custom_model_enabled = #{custom_model_enabled},`</if>
+      <if test="mode != null">` mode = #{mode},`</if>
+      <if test="model != null">` model = #{model},`</if>
+      <if test="status != null">` status = #{status},`</if>
+      <if test="acp_command != null">` acp_command = #{acp_command},`</if>
+    </set>
+    ` where id = #{id}`
+  </update>
+
+  <!-- 删除智能体 -->
+  <delete id="delete_agent">
+    `delete from agents where id = #{id}`
+  </delete>
+
+  <!-- 测试连接前置：置 status=testing -->
+  <update id="update_agent_status_testing">
+    `update agents set status = 'testing', updated_at = #{updated_at} where id = #{id}`
+  </update>
+
+  <!-- 测试连接后置：写回 status / test_message / tested_at -->
+  <update id="update_agent_test_result">
+    `update agents set status = #{status}, test_message = #{test_message}, tested_at = #{tested_at},`
+    ` updated_at = #{updated_at} where id = #{id}`
+  </update>
+
+  <!-- 读取智能体 provider（供 agent_config 判定 codex/opencode），单列别名 value -->
+  <select id="select_agent_provider">
+    `select provider as value from agents where id = #{id}`
+  </select>
+
+  <!-- 读取 ACP 命令（acp_command 优先，回退 cli_path），供模型同步探测，单列别名 value -->
+  <select id="select_agent_command">
+    `select coalesce(acp_command, cli_path) as value from agents where id = #{id}`
+  </select>
+</mapper>

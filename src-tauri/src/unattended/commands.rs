@@ -20,39 +20,39 @@ const LOGIN_LOG_TARGET: &str = "unattended.weixin.login";
 
 /// 列出无人值守渠道配置。
 #[tauri::command]
-pub fn list_unattended_channels() -> Result<Vec<UnattendedChannel>, String> {
-    repository::list_channels()
+pub async fn list_unattended_channels() -> Result<Vec<UnattendedChannel>, String> {
+    repository::list_channels().await
 }
 
 /// 创建无人值守渠道配置。
 #[tauri::command]
-pub fn create_unattended_channel(
+pub async fn create_unattended_channel(
     input: CreateUnattendedChannelInput,
 ) -> Result<UnattendedChannel, String> {
-    repository::create_channel(input)
+    repository::create_channel(input).await
 }
 
 /// 更新无人值守渠道配置。
 #[tauri::command]
-pub fn update_unattended_channel(
+pub async fn update_unattended_channel(
     id: String,
     input: UpdateUnattendedChannelInput,
 ) -> Result<UnattendedChannel, String> {
-    repository::update_channel(id, input)
+    repository::update_channel(id, input).await
 }
 
 /// 删除无人值守渠道配置。
 #[tauri::command]
-pub fn delete_unattended_channel(id: String) -> Result<(), String> {
-    repository::delete_channel(id)
+pub async fn delete_unattended_channel(id: String) -> Result<(), String> {
+    repository::delete_channel(id).await
 }
 
 /// 列出渠道账号。
 #[tauri::command]
-pub fn list_unattended_channel_accounts(
+pub async fn list_unattended_channel_accounts(
     channel_id: Option<String>,
 ) -> Result<Vec<UnattendedChannelAccount>, String> {
-    repository::list_accounts(channel_id)
+    repository::list_accounts(channel_id).await
 }
 
 /// 启动微信扫码登录流程。
@@ -65,7 +65,7 @@ pub async fn start_unattended_weixin_login(
         LOGIN_LOG_TARGET,
         &format!("start_weixin_login begin: channel_id={channel_id}"),
     );
-    let channel = repository::get_channel(&channel_id)?;
+    let channel = repository::get_channel(&channel_id).await?;
     if channel.channel_type != CHANNEL_TYPE_WEIXIN {
         return Err("仅支持微信渠道".to_string());
     }
@@ -105,7 +105,7 @@ pub async fn get_unattended_weixin_login_status(
             mask_qrcode(&qrcode)
         ),
     );
-    let channel = repository::get_channel(&channel_id)?;
+    let channel = repository::get_channel(&channel_id).await?;
     if channel.channel_type != CHANNEL_TYPE_WEIXIN {
         return Err("仅支持微信渠道".to_string());
     }
@@ -135,7 +135,7 @@ pub async fn get_unattended_weixin_login_status(
         ),
     );
     if status.status == "confirmed" {
-        let account = repository::upsert_weixin_account(&channel_id, &status)?;
+        let account = repository::upsert_weixin_account(&channel_id, &status).await?;
         write_log(
             "INFO",
             LOGIN_LOG_TARGET,
@@ -186,8 +186,8 @@ fn mask_qrcode(value: &str) -> String {
 
 /// 移除无人值守账号。
 #[tauri::command]
-pub fn logout_unattended_account(account_row_id: String) -> Result<(), String> {
-    repository::delete_account(&account_row_id)
+pub async fn logout_unattended_account(account_row_id: String) -> Result<(), String> {
+    repository::delete_account(&account_row_id).await
 }
 
 /// 启动渠道运行时。
@@ -204,43 +204,43 @@ pub async fn stop_unattended_runtime(app: AppHandle, channel_id: String) -> Resu
 
 /// 列出运行时状态。
 #[tauri::command]
-pub fn list_unattended_runtime_status(
+pub async fn list_unattended_runtime_status(
     channel_id: Option<String>,
 ) -> Result<Vec<RuntimeStatusSummary>, String> {
-    repository::list_runtime_status(channel_id)
+    repository::list_runtime_status(channel_id).await
 }
 
 /// 列出远程线程。
 #[tauri::command]
-pub fn list_unattended_threads(
+pub async fn list_unattended_threads(
     channel_id: Option<String>,
 ) -> Result<Vec<UnattendedThread>, String> {
-    repository::list_threads(channel_id)
+    repository::list_threads(channel_id).await
 }
 
 /// 更新远程线程上下文。
 #[tauri::command]
-pub fn update_unattended_thread_context(
+pub async fn update_unattended_thread_context(
     thread_id: String,
     input: UpdateUnattendedThreadContextInput,
 ) -> Result<UnattendedThread, String> {
-    repository::update_thread_context(&thread_id, input)
+    repository::update_thread_context(&thread_id, input).await
 }
 
 /// 列出审计事件。
 #[tauri::command]
-pub fn list_unattended_events(
+pub async fn list_unattended_events(
     input: Option<ListUnattendedEventsInput>,
 ) -> Result<Vec<UnattendedEventRecord>, String> {
-    repository::list_events(input)
+    repository::list_events(input).await
 }
 
 /// 写入审计事件。
 #[tauri::command]
-pub fn record_unattended_event(
+pub async fn record_unattended_event(
     input: RecordUnattendedEventInput,
 ) -> Result<UnattendedEventRecord, String> {
-    repository::record_event(input)
+    repository::record_event(input).await
 }
 
 /// 发送文本到当前无人值守渠道。

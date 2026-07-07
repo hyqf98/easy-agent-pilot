@@ -1,0 +1,21 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!-- 获取单个应用状态值 -->
+  <select id="get_app_state">
+    `select value from app_state where key = #{key}`
+  </select>
+
+  <!-- 设置应用状态值（upsert） -->
+  <insert id="set_app_state">
+    `insert or replace into app_state (key, value, updated_at) `
+    `values (#{key}, #{value}, strftime('%s', 'now'))`
+  </insert>
+
+  <!-- 批量获取应用状态（IN 动态拼接） -->
+  <select id="get_app_states">
+    `select key, value, updated_at from app_state where key in `
+    <foreach collection="keys" item="k" open="(" close=")" separator=",">
+      `#{k}`
+    </foreach>
+  </select>
+</mapper>

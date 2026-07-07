@@ -1,5 +1,4 @@
 #![allow(dead_code)]
-use anyhow::Result;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -17,7 +16,10 @@ use super::conversation::strategies::{
 };
 use super::conversation::types::{ExecutionRequest, MessageInput, StreamEvent};
 use super::message::MessageAttachment;
-use super::support::{now_rfc3339, open_db_connection};
+use super::support::now_rfc3339;
+use crate::db;
+use crate::mappers::plan_split as plan_split_mapper;
+use crate::models::{value_to_json_string_opt, PlanSplitSessionRow};
 
 /// 持久化到 plan_split_logs 的"完整事件"白名单。
 ///
@@ -217,29 +219,59 @@ fn is_terminal_session_status(status: &str) -> bool {
     matches!(status, "waiting_input" | "completed" | "stopped" | "failed")
 }
 
-fn map_plan_split_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<PlanSplitSession> {
-    Ok(PlanSplitSession {
-        id: row.get(0)?,
-        plan_id: row.get(1)?,
-        status: row.get(2)?,
-        execution_session_id: row.get(3)?,
-        raw_content: row.get(4)?,
-        result_json: row.get(5)?,
-        parse_error: row.get(6)?,
-        error_message: row.get(7)?,
-        granularity: row.get(8)?,
-        task_count_mode: row.get(9)?,
-        llm_messages_json: row.get(10)?,
-        messages_json: row.get(11)?,
-        execution_request_json: row.get(12)?,
-        form_queue_json: row.get(13)?,
-        current_form_index: row.get(14)?,
-        created_at: row.get(15)?,
-        updated_at: row.get(16)?,
-        started_at: row.get(17)?,
-        completed_at: row.get(18)?,
-        stopped_at: row.get(19)?,
-    })
+fn plan_split_session_row_to_session(row: PlanSplitSessionRow) -> PlanSplitSession {
+    PlanSplitSession {
+        id: row.id.unwrap_or_default(),
+        plan_id: row.plan_id.unwrap_or_default(),
+        status: row.status.unwrap_or_default(),
+        execution_session_id: row.execution_session_id,
+        raw_content: row.raw_content,
+        // `parsed_output` 列在 DTO 中对应 `result_json`。
+        result_json: value_to_json_string_opt(row.parsed_output),
+        parse_error: row.parse_error,
+        error_message: row.error_message,
+        granularity: row.granularity.unwrap_or(0) as i32,
+        task_count_mode: row.task_count_mode.unwrap_or_default(),
+        llm_messages_json: value_to_json_string_opt(row.llm_messages_json),
+        messages_json: value_to_json_string_opt(row.messages_json),
+        execution_request_json: value_to_json_string_opt(row.execution_request_json),
+        form_queue_json: value_to_json_string_opt(row.form_queue_json),
+        current_form_index: row.current_form_index.map(|value| value as i32),
+        created_at: row.created_at.unwrap_or_default(),
+        updated_at: row.updated_at.unwrap_or_default(),
+        started_at: row.started_at,
+        completed_at: row.completed_at,
+        stopped_at: row.stopped_at,
+    }
+}
+
+/// 由 `PlanSplitSession` 构造用于 insert / update 的参数结构。
+fn build_session_upsert(session: &PlanSplitSession) -> plan_split_mapper::PlanSplitSessionUpsert {
+    plan_split_mapper::PlanSplitSessionUpsert {
+        id: session.id.clone(),
+        plan_id: session.plan_id.clone(),
+        status: session.status.clone(),
+        execution_session_id: session.execution_session_id.clone(),
+        raw_content: session.raw_content.clone(),
+        parsed_output: session
+            .result_json
+            .clone()
+            .map(rbs::Value::String),
+        parse_error: session.parse_error.clone(),
+        error_message: session.error_message.clone(),
+        granularity: session.granularity as i64,
+        task_count_mode: session.task_count_mode.clone(),
+        llm_messages_json: session.llm_messages_json.clone().map(rbs::Value::String),
+        messages_json: session.messages_json.clone().map(rbs::Value::String),
+        execution_request_json: session.execution_request_json.clone().map(rbs::Value::String),
+        form_queue_json: session.form_queue_json.clone().map(rbs::Value::String),
+        current_form_index: session.current_form_index.map(|value| value as i64),
+        created_at: session.created_at.clone(),
+        updated_at: session.updated_at.clone(),
+        started_at: session.started_at.clone(),
+        completed_at: session.completed_at.clone(),
+        stopped_at: session.stopped_at.clone(),
+    }
 }
 
 fn parse_json_vec<T: DeserializeOwned>(raw: Option<&String>) -> Vec<T> {
@@ -372,113 +404,27 @@ fn enrich_plan_split_log_metadata_from_claude_transcript(
     log.metadata = serde_json::to_string(&metadata).ok();
 }
 
-fn read_session(
-    conn: &rusqlite::Connection,
-    plan_id: &str,
-) -> Result<Option<PlanSplitSession>, String> {
-    let result = conn.query_row(
-        "SELECT id, plan_id, status, execution_session_id, raw_content, parsed_output,
-                parse_error, error_message, granularity, task_count_mode, llm_messages_json, messages_json,
-                execution_request_json, form_queue_json, current_form_index,
-                created_at, updated_at, started_at, completed_at, stopped_at
-         FROM task_split_sessions WHERE plan_id = ?1",
-        [&plan_id],
-        map_plan_split_session,
-    );
-
-    match result {
-        Ok(session) => Ok(Some(session)),
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(error) => Err(error.to_string()),
-    }
+async fn read_session(plan_id: &str) -> Result<Option<PlanSplitSession>, String> {
+    let row = plan_split_mapper::get_plan_split_session_by_plan(db::rb(), plan_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(row.into_iter().next().map(plan_split_session_row_to_session))
 }
 
-fn insert_or_update_session(
-    conn: &rusqlite::Connection,
-    session: &PlanSplitSession,
-) -> Result<(), String> {
-    let existing: Option<String> = conn
-        .query_row(
-            "SELECT id FROM task_split_sessions WHERE plan_id = ?1",
-            [&session.plan_id],
-            |row| row.get(0),
-        )
-        .ok();
+async fn insert_or_update_session(session: &PlanSplitSession) -> Result<(), String> {
+    let upsert = build_session_upsert(session);
+    let existing = plan_split_mapper::get_plan_split_session_id_by_plan(db::rb(), &session.plan_id)
+        .await
+        .map_err(|error| error.to_string())?;
 
-    if let Some(existing_id) = existing {
-        conn.execute(
-            "UPDATE task_split_sessions
-             SET status = ?1,
-                 execution_session_id = ?2,
-                 raw_content = ?3,
-                 parsed_output = ?4,
-                 parse_error = ?5,
-                 error_message = ?6,
-                 granularity = ?7,
-                 task_count_mode = ?8,
-                 llm_messages_json = ?9,
-                 messages_json = ?10,
-                 execution_request_json = ?11,
-                 form_queue_json = ?12,
-                 current_form_index = ?13,
-                 updated_at = ?14,
-                 started_at = ?15,
-                 completed_at = ?16,
-                 stopped_at = ?17
-             WHERE id = ?18",
-            rusqlite::params![
-                &session.status,
-                &session.execution_session_id,
-                &session.raw_content,
-                &session.result_json,
-                &session.parse_error,
-                &session.error_message,
-                &session.granularity,
-                &session.task_count_mode,
-                &session.llm_messages_json,
-                &session.messages_json,
-                &session.execution_request_json,
-                &session.form_queue_json,
-                &session.current_form_index,
-                &session.updated_at,
-                &session.started_at,
-                &session.completed_at,
-                &session.stopped_at,
-                &existing_id
-            ],
-        )
-        .map_err(|error| error.to_string())?;
+    if !existing.is_empty() {
+        plan_split_mapper::update_plan_split_session(db::rb(), &upsert)
+            .await
+            .map_err(|error| error.to_string())?;
     } else {
-        conn.execute(
-            "INSERT INTO task_split_sessions
-             (id, plan_id, status, execution_session_id, raw_content, parsed_output, parse_error,
-              error_message, granularity, task_count_mode, llm_messages_json, messages_json, execution_request_json,
-              form_queue_json, current_form_index, created_at, updated_at, started_at, completed_at, stopped_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
-            rusqlite::params![
-                &session.id,
-                &session.plan_id,
-                &session.status,
-                &session.execution_session_id,
-                &session.raw_content,
-                &session.result_json,
-                &session.parse_error,
-                &session.error_message,
-                &session.granularity,
-                &session.task_count_mode,
-                &session.llm_messages_json,
-                &session.messages_json,
-                &session.execution_request_json,
-                &session.form_queue_json,
-                &session.current_form_index,
-                &session.created_at,
-                &session.updated_at,
-                &session.started_at,
-                &session.completed_at,
-                &session.stopped_at
-            ],
-        )
-        .map_err(|error| error.to_string())?;
+        plan_split_mapper::insert_plan_split_session(db::rb(), &upsert)
+            .await
+            .map_err(|error| error.to_string())?;
     }
 
     Ok(())
@@ -521,8 +467,12 @@ fn parse_rfc3339_millis(value: &str) -> Option<i64> {
         .map(|datetime| datetime.timestamp_millis())
 }
 
-fn delete_plan_split_logs_from_timestamp(
-    conn: &rusqlite::Connection,
+/// 按"最后一条 user 消息时间戳"删除该 plan 上创建时间 >= 该时间戳的日志。
+///
+/// 先拉取该 plan 全部日志的 id + created_at，在内存中按毫秒级时间戳过滤，
+/// 再批量删除。单次拆分保留的日志类型受限（见 PERSISTED_PLAN_SPLIT_LOG_TYPES），
+/// 总量通常很小，串行删除无压力。
+async fn trim_plan_split_logs_after_timestamp(
     plan_id: &str,
     timestamp: Option<&str>,
 ) -> Result<(), String> {
@@ -530,28 +480,26 @@ fn delete_plan_split_logs_from_timestamp(
         return Ok(());
     };
 
-    let mut stmt = conn
-        .prepare("SELECT id, created_at FROM plan_split_logs WHERE plan_id = ?1")
+    let rows = plan_split_mapper::list_plan_split_logs_by_plan(db::rb(), plan_id)
+        .await
         .map_err(|error| error.to_string())?;
-    let log_ids = stmt
-        .query_map([plan_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })
-        .map_err(|error| error.to_string())?
-        .filter_map(|row| row.ok())
-        .filter_map(|(id, created_at)| {
+    let to_delete = rows
+        .into_iter()
+        .filter_map(|row| {
+            let id = row.id?;
+            let created_at = row.created_at?;
             let created_ms = parse_rfc3339_millis(&created_at)?;
             (created_ms >= boundary_ms).then_some(id)
         })
         .collect::<Vec<_>>();
 
-    for id in log_ids {
-        conn.execute(
-            "DELETE FROM plan_split_logs WHERE id = ?1",
-            rusqlite::params![id],
-        )
-        .map_err(|error| error.to_string())?;
+    if to_delete.is_empty() {
+        return Ok(());
     }
+
+    plan_split_mapper::delete_plan_split_logs_by_ids(db::rb(), &to_delete)
+        .await
+        .map_err(|error| error.to_string())?;
 
     Ok(())
 }
@@ -1119,46 +1067,20 @@ fn parse_split_output(
     Err("无法解析为有效的 JSON 输出。".to_string())
 }
 
-fn load_content_logs(conn: &rusqlite::Connection, session_id: &str) -> Result<String, String> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT content FROM plan_split_logs
-             WHERE session_id = ?1 AND log_type = 'content'
-             ORDER BY created_at ASC",
-        )
+async fn load_content_logs(session_id: &str) -> Result<String, String> {
+    let rows = plan_split_mapper::list_content_logs_by_session(db::rb(), session_id)
+        .await
         .map_err(|error| error.to_string())?;
-
-    let chunks = stmt
-        .query_map([session_id], |row| row.get::<_, String>(0))
-        .map_err(|error| error.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| error.to_string())?;
-
-    Ok(chunks.join(""))
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| crate::models::value_to_json_string_opt(row.value))
+        .collect::<Vec<_>>()
+        .join(""))
 }
 
-fn load_structured_output_logs(
-    conn: &rusqlite::Connection,
-    session_id: &str,
-) -> Result<Vec<String>, String> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT log_type, content, metadata FROM plan_split_logs
-             WHERE session_id = ?1
-               AND log_type IN ('tool_use', 'tool_input_delta', 'tool_result')
-             ORDER BY created_at ASC",
-        )
-        .map_err(|error| error.to_string())?;
-
-    let rows = stmt
-        .query_map([session_id], |row| {
-            let log_type: String = row.get(0)?;
-            let content: String = row.get(1)?;
-            let metadata: Option<String> = row.get(2)?;
-            Ok((log_type, content, metadata))
-        })
-        .map_err(|error| error.to_string())?
-        .collect::<Result<Vec<_>, _>>()
+async fn load_structured_output_logs(session_id: &str) -> Result<Vec<String>, String> {
+    let rows = plan_split_mapper::list_structured_output_logs_by_session(db::rb(), session_id)
+        .await
         .map_err(|error| error.to_string())?;
 
     let mut outputs = Vec::new();
@@ -1166,7 +1088,10 @@ fn load_structured_output_logs(
     let mut structured_tool_call_order = Vec::new();
     let mut structured_tool_input_chunks = HashMap::<String, String>::new();
 
-    for (log_type, content, metadata) in rows {
+    for row in rows {
+        let log_type = row.log_type.unwrap_or_default();
+        let content = row.content.unwrap_or_default();
+        let metadata = value_to_json_string_opt(row.metadata);
         let metadata_value = metadata
             .as_deref()
             .and_then(|raw| serde_json::from_str::<Value>(raw).ok());
@@ -1380,14 +1305,13 @@ fn extract_structured_output_payload(event: &SplitStreamRecord) -> Option<String
         })
 }
 
-fn finalize_session_from_structured_output(
+async fn finalize_session_from_structured_output(
     app: &AppHandle,
     plan_id: &str,
     session_id: &str,
     raw_output: &str,
 ) -> Result<bool, String> {
-    let conn = open_db_connection().map_err(|error| error.to_string())?;
-    let Some(mut session) = read_session(&conn, plan_id)? else {
+    let Some(mut session) = read_session(plan_id).await? else {
         return Ok(false);
     };
 
@@ -1404,7 +1328,7 @@ fn finalize_session_from_structured_output(
     };
 
     apply_parsed_output_to_session(&mut session, session_id, output, raw_output.to_string())?;
-    insert_or_update_session(&conn, &session)?;
+    insert_or_update_session(&session).await?;
     emit_session_updated(app, &session);
 
     let session_id = session_id.to_string();
@@ -1415,25 +1339,24 @@ fn finalize_session_from_structured_output(
     Ok(true)
 }
 
-fn refresh_session_after_turn(
+async fn refresh_session_after_turn(
     app: &AppHandle,
     plan_id: &str,
     session_id: &str,
 ) -> Result<(), String> {
-    let conn = open_db_connection().map_err(|error| error.to_string())?;
     let mut session =
-        read_session(&conn, plan_id)?.ok_or_else(|| "计划拆分会话不存在".to_string())?;
+        read_session(plan_id).await?.ok_or_else(|| "计划拆分会话不存在".to_string())?;
     if session.status == "stopped" {
         emit_session_updated(app, &session);
         return Ok(());
     }
 
-    let raw_content = load_content_logs(&conn, session_id)?;
+    let raw_content = load_content_logs(session_id).await?;
     let parsed =
         match parse_split_output(&raw_content, session.granularity, &session.task_count_mode) {
             Ok(output) => Ok((output, raw_content.clone())),
             Err(content_error) => {
-                let structured_outputs = load_structured_output_logs(&conn, session_id)?;
+                let structured_outputs = load_structured_output_logs(session_id).await?;
                 let parsed_from_tool = structured_outputs.iter().rev().find_map(|candidate| {
                     parse_split_output(candidate, session.granularity, &session.task_count_mode)
                         .ok()
@@ -1479,19 +1402,18 @@ fn refresh_session_after_turn(
         }
     }
 
-    insert_or_update_session(&conn, &session)?;
+    insert_or_update_session(&session).await?;
     emit_session_updated(app, &session);
     Ok(())
 }
 
-pub fn record_plan_split_event(
+pub async fn record_plan_split_event(
     app: &AppHandle,
     plan_id: &str,
     session_id: &str,
     event: SplitStreamRecord,
 ) -> Result<(), String> {
-    let conn = open_db_connection().map_err(|error| error.to_string())?;
-    let Some(mut session) = read_session(&conn, plan_id)? else {
+    let Some(mut session) = read_session(plan_id).await? else {
         return Ok(());
     };
 
@@ -1539,7 +1461,7 @@ pub fn record_plan_split_event(
     let _ = app.emit(&event_name, &payload);
 
     if apply_external_session_id_to_request(&mut session, payload.external_session_id.as_deref())? {
-        insert_or_update_session(&conn, &session)?;
+        insert_or_update_session(&session).await?;
     }
 
     // Layer 2.1: 轻量 token 事件（content/thinking/tool_input_delta）不再入库。
@@ -1552,44 +1474,42 @@ pub fn record_plan_split_event(
         .iter()
         .any(|t| event.event_type == *t)
     {
-        conn.execute(
-            "INSERT INTO plan_split_logs (id, plan_id, session_id, log_type, content, metadata, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            rusqlite::params![
-                uuid::Uuid::new_v4().to_string(),
-                plan_id,
-                session_id,
-                &event.event_type,
-                &content,
-                &metadata,
-                &now
-            ],
+        let id = uuid::Uuid::new_v4().to_string();
+        plan_split_mapper::insert_plan_split_log(
+            db::rb(),
+            &id,
+            plan_id,
+            session_id,
+            &event.event_type,
+            &content,
+            metadata.clone().map(rbs::Value::String),
+            &now,
         )
+        .await
         .map_err(|error| error.to_string())?;
     }
 
     if let Some(raw_output) = structured_output {
-        if finalize_session_from_structured_output(app, plan_id, session_id, &raw_output)? {
+        if finalize_session_from_structured_output(app, plan_id, session_id, &raw_output).await? {
             return Ok(());
         }
     }
 
     if payload.event_type == "done" {
-        let _ = refresh_session_after_turn(app, plan_id, session_id);
+        let _ = refresh_session_after_turn(app, plan_id, session_id).await;
     }
 
     Ok(())
 }
 
-pub fn mark_plan_split_failed(
+pub async fn mark_plan_split_failed(
     app: &AppHandle,
     plan_id: &str,
     session_id: &str,
     error_message: &str,
 ) -> Result<(), String> {
-    let conn = open_db_connection().map_err(|error| error.to_string())?;
     let mut session =
-        read_session(&conn, plan_id)?.ok_or_else(|| "计划拆分会话不存在".to_string())?;
+        read_session(plan_id).await?.ok_or_else(|| "计划拆分会话不存在".to_string())?;
 
     if session.execution_session_id.as_deref() != Some(session_id)
         || is_terminal_session_status(&session.status)
@@ -1605,7 +1525,7 @@ pub fn mark_plan_split_failed(
     session.parse_error = Some(error_message.to_string());
     session.updated_at = now.clone();
     session.completed_at = Some(now);
-    session.raw_content = Some(load_content_logs(&conn, session_id).unwrap_or_default());
+    session.raw_content = Some(load_content_logs(session_id).await.unwrap_or_default());
     let mut messages = load_messages_json(session.messages_json.as_ref());
     append_ui_message(
         &mut messages,
@@ -1613,7 +1533,7 @@ pub fn mark_plan_split_failed(
         format!("拆分失败：{error_message}"),
     );
     session.messages_json = Some(serialize_json(&messages)?);
-    insert_or_update_session(&conn, &session)?;
+    insert_or_update_session(&session).await?;
     emit_session_updated(app, &session);
     Ok(())
 }
@@ -1690,29 +1610,28 @@ fn run_split_turn(app: AppHandle, request: ExecutionRequest) {
         let consumer_app = handler_app.clone();
         let consumer_handle = tauri::async_runtime::spawn(async move {
             while let Some(record) = event_rx.recv().await {
-                // record_plan_split_event 是同步 DB I/O，用 spawn_blocking 但
-                // 在单 consumer 内串行 await，保证顺序
+                // record_plan_split_event 现为 async（rbatis），在单 consumer 内
+                // 串行 await，既保证 emit/DB 写入顺序，又无需 spawn_blocking。
                 let app_for_record = consumer_app.clone();
                 let plan_id_for_record = consumer_plan_id.clone();
                 let session_id_for_record = consumer_session_id.clone();
-                let _ = tauri::async_runtime::spawn_blocking(move || {
-                    if let Err(error) = record_plan_split_event(
-                        &app_for_record,
-                        &plan_id_for_record,
-                        &session_id_for_record,
-                        record,
-                    ) {
-                        crate::logging::write_log(
-                            "WARN",
-                            "plan_split",
-                            &format!(
-                                "record_plan_split_event failed | plan_id={} | session_id={} | {}",
-                                plan_id_for_record, session_id_for_record, error
-                            ),
-                        );
-                    }
-                })
-                .await;
+                if let Err(error) = record_plan_split_event(
+                    &app_for_record,
+                    &plan_id_for_record,
+                    &session_id_for_record,
+                    record,
+                )
+                .await
+                {
+                    crate::logging::write_log(
+                        "WARN",
+                        "plan_split",
+                        &format!(
+                            "record_plan_split_event failed | plan_id={} | session_id={} | {}",
+                            plan_id_for_record, session_id_for_record, error
+                        ),
+                    );
+                }
             }
         });
         let event_id = listener_app.listen(
@@ -1737,7 +1656,7 @@ fn run_split_turn(app: AppHandle, request: ExecutionRequest) {
         let _ = consumer_handle.await;
 
         if let Err(error) = result {
-            let _ = mark_plan_split_failed(&app, &plan_id, &session_id, &error.to_string());
+            let _ = mark_plan_split_failed(&app, &plan_id, &session_id, &error.to_string()).await;
         }
 
         // 任务结束（成功/失败/被取消）统一注销，避免注册表残留
@@ -1772,10 +1691,9 @@ fn build_running_session(input: &StartPlanSplitInput) -> Result<PlanSplitSession
 }
 
 #[tauri::command]
-pub fn get_plan_split_session(plan_id: String) -> Result<Option<PlanSplitSession>, String> {
+pub async fn get_plan_split_session(plan_id: String) -> Result<Option<PlanSplitSession>, String> {
     let started_at = Instant::now();
-    let conn = open_db_connection().map_err(|error| error.to_string())?;
-    let result = read_session(&conn, &plan_id);
+    let result = read_session(&plan_id).await;
     match &result {
         Ok(Some(session)) => println!(
             "[PlanSplitPerf] backend:get_plan_split_session plan_id={} duration_ms={} status={} messages_bytes={} raw_bytes={} result_bytes={}",
@@ -1802,36 +1720,28 @@ pub fn get_plan_split_session(plan_id: String) -> Result<Option<PlanSplitSession
 }
 
 #[tauri::command]
-pub fn list_plan_split_logs(plan_id: String) -> Result<Vec<PlanSplitLog>, String> {
+pub async fn list_plan_split_logs(plan_id: String) -> Result<Vec<PlanSplitLog>, String> {
     let started_at = Instant::now();
-    let conn = open_db_connection().map_err(|error| error.to_string())?;
-    let session = read_session(&conn, &plan_id)?;
+    let session = read_session(&plan_id).await?;
     let (working_directory, fallback_external_session_id) =
         extract_execution_request_context(session.as_ref());
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, plan_id, session_id, log_type, content, metadata, created_at
-             FROM plan_split_logs
-             WHERE plan_id = ?1
-             ORDER BY created_at ASC",
-        )
-        .map_err(|error| error.to_string())?;
 
-    let mut logs = stmt
-        .query_map([&plan_id], |row| {
-            Ok(PlanSplitLog {
-                id: row.get(0)?,
-                plan_id: row.get(1)?,
-                session_id: row.get(2)?,
-                log_type: row.get(3)?,
-                content: row.get(4)?,
-                metadata: row.get(5)?,
-                created_at: row.get(6)?,
-            })
-        })
-        .map_err(|error| error.to_string())?
-        .collect::<Result<Vec<_>, _>>()
+    let rows = plan_split_mapper::list_plan_split_logs_by_plan(db::rb(), &plan_id)
+        .await
         .map_err(|error| error.to_string())?;
+    let mut logs = rows
+        .into_iter()
+        .map(|row| PlanSplitLog {
+            id: row.id.unwrap_or_default(),
+            plan_id: row.plan_id.unwrap_or_default(),
+            session_id: row.session_id.unwrap_or_default(),
+            log_type: row.log_type.unwrap_or_default(),
+            content: row.content.unwrap_or_default(),
+            metadata: value_to_json_string_opt(row.metadata),
+            created_at: row.created_at.unwrap_or_default(),
+        })
+        .collect::<Vec<_>>();
+
     for log in &mut logs {
         enrich_plan_split_log_metadata_from_claude_transcript(
             log,
@@ -1858,44 +1768,30 @@ pub fn list_plan_split_logs(plan_id: String) -> Result<Vec<PlanSplitLog>, String
 }
 
 #[tauri::command]
-pub fn list_recent_plan_split_logs(
+pub async fn list_recent_plan_split_logs(
     plan_id: String,
     limit: Option<i64>,
 ) -> Result<Vec<PlanSplitLog>, String> {
     let limit = limit.unwrap_or(80).clamp(1, 500);
-    let conn = open_db_connection().map_err(|error| error.to_string())?;
-    let session = read_session(&conn, &plan_id)?;
+    let session = read_session(&plan_id).await?;
     let (working_directory, fallback_external_session_id) =
         extract_execution_request_context(session.as_ref());
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, plan_id, session_id, log_type, content, metadata, created_at
-             FROM (
-                SELECT id, plan_id, session_id, log_type, content, metadata, created_at
-                FROM plan_split_logs
-                WHERE plan_id = ?1
-                ORDER BY created_at DESC
-                LIMIT ?2
-             )
-             ORDER BY created_at ASC",
-        )
-        .map_err(|error| error.to_string())?;
 
-    let mut logs = stmt
-        .query_map(rusqlite::params![&plan_id, limit], |row| {
-            Ok(PlanSplitLog {
-                id: row.get(0)?,
-                plan_id: row.get(1)?,
-                session_id: row.get(2)?,
-                log_type: row.get(3)?,
-                content: row.get(4)?,
-                metadata: row.get(5)?,
-                created_at: row.get(6)?,
-            })
-        })
-        .map_err(|error| error.to_string())?
-        .collect::<Result<Vec<_>, _>>()
+    let rows = plan_split_mapper::list_recent_plan_split_logs(db::rb(), &plan_id, limit)
+        .await
         .map_err(|error| error.to_string())?;
+    let mut logs = rows
+        .into_iter()
+        .map(|row| PlanSplitLog {
+            id: row.id.unwrap_or_default(),
+            plan_id: row.plan_id.unwrap_or_default(),
+            session_id: row.session_id.unwrap_or_default(),
+            log_type: row.log_type.unwrap_or_default(),
+            content: row.content.unwrap_or_default(),
+            metadata: value_to_json_string_opt(row.metadata),
+            created_at: row.created_at.unwrap_or_default(),
+        })
+        .collect::<Vec<_>>();
     for log in &mut logs {
         enrich_plan_split_log_metadata_from_claude_transcript(
             log,
@@ -1917,22 +1813,27 @@ pub fn list_recent_plan_split_logs(
 /// - 写入 `plan_split_logs` 表；
 /// - 不会触发会话状态流转。
 #[tauri::command]
-pub fn create_plan_split_log(
+pub async fn create_plan_split_log(
     plan_id: String,
     session_id: String,
     log_type: String,
     content: String,
     metadata: Option<String>,
 ) -> Result<PlanSplitLog, String> {
-    let conn = open_db_connection().map_err(|error| error.to_string())?;
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_rfc3339();
 
-    conn.execute(
-        "INSERT INTO plan_split_logs (id, plan_id, session_id, log_type, content, metadata, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        rusqlite::params![&id, &plan_id, &session_id, &log_type, &content, &metadata, &now],
+    plan_split_mapper::insert_plan_split_log(
+        db::rb(),
+        &id,
+        &plan_id,
+        &session_id,
+        &log_type,
+        &content,
+        metadata.clone().map(rbs::Value::String),
+        &now,
     )
+    .await
     .map_err(|error| error.to_string())?;
 
     Ok(PlanSplitLog {
@@ -1955,17 +1856,18 @@ pub fn create_plan_split_log(
 /// - 更新 `plan_split_logs` 表中指定主键对应的内容与元数据；
 /// - 不改动日志创建时间，也不会触发会话状态变更。
 #[tauri::command]
-pub fn update_plan_split_log(
+pub async fn update_plan_split_log(
     id: String,
     content: String,
     metadata: Option<String>,
 ) -> Result<(), String> {
-    let conn = open_db_connection().map_err(|error| error.to_string())?;
-
-    conn.execute(
-        "UPDATE plan_split_logs SET content = ?1, metadata = ?2 WHERE id = ?3",
-        rusqlite::params![&content, &metadata, &id],
+    plan_split_mapper::update_plan_split_log(
+        db::rb(),
+        &id,
+        &content,
+        metadata.map(rbs::Value::String),
     )
+    .await
     .map_err(|error| error.to_string())?;
 
     Ok(())
@@ -1976,9 +1878,7 @@ pub async fn start_plan_split(
     app: AppHandle,
     input: StartPlanSplitInput,
 ) -> Result<PlanSplitSession, String> {
-    let conn = open_db_connection().map_err(|error| error.to_string())?;
-
-    let existing_session = read_session(&conn, &input.plan_id)?;
+    let existing_session = read_session(&input.plan_id).await?;
     if let Some(existing_session) = existing_session.as_ref() {
         if existing_session.status == "running" {
             let execution_session_id = existing_session
@@ -2008,15 +1908,15 @@ pub async fn start_plan_split(
     if input.preserve_result.unwrap_or(false) {
         session.result_json = existing_session.and_then(|session| session.result_json);
     }
-    insert_or_update_session(&conn, &session)?;
+    insert_or_update_session(&session).await?;
     emit_session_updated(&app, &session);
     run_split_turn(app, request);
     Ok(session)
 }
 
 #[tauri::command]
-pub fn resume_plan_split(plan_id: String) -> Result<Option<PlanSplitSession>, String> {
-    get_plan_split_session(plan_id)
+pub async fn resume_plan_split(plan_id: String) -> Result<Option<PlanSplitSession>, String> {
+    get_plan_split_session(plan_id).await
 }
 
 /// 覆盖当前计划拆分会话的任务预览结果。
@@ -2032,7 +1932,7 @@ pub fn resume_plan_split(plan_id: String) -> Result<Option<PlanSplitSession>, St
 /// 返回：
 /// - 更新后的计划拆分会话快照
 #[tauri::command]
-pub fn update_plan_split_result(
+pub async fn update_plan_split_result(
     app: AppHandle,
     plan_id: String,
     result: Value,
@@ -2042,9 +1942,8 @@ pub fn update_plan_split_result(
         return Err("任务拆分结果必须是任务数组。".to_string());
     }
 
-    let conn = open_db_connection().map_err(|error| error.to_string())?;
     let mut session =
-        read_session(&conn, &plan_id)?.ok_or_else(|| "计划拆分会话不存在".to_string())?;
+        read_session(&plan_id).await?.ok_or_else(|| "计划拆分会话不存在".to_string())?;
 
     session.result_json = Some(serialize_json(&serde_json::json!({
         "tasks": result
@@ -2058,19 +1957,18 @@ pub fn update_plan_split_result(
     session.error_message = None;
     session.updated_at = now_rfc3339();
 
-    insert_or_update_session(&conn, &session)?;
+    insert_or_update_session(&session).await?;
     emit_session_updated(&app, &session);
     Ok(session)
 }
 
 #[tauri::command]
-pub fn submit_plan_split_form(
+pub async fn submit_plan_split_form(
     app: AppHandle,
     input: SubmitPlanSplitFormInput,
 ) -> Result<PlanSplitSession, String> {
-    let conn = open_db_connection().map_err(|error| error.to_string())?;
     let mut session =
-        read_session(&conn, &input.plan_id)?.ok_or_else(|| "计划拆分会话不存在".to_string())?;
+        read_session(&input.plan_id).await?.ok_or_else(|| "计划拆分会话不存在".to_string())?;
 
     let forms = load_form_queue(session.form_queue_json.as_ref());
     let current_index = session.current_form_index.unwrap_or(0).max(0) as usize;
@@ -2110,7 +2008,7 @@ pub fn submit_plan_split_form(
     if current_index + 1 < forms.len() {
         session.current_form_index = Some((current_index + 1) as i32);
         session.status = "waiting_input".to_string();
-        insert_or_update_session(&conn, &session)?;
+        insert_or_update_session(&session).await?;
         emit_session_updated(&app, &session);
         return Ok(session);
     }
@@ -2131,7 +2029,7 @@ pub fn submit_plan_split_form(
     session.current_form_index = None;
     session.completed_at = None;
     session.stopped_at = None;
-    insert_or_update_session(&conn, &session)?;
+    insert_or_update_session(&session).await?;
     emit_session_updated(&app, &session);
     run_split_turn(app, request);
     Ok(session)
@@ -2142,8 +2040,7 @@ pub async fn stop_plan_split(
     app: AppHandle,
     plan_id: String,
 ) -> Result<Option<PlanSplitSession>, String> {
-    let conn = open_db_connection().map_err(|error| error.to_string())?;
-    let Some(mut session) = read_session(&conn, &plan_id)? else {
+    let Some(mut session) = read_session(&plan_id).await? else {
         return Ok(None);
     };
 
@@ -2157,19 +2054,20 @@ pub async fn stop_plan_split(
     session.completed_at = Some(now.clone());
     session.updated_at = now;
     session.error_message = None;
-    insert_or_update_session(&conn, &session)?;
+    insert_or_update_session(&session).await?;
 
-    conn.execute(
-        "INSERT INTO plan_split_logs (id, plan_id, session_id, log_type, content, metadata, created_at)
-         VALUES (?1, ?2, ?3, 'system', ?4, NULL, ?5)",
-        rusqlite::params![
-            uuid::Uuid::new_v4().to_string(),
-            &plan_id,
-            session.execution_session_id.clone().unwrap_or_default(),
-            "用户已停止后台拆分任务",
-            now_rfc3339()
-        ],
+    let log_id = uuid::Uuid::new_v4().to_string();
+    plan_split_mapper::insert_plan_split_log(
+        db::rb(),
+        &log_id,
+        &plan_id,
+        session.execution_session_id.as_deref().unwrap_or(""),
+        "system",
+        "用户已停止后台拆分任务",
+        None,
+        &now_rfc3339(),
     )
+    .await
     .map_err(|error| error.to_string())?;
 
     emit_session_updated(&app, &session);
@@ -2189,8 +2087,7 @@ pub async fn reset_plan_split_turn_for_restart(
     plan_id: String,
     options: Option<ResetPlanSplitTurnOptions>,
 ) -> Result<PlanSplitSession, String> {
-    let conn = open_db_connection().map_err(|error| error.to_string())?;
-    let Some(mut session) = read_session(&conn, &plan_id)? else {
+    let Some(mut session) = read_session(&plan_id).await? else {
         return Err("计划拆分会话不存在".to_string());
     };
     let trim_latest_turn = options
@@ -2211,18 +2108,18 @@ pub async fn reset_plan_split_turn_for_restart(
     if let Some(execution_session_id) = session.execution_session_id.clone() {
         set_abort_flag(&execution_session_id, true).await;
         if trim_latest_turn {
-            conn.execute(
-                "DELETE FROM plan_split_logs
-                 WHERE plan_id = ?1
-                   AND session_id = ?2",
-                rusqlite::params![&plan_id, &execution_session_id],
+            plan_split_mapper::delete_plan_split_logs_by_plan_and_session(
+                db::rb(),
+                &plan_id,
+                &execution_session_id,
             )
+            .await
             .map_err(|error| error.to_string())?;
         }
     }
 
     if trim_latest_turn {
-        delete_plan_split_logs_from_timestamp(&conn, &plan_id, latest_user_timestamp.as_deref())?;
+        trim_plan_split_logs_after_timestamp(&plan_id, latest_user_timestamp.as_deref()).await?;
 
         let mut messages = load_messages_json(session.messages_json.as_ref());
         trim_messages_after_last_user(&mut messages, |message| message.role.as_str());
@@ -2249,26 +2146,24 @@ pub async fn reset_plan_split_turn_for_restart(
     session.started_at = Some(now.clone());
     session.updated_at = now;
 
-    insert_or_update_session(&conn, &session)?;
+    insert_or_update_session(&session).await?;
     emit_session_updated(&app, &session);
     Ok(session)
 }
 
 #[tauri::command]
 pub async fn clear_plan_split_session(plan_id: String) -> Result<(), String> {
-    let conn = open_db_connection().map_err(|error| error.to_string())?;
-    if let Some(session) = read_session(&conn, &plan_id)? {
+    if let Some(session) = read_session(&plan_id).await? {
         if let Some(execution_session_id) = session.execution_session_id {
             set_abort_flag(&execution_session_id, true).await;
         }
     }
-    conn.execute("DELETE FROM plan_split_logs WHERE plan_id = ?1", [&plan_id])
+    plan_split_mapper::delete_plan_split_logs_by_plan(db::rb(), &plan_id)
+        .await
         .map_err(|error| error.to_string())?;
-    conn.execute(
-        "DELETE FROM task_split_sessions WHERE plan_id = ?1",
-        [&plan_id],
-    )
-    .map_err(|error| error.to_string())?;
+    plan_split_mapper::delete_task_split_session_by_plan(db::rb(), &plan_id)
+        .await
+        .map_err(|error| error.to_string())?;
     Ok(())
 }
 

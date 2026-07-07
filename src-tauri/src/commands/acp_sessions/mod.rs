@@ -72,11 +72,9 @@ pub async fn delete_session_by_id(
     session_id: String,
     _cwd: String,
 ) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        delete_session_locally(&cli_name, &session_id)
-    })
-    .await
-    .map_err(|e| format!("删除任务执行失败: {}", e))?
+    // opencode 分支需 async（rbatis 外部库连接），claude/codex 为同步文件操作。
+    // 直接 .await，不再 spawn_blocking。
+    delete_session_locally(&cli_name, &session_id).await
 }
 
 /// 探测 ACP Agent 的会话能力。

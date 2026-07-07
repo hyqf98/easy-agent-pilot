@@ -1,0 +1,83 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!-- 列出全部 Provider 配置（按 cli_type、updated_at 倒序） -->
+  <select id="list_provider_profiles">
+    `select id, name, cli_type, is_active, api_key, base_url, provider_name, main_model,`
+    ` reasoning_model, haiku_model, sonnet_default, opus_default, codex_model,`
+    ` CAST(opencode_provider_models AS TEXT) as opencode_provider_models, opencode_provider_npm, created_at, updated_at`
+    ` from provider_profiles order by cli_type, updated_at desc`
+  </select>
+
+  <!-- 按 cli_type 列出 Provider 配置（按 updated_at 倒序） -->
+  <select id="list_provider_profiles_by_cli_type">
+    `select id, name, cli_type, is_active, api_key, base_url, provider_name, main_model,`
+    ` reasoning_model, haiku_model, sonnet_default, opus_default, codex_model,`
+    ` CAST(opencode_provider_models AS TEXT) as opencode_provider_models, opencode_provider_npm, created_at, updated_at`
+    ` from provider_profiles where cli_type = #{cli_type} order by updated_at desc`
+  </select>
+
+  <!-- 按 id 查询单个 Provider 配置 -->
+  <select id="get_provider_profile_by_id">
+    `select id, name, cli_type, is_active, api_key, base_url, provider_name, main_model,`
+    ` reasoning_model, haiku_model, sonnet_default, opus_default, codex_model,`
+    ` CAST(opencode_provider_models AS TEXT) as opencode_provider_models, opencode_provider_npm, created_at, updated_at`
+    ` from provider_profiles where id = #{id}`
+  </select>
+
+  <!-- 查询指定 cli_type 当前激活的 Provider 配置（is_active = 1） -->
+  <select id="get_active_provider_profile">
+    `select id, name, cli_type, is_active, api_key, base_url, provider_name, main_model,`
+    ` reasoning_model, haiku_model, sonnet_default, opus_default, codex_model,`
+    ` CAST(opencode_provider_models AS TEXT) as opencode_provider_models, opencode_provider_npm, created_at, updated_at`
+    ` from provider_profiles where cli_type = #{cli_type} and is_active = 1`
+  </select>
+
+  <!-- 插入新 Provider 配置（is_active 固定 0，由 switch 命令激活） -->
+  <insert id="insert_provider_profile">
+    `insert into provider_profiles`
+    ` (id, name, cli_type, is_active, api_key, base_url, provider_name, main_model,`
+    `  reasoning_model, haiku_model, sonnet_default, opus_default, codex_model,`
+    `  opencode_provider_models, opencode_provider_npm, created_at, updated_at)`
+    ` values`
+    ` (#{id}, #{name}, #{cli_type}, 0, #{api_key}, #{base_url}, #{provider_name}, #{main_model},`
+    `  #{reasoning_model}, #{haiku_model}, #{sonnet_default}, #{opus_default}, #{codex_model},`
+    `  #{opencode_provider_models}, #{opencode_provider_npm}, #{created_at}, #{updated_at})`
+  </insert>
+
+  <!-- 动态更新 Provider 配置：<set>+<if> 取代旧 UpdateSqlBuilder -->
+  <update id="update_provider_profile">
+    `update provider_profiles`
+    <set>
+      ` updated_at = #{updated_at},`
+      <if test="name != null">` name = #{name},`</if>
+      <if test="api_key != null">` api_key = #{api_key},`</if>
+      <if test="base_url != null">` base_url = #{base_url},`</if>
+      <if test="provider_name != null">` provider_name = #{provider_name},`</if>
+      <if test="main_model != null">` main_model = #{main_model},`</if>
+      <if test="reasoning_model != null">` reasoning_model = #{reasoning_model},`</if>
+      <if test="haiku_model != null">` haiku_model = #{haiku_model},`</if>
+      <if test="sonnet_default != null">` sonnet_default = #{sonnet_default},`</if>
+      <if test="opus_default != null">` opus_default = #{opus_default},`</if>
+      <if test="codex_model != null">` codex_model = #{codex_model},`</if>
+      <if test="opencode_provider_models != null">` opencode_provider_models = #{opencode_provider_models},`</if>
+      <if test="opencode_provider_npm != null">` opencode_provider_npm = #{opencode_provider_npm},`</if>
+    </set>
+    ` where id = #{id}`
+  </update>
+
+  <delete id="delete_provider_profile">
+    `delete from provider_profiles where id = #{id}`
+  </delete>
+
+  <!-- ==================== 切换激活配置（事务内） ==================== -->
+
+  <!-- 将同类型其他配置置为非激活 -->
+  <update id="deactivate_provider_profiles_by_cli_type">
+    `update provider_profiles set is_active = 0 where cli_type = #{cli_type}`
+  </update>
+
+  <!-- 激活指定配置 -->
+  <update id="activate_provider_profile">
+    `update provider_profiles set is_active = 1, updated_at = #{updated_at} where id = #{id}`
+  </update>
+</mapper>

@@ -1,0 +1,116 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!-- 查询全部子代理（内置在前，再按 sort_order、updated_at） -->
+  <!-- JSON TEXT 列用 CAST AS TEXT，避免 rbdc-sqlite 把 JSON 文本误解析为 Array -->
+  <select id="list_sub_agents">
+    `select id, builtin_code, name, description, prompt, category, `
+    ` CAST(tags AS TEXT) as tags, CAST(recommended_scenes AS TEXT) as recommended_scenes,`
+    ` CAST(tools AS TEXT) as tools, CAST(disallowed_tools AS TEXT) as disallowed_tools,`
+    ` model, permission_mode, max_turns,`
+    ` is_builtin, is_enabled, is_system, sort_order, created_at, updated_at`
+    ` from sub_agents order by is_builtin desc, sort_order asc, updated_at desc`
+  </select>
+
+  <!-- 仅查询用户自建子代理（is_system = 0） -->
+  <select id="list_user_sub_agents">
+    `select id, builtin_code, name, description, prompt, category, `
+    ` CAST(tags AS TEXT) as tags, CAST(recommended_scenes AS TEXT) as recommended_scenes,`
+    ` CAST(tools AS TEXT) as tools, CAST(disallowed_tools AS TEXT) as disallowed_tools,`
+    ` model, permission_mode, max_turns,`
+    ` is_builtin, is_enabled, is_system, sort_order, created_at, updated_at`
+    ` from sub_agents where is_system = 0 order by sort_order asc, updated_at desc`
+  </select>
+
+  <!-- 按 id 查询单个子代理 -->
+  <select id="get_sub_agent_by_id">
+    `select id, builtin_code, name, description, prompt, category, `
+    ` CAST(tags AS TEXT) as tags, CAST(recommended_scenes AS TEXT) as recommended_scenes,`
+    ` CAST(tools AS TEXT) as tools, CAST(disallowed_tools AS TEXT) as disallowed_tools,`
+    ` model, permission_mode, max_turns,`
+    ` is_builtin, is_enabled, is_system, sort_order, created_at, updated_at`
+    ` from sub_agents where id = #{id}`
+  </select>
+
+  <!-- 按 builtin_code 查询单个子代理（种子更新判定用） -->
+  <select id="get_sub_agent_by_builtin_code">
+    `select id, builtin_code, name, description, prompt, category, `
+    ` CAST(tags AS TEXT) as tags, CAST(recommended_scenes AS TEXT) as recommended_scenes,`
+    ` CAST(tools AS TEXT) as tools, CAST(disallowed_tools AS TEXT) as disallowed_tools,`
+    ` model, permission_mode, max_turns,`
+    ` is_builtin, is_enabled, is_system, sort_order, created_at, updated_at`
+    ` from sub_agents where builtin_code = #{builtin_code}`
+  </select>
+
+  <!-- 插入内置子代理（INSERT OR IGNORE；model/permission_mode/max_turns 固定 NULL） -->
+  <insert id="insert_builtin_sub_agent">
+    `insert or ignore into sub_agents`
+    ` (id, builtin_code, name, description, prompt, category, tags, recommended_scenes,`
+    `  tools, disallowed_tools, model, permission_mode, max_turns,`
+    `  is_builtin, is_enabled, is_system, sort_order, created_at, updated_at)`
+    ` values`
+    ` (#{id}, #{builtin_code}, #{name}, #{description}, #{prompt}, #{category}, #{tags}, #{recommended_scenes},`
+    `  '[]', '[]', NULL, NULL, NULL, 1, 1, 1, #{sort_order}, #{created_at}, #{updated_at})`
+  </insert>
+
+  <!-- 更新内置子代理基础字段（按 builtin_code 定位） -->
+  <!-- JSON 列参数用 CAST(#{x} AS TEXT) 强制 SQLite 写入文本，绕过 rbs 对字符串内容的 JSON 解析 -->
+  <update id="update_builtin_sub_agent">
+    `update sub_agents set`
+    ` name = #{name}, description = #{description}, prompt = #{prompt}, category = #{category},`
+    ` tags = CAST(#{tags} AS TEXT), recommended_scenes = CAST(#{recommended_scenes} AS TEXT), sort_order = #{sort_order},`
+    ` updated_at = #{updated_at}`
+    ` where builtin_code = #{builtin_code}`
+  </update>
+
+  <!-- 插入用户自建子代理 -->
+  <insert id="insert_sub_agent">
+    `insert into sub_agents`
+    ` (id, builtin_code, name, description, prompt, category, tags, recommended_scenes,`
+    `  tools, disallowed_tools, model, permission_mode, max_turns,`
+    `  is_builtin, is_enabled, is_system, sort_order, created_at, updated_at)`
+    ` values`
+    ` (#{id}, NULL, #{name}, #{description}, #{prompt}, #{category}, #{tags}, #{recommended_scenes},`
+    `  #{tools}, #{disallowed_tools}, #{model}, #{permission_mode}, #{max_turns},`
+    `  0, #{is_enabled}, 0, #{sort_order}, #{created_at}, #{updated_at})`
+  </insert>
+
+  <!-- 动态更新用户子代理：<set>+<if> 取代旧 UpdateSqlBuilder -->
+  <update id="update_sub_agent">
+    `update sub_agents`
+    <set>
+      ` updated_at = #{updated_at},`
+      <if test="name != null">` name = #{name},`</if>
+      <if test="description != null">` description = #{description},`</if>
+      <if test="prompt != null">` prompt = #{prompt},`</if>
+      <if test="category != null">` category = #{category},`</if>
+      <if test="tags != null">` tags = #{tags},`</if>
+      <if test="recommended_scenes != null">` recommended_scenes = #{recommended_scenes},`</if>
+      <if test="tools != null">` tools = #{tools},`</if>
+      <if test="disallowed_tools != null">` disallowed_tools = #{disallowed_tools},`</if>
+      <if test="model != null">` model = #{model},`</if>
+      <if test="permission_mode != null">` permission_mode = #{permission_mode},`</if>
+      <if test="max_turns != null">` max_turns = #{max_turns},`</if>
+      <if test="is_enabled != null">` is_enabled = #{is_enabled},`</if>
+      <if test="sort_order != null">` sort_order = #{sort_order},`</if>
+    </set>
+    ` where id = #{id}`
+  </update>
+
+  <delete id="delete_sub_agent">
+    `delete from sub_agents where id = #{id}`
+  </delete>
+
+  <!-- ==================== 引用计数（plans/tasks/sessions 三表 COUNT） ==================== -->
+
+  <select id="count_plan_refs">
+    `select count(*) as value from plans where split_expert_id = #{sub_agent_id}`
+  </select>
+
+  <select id="count_task_refs">
+    `select count(*) as value from tasks where expert_id = #{sub_agent_id}`
+  </select>
+
+  <select id="count_session_refs">
+    `select count(*) as value from sessions where expert_id = #{sub_agent_id}`
+  </select>
+</mapper>

@@ -39,14 +39,15 @@ impl UnattendedRuntimeState {
 /// 启动指定渠道下所有账号的监听循环。
 pub async fn start_channel_runtime(app: &AppHandle, channel_id: &str) -> Result<(), String> {
     let state = app.state::<UnattendedRuntimeState>();
-    let accounts = repository::list_accounts(Some(channel_id.to_string()))?;
+    let accounts = repository::list_accounts(Some(channel_id.to_string())).await?;
 
     for account in accounts {
         if state.has_task(&account.id).await {
             continue;
         }
 
-        repository::update_account_runtime_status(&account.id, RUNTIME_STATUS_LISTENING, None)?;
+        repository::update_account_runtime_status(&account.id, RUNTIME_STATUS_LISTENING, None)
+            .await?;
         let _ = app.emit(
             FRONTEND_EVENT_STATUS,
             RuntimeStatusEvent {
@@ -81,10 +82,10 @@ pub async fn start_channel_runtime(app: &AppHandle, channel_id: &str) -> Result<
 
 /// 恢复所有已启用渠道的监听循环，复用已持久化的微信 token。
 pub async fn restore_runtime(app: &AppHandle) -> Result<(), String> {
-    let channels = repository::list_channels()?;
+    let channels = repository::list_channels().await?;
 
     for channel in channels.into_iter().filter(|item| item.enabled) {
-        let accounts = repository::list_accounts(Some(channel.id.clone()))?;
+        let accounts = repository::list_accounts(Some(channel.id.clone())).await?;
         if accounts.is_empty() {
             continue;
         }
@@ -107,13 +108,14 @@ pub async fn restore_runtime(app: &AppHandle) -> Result<(), String> {
 /// 停止指定渠道下所有账号的监听循环。
 pub async fn stop_channel_runtime(app: &AppHandle, channel_id: &str) -> Result<(), String> {
     let state = app.state::<UnattendedRuntimeState>();
-    let accounts = repository::list_accounts(Some(channel_id.to_string()))?;
+    let accounts = repository::list_accounts(Some(channel_id.to_string())).await?;
 
     for account in accounts {
         if let Some(handle) = state.take_task(&account.id).await {
             handle.abort();
         }
-        repository::update_account_runtime_status(&account.id, RUNTIME_STATUS_STOPPED, None)?;
+        repository::update_account_runtime_status(&account.id, RUNTIME_STATUS_STOPPED, None)
+            .await?;
         let _ = app.emit(
             FRONTEND_EVENT_STATUS,
             RuntimeStatusEvent {
@@ -140,7 +142,8 @@ async fn run_weixin_loop(
         match client.get_updates(&bot_token, sync_cursor.as_deref()).await {
             Ok((next_cursor, messages)) => {
                 if let Some(cursor) = next_cursor.clone() {
-                    repository::update_account_sync_cursor(&account_row_id, Some(&cursor))?;
+                    repository::update_account_sync_cursor(&account_row_id, Some(&cursor))
+                        .await?;
                     sync_cursor = Some(cursor);
                 }
 
@@ -148,7 +151,8 @@ async fn run_weixin_loop(
                     &account_row_id,
                     RUNTIME_STATUS_LISTENING,
                     None,
-                )?;
+                )
+                .await?;
 
                 for message in messages {
                     handle_incoming_message(&app, &channel_id, &account_row_id, message).await?;
@@ -160,7 +164,8 @@ async fn run_weixin_loop(
                     &account_row_id,
                     RUNTIME_STATUS_ERROR,
                     Some(&error_message),
-                )?;
+                )
+                .await?;
                 let _ = app.emit(
                     FRONTEND_EVENT_STATUS,
                     RuntimeStatusEvent {
@@ -177,7 +182,8 @@ async fn run_weixin_loop(
                     &account_row_id,
                     RUNTIME_STATUS_ERROR,
                     Some(&error_message),
-                )?;
+                )
+                .await?;
                 let _ = app.emit(
                     FRONTEND_EVENT_STATUS,
                     RuntimeStatusEvent {
@@ -194,7 +200,8 @@ async fn run_weixin_loop(
         &account_row_id,
         &final_status,
         final_error.as_deref(),
-    )?;
+    )
+    .await?;
     let _ = app.emit(
         FRONTEND_EVENT_STATUS,
         RuntimeStatusEvent {
@@ -217,7 +224,8 @@ async fn handle_incoming_message(
         &message.from_user_id,
         None,
         message.context_token.as_deref(),
-    )?;
+    )
+    .await?;
     let created_at = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(message.create_time_ms)
         .unwrap_or_else(chrono::Utc::now)
         .to_rfc3339();
@@ -240,7 +248,8 @@ async fn handle_incoming_message(
             .to_string(),
         ),
         correlation_id: Some(message.id.clone()),
-    })?;
+    })
+    .await?;
 
     let _ = app.emit(
         FRONTEND_EVENT_INCOMING,
@@ -268,7 +277,7 @@ pub async fn send_text(
     context_token: Option<&str>,
     correlation_id: Option<&str>,
 ) -> Result<(), String> {
-    let account = repository::get_account(channel_account_id)?;
+    let account = repository::get_account(channel_account_id).await?;
     let client =
         WeixinClient::with_base_url(account.base_url.clone()).map_err(|e| e.to_string())?;
     let message = client
@@ -276,7 +285,7 @@ pub async fn send_text(
         .await
         .map_err(|e| e.to_string())?;
 
-    let thread = repository::upsert_thread(channel_account_id, peer_id, None, context_token)?;
+    let thread = repository::upsert_thread(channel_account_id, peer_id, None, context_token).await?;
     repository::record_event(RecordUnattendedEventInput {
         channel_account_id: Some(channel_account_id.to_string()),
         thread_id: Some(thread.id),
@@ -294,7 +303,8 @@ pub async fn send_text(
             .to_string(),
         ),
         correlation_id: correlation_id.map(str::to_string),
-    })?;
+    })
+    .await?;
 
     let _ = app.emit(
         FRONTEND_EVENT_STATUS,

@@ -1,11 +1,12 @@
-use anyhow::Result;
-use rusqlite::OptionalExtension;
 use std::collections::HashMap;
 #[cfg(target_os = "macos")]
 use std::process::Command;
 
-use super::support::{now_rfc3339, open_db_connection};
+use super::support::now_rfc3339;
+use crate::db;
 use crate::logging::write_log;
+use crate::mappers::settings as settings_mapper;
+use crate::models::AppSettingRow;
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -155,97 +156,75 @@ pub fn resolve_app_update_proxy() -> Result<AppUpdateProxyInfo, String> {
 
 /// 获取单个设置值
 #[tauri::command]
-pub fn get_app_setting(key: String) -> Result<Option<String>, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
-    let mut stmt = conn
-        .prepare("SELECT value FROM app_settings WHERE key = ?1")
+pub async fn get_app_setting(key: String) -> Result<Option<String>, String> {
+    let row = settings_mapper::get_app_setting(db::rb(), &key)
+        .await
         .map_err(|e| e.to_string())?;
-
-    let result = stmt
-        .query_row([&key], |row| row.get::<_, String>(0))
-        .optional()
-        .map_err(|e| e.to_string())?;
-
-    Ok(result)
+    Ok(row
+        .into_iter()
+        .next()
+        .map(|r| crate::models::value_to_json_string(r.value)))
 }
 
 /// 获取所有设置
 #[tauri::command]
-pub fn get_all_app_settings() -> Result<HashMap<String, String>, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
-    let mut stmt = conn
-        .prepare("SELECT key, value FROM app_settings")
+pub async fn get_all_app_settings() -> Result<HashMap<String, String>, String> {
+    let rows = settings_mapper::get_all_app_settings(db::rb())
+        .await
         .map_err(|e| e.to_string())?;
-
-    let settings = stmt
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| match (row.key, row.value) {
+            (Some(k), Some(v)) => Some((k, crate::models::value_to_json_string(Some(v)))),
+            _ => None,
         })
-        .map_err(|e| e.to_string())?
-        .collect::<Result<HashMap<String, String>, _>>()
-        .map_err(|e| e.to_string())?;
-
-    Ok(settings)
+        .collect::<HashMap<_, _>>()
+        .into_iter()
+        .collect())
 }
 
 /// 保存单个设置
 #[tauri::command]
-pub fn save_app_setting(key: String, value: String) -> Result<(), String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
+pub async fn save_app_setting(key: String, value: String) -> Result<(), String> {
     let updated_at = now_rfc3339();
-
-    conn.execute(
-        "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
-        [&key, &value, &updated_at],
-    )
-    .map_err(|e| e.to_string())?;
-
+    settings_mapper::save_app_setting(db::rb(), &key, &value, &updated_at)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
-/// 批量保存设置
+/// 批量保存设置（事务：全部成功或全部回滚）
 #[tauri::command]
-pub fn save_app_settings(settings: HashMap<String, String>) -> Result<(), String> {
-    let mut conn = open_db_connection().map_err(|e| e.to_string())?;
-
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
-
+pub async fn save_app_settings(settings: HashMap<String, String>) -> Result<(), String> {
     let updated_at = now_rfc3339();
-
-    for (key, value) in settings {
-        tx.execute(
-            "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
-            [&key, &value, &updated_at],
-        )
+    // 开启事务；任何错误路径下 tx drop 会自动回滚（deferred rollback）
+    let mut tx = db::rb()
+        .acquire_begin()
+        .await
         .map_err(|e| e.to_string())?;
+    for (key, value) in settings {
+        settings_mapper::save_app_setting(&mut tx, &key, &value, &updated_at)
+            .await
+            .map_err(|e| e.to_string())?;
     }
-
-    tx.commit().map_err(|e| e.to_string())?;
-
+    tx.commit().await.map_err(|e| e.to_string())?;
     Ok(())
 }
 
 /// 删除单个设置
 #[tauri::command]
-pub fn delete_app_setting(key: String) -> Result<(), String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
-    conn.execute("DELETE FROM app_settings WHERE key = ?1", [&key])
+pub async fn delete_app_setting(key: String) -> Result<(), String> {
+    settings_mapper::delete_app_setting(db::rb(), &key)
+        .await
         .map_err(|e| e.to_string())?;
-
     Ok(())
 }
 
 /// 清除所有设置
 #[tauri::command]
-pub fn clear_app_settings() -> Result<(), String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
-    conn.execute("DELETE FROM app_settings", [])
+pub async fn clear_app_settings() -> Result<(), String> {
+    settings_mapper::clear_app_settings(db::rb())
+        .await
         .map_err(|e| e.to_string())?;
-
     Ok(())
 }

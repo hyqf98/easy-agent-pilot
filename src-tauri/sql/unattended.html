@@ -1,0 +1,220 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!--
+    无人值守模块 SQL（unattended_channels / unattended_channel_accounts /
+    unattended_threads / unattended_events）。
+
+    布尔列（enabled / allow_all_senders）在 SQLite 中存为 INTEGER，命令层用
+    Option<i64> 读写并 `!= 0` 还原为 bool。select 列顺序与 models 中对应 Row 固定。
+  -->
+
+  <!-- ==================== unattended_channels ==================== -->
+
+  <!-- 列出全部渠道（按 updated_at 倒序） -->
+  <select id="list_channels">
+    `select id, channel_type, name, enabled, default_project_id, default_agent_id,`
+    ` default_model_id, reply_style, allow_all_senders, future_auth_mode, created_at, updated_at`
+    ` from unattended_channels order by updated_at desc`
+  </select>
+
+  <!-- 按 id 查询单个渠道 -->
+  <select id="get_channel_by_id">
+    `select id, channel_type, name, enabled, default_project_id, default_agent_id,`
+    ` default_model_id, reply_style, allow_all_senders, future_auth_mode, created_at, updated_at`
+    ` from unattended_channels where id = #{id}`
+  </select>
+
+  <!-- 插入渠道 -->
+  <insert id="insert_channel">
+    `insert into unattended_channels`
+    ` (id, channel_type, name, enabled, default_project_id, default_agent_id,`
+    `  default_model_id, reply_style, allow_all_senders, future_auth_mode, created_at, updated_at)`
+    ` values`
+    ` (#{row.id}, #{row.channel_type}, #{row.name}, #{row.enabled}, #{row.default_project_id},`
+    `  #{row.default_agent_id}, #{row.default_model_id}, #{row.reply_style},`
+    `  #{row.allow_all_senders}, #{row.future_auth_mode}, #{row.created_at}, #{row.updated_at})`
+  </insert>
+
+  <!-- 更新渠道 -->
+  <update id="update_channel">
+    `update unattended_channels`
+    ` set name = #{row.name},`
+    `     enabled = #{row.enabled},`
+    `     default_project_id = #{row.default_project_id},`
+    `     default_agent_id = #{row.default_agent_id},`
+    `     default_model_id = #{row.default_model_id},`
+    `     reply_style = #{row.reply_style},`
+    `     allow_all_senders = #{row.allow_all_senders},`
+    `     updated_at = #{row.updated_at}`
+    ` where id = #{row.id}`
+  </update>
+
+  <!-- 删除渠道 -->
+  <delete id="delete_channel">
+    `delete from unattended_channels where id = #{id}`
+  </delete>
+
+  <!-- ==================== unattended_channel_accounts ==================== -->
+
+  <!-- 按渠道列出账号（channel_id 为空则全部），按 updated_at 倒序 -->
+  <select id="list_accounts">
+    `select id, channel_id, account_id, user_id, base_url, bot_token, sync_cursor,`
+    ` login_status, runtime_status, last_connected_at, last_error, created_at, updated_at`
+    ` from unattended_channel_accounts`
+    <where>
+      <if test="channel_id != null">` channel_id = #{channel_id}`</if>
+    </where>
+    ` order by updated_at desc`
+  </select>
+
+  <!-- 按 id 查询单个账号 -->
+  <select id="get_account_by_id">
+    `select id, channel_id, account_id, user_id, base_url, bot_token, sync_cursor,`
+    ` login_status, runtime_status, last_connected_at, last_error, created_at, updated_at`
+    ` from unattended_channel_accounts where id = #{id}`
+  </select>
+
+  <!-- 查询账号是否已存在（channel_id + account_id），返回 id 单列 -->
+  <select id="get_account_id_by_channel_and_account">
+    `select id as value from unattended_channel_accounts`
+    ` where channel_id = #{channel_id} and account_id = #{account_id}`
+  </select>
+
+  <!-- upsert 微信账号（ON CONFLICT(id)）。复用旧 self-join 取 sync_cursor/
+       runtime_status/created_at，缺失则取默认值。事务内调用。 -->
+  <insert id="upsert_weixin_account">
+    `insert into unattended_channel_accounts`
+    ` (id, channel_id, account_id, user_id, base_url, bot_token, sync_cursor, login_status,`
+    `  runtime_status, last_connected_at, last_error, created_at, updated_at)`
+    ` values`
+    ` (#{id}, #{channel_id}, #{account_id}, #{user_id}, #{base_url}, #{bot_token},`
+    `  coalesce((select sync_cursor from unattended_channel_accounts where id = #{id}), null),`
+    `  #{login_status},`
+    `  coalesce((select runtime_status from unattended_channel_accounts where id = #{id}), #{runtime_status}),`
+    `  #{last_connected_at}, null,`
+    `  coalesce((select created_at from unattended_channel_accounts where id = #{id}), #{created_at}),`
+    `  #{updated_at})`
+    ` on conflict(id) do update set`
+    `   user_id = excluded.user_id,`
+    `   base_url = excluded.base_url,`
+    `   bot_token = excluded.bot_token,`
+    `   login_status = excluded.login_status,`
+    `   last_connected_at = excluded.last_connected_at,`
+    `   last_error = null,`
+    `   updated_at = excluded.updated_at`
+  </insert>
+
+  <!-- 删除账号 -->
+  <delete id="delete_account">
+    `delete from unattended_channel_accounts where id = #{id}`
+  </delete>
+
+  <!-- 更新账号运行状态 -->
+  <update id="update_account_runtime_status">
+    `update unattended_channel_accounts`
+    ` set runtime_status = #{runtime_status}, last_error = #{last_error}, updated_at = #{updated_at}`
+    ` where id = #{id}`
+  </update>
+
+  <!-- 更新账号同步游标 -->
+  <update id="update_account_sync_cursor">
+    `update unattended_channel_accounts`
+    ` set sync_cursor = #{sync_cursor}, updated_at = #{updated_at}`
+    ` where id = #{id}`
+  </update>
+
+  <!-- ==================== unattended_threads ==================== -->
+
+  <!-- 查询现有线程（channel_account_id + peer_id） -->
+  <select id="get_thread_by_channel_and_peer">
+    `select id, channel_account_id, peer_id, peer_name_snapshot, session_id, active_project_id,`
+    ` active_agent_id, active_model_id, last_context_token, last_plan_id, last_task_id,`
+    ` last_message_at, created_at, updated_at`
+    ` from unattended_threads`
+    ` where channel_account_id = #{channel_account_id} and peer_id = #{peer_id}`
+  </select>
+
+  <!-- 更新线程的快照字段（COALESCE 保留原值） -->
+  <update id="touch_thread_on_upsert">
+    `update unattended_threads`
+    ` set peer_name_snapshot = coalesce(#{peer_name_snapshot}, peer_name_snapshot),`
+    `     last_context_token = coalesce(#{last_context_token}, last_context_token),`
+    `     last_message_at = #{last_message_at},`
+    `     updated_at = #{updated_at}`
+    ` where id = #{id}`
+  </update>
+
+  <!-- 插入新线程 -->
+  <insert id="insert_thread">
+    `insert into unattended_threads`
+    ` (id, channel_account_id, peer_id, peer_name_snapshot, session_id, active_project_id,`
+    `  active_agent_id, active_model_id, last_context_token, last_plan_id, last_task_id,`
+    `  last_message_at, created_at, updated_at)`
+    ` values`
+    ` (#{id}, #{channel_account_id}, #{peer_id}, #{peer_name_snapshot}, null, null, null, null,`
+    `  #{last_context_token}, null, null, #{last_message_at}, #{created_at}, #{updated_at})`
+  </insert>
+
+  <!-- 列出线程（channel_id 非空时 JOIN 账号表过滤），按 updated_at 倒序 -->
+  <select id="list_threads">
+    `select t.id, t.channel_account_id, t.peer_id, t.peer_name_snapshot, t.session_id,`
+    ` t.active_project_id, t.active_agent_id, t.active_model_id, t.last_context_token,`
+    ` t.last_plan_id, t.last_task_id, t.last_message_at, t.created_at, t.updated_at`
+    ` from unattended_threads t`
+    <if test="channel_id != null">
+      ` inner join unattended_channel_accounts a on a.id = t.channel_account_id`
+    </if>
+    <where>
+      <if test="channel_id != null">` a.channel_id = #{channel_id}`</if>
+    </where>
+    ` order by t.updated_at desc`
+  </select>
+
+  <!-- 按 id 查询单个线程 -->
+  <select id="get_thread_by_id">
+    `select id, channel_account_id, peer_id, peer_name_snapshot, session_id, active_project_id,`
+    ` active_agent_id, active_model_id, last_context_token, last_plan_id, last_task_id,`
+    ` last_message_at, created_at, updated_at`
+    ` from unattended_threads where id = #{id}`
+  </select>
+
+  <!-- 更新线程上下文（COALESCE 保留原值） -->
+  <update id="update_thread_context">
+    `update unattended_threads`
+    ` set session_id = coalesce(#{row.session_id}, session_id),`
+    `     active_project_id = coalesce(#{row.active_project_id}, active_project_id),`
+    `     active_agent_id = coalesce(#{row.active_agent_id}, active_agent_id),`
+    `     active_model_id = coalesce(#{row.active_model_id}, active_model_id),`
+    `     last_context_token = coalesce(#{row.last_context_token}, last_context_token),`
+    `     last_plan_id = coalesce(#{row.last_plan_id}, last_plan_id),`
+    `     last_task_id = coalesce(#{row.last_task_id}, last_task_id),`
+    `     updated_at = #{row.updated_at}`
+    ` where id = #{row.id}`
+  </update>
+
+  <!-- ==================== unattended_events ==================== -->
+
+  <!-- 插入审计事件 -->
+  <insert id="insert_event">
+    `insert into unattended_events`
+    ` (id, channel_account_id, thread_id, direction, event_type, status, summary,`
+    `  payload_json, correlation_id, created_at)`
+    ` values`
+    ` (#{row.id}, #{row.channel_account_id}, #{row.thread_id}, #{row.direction},`
+    `  #{row.event_type}, #{row.status}, #{row.summary}, #{row.payload_json},`
+    `  #{row.correlation_id}, #{row.created_at})`
+  </insert>
+
+  <!-- 列出审计事件（动态过滤 + LIMIT） -->
+  <select id="list_events">
+    `select id, channel_account_id, thread_id, direction, event_type, status, summary,`
+    ` CAST(payload_json AS TEXT) as payload_json, correlation_id, created_at`
+    ` from unattended_events`
+    <where>
+      <if test="row.channel_account_id != null">` channel_account_id = #{row.channel_account_id}`</if>
+      <if test="row.thread_id != null">` thread_id = #{row.thread_id}`</if>
+      <if test="row.event_type != null">` event_type = #{row.event_type}`</if>
+    </where>
+    ` order by created_at desc limit #{row.limit}`
+  </select>
+</mapper>

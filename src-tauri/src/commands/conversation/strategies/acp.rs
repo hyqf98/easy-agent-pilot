@@ -2,7 +2,6 @@ use std::str::FromStr;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use rusqlite::params;
 use tauri::{AppHandle, Emitter};
 
 use agent_client_protocol::schema::{
@@ -28,7 +27,10 @@ use crate::commands::conversation::abort::{
 use crate::commands::conversation::strategy::{AgentExecutionStrategy, AgentRuntimeKind};
 use crate::commands::conversation::types::{AcpStreamEvent, ExecutionRequest, McpServerConfig};
 use crate::commands::mcp_shared::parse_args_string;
-use crate::commands::support::{now_rfc3339, open_db_connection};
+use crate::commands::support::now_rfc3339;
+use crate::db;
+use crate::mappers::agent_plan::{upsert_agent_plan_snapshot, AgentPlanSnapshotUpsert};
+use crate::mappers::file_change::{upsert_file_change_trace, FileChangeTraceUpsert};
 
 pub struct AcpStrategy;
 
@@ -214,7 +216,7 @@ fn resolve_permission_outcome(
 /// 以 (session_id, tool_call_id, file_path) 为唯一键做 UPSERT：流式期间一个工具
 /// 可能多次更新同一文件，用最后一次（终态）覆盖。保留最早一次的 status，避免
 /// 覆盖用户已采纳/回滚的状态。
-fn write_file_change_trace(
+async fn write_file_change_trace(
     session_id: &str,
     request_id: &str,
     tool_call_id: &str,
@@ -224,62 +226,48 @@ fn write_file_change_trace(
     before_content: Option<&str>,
     after_content: &str,
 ) -> Result<(), String> {
-    let id = uuid::Uuid::new_v4().to_string();
-    let now = now_rfc3339();
-    // seq 不再需要（recorder 移除），使用 0 作为占位
-    let seq: i64 = 0;
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    conn.execute(
-        "INSERT INTO file_change_traces \
-         (id, session_id, request_id, tool_call_id, file_path, relative_path, change_type, \
-          before_content, after_content, status, created_at, seq) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending', ?10, ?11) \
-         ON CONFLICT(session_id, tool_call_id, file_path) DO UPDATE SET \
-          relative_path = excluded.relative_path, \
-          change_type = excluded.change_type, \
-          before_content = COALESCE(excluded.before_content, file_change_traces.before_content), \
-          after_content = excluded.after_content",
-        params![
-            &id,
-            session_id,
-            request_id,
-            tool_call_id,
-            file_path,
-            relative_path,
-            change_type,
-            before_content,
-            after_content,
-            &now,
-            seq,
-        ],
-    ).map_err(|e| e.to_string())?;
-    Ok(())
+    let row = FileChangeTraceUpsert {
+        id: uuid::Uuid::new_v4().to_string(),
+        session_id: session_id.to_string(),
+        request_id: request_id.to_string(),
+        tool_call_id: tool_call_id.to_string(),
+        file_path: file_path.to_string(),
+        relative_path: relative_path.to_string(),
+        change_type: change_type.to_string(),
+        before_content: before_content.map(|s| s.to_string()),
+        after_content: after_content.to_string(),
+        created_at: now_rfc3339(),
+        // seq 不再需要（recorder 移除），使用 0 作为占位
+        seq: 0,
+    };
+    upsert_file_change_trace(db::rb(), &row)
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 /// 写入 Agent Plan 快照到 agent_plan_snapshots 表。
 ///
 /// 以 (session_id, request_id) 为唯一键做 UPSERT：一个回合内 Agent 可能多次
 /// 下发 Plan（全量替换语义），用最后一次（终态）覆盖。
-fn write_agent_plan_snapshot(
+async fn write_agent_plan_snapshot(
     session_id: &str,
     request_id: &str,
     plan_json: &str,
 ) -> Result<(), String> {
-    let id = uuid::Uuid::new_v4().to_string();
-    let now = now_rfc3339();
-    let seq: i64 = 0;
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    conn.execute(
-        "INSERT INTO agent_plan_snapshots \
-         (id, session_id, request_id, plan_json, created_at, updated_at, seq) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
-         ON CONFLICT(session_id, request_id) DO UPDATE SET \
-          plan_json = excluded.plan_json, \
-          updated_at = excluded.updated_at, \
-          seq = excluded.seq",
-        params![&id, session_id, request_id, plan_json, &now, &now, seq],
-    ).map_err(|e| e.to_string())?;
-    Ok(())
+    let row = AgentPlanSnapshotUpsert {
+        id: uuid::Uuid::new_v4().to_string(),
+        session_id: session_id.to_string(),
+        request_id: request_id.to_string(),
+        plan_json: plan_json.to_string(),
+        created_at: now_rfc3339(),
+        updated_at: now_rfc3339(),
+        seq: 0,
+    };
+    upsert_agent_plan_snapshot(db::rb(), &row)
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 fn build_permission_event(
@@ -939,7 +927,7 @@ impl AgentExecutionStrategy for AcpStrategy {
             .builder()
             .on_receive_request(
                 async move |request: RequestPermissionRequest, responder, _cx| {
-                    let mode = read_acp_permission_mode();
+                    let mode = read_acp_permission_mode().await;
                     let tool_title = request.tool_call.fields.title.clone().unwrap_or_default();
                     log_info!(
                         "ACP permission request | session_id={} | tool={} | mode={}",
@@ -1147,7 +1135,7 @@ impl AgentExecutionStrategy for AcpStrategy {
                 let monitor = CliExecutionMonitor::new();
                 let timeout_config = timeout_config_for_execution_mode(
                     execution_mode.as_deref(),
-                    read_cli_timeout_minutes(),
+                    read_cli_timeout_minutes().await,
                 );
 
                 loop {
@@ -1260,7 +1248,8 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                                         edit.change_type.as_str(),
                                                                         edit.before_content.as_deref(),
                                                                         &edit.after_content,
-                                                                    );
+                                                                    )
+                                                                    .await;
                                                                     if let Err(e) = result {
                                                                         log_error!("Failed to write file_change_trace (ToolCall raw_input) | session_id={} | error={}", session_id, e);
                                                                     }
@@ -1371,7 +1360,8 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                                         change_type,
                                                                         diff.old_text.as_deref(),
                                                                         &diff.new_text,
-                                                                    );
+                                                                    )
+                                                                    .await;
                                                                     if let Err(e) = result {
                                                                         log_error!("Failed to write file_change_trace | session_id={} | error={}", session_id, e);
                                                                     }
@@ -1407,7 +1397,8 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                                         edit.change_type.as_str(),
                                                                         edit.before_content.as_deref(),
                                                                         &edit.after_content,
-                                                                    );
+                                                                    )
+                                                                    .await;
                                                     if let Err(e) = result {
                                                         log_error!("Failed to write file_change_trace (raw_input fallback) | session_id={} | error={}", session_id, e);
                                                     }
@@ -1427,7 +1418,8 @@ impl AgentExecutionStrategy for AcpStrategy {
                                                                 &session_id,
                                                                 &request_id,
                                                                 &plan_json,
-                                                            );
+                                                            )
+                                                            .await;
                                                             if let Err(e) = result {
                                                                 log_error!("Failed to write agent_plan_snapshot | session_id={} | error={}", session_id, e);
                                                             }

@@ -1,0 +1,96 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!-- 列出仓库下的全部定时任务（按 created_at 升序） -->
+  <select id="list_memory_jobs">
+    `select id, repo_id, name, instruction, cron, next_run_at, schedule_status,`
+    ` last_run_at, last_run_status, last_run_summary, agent_id, model_id,`
+    ` created_at, updated_at`
+    ` from memory_jobs`
+    ` where repo_id = #{repo_id}`
+    ` order by created_at asc`
+  </select>
+
+  <!-- 按 id 查询单个任务 -->
+  <select id="get_memory_job_by_id">
+    `select id, repo_id, name, instruction, cron, next_run_at, schedule_status,`
+    ` last_run_at, last_run_status, last_run_summary, agent_id, model_id,`
+    ` created_at, updated_at`
+    ` from memory_jobs`
+    ` where id = #{id}`
+  </select>
+
+  <!-- 插入新任务 -->
+  <insert id="insert_memory_job">
+    `insert into memory_jobs`
+    ` (id, repo_id, name, instruction, cron, next_run_at, schedule_status,`
+    `  last_run_at, last_run_status, last_run_summary, agent_id, model_id,`
+    `  created_at, updated_at)`
+    ` values`
+    ` (#{row.id}, #{row.repo_id}, #{row.name}, #{row.instruction}, #{row.cron}, #{row.next_run_at},`
+    `  #{row.schedule_status}, #{row.last_run_at}, #{row.last_run_status}, #{row.last_run_summary},`
+    `  #{row.agent_id}, #{row.model_id}, #{row.created_at}, #{row.updated_at})`
+  </insert>
+
+  <!-- 更新任务（全量字段） -->
+  <update id="update_memory_job">
+    `update memory_jobs`
+    ` set name = #{update.name},`
+    `     instruction = #{update.instruction},`
+    `     cron = #{update.cron},`
+    `     next_run_at = #{update.next_run_at},`
+    `     schedule_status = #{update.schedule_status},`
+    `     agent_id = #{update.agent_id},`
+    `     model_id = #{update.model_id},`
+    `     updated_at = #{update.updated_at}`
+    ` where id = #{update.id}`
+  </update>
+
+  <!-- 删除任务 -->
+  <delete id="delete_memory_job">
+    `delete from memory_jobs where id = #{id}`
+  </delete>
+
+  <!-- 置 triggered 状态（立即触发） -->
+  <update id="trigger_memory_job">
+    `update memory_jobs set schedule_status = 'triggered', updated_at = #{updated_at}`
+    ` where id = #{id}`
+  </update>
+
+  <!-- ==================== 运行记录 ==================== -->
+
+  <!-- 列出任务的运行历史（按 started_at 倒序） -->
+  <select id="list_memory_job_runs">
+    `select id, job_id, repo_id, status, summary, CAST(files_changed AS TEXT) as files_changed, started_at, finished_at`
+    ` from memory_job_runs`
+    ` where job_id = #{job_id}`
+    ` order by started_at desc`
+  </select>
+
+  <!-- 插入运行记录（事务内） -->
+  <insert id="insert_memory_job_run">
+    `insert into memory_job_runs`
+    ` (id, job_id, repo_id, status, summary, files_changed, started_at, finished_at)`
+    ` values`
+    ` (#{id}, #{job_id}, #{repo_id}, #{status}, #{summary}, #{files_changed},`
+    `  #{started_at}, #{finished_at})`
+  </insert>
+
+  <!-- 回写运行结果并重算 next_run_at（事务内） -->
+  <update id="apply_job_run_result">
+    `update memory_jobs`
+    ` set last_run_at = #{last_run_at},`
+    `     last_run_status = #{last_run_status},`
+    `     last_run_summary = #{last_run_summary},`
+    `     next_run_at = #{next_run_at},`
+    `     schedule_status = #{schedule_status},`
+    `     updated_at = #{updated_at}`
+    ` where id = #{job_id}`
+  </update>
+
+  <!-- 按 id 查询运行记录 -->
+  <select id="get_memory_job_run_by_id">
+    `select id, job_id, repo_id, status, summary, CAST(files_changed AS TEXT) as files_changed, started_at, finished_at`
+    ` from memory_job_runs`
+    ` where id = #{id}`
+  </select>
+</mapper>

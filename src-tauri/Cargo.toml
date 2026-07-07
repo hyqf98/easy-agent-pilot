@@ -19,7 +19,7 @@ tauri-build = { version = "2", features = [] }
 # - macos-private-api: macOS 透明无边框窗口（桌面宠物悬浮窗所需）
 tauri = { version = "2", features = ["unstable", "protocol-asset", "macos-private-api"] }
 tauri-plugin-opener = "2"
-tauri-plugin-sql = { version = "2", features = ["sqlite"] }
+# tauri-plugin-sql: 移除（死依赖，前后端零调用；且其 sqlx-sqlite 与 rbdc-sqlite 的 libsqlite3-sys 版本冲突）
 tauri-plugin-shell = "2"
 tauri-plugin-fs = { version = "2", features = ["watch"] }
 tauri-plugin-dialog = "2"
@@ -38,8 +38,14 @@ tokio = { version = "1", features = ["full"] }
 async-trait = "0.1"
 
 # 数据库
-rusqlite = { version = "0.32", features = ["bundled"] }
-rusqlite_migration = "1"
+# - rbatis/rbs/rbdc-sqlite: MyBatis 风格 XML(.html) 集中管理 SQL + async + 连接池
+#   版本组合需对齐：rbatis 4.9.6 ↔ rbs 4.8 ↔ rbdc-sqlite 4.9.5（trait 已演进）
+# - ⚠️ rusqlite 已永久移除：rusqlite 与 rbdc-sqlite 都声明 links="sqlite3"，
+#   Cargo 禁止同一依赖图出现两个 links="sqlite3" 的包（非版本问题，无法共存）。
+#   全量迁移到 rbatis，schema DDL 改用 rbatis exec() 执行。
+rbs = "4.8"
+rbatis = "4.9"
+rbdc-sqlite = "4.9"
 
 # Git 操作
 git2 = { version = "0.19", features = ["vendored-openssl"] }

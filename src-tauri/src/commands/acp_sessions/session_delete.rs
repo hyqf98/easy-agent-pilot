@@ -6,10 +6,18 @@
 //! - **opencode**：DELETE FROM part/message/session WHERE id = session_id（SQLite）
 //! - **claude**：删除 `~/.claude/projects/<hash>/<session_id>.jsonl`
 //! - **codex**：遍历 `~/.codex/sessions` 匹配 `session_meta.id` → 删文件
+//!
+//! # 外部库说明
+//!
+//! 此处操作的是 opencode 自有的**外部**数据库
+//! `~/.local/share/opencode/opencode.db`，而非本应用的 SQLite 文件。全局
+//! `db::rb()`（rbatis 单例）只指向应用库，无法复用到此路径；因此为每次删除
+//! 创建一个短命 `RBatis` 实例 link 到外部库，执行完级联删除即丢弃。
 
 use std::path::PathBuf;
 
-use rusqlite::Connection;
+use rbatis::rbatis::RBatis;
+use rbdc_sqlite::driver::SqliteDriver;
 
 use super::query_service::{log_error, log_info};
 
@@ -26,21 +34,34 @@ fn opencode_db_path() -> Option<PathBuf> {
 /// 删除 opencode 会话（通过 SQLite 级联删除 part/message/session）。
 ///
 /// 参考 `scan.rs::delete_opencode_session` 的逻辑。
-fn delete_opencode_session(session_id: &str) -> Result<(), String> {
+async fn delete_opencode_session(session_id: &str) -> Result<(), String> {
     let db_path = opencode_db_path()
         .filter(|p| p.exists())
         .ok_or_else(|| "无法找到 OpenCode 数据库".to_string())?;
 
-    let conn = Connection::open(&db_path)
+    // 为外部库创建短命 RBatis 实例（不复用全局应用库连接池）
+    let rb = RBatis::new();
+    rb.link(SqliteDriver {}, &format!("sqlite://{}", db_path.display()))
+        .await
         .map_err(|e| format!("无法打开 OpenCode 数据库: {}", e))?;
 
-    conn.execute("DELETE FROM part WHERE session_id = ?1", [session_id])
-        .map_err(|e| format!("删除会话 part 失败: {}", e))?;
+    let sid = rbs::Value::String(session_id.to_string());
+    rb.exec(
+        "DELETE FROM part WHERE session_id = ?",
+        vec![sid.clone()],
+    )
+    .await
+    .map_err(|e| format!("删除会话 part 失败: {}", e))?;
 
-    conn.execute("DELETE FROM message WHERE session_id = ?1", [session_id])
-        .map_err(|e| format!("删除会话 message 失败: {}", e))?;
+    rb.exec(
+        "DELETE FROM message WHERE session_id = ?",
+        vec![sid.clone()],
+    )
+    .await
+    .map_err(|e| format!("删除会话 message 失败: {}", e))?;
 
-    conn.execute("DELETE FROM session WHERE id = ?1", [session_id])
+    rb.exec("DELETE FROM session WHERE id = ?", vec![sid])
+        .await
         .map_err(|e| format!("删除会话记录失败: {}", e))?;
 
     Ok(())
@@ -151,7 +172,7 @@ fn collect_jsonl_files(dir: &std::path::Path, files: &mut Vec<PathBuf>) {
 /// # 参数
 /// - `cli_name`：CLI 名称（`"opencode"` / `"claude"` / `"codex"`）
 /// - `session_id`：会话 ID
-pub(super) fn delete_session_locally(
+pub(super) async fn delete_session_locally(
     cli_name: &str,
     session_id: &str,
 ) -> Result<(), String> {
@@ -162,7 +183,7 @@ pub(super) fn delete_session_locally(
     );
 
     let result = match cli_name.to_lowercase().as_str() {
-        "opencode" => delete_opencode_session(session_id),
+        "opencode" => delete_opencode_session(session_id).await,
         "claude" => delete_claude_session(session_id),
         "codex" => delete_codex_session(session_id),
         other => Err(format!(

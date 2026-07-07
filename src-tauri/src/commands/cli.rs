@@ -1,6 +1,4 @@
-use anyhow::Result;
 use chrono::Utc;
-use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -10,8 +8,9 @@ use uuid::Uuid;
 use crate::commands::cli_support::{
     configure_windows_std_command, find_cli_executable, get_cli_version,
 };
-
-use super::support::open_db_connection;
+use crate::db;
+use crate::mappers::cli as cli_mapper;
+use crate::models::CliPathRow;
 
 /// CLI 工具信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -274,40 +273,30 @@ pub async fn detect_cli_tools() -> Result<DetectionResult, String> {
 
 // ============== CLI 路径配置 CRUD ==============
 
+/// 把 rbatis 行映射转换为对外的 CliPathEntry DTO。
+fn path_row_to_entry(row: CliPathRow) -> Result<CliPathEntry, String> {
+    Ok(CliPathEntry {
+        id: row.id.ok_or("cli_paths.id 缺失")?,
+        name: row.name.ok_or("cli_paths.name 缺失")?,
+        path: row.path.ok_or("cli_paths.path 缺失")?,
+        version: row.version,
+        created_at: row.created_at.unwrap_or_default(),
+        updated_at: row.updated_at.unwrap_or_default(),
+    })
+}
+
 /// 获取所有 CLI 路径配置 (Tauri 命令)
 #[tauri::command]
-pub fn list_cli_paths() -> Result<Vec<CliPathEntry>, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, name, path, version, created_at, updated_at FROM cli_paths ORDER BY created_at DESC"
-        )
+pub async fn list_cli_paths() -> Result<Vec<CliPathEntry>, String> {
+    let rows = cli_mapper::list_cli_paths(db::rb())
+        .await
         .map_err(|e| e.to_string())?;
-
-    let paths = stmt
-        .query_map([], |row| {
-            Ok(CliPathEntry {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                path: row.get(2)?,
-                version: row.get(3)?,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
-            })
-        })
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-
-    Ok(paths)
+    rows.into_iter().map(path_row_to_entry).collect()
 }
 
 /// 添加 CLI 路径配置 (Tauri 命令)
 #[tauri::command]
-pub fn add_cli_path(name: String, path: String) -> Result<CliPathEntry, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
+pub async fn add_cli_path(name: String, path: String) -> Result<CliPathEntry, String> {
     // 验证路径并获取版本
     let cli_path = PathBuf::from(&path);
     let version = get_cli_version(&cli_path);
@@ -315,10 +304,16 @@ pub fn add_cli_path(name: String, path: String) -> Result<CliPathEntry, String> 
     let now = Utc::now().to_rfc3339();
     let id = Uuid::new_v4().to_string();
 
-    conn.execute(
-        "INSERT INTO cli_paths (id, name, path, version, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![id, name, path, version, now, now],
+    cli_mapper::insert_cli_path(
+        db::rb(),
+        &id,
+        &name,
+        &path,
+        version.as_deref(),
+        &now,
+        &now,
     )
+    .await
     .map_err(|e| e.to_string())?;
 
     Ok(CliPathEntry {
@@ -333,19 +328,22 @@ pub fn add_cli_path(name: String, path: String) -> Result<CliPathEntry, String> 
 
 /// 更新 CLI 路径配置 (Tauri 命令)
 #[tauri::command]
-pub fn update_cli_path(id: String, name: String, path: String) -> Result<CliPathEntry, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
+pub async fn update_cli_path(id: String, name: String, path: String) -> Result<CliPathEntry, String> {
     // 验证路径并获取版本
     let cli_path = PathBuf::from(&path);
     let version = get_cli_version(&cli_path);
 
     let now = Utc::now().to_rfc3339();
 
-    conn.execute(
-        "UPDATE cli_paths SET name = ?1, path = ?2, version = ?3, updated_at = ?4 WHERE id = ?5",
-        params![name, path, version, now, id],
+    cli_mapper::update_cli_path(
+        db::rb(),
+        &id,
+        &name,
+        &path,
+        version.as_deref(),
+        &now,
     )
+    .await
     .map_err(|e| e.to_string())?;
 
     Ok(CliPathEntry {
@@ -360,10 +358,9 @@ pub fn update_cli_path(id: String, name: String, path: String) -> Result<CliPath
 
 /// 删除 CLI 路径配置 (Tauri 命令)
 #[tauri::command]
-pub fn delete_cli_path(id: String) -> Result<(), String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
-    conn.execute("DELETE FROM cli_paths WHERE id = ?1", params![id])
+pub async fn delete_cli_path(id: String) -> Result<(), String> {
+    cli_mapper::delete_cli_path(db::rb(), &id)
+        .await
         .map_err(|e| e.to_string())?;
 
     Ok(())
@@ -391,59 +388,53 @@ pub struct MigrationResult {
 
 /// 检查是否需要迁移（是否存在旧的 CLI 路径配置且未迁移过）
 #[tauri::command]
-pub fn check_cli_paths_migration_needed() -> Result<bool, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
+pub async fn check_cli_paths_migration_needed() -> Result<bool, String> {
     // 检查是否已经迁移过
-    let mut stmt = conn
-        .prepare("SELECT value FROM app_settings WHERE key = ?1")
+    let migrated = cli_mapper::get_migration_flag(db::rb(), MIGRATION_STATUS_KEY)
+        .await
         .map_err(|e| e.to_string())?;
 
-    let migrated = stmt
-        .query_row([MIGRATION_STATUS_KEY], |row| row.get::<_, String>(0))
-        .optional()
-        .map_err(|e| e.to_string())?;
-
-    if migrated.is_some() {
+    if migrated.into_iter().next().is_some() {
         return Ok(false);
     }
 
     // 检查是否有 CLI 路径配置
-    let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM cli_paths", [], |row| row.get(0))
+    let count_row = cli_mapper::count_cli_paths(db::rb())
+        .await
         .map_err(|e| e.to_string())?;
+    let count = count_row
+        .into_iter()
+        .next()
+        .and_then(|r| r.value)
+        .unwrap_or(0);
 
     Ok(count > 0)
 }
 
 /// 获取待迁移的 CLI 路径数量
 #[tauri::command]
-pub fn get_pending_migration_count() -> Result<usize, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
-    let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM cli_paths", [], |row| row.get(0))
+pub async fn get_pending_migration_count() -> Result<usize, String> {
+    let count_row = cli_mapper::count_cli_paths(db::rb())
+        .await
         .map_err(|e| e.to_string())?;
+    let count = count_row
+        .into_iter()
+        .next()
+        .and_then(|r| r.value)
+        .unwrap_or(0);
 
     Ok(count as usize)
 }
 
 /// 执行 CLI 路径迁移到智能体配置
 #[tauri::command]
-pub fn migrate_cli_paths_to_agents() -> Result<MigrationResult, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
+pub async fn migrate_cli_paths_to_agents() -> Result<MigrationResult, String> {
     // 检查是否已经迁移过
-    let mut stmt = conn
-        .prepare("SELECT value FROM app_settings WHERE key = ?1")
+    let migrated = cli_mapper::get_migration_flag(db::rb(), MIGRATION_STATUS_KEY)
+        .await
         .map_err(|e| e.to_string())?;
 
-    let migrated = stmt
-        .query_row([MIGRATION_STATUS_KEY], |row| row.get::<_, String>(0))
-        .optional()
-        .map_err(|e| e.to_string())?;
-
-    if migrated.is_some() {
+    if migrated.into_iter().next().is_some() {
         return Ok(MigrationResult {
             success: true,
             migrated_count: 0,
@@ -454,23 +445,8 @@ pub fn migrate_cli_paths_to_agents() -> Result<MigrationResult, String> {
     }
 
     // 获取所有 CLI 路径配置
-    let mut stmt = conn
-        .prepare("SELECT id, name, path, version, created_at, updated_at FROM cli_paths")
-        .map_err(|e| e.to_string())?;
-
-    let cli_paths = stmt
-        .query_map([], |row| {
-            Ok(CliPathEntry {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                path: row.get(2)?,
-                version: row.get(3)?,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
-            })
-        })
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
+    let cli_paths = cli_mapper::list_all_cli_paths(db::rb())
+        .await
         .map_err(|e| e.to_string())?;
 
     let mut migrated_count = 0;
@@ -479,33 +455,39 @@ pub fn migrate_cli_paths_to_agents() -> Result<MigrationResult, String> {
     let now = Utc::now().to_rfc3339();
 
     for cli_path in cli_paths {
+        let path = match cli_path.path {
+            Some(p) => p,
+            None => continue,
+        };
+        let name = cli_path.name.unwrap_or_default();
+
         // 检查是否已存在相同路径的智能体
-        let existing: Option<String> = conn
-            .query_row(
-                "SELECT id FROM agents WHERE cli_path = ?1",
-                [&cli_path.path],
-                |row| row.get(0),
-            )
-            .optional()
+        let existing = cli_mapper::find_agent_id_by_cli_path(db::rb(), &path)
+            .await
             .map_err(|e| e.to_string())?;
 
-        if existing.is_some() {
+        if !existing.is_empty() {
             skipped_count += 1;
             continue;
         }
 
         // 从路径推断提供商
-        let provider = infer_provider_from_path(&cli_path.path);
+        let provider = infer_provider_from_path(&path);
 
         // 创建新的智能体配置
         let agent_id = Uuid::new_v4().to_string();
-        let agent_name = cli_path.name.clone();
+        let agent_name = name.clone();
 
-        conn.execute(
-            "INSERT INTO agents (id, name, type, provider, cli_path, status, created_at, updated_at)
-             VALUES (?1, ?2, 'cli', ?3, ?4, 'offline', ?5, ?6)",
-            params![&agent_id, &agent_name, &provider, &cli_path.path, &now, &now],
+        cli_mapper::insert_agent_for_migration(
+            db::rb(),
+            &agent_id,
+            &agent_name,
+            provider.as_deref(),
+            &path,
+            &now,
+            &now,
         )
+        .await
         .map_err(|e| e.to_string())?;
 
         migrated_count += 1;
@@ -513,11 +495,9 @@ pub fn migrate_cli_paths_to_agents() -> Result<MigrationResult, String> {
     }
 
     // 标记迁移完成
-    conn.execute(
-        "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
-        params![MIGRATION_STATUS_KEY, "true", &now],
-    )
-    .map_err(|e| e.to_string())?;
+    cli_mapper::upsert_migration_flag(db::rb(), MIGRATION_STATUS_KEY, "true", &now)
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(MigrationResult {
         success: true,

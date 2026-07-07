@@ -1,12 +1,13 @@
 use anyhow::Result;
-use rusqlite::{Connection, Row};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::support::{
-    bind_optional, bind_value, bool_from_int, now_rfc3339, open_db_connection, UpdateSqlBuilder,
-};
+use super::support::now_rfc3339;
+
+use crate::db;
+use crate::mappers::provider_profile as provider_mapper;
+use crate::models::{value_to_json_string_opt, ProviderProfileRow};
 
 fn opencode_config_dir() -> Result<PathBuf, String> {
     dirs::home_dir()
@@ -20,12 +21,6 @@ fn opencode_auth_dir() -> Result<PathBuf, String> {
         .ok_or_else(|| "Cannot determine home directory".to_string())
 }
 
-const PROVIDER_PROFILE_SELECT_SQL: &str =
-    "SELECT id, name, cli_type, is_active, api_key, base_url, provider_name, main_model, reasoning_model, haiku_model, sonnet_default, opus_default, codex_model, opencode_provider_models, opencode_provider_npm, created_at, updated_at FROM provider_profiles";
-const PROVIDER_PROFILE_SELECT_BY_ID_SQL: &str =
-    "SELECT id, name, cli_type, is_active, api_key, base_url, provider_name, main_model, reasoning_model, haiku_model, sonnet_default, opus_default, codex_model, opencode_provider_models, opencode_provider_npm, created_at, updated_at FROM provider_profiles WHERE id = ?1";
-const PROVIDER_PROFILE_SELECT_ACTIVE_SQL: &str =
-    "SELECT id, name, cli_type, is_active, api_key, base_url, provider_name, main_model, reasoning_model, haiku_model, sonnet_default, opus_default, codex_model, opencode_provider_models, opencode_provider_npm, created_at, updated_at FROM provider_profiles WHERE cli_type = ?1 AND is_active = 1";
 const OPENCODE_DEFAULT_PROVIDER_NPM: &str = "@ai-sdk/openai-compatible";
 const MODELS_DEV_PROVIDER_CATALOG_URL: &str = "https://models.dev/api.json";
 const CODEX_RUNTIME_SYNC_FILES: &[&str] = &[
@@ -36,10 +31,6 @@ const CODEX_RUNTIME_SYNC_FILES: &[&str] = &[
     "installation_id",
 ];
 const CODEX_RUNTIME_SYNC_DIRS: &[&str] = &["skills", "plugins", "rules", "sessions", "memories"];
-
-fn open_conn() -> Result<Connection, String> {
-    open_db_connection().map_err(|e| e.to_string())
-}
 
 fn build_current_profile(cli_type: &str, now: String) -> ProviderProfile {
     ProviderProfile {
@@ -256,105 +247,87 @@ pub struct UpdateProviderProfileInput {
     pub opencode_provider_npm: Option<String>,
 }
 
-fn map_provider_profile_row(row: &Row<'_>) -> rusqlite::Result<ProviderProfile> {
-    Ok(ProviderProfile {
-        id: row.get(0)?,
-        name: row.get(1)?,
-        cli_type: row.get(2)?,
-        is_active: bool_from_int(row.get::<_, Option<i32>>(3)?).unwrap_or(false),
-        api_key: row.get(4)?,
-        base_url: row.get(5)?,
-        provider_name: row.get(6)?,
-        main_model: row.get(7)?,
-        reasoning_model: row.get(8)?,
-        haiku_model: row.get(9)?,
-        sonnet_default: row.get(10)?,
-        opus_default: row.get(11)?,
-        codex_model: row.get(12)?,
-        opencode_provider_models: row.get(13)?,
-        opencode_provider_npm: row.get(14)?,
-        created_at: row.get(15)?,
-        updated_at: row.get(16)?,
-    })
+/// 把 rbatis 行映射 `ProviderProfileRow` 转成对外 DTO `ProviderProfile`（含 bool 还原）。
+fn row_to_provider_profile(row: ProviderProfileRow) -> ProviderProfile {
+    ProviderProfile {
+        id: row.id.unwrap_or_default(),
+        name: row.name.unwrap_or_default(),
+        cli_type: row.cli_type.unwrap_or_default(),
+        is_active: row.is_active.unwrap_or(0) != 0,
+        api_key: row.api_key,
+        base_url: row.base_url,
+        provider_name: row.provider_name,
+        main_model: row.main_model,
+        reasoning_model: row.reasoning_model,
+        haiku_model: row.haiku_model,
+        sonnet_default: row.sonnet_default,
+        opus_default: row.opus_default,
+        codex_model: row.codex_model,
+        opencode_provider_models: value_to_json_string_opt(row.opencode_provider_models),
+        opencode_provider_npm: row.opencode_provider_npm,
+        created_at: row.created_at.unwrap_or_default(),
+        updated_at: row.updated_at.unwrap_or_default(),
+    }
 }
 
 /// 列出所有 Provider 配置
 #[tauri::command]
-pub fn list_provider_profiles(cli_type: Option<String>) -> Result<Vec<ProviderProfile>, String> {
-    let conn = open_conn()?;
-
-    let sql = if let Some(ref _ct) = cli_type {
-        format!("{PROVIDER_PROFILE_SELECT_SQL} WHERE cli_type = ?1 ORDER BY updated_at DESC")
-    } else {
-        format!("{PROVIDER_PROFILE_SELECT_SQL} ORDER BY cli_type, updated_at DESC")
-    };
-
-    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-
-    let profiles = if let Some(ct) = cli_type {
-        stmt.query_map([&ct], map_provider_profile_row)
-            .map_err(|e| e.to_string())?
-            .collect::<Result<Vec<_>, _>>()
+pub async fn list_provider_profiles(cli_type: Option<String>) -> Result<Vec<ProviderProfile>, String> {
+    let rows = if let Some(ct) = cli_type {
+        provider_mapper::list_provider_profiles_by_cli_type(db::rb(), &ct)
+            .await
             .map_err(|e| e.to_string())?
     } else {
-        stmt.query_map([], map_provider_profile_row)
-            .map_err(|e| e.to_string())?
-            .collect::<Result<Vec<_>, _>>()
+        provider_mapper::list_provider_profiles(db::rb())
+            .await
             .map_err(|e| e.to_string())?
     };
-
-    Ok(profiles)
+    Ok(rows.into_iter().map(row_to_provider_profile).collect())
 }
 
 /// 获取单个 Provider 配置
 #[tauri::command]
-pub fn get_provider_profile(id: String) -> Result<ProviderProfile, String> {
-    let conn = open_conn()?;
-
-    let profile = conn
-        .query_row(
-            PROVIDER_PROFILE_SELECT_BY_ID_SQL,
-            [&id],
-            map_provider_profile_row,
-        )
-        .map_err(|e| e.to_string())?;
-
-    Ok(profile)
+pub async fn get_provider_profile(id: String) -> Result<ProviderProfile, String> {
+    let row = provider_mapper::get_provider_profile_by_id(db::rb(), &id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("Provider 配置不存在: {}", id))?;
+    Ok(row_to_provider_profile(row))
 }
 
 /// 创建 Provider 配置
 #[tauri::command]
-pub fn create_provider_profile(
+pub async fn create_provider_profile(
     input: CreateProviderProfileInput,
 ) -> Result<ProviderProfile, String> {
-    let conn = open_conn()?;
-
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_rfc3339();
 
-    conn.execute(
-        "INSERT INTO provider_profiles (id, name, cli_type, is_active, api_key, base_url, provider_name, main_model, reasoning_model, haiku_model, sonnet_default, opus_default, codex_model, opencode_provider_models, opencode_provider_npm, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
-        rusqlite::params![
-            &id,
-            &input.name,
-            &input.cli_type,
-            0,
-            &input.api_key,
-            &input.base_url,
-            &input.provider_name,
-            &input.main_model,
-            &input.reasoning_model,
-            &input.haiku_model,
-            &input.sonnet_default,
-            &input.opus_default,
-            &input.codex_model,
-            &input.opencode_provider_models,
-            &input.opencode_provider_npm,
-            &now,
-            &now
-        ],
+    provider_mapper::insert_provider_profile(
+        db::rb(),
+        &id,
+        &input.name,
+        &input.cli_type,
+        input.api_key.as_deref(),
+        input.base_url.as_deref(),
+        input.provider_name.as_deref(),
+        input.main_model.as_deref(),
+        input.reasoning_model.as_deref(),
+        input.haiku_model.as_deref(),
+        input.sonnet_default.as_deref(),
+        input.opus_default.as_deref(),
+        input.codex_model.as_deref(),
+        input
+            .opencode_provider_models
+            .as_ref()
+            .map(|v| rbs::Value::String(v.clone())),
+        input.opencode_provider_npm.as_deref(),
+        &now,
+        &now,
     )
+    .await
     .map_err(|e| e.to_string())?;
 
     Ok(ProviderProfile {
@@ -380,61 +353,37 @@ pub fn create_provider_profile(
 
 /// 更新 Provider 配置
 #[tauri::command]
-pub fn update_provider_profile(
+pub async fn update_provider_profile(
     id: String,
     input: UpdateProviderProfileInput,
 ) -> Result<ProviderProfile, String> {
-    let conn = open_conn()?;
-
     let now = now_rfc3339();
 
-    let mut updates = UpdateSqlBuilder::new();
-    updates.push("name", input.name.is_some());
-    updates.push("api_key", input.api_key.is_some());
-    updates.push("base_url", input.base_url.is_some());
-    updates.push("provider_name", input.provider_name.is_some());
-    updates.push("main_model", input.main_model.is_some());
-    updates.push("reasoning_model", input.reasoning_model.is_some());
-    updates.push("haiku_model", input.haiku_model.is_some());
-    updates.push("sonnet_default", input.sonnet_default.is_some());
-    updates.push("opus_default", input.opus_default.is_some());
-    updates.push("codex_model", input.codex_model.is_some());
-    updates.push(
-        "opencode_provider_models",
-        input.opencode_provider_models.is_some(),
-    );
-    updates.push(
-        "opencode_provider_npm",
-        input.opencode_provider_npm.is_some(),
-    );
-
-    let sql = updates.finish("provider_profiles", "id");
-
-    let mut stmt = conn.prepare_cached(&sql).map_err(|e| e.to_string())?;
-
-    let mut param_count = 1;
-    bind_value(&mut stmt, &mut param_count, &now).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.name).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.api_key).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.base_url).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.provider_name).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.main_model).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.reasoning_model)
-        .map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.haiku_model).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.sonnet_default).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.opus_default).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.codex_model).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.opencode_provider_models)
-        .map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.opencode_provider_npm)
-        .map_err(|e| e.to_string())?;
-    bind_value(&mut stmt, &mut param_count, &id).map_err(|e| e.to_string())?;
-
-    stmt.raw_execute().map_err(|e| e.to_string())?;
+    provider_mapper::update_provider_profile(
+        db::rb(),
+        &id,
+        &now,
+        input.name.as_deref(),
+        input.api_key.as_deref(),
+        input.base_url.as_deref(),
+        input.provider_name.as_deref(),
+        input.main_model.as_deref(),
+        input.reasoning_model.as_deref(),
+        input.haiku_model.as_deref(),
+        input.sonnet_default.as_deref(),
+        input.opus_default.as_deref(),
+        input.codex_model.as_deref(),
+        input
+            .opencode_provider_models
+            .as_ref()
+            .map(|v| rbs::Value::String(v.clone())),
+        input.opencode_provider_npm.as_deref(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
 
     // 获取更新后的配置
-    let updated_profile = get_provider_profile_by_id(&conn, &id)?;
+    let updated_profile = get_provider_profile_by_id(&id).await?;
 
     // 编辑当前激活配置时，需要同步回写对应 CLI 配置文件，保证设置页无需重进即可读到最新内容。
     if updated_profile.is_active {
@@ -494,21 +443,21 @@ pub fn update_current_cli_config(
 }
 
 /// 获取单个 Provider 配置
-fn get_provider_profile_by_id(conn: &Connection, id: &str) -> Result<ProviderProfile, String> {
-    conn.query_row(
-        PROVIDER_PROFILE_SELECT_BY_ID_SQL,
-        [id],
-        map_provider_profile_row,
-    )
-    .map_err(|e| e.to_string())
+async fn get_provider_profile_by_id(id: &str) -> Result<ProviderProfile, String> {
+    let row = provider_mapper::get_provider_profile_by_id(db::rb(), id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("Provider 配置不存在: {}", id))?;
+    Ok(row_to_provider_profile(row))
 }
 
 /// 删除 Provider 配置
 #[tauri::command]
-pub fn delete_provider_profile(id: String) -> Result<(), String> {
-    let conn = open_conn()?;
-
-    conn.execute("DELETE FROM provider_profiles WHERE id = ?1", [&id])
+pub async fn delete_provider_profile(id: String) -> Result<(), String> {
+    provider_mapper::delete_provider_profile(db::rb(), &id)
+        .await
         .map_err(|e| e.to_string())?;
 
     Ok(())
@@ -516,55 +465,41 @@ pub fn delete_provider_profile(id: String) -> Result<(), String> {
 
 /// 获取当前激活的配置
 #[tauri::command]
-pub fn get_active_provider_profile(cli_type: String) -> Result<Option<ProviderProfile>, String> {
-    let conn = open_conn()?;
-
-    let result = conn.query_row(
-        PROVIDER_PROFILE_SELECT_ACTIVE_SQL,
-        [&cli_type],
-        map_provider_profile_row,
-    );
-
-    match result {
-        Ok(profile) => Ok(Some(profile)),
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(e) => Err(e.to_string()),
-    }
+pub async fn get_active_provider_profile(cli_type: String) -> Result<Option<ProviderProfile>, String> {
+    let row = provider_mapper::get_active_provider_profile(db::rb(), &cli_type)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(row.into_iter().next().map(row_to_provider_profile))
 }
 
 /// 一键切换 Provider 配置
 #[tauri::command]
-pub fn switch_provider_profile(id: String) -> Result<ProviderProfile, String> {
-    let mut conn = open_conn()?;
-
+pub async fn switch_provider_profile(id: String) -> Result<ProviderProfile, String> {
     // 获取要切换的配置
-    let profile = get_provider_profile_by_id(&conn, &id)?;
+    let profile = get_provider_profile_by_id(&id).await?;
 
     // 开启事务
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let rb = db::rb();
+    let tx = rb.acquire_begin().await.map_err(|e| e.to_string())?;
 
     // 将同类型其他配置设为非激活
-    tx.execute(
-        "UPDATE provider_profiles SET is_active = 0 WHERE cli_type = ?1",
-        [&profile.cli_type],
-    )
-    .map_err(|e| e.to_string())?;
+    provider_mapper::deactivate_provider_profiles_by_cli_type(&tx, &profile.cli_type)
+        .await
+        .map_err(|e| e.to_string())?;
 
     // 激活当前配置
-    tx.execute(
-        "UPDATE provider_profiles SET is_active = 1, updated_at = ?1 WHERE id = ?2",
-        rusqlite::params![&now_rfc3339(), &id],
-    )
-    .map_err(|e| e.to_string())?;
+    provider_mapper::activate_provider_profile(&tx, &id, &now_rfc3339())
+        .await
+        .map_err(|e| e.to_string())?;
 
     // 提交事务
-    tx.commit().map_err(|e| e.to_string())?;
+    tx.commit().await.map_err(|e| e.to_string())?;
 
     // 写入 CLI 配置文件
     write_to_cli_config(&profile)?;
 
     // 返回更新后的配置
-    let updated_profile = get_provider_profile_by_id(&conn, &id)?;
+    let updated_profile = get_provider_profile_by_id(&id).await?;
     Ok(updated_profile)
 }
 

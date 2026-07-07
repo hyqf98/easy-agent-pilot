@@ -1,6 +1,5 @@
 use anyhow::Result;
 use chrono::Utc;
-use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
@@ -21,7 +20,11 @@ use super::mcp_shared::{
     build_stdio_command, ensure_mcp_servers_object, format_call_tool_result, parse_args_string,
     read_json_config_or_default, write_json_config_pretty,
 };
-use super::support::open_db_connection;
+use crate::db;
+use crate::mappers::mcp as mcp_mapper;
+use crate::models::{
+    value_to_json_string_opt, McpRuntimeConfigRow, McpServerNameTypeRow, McpServerRow,
+};
 
 /// MCP 服务器配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -175,40 +178,40 @@ fn remove_mcp_from_config_file(server_type: &str, server_name: &str) -> Result<(
     Ok(())
 }
 
+/// 把 McpServerRow 转换为对外 McpServer DTO。
+fn server_row_to_server(row: McpServerRow) -> Result<McpServer, String> {
+    Ok(McpServer {
+        id: row.id.ok_or("mcp_servers.id 缺失")?,
+        name: row.name.ok_or("mcp_servers.name 缺失")?,
+        server_type: row
+            .server_type
+            .ok_or("mcp_servers.server_type 缺失")?,
+        command: row.command.unwrap_or_default(),
+        args: value_to_json_string_opt(row.args),
+        env: value_to_json_string_opt(row.env),
+        url: row.url,
+        headers: value_to_json_string_opt(row.headers),
+        enabled: row.enabled.unwrap_or(0) != 0,
+        test_status: row.test_status,
+        test_message: row.test_message,
+        tool_count: row.tool_count.map(|v| v as i32),
+        tested_at: row.tested_at,
+        created_at: row.created_at.unwrap_or_default(),
+        updated_at: row.updated_at.unwrap_or_default(),
+    })
+}
+
 /// 获取所有 MCP 服务器配置 (Tauri 命令)
 #[tauri::command]
-pub fn list_mcp_servers() -> Result<Vec<McpServer>, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, name, server_type, command, args, env, url, headers, enabled, test_status, test_message, tool_count, tested_at, created_at, updated_at FROM mcp_servers ORDER BY created_at DESC"
-        )
+pub async fn list_mcp_servers() -> Result<Vec<McpServer>, String> {
+    let rows = mcp_mapper::list_mcp_servers(db::rb())
+        .await
         .map_err(|e| e.to_string())?;
 
-    let mut servers = stmt
-        .query_map([], |row| {
-            Ok(McpServer {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                server_type: row.get(2)?,
-                command: row.get(3)?,
-                args: row.get(4)?,
-                env: row.get(5)?,
-                url: row.get(6)?,
-                headers: row.get(7)?,
-                enabled: row.get::<_, i32>(8)? != 0,
-                test_status: row.get(9)?,
-                test_message: row.get(10)?,
-                tool_count: row.get(11)?,
-                tested_at: row.get(12)?,
-                created_at: row.get(13)?,
-                updated_at: row.get(14)?,
-            })
-        })
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
+    let mut servers: Vec<McpServer> = rows
+        .into_iter()
+        .map(server_row_to_server)
+        .collect::<Result<Vec<_>, _>>()?;
 
     // 添加内置服务器到列表开头
     let builtin_server = McpServer {
@@ -235,29 +238,17 @@ pub fn list_mcp_servers() -> Result<Vec<McpServer>, String> {
 }
 
 /// 检查名称是否重复
-fn check_name_duplicate(
-    conn: &Connection,
+async fn check_name_duplicate(
     name: &str,
     exclude_id: Option<&str>,
 ) -> Result<bool, String> {
-    let count = match exclude_id {
-        Some(id) => {
-            let mut stmt = conn
-                .prepare("SELECT COUNT(*) FROM mcp_servers WHERE name = ?1 AND id != ?2")
-                .map_err(|e| e.to_string())?;
-            stmt.query_row(params![name, id], |row| row.get::<_, i32>(0))
-                .map_err(|e| e.to_string())?
-        }
-        None => {
-            let mut stmt = conn
-                .prepare("SELECT COUNT(*) FROM mcp_servers WHERE name = ?1")
-                .map_err(|e| e.to_string())?;
-            stmt.query_row(params![name], |row| row.get::<_, i32>(0))
-                .map_err(|e| e.to_string())?
-        }
-    };
-
-    Ok(count > 0)
+    let row = mcp_mapper::count_mcp_by_name(db::rb(), name, exclude_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or("名称查重失败")?;
+    Ok(row.value.unwrap_or(0) > 0)
 }
 
 fn validate_server_input(
@@ -286,26 +277,28 @@ fn validate_server_input(
     Ok(normalized_type)
 }
 
-fn load_runtime_server_config(id: &str) -> Result<StoredServerRuntime, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    let mut stmt = conn
-        .prepare(
-            "SELECT name, server_type, command, args, env, url, headers FROM mcp_servers WHERE id = ?1",
-        )
-        .map_err(|e| e.to_string())?;
+/// 读取运行时配置（7 列子集），返回原始元组以兼容既有业务函数签名。
+async fn load_runtime_server_config(id: &str) -> Result<StoredServerRuntime, String> {
+    let row = mcp_mapper::load_runtime_server_config(db::rb(), id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("Server not found: {}", id))?;
+    Ok(runtime_row_to_tuple(row))
+}
 
-    stmt.query_row(params![id], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, Option<String>>(3)?,
-            row.get::<_, Option<String>>(4)?,
-            row.get::<_, Option<String>>(5)?,
-            row.get::<_, Option<String>>(6)?,
-        ))
-    })
-    .map_err(|e| format!("Server not found: {}", e))
+/// 把运行时配置行映射为 StoredServerRuntime 元组。
+fn runtime_row_to_tuple(row: McpRuntimeConfigRow) -> StoredServerRuntime {
+    (
+        row.name.unwrap_or_default(),
+        row.server_type.unwrap_or_default(),
+        row.command.unwrap_or_default(),
+        value_to_json_string_opt(row.args),
+        value_to_json_string_opt(row.env),
+        row.url,
+        value_to_json_string_opt(row.headers),
+    )
 }
 
 fn serialize_optional_map(
@@ -343,8 +336,7 @@ fn map_rmcp_tools(tools: Vec<rmcp::model::Tool>) -> Vec<McpTool> {
 
 /// 添加 MCP 服务器配置 (Tauri 命令)
 #[tauri::command]
-pub fn add_mcp_server(input: CreateMcpServerInput) -> Result<McpServer, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
+pub async fn add_mcp_server(input: CreateMcpServerInput) -> Result<McpServer, String> {
     let server_type = validate_server_input(
         &input.name,
         &input.server_type,
@@ -353,17 +345,37 @@ pub fn add_mcp_server(input: CreateMcpServerInput) -> Result<McpServer, String> 
     )?;
 
     // 检查名称是否重复
-    if check_name_duplicate(&conn, &input.name, None)? {
+    if check_name_duplicate(&input.name, None).await? {
         return Err("名称已存在，请使用其他名称".to_string());
     }
 
     let now = Utc::now().to_rfc3339();
     let id = Uuid::new_v4().to_string();
 
-    conn.execute(
-        "INSERT INTO mcp_servers (id, name, server_type, command, args, env, url, headers, enabled, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-        params![id, input.name, server_type, input.command, input.args, input.env, input.url, input.headers, 1, now, now],
+    mcp_mapper::insert_mcp_server(
+        db::rb(),
+        &id,
+        &input.name,
+        &server_type,
+        &input.command,
+        input
+            .args
+            .as_ref()
+            .map(|v| rbs::Value::String(v.clone())),
+        input
+            .env
+            .as_ref()
+            .map(|v| rbs::Value::String(v.clone())),
+        input.url.as_deref(),
+        input
+            .headers
+            .as_ref()
+            .map(|v| rbs::Value::String(v.clone())),
+        1,
+        &now,
+        &now,
     )
+    .await
     .map_err(|e| e.to_string())?;
 
     let server = McpServer {
@@ -395,8 +407,7 @@ pub fn add_mcp_server(input: CreateMcpServerInput) -> Result<McpServer, String> 
 
 /// 更新 MCP 服务器配置 (Tauri 命令)
 #[tauri::command]
-pub fn update_mcp_server(input: UpdateMcpServerInput) -> Result<McpServer, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
+pub async fn update_mcp_server(input: UpdateMcpServerInput) -> Result<McpServer, String> {
     let server_type = validate_server_input(
         &input.name,
         &input.server_type,
@@ -405,26 +416,46 @@ pub fn update_mcp_server(input: UpdateMcpServerInput) -> Result<McpServer, Strin
     )?;
 
     // 检查名称是否重复
-    if check_name_duplicate(&conn, &input.name, Some(&input.id))? {
+    if check_name_duplicate(&input.name, Some(&input.id)).await? {
         return Err("名称已存在，请使用其他名称".to_string());
     }
 
     // 获取旧的服务器信息（用于配置文件更新）
-    let old_server: Option<(String, String)> = conn
-        .query_row(
-            "SELECT server_type, name FROM mcp_servers WHERE id = ?1",
-            params![input.id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )
-        .ok();
+    let old_server: Option<McpServerNameTypeRow> = mcp_mapper::get_mcp_server_type_name(
+        db::rb(),
+        &input.id,
+    )
+    .await
+    .map_err(|e| e.to_string())?
+    .into_iter()
+    .next();
 
     let now = Utc::now().to_rfc3339();
     let enabled_int = if input.enabled { 1 } else { 0 };
 
-    conn.execute(
-        "UPDATE mcp_servers SET name = ?1, server_type = ?2, command = ?3, args = ?4, env = ?5, url = ?6, headers = ?7, enabled = ?8, updated_at = ?9 WHERE id = ?10",
-        params![input.name, server_type, input.command, input.args, input.env, input.url, input.headers, enabled_int, now, input.id],
+    mcp_mapper::update_mcp_server_full(
+        db::rb(),
+        &input.id,
+        &input.name,
+        &server_type,
+        &input.command,
+        input
+            .args
+            .as_ref()
+            .map(|v| rbs::Value::String(v.clone())),
+        input
+            .env
+            .as_ref()
+            .map(|v| rbs::Value::String(v.clone())),
+        input.url.as_deref(),
+        input
+            .headers
+            .as_ref()
+            .map(|v| rbs::Value::String(v.clone())),
+        enabled_int,
+        &now,
     )
+    .await
     .map_err(|e| e.to_string())?;
 
     // 构建更新后的服务器对象
@@ -447,7 +478,9 @@ pub fn update_mcp_server(input: UpdateMcpServerInput) -> Result<McpServer, Strin
     };
 
     // 更新配置文件
-    if let Some((old_type, old_name)) = old_server {
+    if let Some(old_row) = old_server {
+        let old_type = old_row.server_type.unwrap_or_default();
+        let old_name = old_row.name.unwrap_or_default();
         // 如果类型或名称发生变化，从旧配置文件中删除
         if old_type != server_type || old_name != input.name {
             let _ = remove_mcp_from_config_file(&old_type, &old_name);
@@ -461,24 +494,24 @@ pub fn update_mcp_server(input: UpdateMcpServerInput) -> Result<McpServer, Strin
 
 /// 删除 MCP 服务器配置 (Tauri 命令)
 #[tauri::command]
-pub fn delete_mcp_server(id: String) -> Result<(), String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
+pub async fn delete_mcp_server(id: String) -> Result<(), String> {
     // 先获取服务器信息，以便删除配置文件
-    let server: Option<(String, String)> = conn
-        .query_row(
-            "SELECT server_type, name FROM mcp_servers WHERE id = ?1",
-            params![id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )
-        .ok();
+    let server: Option<McpServerNameTypeRow> =
+        mcp_mapper::get_mcp_server_type_name(db::rb(), &id)
+            .await
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .next();
 
     // 从数据库删除
-    conn.execute("DELETE FROM mcp_servers WHERE id = ?1", params![id])
+    mcp_mapper::delete_mcp_server_by_id(db::rb(), &id)
+        .await
         .map_err(|e| e.to_string())?;
 
     // 从配置文件删除
-    if let Some((server_type, name)) = server {
+    if let Some(row) = server {
+        let server_type = row.server_type.unwrap_or_default();
+        let name = row.name.unwrap_or_default();
         let _ = remove_mcp_from_config_file(&server_type, &name);
     }
 
@@ -487,16 +520,13 @@ pub fn delete_mcp_server(id: String) -> Result<(), String> {
 
 /// 切换 MCP 服务器启用状态 (Tauri 命令)
 #[tauri::command]
-pub fn toggle_mcp_server(id: String, enabled: bool) -> Result<(), String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
+pub async fn toggle_mcp_server(id: String, enabled: bool) -> Result<(), String> {
     let now = Utc::now().to_rfc3339();
     let enabled_int = if enabled { 1 } else { 0 };
 
-    conn.execute(
-        "UPDATE mcp_servers SET enabled = ?1, updated_at = ?2 WHERE id = ?3",
-        params![enabled_int, now, id],
-    )
-    .map_err(|e| e.to_string())?;
+    mcp_mapper::toggle_mcp_server_enabled(db::rb(), &id, enabled_int, &now)
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -504,7 +534,7 @@ pub fn toggle_mcp_server(id: String, enabled: bool) -> Result<(), String> {
 /// 测试 MCP 服务器连接 (Tauri 命令)
 #[tauri::command]
 pub async fn test_mcp_connection(id: String) -> Result<McpTestResult, String> {
-    let (name, server_type, command, args, env, url, headers) = load_runtime_server_config(&id)?;
+    let (name, server_type, command, args, env, url, headers) = load_runtime_server_config(&id).await?;
 
     // 根据服务器类型执行不同的测试逻辑
     let test_result = match server_type.as_str() {
@@ -520,12 +550,15 @@ pub async fn test_mcp_connection(id: String) -> Result<McpTestResult, String> {
         "failed"
     };
 
-    // 重新获取连接来更新数据库
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    conn.execute(
-        "UPDATE mcp_servers SET test_status = ?1, test_message = ?2, tool_count = ?3, tested_at = ?4 WHERE id = ?5",
-        params![status, test_result.message.clone(), test_result.tool_count, now, id],
+    mcp_mapper::save_mcp_test_result(
+        db::rb(),
+        &id,
+        status,
+        &test_result.message.clone(),
+        test_result.tool_count.map(|v| v as i64),
+        &now,
     )
+    .await
     .map_err(|e| format!("Failed to save test result: {}", e))?;
 
     Ok(test_result)
@@ -695,7 +728,7 @@ pub async fn list_mcp_tools(server_id: String) -> Result<McpToolsListResult, Str
     }
 
     let (name, server_type, command, args, env, url, headers) =
-        load_runtime_server_config(&server_id)?;
+        load_runtime_server_config(&server_id).await?;
 
     // 根据服务器类型执行不同的获取工具列表逻辑
     match server_type.as_str() {
@@ -855,7 +888,7 @@ pub async fn call_mcp_tool(
     }
 
     let (name, server_type, command, args, env, url, headers) =
-        load_runtime_server_config(&server_id)?;
+        load_runtime_server_config(&server_id).await?;
 
     // 根据服务器类型执行不同的调用逻辑
     match server_type.as_str() {

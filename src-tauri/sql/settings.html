@@ -1,0 +1,28 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!-- 获取单个设置值（返回 key+value 两列以匹配 AppSettingRow） -->
+  <select id="get_app_setting">
+    `select key, value from app_settings where key = #{key}`
+  </select>
+
+  <!-- 获取所有设置（key, value 两列） -->
+  <select id="get_all_app_settings">
+    `select key, value from app_settings`
+  </select>
+
+  <!-- 保存单个设置（upsert） -->
+  <insert id="save_app_setting">
+    `insert or replace into app_settings (key, value, updated_at) `
+    `values (#{key}, #{value}, #{updated_at})`
+  </insert>
+
+  <!-- 删除单个设置 -->
+  <delete id="delete_app_setting">
+    `delete from app_settings where key = #{key}`
+  </delete>
+
+  <!-- 清除所有设置 -->
+  <delete id="clear_app_settings">
+    `delete from app_settings`
+  </delete>
+</mapper>

@@ -1,0 +1,25 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!-- 查询某会话的全部 Agent Plan 快照，按更新时间升序返回 -->
+  <select id="list_agent_plans">
+    `select id, session_id, request_id, CAST(plan_json AS TEXT) as plan_json, created_at, updated_at, seq `
+    `from agent_plan_snapshots where session_id = #{session_id} `
+    `order by updated_at asc, seq asc`
+  </select>
+
+  <!--
+    会话执行期 UPSERT Agent Plan 快照（ACP/CLI 策略写路径）。
+    以 (session_id, request_id) 唯一键做 UPSERT：同一回合内 Agent 可能多次下发
+    Plan（全量替换语义），终态覆盖；同时刷新 updated_at / seq。
+  -->
+  <insert id="upsert_agent_plan_snapshot">
+    `insert into agent_plan_snapshots `
+    `(id, session_id, request_id, plan_json, created_at, updated_at, seq) `
+    `values `
+    `(#{row.id}, #{row.session_id}, #{row.request_id}, #{row.plan_json}, #{row.created_at}, #{row.updated_at}, #{row.seq}) `
+    `on conflict(session_id, request_id) do update set `
+    `plan_json = excluded.plan_json, `
+    `updated_at = excluded.updated_at, `
+    `seq = excluded.seq`
+  </insert>
+</mapper>

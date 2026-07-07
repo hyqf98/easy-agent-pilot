@@ -1,8 +1,21 @@
-use anyhow::Result;
-use rusqlite::{params, OptionalExtension};
+//! 无人值守渠道/账号/线程/审计事件的持久化层（rbatis）。
+//!
+//! 所有函数均为 `async`，通过 `db::rb()`（全局 RBatis 单例）访问数据库，
+//! 不再依赖 rusqlite。事务使用 `db::rb().acquire_begin().await?`。
+//!
+//! 布尔列（enabled / allow_all_senders）在 SQLite 中存为 INTEGER，本层用
+//! `Option<i64>` 读写并 `!= 0` 还原为 bool。
 
-use crate::commands::support::{
-    now_rfc3339, open_db_connection,
+use crate::commands::support::now_rfc3339;
+use crate::db;
+use crate::mappers::unattended as mapper;
+use crate::mappers::unattended::{
+    ChannelWriteRow, EventInsertRow, EventListRow, ThreadContextUpdateRow, ThreadInsertRow,
+    ThreadTouchRow, WeixinAccountUpsert,
+};
+use crate::models::{
+    value_to_json_string_opt, UnattendedAccountRow, UnattendedChannelRow, UnattendedEventRow,
+    UnattendedThreadRow,
 };
 
 use super::constants::{
@@ -15,7 +28,9 @@ use super::types::{
     WeixinLoginStatus,
 };
 
-fn bool_to_int(value: bool) -> i32 {
+// ==================== Row → DTO 转换 ====================
+
+fn bool_to_i64(value: bool) -> i64 {
     if value {
         1
     } else {
@@ -34,99 +49,95 @@ fn normalize_optional_text(value: Option<String>) -> Option<String> {
     })
 }
 
-fn map_channel(row: &rusqlite::Row<'_>) -> rusqlite::Result<UnattendedChannel> {
+fn channel_row_to_dto(row: UnattendedChannelRow) -> Result<UnattendedChannel, String> {
     Ok(UnattendedChannel {
-        id: row.get(0)?,
-        channel_type: row.get(1)?,
-        name: row.get(2)?,
-        enabled: row.get::<_, i32>(3)? != 0,
-        default_project_id: row.get(4)?,
-        default_agent_id: row.get(5)?,
-        default_model_id: row.get(6)?,
-        reply_style: row.get(7)?,
-        allow_all_senders: row.get::<_, i32>(8)? != 0,
-        future_auth_mode: row.get(9)?,
-        created_at: row.get(10)?,
-        updated_at: row.get(11)?,
+        id: row.id.ok_or_else(|| "missing id".to_string())?,
+        channel_type: row.channel_type.ok_or_else(|| "missing channel_type".to_string())?,
+        name: row.name.ok_or_else(|| "missing name".to_string())?,
+        enabled: row.enabled.unwrap_or(0) != 0,
+        default_project_id: row.default_project_id,
+        default_agent_id: row.default_agent_id,
+        default_model_id: row.default_model_id,
+        reply_style: row.reply_style.ok_or_else(|| "missing reply_style".to_string())?,
+        allow_all_senders: row.allow_all_senders.unwrap_or(0) != 0,
+        future_auth_mode: row
+            .future_auth_mode
+            .ok_or_else(|| "missing future_auth_mode".to_string())?,
+        created_at: row.created_at.ok_or_else(|| "missing created_at".to_string())?,
+        updated_at: row.updated_at.ok_or_else(|| "missing updated_at".to_string())?,
     })
 }
 
-fn map_account(row: &rusqlite::Row<'_>) -> rusqlite::Result<UnattendedChannelAccount> {
+fn account_row_to_dto(row: UnattendedAccountRow) -> Result<UnattendedChannelAccount, String> {
     Ok(UnattendedChannelAccount {
-        id: row.get(0)?,
-        channel_id: row.get(1)?,
-        account_id: row.get(2)?,
-        user_id: row.get(3)?,
-        base_url: row.get(4)?,
-        bot_token: row.get(5)?,
-        sync_cursor: row.get(6)?,
-        login_status: row.get(7)?,
-        runtime_status: row.get(8)?,
-        last_connected_at: row.get(9)?,
-        last_error: row.get(10)?,
-        created_at: row.get(11)?,
-        updated_at: row.get(12)?,
+        id: row.id.ok_or_else(|| "missing id".to_string())?,
+        channel_id: row.channel_id.ok_or_else(|| "missing channel_id".to_string())?,
+        account_id: row.account_id.ok_or_else(|| "missing account_id".to_string())?,
+        user_id: row.user_id,
+        base_url: row.base_url.ok_or_else(|| "missing base_url".to_string())?,
+        bot_token: row.bot_token.ok_or_else(|| "missing bot_token".to_string())?,
+        sync_cursor: row.sync_cursor,
+        login_status: row.login_status.ok_or_else(|| "missing login_status".to_string())?,
+        runtime_status: row
+            .runtime_status
+            .ok_or_else(|| "missing runtime_status".to_string())?,
+        last_connected_at: row.last_connected_at,
+        last_error: row.last_error,
+        created_at: row.created_at.ok_or_else(|| "missing created_at".to_string())?,
+        updated_at: row.updated_at.ok_or_else(|| "missing updated_at".to_string())?,
     })
 }
 
-fn map_thread(row: &rusqlite::Row<'_>) -> rusqlite::Result<UnattendedThread> {
+fn thread_row_to_dto(row: UnattendedThreadRow) -> Result<UnattendedThread, String> {
     Ok(UnattendedThread {
-        id: row.get(0)?,
-        channel_account_id: row.get(1)?,
-        peer_id: row.get(2)?,
-        peer_name_snapshot: row.get(3)?,
-        session_id: row.get(4)?,
-        active_project_id: row.get(5)?,
-        active_agent_id: row.get(6)?,
-        active_model_id: row.get(7)?,
-        last_context_token: row.get(8)?,
-        last_plan_id: row.get(9)?,
-        last_task_id: row.get(10)?,
-        last_message_at: row.get(11)?,
-        created_at: row.get(12)?,
-        updated_at: row.get(13)?,
+        id: row.id.ok_or_else(|| "missing id".to_string())?,
+        channel_account_id: row
+            .channel_account_id
+            .ok_or_else(|| "missing channel_account_id".to_string())?,
+        peer_id: row.peer_id.ok_or_else(|| "missing peer_id".to_string())?,
+        peer_name_snapshot: row.peer_name_snapshot,
+        session_id: row.session_id,
+        active_project_id: row.active_project_id,
+        active_agent_id: row.active_agent_id,
+        active_model_id: row.active_model_id,
+        last_context_token: row.last_context_token,
+        last_plan_id: row.last_plan_id,
+        last_task_id: row.last_task_id,
+        last_message_at: row.last_message_at,
+        created_at: row.created_at.ok_or_else(|| "missing created_at".to_string())?,
+        updated_at: row.updated_at.ok_or_else(|| "missing updated_at".to_string())?,
     })
 }
 
-fn map_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<UnattendedEventRecord> {
+fn event_row_to_dto(row: UnattendedEventRow) -> Result<UnattendedEventRecord, String> {
     Ok(UnattendedEventRecord {
-        id: row.get(0)?,
-        channel_account_id: row.get(1)?,
-        thread_id: row.get(2)?,
-        direction: row.get(3)?,
-        event_type: row.get(4)?,
-        status: row.get(5)?,
-        summary: row.get(6)?,
-        payload_json: row.get(7)?,
-        correlation_id: row.get(8)?,
-        created_at: row.get(9)?,
+        id: row.id.ok_or_else(|| "missing id".to_string())?,
+        channel_account_id: row.channel_account_id,
+        thread_id: row.thread_id,
+        direction: row.direction.ok_or_else(|| "missing direction".to_string())?,
+        event_type: row.event_type.ok_or_else(|| "missing event_type".to_string())?,
+        status: row.status.ok_or_else(|| "missing status".to_string())?,
+        summary: row.summary,
+        payload_json: value_to_json_string_opt(row.payload_json),
+        correlation_id: row.correlation_id,
+        created_at: row.created_at.ok_or_else(|| "missing created_at".to_string())?,
     })
 }
+
+// ============================================================================
+// 渠道（unattended_channels）
+// ============================================================================
 
 /// 列出无人值守渠道配置。
-pub fn list_channels() -> Result<Vec<UnattendedChannel>, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, channel_type, name, enabled, default_project_id, default_agent_id,
-                    default_model_id, reply_style, allow_all_senders, future_auth_mode, created_at, updated_at
-             FROM unattended_channels
-             ORDER BY updated_at DESC",
-        )
+pub async fn list_channels() -> Result<Vec<UnattendedChannel>, String> {
+    let rows = mapper::list_channels(db::rb())
+        .await
         .map_err(|e| e.to_string())?;
-
-    let channels = stmt
-        .query_map([], map_channel)
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-
-    Ok(channels)
+    rows.into_iter().map(channel_row_to_dto).collect()
 }
 
 /// 创建无人值守渠道配置。
-pub fn create_channel(input: CreateUnattendedChannelInput) -> Result<UnattendedChannel, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
+pub async fn create_channel(input: CreateUnattendedChannelInput) -> Result<UnattendedChannel, String> {
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_rfc3339();
     let enabled = input.enabled.unwrap_or(true);
@@ -135,38 +146,33 @@ pub fn create_channel(input: CreateUnattendedChannelInput) -> Result<UnattendedC
         .reply_style
         .unwrap_or_else(|| REPLY_STYLE_FINAL_ONLY.to_string());
 
-    conn.execute(
-        "INSERT INTO unattended_channels
-         (id, channel_type, name, enabled, default_project_id, default_agent_id,
-          default_model_id, reply_style, allow_all_senders, future_auth_mode, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-        params![
-            &id,
-            &input.channel_type,
-            &input.name,
-            bool_to_int(enabled),
-            &input.default_project_id,
-            &input.default_agent_id,
-            &input.default_model_id,
-            &reply_style,
-            bool_to_int(allow_all_senders),
-            AUTH_MODE_ALLOW_ALL,
-            &now,
-            &now
-        ],
-    )
-    .map_err(|e| e.to_string())?;
+    let row = ChannelWriteRow {
+        id: id.clone(),
+        channel_type: input.channel_type,
+        name: input.name,
+        enabled: Some(bool_to_i64(enabled)),
+        default_project_id: input.default_project_id,
+        default_agent_id: input.default_agent_id,
+        default_model_id: input.default_model_id,
+        reply_style,
+        allow_all_senders: Some(bool_to_i64(allow_all_senders)),
+        future_auth_mode: Some(AUTH_MODE_ALLOW_ALL.to_string()),
+        created_at: Some(now.clone()),
+        updated_at: Some(now),
+    };
+    mapper::insert_channel(db::rb(), &row)
+        .await
+        .map_err(|e| e.to_string())?;
 
-    get_channel(&id)
+    get_channel(&id).await
 }
 
 /// 更新无人值守渠道配置。
-pub fn update_channel(
+pub async fn update_channel(
     id: String,
     input: UpdateUnattendedChannelInput,
 ) -> Result<UnattendedChannel, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    let current = get_channel(&id)?;
+    let current = get_channel(&id).await?;
     let now = now_rfc3339();
     let next_default_project_id = if input.default_project_id.is_some() {
         normalize_optional_text(input.default_project_id)
@@ -184,103 +190,76 @@ pub fn update_channel(
         current.default_model_id
     };
 
-    conn.execute(
-        "UPDATE unattended_channels
-         SET name = ?1,
-             enabled = ?2,
-             default_project_id = ?3,
-             default_agent_id = ?4,
-             default_model_id = ?5,
-             reply_style = ?6,
-             allow_all_senders = ?7,
-             updated_at = ?8
-         WHERE id = ?9",
-        params![
-            input.name.unwrap_or(current.name),
-            bool_to_int(input.enabled.unwrap_or(current.enabled)),
-            next_default_project_id,
-            next_default_agent_id,
-            next_default_model_id,
-            input.reply_style.unwrap_or(current.reply_style),
-            bool_to_int(input.allow_all_senders.unwrap_or(current.allow_all_senders)),
-            &now,
-            &id
-        ],
-    )
-    .map_err(|e| e.to_string())?;
+    let row = ChannelWriteRow {
+        id: id.clone(),
+        channel_type: current.channel_type.clone(),
+        name: input.name.unwrap_or(current.name),
+        enabled: Some(bool_to_i64(input.enabled.unwrap_or(current.enabled))),
+        default_project_id: next_default_project_id,
+        default_agent_id: next_default_agent_id,
+        default_model_id: next_default_model_id,
+        reply_style: input.reply_style.unwrap_or(current.reply_style),
+        allow_all_senders: Some(bool_to_i64(
+            input.allow_all_senders.unwrap_or(current.allow_all_senders),
+        )),
+        future_auth_mode: Some(current.future_auth_mode.clone()),
+        created_at: Some(current.created_at.clone()),
+        updated_at: Some(now),
+    };
+    mapper::update_channel(db::rb(), &row)
+        .await
+        .map_err(|e| e.to_string())?;
 
-    get_channel(&id)
+    get_channel(&id).await
 }
 
 /// 删除无人值守渠道配置。
-pub fn delete_channel(id: String) -> Result<(), String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    conn.execute("DELETE FROM unattended_channels WHERE id = ?1", [&id])
+pub async fn delete_channel(id: String) -> Result<(), String> {
+    mapper::delete_channel(db::rb(), &id)
+        .await
         .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 /// 获取单个无人值守渠道。
-pub fn get_channel(id: &str) -> Result<UnattendedChannel, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    conn.query_row(
-        "SELECT id, channel_type, name, enabled, default_project_id, default_agent_id,
-                default_model_id, reply_style, allow_all_senders, future_auth_mode, created_at, updated_at
-         FROM unattended_channels WHERE id = ?1",
-        [id],
-        map_channel,
-    )
-    .map_err(|e| e.to_string())
+pub async fn get_channel(id: &str) -> Result<UnattendedChannel, String> {
+    let row = mapper::get_channel_by_id(db::rb(), id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("渠道不存在: {id}"))?;
+    channel_row_to_dto(row)
 }
 
+// ============================================================================
+// 账号（unattended_channel_accounts）
+// ============================================================================
+
 /// 按渠道列出账号。
-pub fn list_accounts(channel_id: Option<String>) -> Result<Vec<UnattendedChannelAccount>, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    let sql = if channel_id.is_some() {
-        "SELECT id, channel_id, account_id, user_id, base_url, bot_token, sync_cursor,
-                login_status, runtime_status, last_connected_at, last_error, created_at, updated_at
-         FROM unattended_channel_accounts
-         WHERE channel_id = ?1
-         ORDER BY updated_at DESC"
-    } else {
-        "SELECT id, channel_id, account_id, user_id, base_url, bot_token, sync_cursor,
-                login_status, runtime_status, last_connected_at, last_error, created_at, updated_at
-         FROM unattended_channel_accounts
-         ORDER BY updated_at DESC"
-    };
-    let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
-
-    let rows = if let Some(channel_id) = channel_id {
-        stmt.query_map([channel_id], map_account)
-    } else {
-        stmt.query_map([], map_account)
-    }
-    .map_err(|e| e.to_string())?;
-
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())
+pub async fn list_accounts(channel_id: Option<String>) -> Result<Vec<UnattendedChannelAccount>, String> {
+    let rows = mapper::list_accounts(db::rb(), channel_id.as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
+    rows.into_iter().map(account_row_to_dto).collect()
 }
 
 /// 获取单个账号。
-pub fn get_account(account_row_id: &str) -> Result<UnattendedChannelAccount, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    conn.query_row(
-        "SELECT id, channel_id, account_id, user_id, base_url, bot_token, sync_cursor,
-                login_status, runtime_status, last_connected_at, last_error, created_at, updated_at
-         FROM unattended_channel_accounts WHERE id = ?1",
-        [account_row_id],
-        map_account,
-    )
-    .map_err(|e| e.to_string())
+pub async fn get_account(account_row_id: &str) -> Result<UnattendedChannelAccount, String> {
+    let row = mapper::get_account_by_id(db::rb(), account_row_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("账号不存在: {account_row_id}"))?;
+    account_row_to_dto(row)
 }
 
-/// 通过登录状态更新或创建账号。
-pub fn upsert_weixin_account(
+/// 通过登录状态更新或创建账号（事务）。
+pub async fn upsert_weixin_account(
     channel_id: &str,
     login_status: &WeixinLoginStatus,
 ) -> Result<UnattendedChannelAccount, String> {
-    let mut conn = open_db_connection().map_err(|e| e.to_string())?;
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
     let now = now_rfc3339();
 
     let account_id = login_status
@@ -297,101 +276,87 @@ pub fn upsert_weixin_account(
         .clone()
         .ok_or_else(|| "缺少 bot_token".to_string())?;
 
-    let existing: Option<String> = tx
-        .query_row(
-            "SELECT id FROM unattended_channel_accounts WHERE channel_id = ?1 AND account_id = ?2",
-            params![channel_id, &account_id],
-            |row| row.get(0),
-        )
-        .optional()
+    // 事务：查询已有 id → upsert
+    let mut tx = db::rb()
+        .acquire_begin()
+        .await
         .map_err(|e| e.to_string())?;
 
-    let row_id = existing.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let existing = mapper::get_account_id_by_channel_and_account(&tx, channel_id, &account_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let row_id = existing
+        .into_iter()
+        .next()
+        .and_then(|item| crate::models::value_to_json_string_opt(item.value))
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
-    tx.execute(
-        "INSERT INTO unattended_channel_accounts
-         (id, channel_id, account_id, user_id, base_url, bot_token, sync_cursor, login_status,
-          runtime_status, last_connected_at, last_error, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, COALESCE((SELECT sync_cursor FROM unattended_channel_accounts WHERE id = ?1), NULL),
-                 ?7, COALESCE((SELECT runtime_status FROM unattended_channel_accounts WHERE id = ?1), ?8),
-                 ?9, NULL, COALESCE((SELECT created_at FROM unattended_channel_accounts WHERE id = ?1), ?10), ?11)
-         ON CONFLICT(id) DO UPDATE SET
-            user_id = excluded.user_id,
-            base_url = excluded.base_url,
-            bot_token = excluded.bot_token,
-            login_status = excluded.login_status,
-            last_connected_at = excluded.last_connected_at,
-            last_error = NULL,
-            updated_at = excluded.updated_at",
-        params![
-            &row_id,
-            channel_id,
-            &account_id,
-            &user_id,
-            &base_url,
-            &bot_token,
-            LOGIN_STATUS_CONNECTED,
-            RUNTIME_STATUS_IDLE,
-            &now,
-            &now,
-            &now
-        ],
-    )
-    .map_err(|e| e.to_string())?;
+    let upsert = WeixinAccountUpsert {
+        id: row_id.clone(),
+        channel_id: channel_id.to_string(),
+        account_id,
+        user_id,
+        base_url,
+        bot_token,
+        login_status: LOGIN_STATUS_CONNECTED.to_string(),
+        runtime_status: RUNTIME_STATUS_IDLE.to_string(),
+        last_connected_at: now.clone(),
+        created_at: now.clone(),
+        updated_at: now,
+    };
+    mapper::upsert_weixin_account(&tx, &upsert)
+        .await
+        .map_err(|e| e.to_string())?;
 
-    tx.commit().map_err(|e| e.to_string())?;
-    get_account(&row_id)
+    tx.commit().await.map_err(|e| e.to_string())?;
+    get_account(&row_id).await
 }
 
 /// 删除无人值守账号。
-pub fn delete_account(account_row_id: &str) -> Result<(), String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    conn.execute(
-        "DELETE FROM unattended_channel_accounts WHERE id = ?1",
-        [account_row_id],
-    )
-    .map_err(|e| e.to_string())?;
+pub async fn delete_account(account_row_id: &str) -> Result<(), String> {
+    mapper::delete_account(db::rb(), account_row_id)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 /// 更新账号运行状态。
-pub fn update_account_runtime_status(
+pub async fn update_account_runtime_status(
     account_row_id: &str,
     runtime_status: &str,
     last_error: Option<&str>,
 ) -> Result<(), String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    conn.execute(
-        "UPDATE unattended_channel_accounts
-         SET runtime_status = ?1, last_error = ?2, updated_at = ?3
-         WHERE id = ?4",
-        params![runtime_status, last_error, now_rfc3339(), account_row_id],
+    let now = now_rfc3339();
+    mapper::update_account_runtime_status(
+        db::rb(),
+        account_row_id,
+        runtime_status,
+        last_error,
+        &now,
     )
+    .await
     .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 /// 更新账号同步游标。
-pub fn update_account_sync_cursor(
+pub async fn update_account_sync_cursor(
     account_row_id: &str,
     sync_cursor: Option<&str>,
 ) -> Result<(), String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    conn.execute(
-        "UPDATE unattended_channel_accounts
-         SET sync_cursor = ?1, updated_at = ?2
-         WHERE id = ?3",
-        params![sync_cursor, now_rfc3339(), account_row_id],
-    )
-    .map_err(|e| e.to_string())?;
+    let now = now_rfc3339();
+    mapper::update_account_sync_cursor(db::rb(), account_row_id, sync_cursor, &now)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 /// 查询运行时状态。
-pub fn list_runtime_status(
+pub async fn list_runtime_status(
     channel_id: Option<String>,
 ) -> Result<Vec<RuntimeStatusSummary>, String> {
-    let accounts = list_accounts(channel_id)?;
+    let accounts = list_accounts(channel_id).await?;
     Ok(accounts
         .into_iter()
         .map(|account| RuntimeStatusSummary {
@@ -403,72 +368,75 @@ pub fn list_runtime_status(
         .collect())
 }
 
-/// 根据账号与用户获取或创建线程。
-pub fn upsert_thread(
+// ============================================================================
+// 线程（unattended_threads）
+// ============================================================================
+
+/// 根据账号与用户获取或创建线程（事务）。
+#[allow(clippy::too_many_arguments)]
+pub async fn upsert_thread(
     channel_account_id: &str,
     peer_id: &str,
     peer_name_snapshot: Option<&str>,
     context_token: Option<&str>,
 ) -> Result<UnattendedThread, String> {
-    let mut conn = open_db_connection().map_err(|e| e.to_string())?;
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
     let now = now_rfc3339();
 
-    let existing = tx
-        .query_row(
-            "SELECT id, channel_account_id, peer_id, peer_name_snapshot, session_id, active_project_id,
-                    active_agent_id, active_model_id, last_context_token, last_plan_id, last_task_id, last_message_at,
-                    created_at, updated_at
-             FROM unattended_threads
-             WHERE channel_account_id = ?1 AND peer_id = ?2",
-            params![channel_account_id, peer_id],
-            map_thread,
-        )
-        .optional()
+    let mut tx = db::rb()
+        .acquire_begin()
+        .await
         .map_err(|e| e.to_string())?;
 
-    let thread = if let Some(existing) = existing {
-        tx.execute(
-            "UPDATE unattended_threads
-             SET peer_name_snapshot = COALESCE(?1, peer_name_snapshot),
-                 last_context_token = COALESCE(?2, last_context_token),
-                 last_message_at = ?3,
-                 updated_at = ?4
-             WHERE id = ?5",
-            params![peer_name_snapshot, context_token, &now, &now, &existing.id],
-        )
+    let existing = mapper::get_thread_by_channel_and_peer(&tx, channel_account_id, peer_id)
+        .await
         .map_err(|e| e.to_string())?;
-        UnattendedThread {
-            peer_name_snapshot: peer_name_snapshot
-                .map(|value| value.to_string())
-                .or(existing.peer_name_snapshot),
-            last_context_token: context_token
-                .map(|value| value.to_string())
-                .or(existing.last_context_token),
-            last_message_at: Some(now.clone()),
+
+    let thread = if let Some(existing) = existing.into_iter().next() {
+        let touch = ThreadTouchRow {
+            id: existing.id.clone().unwrap_or_default(),
+            peer_name_snapshot: peer_name_snapshot.map(str::to_string),
+            last_context_token: context_token.map(str::to_string),
+            last_message_at: now.clone(),
             updated_at: now.clone(),
-            ..existing
-        }
+        };
+        mapper::touch_thread_on_upsert(&tx, &touch)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let mut merged = thread_row_to_dto(existing)?;
+        merged.peer_name_snapshot = touch.peer_name_snapshot.or(merged.peer_name_snapshot.clone());
+        merged.last_context_token = touch
+            .last_context_token
+            .or(merged.last_context_token.clone());
+        merged.last_message_at = Some(now.clone());
+        merged.updated_at = now.clone();
+        merged
     } else {
         let id = uuid::Uuid::new_v4().to_string();
-        tx.execute(
-            "INSERT INTO unattended_threads
-             (id, channel_account_id, peer_id, peer_name_snapshot, session_id, active_project_id, active_agent_id,
-              active_model_id, last_context_token, last_plan_id, last_task_id, last_message_at, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, NULL, NULL, NULL, NULL, ?5, NULL, NULL, ?6, ?7, ?8)",
-            params![&id, channel_account_id, peer_id, peer_name_snapshot, context_token, &now, &now, &now],
-        )
-        .map_err(|e| e.to_string())?;
+        let insert = ThreadInsertRow {
+            id: id.clone(),
+            channel_account_id: channel_account_id.to_string(),
+            peer_id: peer_id.to_string(),
+            peer_name_snapshot: peer_name_snapshot.map(str::to_string),
+            last_context_token: context_token.map(str::to_string),
+            last_message_at: now.clone(),
+            created_at: now.clone(),
+            updated_at: now.clone(),
+        };
+        mapper::insert_thread(&tx, &insert)
+            .await
+            .map_err(|e| e.to_string())?;
+
         UnattendedThread {
             id,
             channel_account_id: channel_account_id.to_string(),
             peer_id: peer_id.to_string(),
-            peer_name_snapshot: peer_name_snapshot.map(|value| value.to_string()),
+            peer_name_snapshot: peer_name_snapshot.map(str::to_string),
             session_id: None,
             active_project_id: None,
             active_agent_id: None,
             active_model_id: None,
-            last_context_token: context_token.map(|value| value.to_string()),
+            last_context_token: context_token.map(str::to_string),
             last_plan_id: None,
             last_task_id: None,
             last_message_at: Some(now.clone()),
@@ -477,114 +445,78 @@ pub fn upsert_thread(
         }
     };
 
-    tx.commit().map_err(|e| e.to_string())?;
+    tx.commit().await.map_err(|e| e.to_string())?;
     Ok(thread)
 }
 
 /// 列出线程。
-pub fn list_threads(channel_id: Option<String>) -> Result<Vec<UnattendedThread>, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    let sql = if channel_id.is_some() {
-        "SELECT t.id, t.channel_account_id, t.peer_id, t.peer_name_snapshot, t.session_id,
-                t.active_project_id, t.active_agent_id, t.active_model_id, t.last_context_token, t.last_plan_id,
-                t.last_task_id, t.last_message_at, t.created_at, t.updated_at
-         FROM unattended_threads t
-         INNER JOIN unattended_channel_accounts a ON a.id = t.channel_account_id
-         WHERE a.channel_id = ?1
-         ORDER BY t.updated_at DESC"
-    } else {
-        "SELECT id, channel_account_id, peer_id, peer_name_snapshot, session_id,
-                active_project_id, active_agent_id, active_model_id, last_context_token, last_plan_id,
-                last_task_id, last_message_at, created_at, updated_at
-         FROM unattended_threads
-         ORDER BY updated_at DESC"
-    };
-    let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
-    let rows = if let Some(channel_id) = channel_id {
-        stmt.query_map([channel_id], map_thread)
-    } else {
-        stmt.query_map([], map_thread)
-    }
-    .map_err(|e| e.to_string())?;
-
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())
+pub async fn list_threads(channel_id: Option<String>) -> Result<Vec<UnattendedThread>, String> {
+    let rows = mapper::list_threads(db::rb(), channel_id.as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
+    rows.into_iter().map(thread_row_to_dto).collect()
 }
 
 /// 更新线程上下文。
-pub fn update_thread_context(
+pub async fn update_thread_context(
     thread_id: &str,
     input: UpdateUnattendedThreadContextInput,
 ) -> Result<UnattendedThread, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    conn.execute(
-        "UPDATE unattended_threads
-         SET session_id = COALESCE(?1, session_id),
-             active_project_id = COALESCE(?2, active_project_id),
-             active_agent_id = COALESCE(?3, active_agent_id),
-             active_model_id = COALESCE(?4, active_model_id),
-             last_context_token = COALESCE(?5, last_context_token),
-             last_plan_id = COALESCE(?6, last_plan_id),
-             last_task_id = COALESCE(?7, last_task_id),
-             updated_at = ?8
-         WHERE id = ?9",
-        params![
-            input.session_id,
-            input.active_project_id,
-            input.active_agent_id,
-            input.active_model_id,
-            input.last_context_token,
-            input.last_plan_id,
-            input.last_task_id,
-            now_rfc3339(),
-            thread_id
-        ],
-    )
-    .map_err(|e| e.to_string())?;
+    let now = now_rfc3339();
+    let row = ThreadContextUpdateRow {
+        id: thread_id.to_string(),
+        session_id: input.session_id,
+        active_project_id: input.active_project_id,
+        active_agent_id: input.active_agent_id,
+        active_model_id: input.active_model_id,
+        last_context_token: input.last_context_token,
+        last_plan_id: input.last_plan_id,
+        last_task_id: input.last_task_id,
+        updated_at: now,
+    };
+    mapper::update_thread_context(db::rb(), &row)
+        .await
+        .map_err(|e| e.to_string())?;
 
-    get_thread(thread_id)
+    get_thread(thread_id).await
 }
 
 /// 获取单个线程。
-pub fn get_thread(thread_id: &str) -> Result<UnattendedThread, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    conn.query_row(
-        "SELECT id, channel_account_id, peer_id, peer_name_snapshot, session_id, active_project_id, active_agent_id,
-                active_model_id, last_context_token, last_plan_id, last_task_id, last_message_at,
-                created_at, updated_at
-         FROM unattended_threads WHERE id = ?1",
-        [thread_id],
-        map_thread,
-    )
-    .map_err(|e| e.to_string())
+pub async fn get_thread(thread_id: &str) -> Result<UnattendedThread, String> {
+    let row = mapper::get_thread_by_id(db::rb(), thread_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("线程不存在: {thread_id}"))?;
+    thread_row_to_dto(row)
 }
 
+// ============================================================================
+// 审计事件（unattended_events）
+// ============================================================================
+
 /// 记录无人值守审计事件。
-pub fn record_event(input: RecordUnattendedEventInput) -> Result<UnattendedEventRecord, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
+pub async fn record_event(input: RecordUnattendedEventInput) -> Result<UnattendedEventRecord, String> {
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_rfc3339();
     let status = input.status.unwrap_or_else(|| "success".to_string());
 
-    conn.execute(
-        "INSERT INTO unattended_events
-         (id, channel_account_id, thread_id, direction, event_type, status, summary,
-          payload_json, correlation_id, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        params![
-            &id,
-            input.channel_account_id,
-            input.thread_id,
-            &input.direction,
-            &input.event_type,
-            &status,
-            input.summary,
-            input.payload_json,
-            input.correlation_id,
-            &now
-        ],
-    )
-    .map_err(|e| e.to_string())?;
+    let row = EventInsertRow {
+        id: id.clone(),
+        channel_account_id: input.channel_account_id.clone(),
+        thread_id: input.thread_id.clone(),
+        direction: input.direction.clone(),
+        event_type: input.event_type.clone(),
+        status: status.clone(),
+        summary: input.summary.clone(),
+        payload_json: input.payload_json.clone(),
+        correlation_id: input.correlation_id.clone(),
+        created_at: now.clone(),
+    };
+    mapper::insert_event(db::rb(), &row)
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(UnattendedEventRecord {
         id,
@@ -601,10 +533,9 @@ pub fn record_event(input: RecordUnattendedEventInput) -> Result<UnattendedEvent
 }
 
 /// 列出审计事件。
-pub fn list_events(
+pub async fn list_events(
     input: Option<ListUnattendedEventsInput>,
 ) -> Result<Vec<UnattendedEventRecord>, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
     let filter = input.unwrap_or(ListUnattendedEventsInput {
         channel_account_id: None,
         thread_id: None,
@@ -612,45 +543,15 @@ pub fn list_events(
         limit: Some(200),
     });
     let limit = filter.limit.unwrap_or(200).clamp(1, 1000) as i64;
-    let mut sql = String::from(
-        "SELECT id, channel_account_id, thread_id, direction, event_type, status, summary,
-                payload_json, correlation_id, created_at
-         FROM unattended_events
-         WHERE 1 = 1",
-    );
-    let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
-    if let Some(channel_account_id) = filter.channel_account_id {
-        sql.push_str(&format!(
-            " AND channel_account_id = ?{}",
-            params_vec.len() + 1
-        ));
-        params_vec.push(Box::new(channel_account_id));
-    }
-    if let Some(thread_id) = filter.thread_id {
-        sql.push_str(&format!(" AND thread_id = ?{}", params_vec.len() + 1));
-        params_vec.push(Box::new(thread_id));
-    }
-    if let Some(event_type) = filter.event_type {
-        sql.push_str(&format!(" AND event_type = ?{}", params_vec.len() + 1));
-        params_vec.push(Box::new(event_type));
-    }
-    sql.push_str(&format!(
-        " ORDER BY created_at DESC LIMIT ?{}",
-        params_vec.len() + 1
-    ));
-    params_vec.push(Box::new(limit));
 
-    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-    let refs = params_vec
-        .iter()
-        .map(|value| value.as_ref() as &dyn rusqlite::ToSql)
-        .collect::<Vec<_>>();
-
-    let events = stmt
-        .query_map(refs.as_slice(), map_event)
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
+    let row = EventListRow {
+        channel_account_id: filter.channel_account_id,
+        thread_id: filter.thread_id,
+        event_type: filter.event_type,
+        limit,
+    };
+    let rows = mapper::list_events(db::rb(), &row)
+        .await
         .map_err(|e| e.to_string())?;
-
-    Ok(events)
+    rows.into_iter().map(event_row_to_dto).collect()
 }

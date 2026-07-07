@@ -1,0 +1,138 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!--
+    任务执行模块 SQL。
+    task_execution_logs / task_execution_results 表，以及 tasks 表的执行结果列更新、
+    plans 表的执行概览维护。
+  -->
+
+  <!-- =================== task_execution_logs =================== -->
+
+  <!-- 插入执行日志 -->
+  <insert id="insert_task_execution_log">
+    `insert into task_execution_logs (id, task_id, log_type, content, metadata, created_at) `
+    `values (#{id}, #{task_id}, #{log_type}, #{content}, #{metadata}, #{created_at})`
+  </insert>
+
+  <!-- 更新执行日志内容/元数据 -->
+  <update id="update_task_execution_log">
+    `update task_execution_logs set content = #{content}, metadata = #{metadata} where id = #{id}`
+  </update>
+
+  <!-- 列出任务执行日志（按 created_at 升序） -->
+  <select id="list_task_execution_logs">
+    `select id, task_id, log_type, content, CAST(metadata AS TEXT) as metadata, created_at `
+    `from task_execution_logs where task_id = #{task_id} order by created_at asc`
+  </select>
+
+  <!-- 清空任务执行日志 -->
+  <delete id="clear_task_execution_logs">
+    `delete from task_execution_logs where task_id = #{task_id}`
+  </delete>
+
+  <!-- 统计任务执行日志条数 -->
+  <select id="count_task_execution_logs">
+    `select count(*) as value from task_execution_logs where task_id = #{task_id}`
+  </select>
+
+  <!-- 读取任务最近一条日志时间（单列） -->
+  <select id="get_last_log_created_at">
+    `select created_at as value from task_execution_logs `
+    `where task_id = #{task_id} order by created_at desc limit 1`
+  </select>
+
+  <!-- 批量删除多任务执行日志（foreach 拼接 IN，clear_plan_execution_results 事务内） -->
+  <delete id="delete_logs_for_tasks">
+    `delete from task_execution_logs where task_id in `
+    <foreach collection="task_ids" item="tid" open="(" close=")" separator=",">
+      `#{tid}`
+    </foreach>
+  </delete>
+
+  <!-- 读取 plan 下全部任务 id（GROUP_CONCAT 改为逐行返回，命令层聚合） -->
+  <select id="list_task_ids_of_plan">
+    `select id as value from tasks where plan_id = #{plan_id}`
+  </select>
+
+  <!-- =================== task_execution_results =================== -->
+
+  <!-- 插入任务执行结果（plan_id/title/description 快照由命令层通过 task mapper get_task_by_id 读取） -->
+  <insert id="insert_task_execution_result">
+    `insert into task_execution_results `
+    `(id, task_id, plan_id, task_title_snapshot, task_description_snapshot, `
+    ` result_status, result_summary, result_files, fail_reason, created_at) `
+    `values `
+    `(#{id}, #{task_id}, #{plan_id}, #{task_title_snapshot}, #{task_description_snapshot}, `
+    ` #{result_status}, #{result_summary}, #{result_files}, #{fail_reason}, #{created_at})`
+  </insert>
+
+  <!-- 回写任务执行结果字段到 tasks 表（last_result_*） -->
+  <update id="apply_result_to_task">
+    `update tasks set last_result_status = #{result_status}, `
+    `last_result_summary = #{result_summary}, last_result_files = #{result_files}, `
+    `last_fail_reason = #{fail_reason}, last_result_at = #{last_result_at}, `
+    `updated_at = #{updated_at} where id = #{task_id}`
+  </update>
+
+  <!-- 清空任务的执行结果字段（clear_plan_execution_results 事务内） -->
+  <update id="clear_task_result_fields">
+    `update tasks set last_result_status = null, last_result_summary = null, `
+    `last_result_files = null, last_fail_reason = null, last_result_at = null `
+    `where plan_id = #{plan_id}`
+  </update>
+
+  <!-- 列出 plan 下最近 N 条执行结果（按 created_at 倒序） -->
+  <select id="list_recent_plan_results">
+    `select id, task_id, plan_id, task_title_snapshot, task_description_snapshot, `
+    `result_status, result_summary, CAST(result_files AS TEXT) as result_files, fail_reason, created_at `
+    `from task_execution_results where plan_id = #{plan_id} `
+    `order by created_at desc limit #{limit}`
+  </select>
+
+  <!-- 删除 plan 下全部执行结果（clear_plan_execution_results 事务内） -->
+  <delete id="delete_results_of_plan">
+    `delete from task_execution_results where plan_id = #{plan_id}`
+  </delete>
+
+  <!-- =================== plans 执行概览维护 =================== -->
+
+  <!-- 读取 plan 下带执行结果的任务（build_plan_execution_overview 用） -->
+  <select id="list_plan_result_overview">
+    `select title, last_result_status, last_result_summary, CAST(last_result_files AS TEXT) as last_result_files, last_fail_reason `
+    `from tasks where plan_id = #{plan_id} and last_result_status is not null `
+    `order by coalesce(last_result_at, updated_at) asc, task_order asc`
+  </select>
+
+  <!-- 写回执行概览到 plans 表（save_task_execution_result 用，overview 为空时写 NULL） -->
+  <update id="update_plan_execution_overview">
+    `update plans set execution_overview = #{execution_overview}, `
+    `execution_overview_updated_at = #{execution_overview_updated_at}, `
+    `updated_at = #{execution_overview_updated_at} where id = #{plan_id}`
+  </update>
+
+  <!-- 读 plans 表存储的执行概览（list_plan_execution_progress 用） -->
+  <select id="get_plan_stored_overview">
+    `select CAST(execution_overview AS TEXT) as execution_overview, execution_overview_updated_at from plans where id = #{plan_id}`
+  </select>
+
+  <!-- 仅更新 plans 执行概览两列（list_plan_execution_progress 条件回写用） -->
+  <update id="sync_plan_execution_overview">
+    `update plans set execution_overview = #{execution_overview}, `
+    `execution_overview_updated_at = #{execution_overview_updated_at} where id = #{plan_id}`
+  </update>
+
+  <!-- 清空 plans 执行概览（clear_plan_execution_results 事务内） -->
+  <update id="clear_plan_execution_overview">
+    `update plans set execution_overview = null, execution_overview_updated_at = null, `
+    `updated_at = #{updated_at} where id = #{plan_id}`
+  </update>
+
+  <!-- =================== tasks 进度查询（list_plan_execution_progress） =================== -->
+
+  <select id="list_plan_execution_tasks">
+    `select id, title, status, task_order, expert_id, agent_id, model_id, `
+    `last_result_status, last_result_summary, CAST(last_result_files AS TEXT) as last_result_files, `
+    `last_fail_reason, last_result_at, updated_at `
+    `from tasks where plan_id = #{plan_id} order by task_order asc, created_at asc`
+  </select>
+</mapper>

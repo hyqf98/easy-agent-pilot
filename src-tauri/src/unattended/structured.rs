@@ -398,7 +398,8 @@ fn update_thread_context(
     last_plan_id: Option<String>,
     last_task_id: Option<String>,
 ) -> Result<(), String> {
-    repository::update_thread_context(
+    // repository 已迁移到 rbatis async；本函数为同步入口，用 block_on 桥接。
+    tauri::async_runtime::block_on(repository::update_thread_context(
         thread_id,
         UpdateUnattendedThreadContextInput {
             session_id: None,
@@ -409,18 +410,21 @@ fn update_thread_context(
             last_plan_id,
             last_task_id,
         },
-    )?;
+    ))?;
     Ok(())
 }
 
 pub fn process_structured_intent(
     input: ProcessUnattendedStructuredIntentInput,
 ) -> Result<ProcessUnattendedStructuredIntentResult, String> {
-    let thread = repository::get_thread(&input.thread_id)?;
-    let account = repository::get_account(&thread.channel_account_id)?;
-    let channel = repository::get_channel(&account.channel_id)?;
+    // repository / project 模块已迁移到 rbatis async；本函数为同步入口，用 block_on 桥接。
+    let thread = tauri::async_runtime::block_on(repository::get_thread(&input.thread_id))?;
+    let account =
+        tauri::async_runtime::block_on(repository::get_account(&thread.channel_account_id))?;
+    let channel =
+        tauri::async_runtime::block_on(repository::get_channel(&account.channel_id))?;
 
-    let projects = project::list_projects()?;
+    let projects = tauri::async_runtime::block_on(project::list_projects())?;
     let project_hint = input.project_hint.as_deref().unwrap_or(&input.raw_text);
 
     match input.intent_type.as_str() {
@@ -473,7 +477,9 @@ pub fn process_structured_intent(
         })?;
 
     let project_id = active_project.id.clone();
-    let project_plans = plan::list_plans(project_id.clone())?;
+    // plan 模块已迁移到 rbatis async；本函数为同步入口，用 block_on 桥接。
+    let project_plans =
+        tauri::async_runtime::block_on(plan::list_plans(project_id.clone()))?;
 
     match input.intent_type.as_str() {
         "create_plan" => {
@@ -481,7 +487,7 @@ pub fn process_structured_intent(
                 input.plan_name.as_deref().unwrap_or(&input.raw_text),
                 "新建计划",
             );
-            let created_plan = plan::create_plan(plan::CreatePlanInput {
+            let created_plan = tauri::async_runtime::block_on(plan::create_plan(plan::CreatePlanInput {
                 project_id: project_id.clone(),
                 name: plan_name.clone(),
                 description: Some(input.raw_text.clone()),
@@ -500,7 +506,7 @@ pub fn process_structured_intent(
                 granularity: Some(20),
                 max_retry_count: Some(3),
                 scheduled_at: None,
-            })?;
+            }))?;
 
             update_thread_context(
                 &thread.id,
@@ -551,7 +557,9 @@ pub fn process_structured_intent(
 
             let mut lines = vec!["当前执行进度：".to_string()];
             for item in executing_plans.iter().take(4) {
-                let progress = task_execution::list_plan_execution_progress(item.id.clone())?;
+                let progress = tauri::async_runtime::block_on(
+                    task_execution::list_plan_execution_progress(item.id.clone()),
+                )?;
                 lines.push(format!(
                     "- {}：总任务 {}，待办 {}，进行中 {}，完成 {}，失败 {}",
                     item.name,
@@ -581,7 +589,7 @@ pub fn process_structured_intent(
             let target_plan =
                 resolve_plan_by_hint(plan_hint, &project_plans, thread.last_plan_id.as_deref())
                     .ok_or_else(|| "当前项目下还没有计划任务。".to_string())?;
-            let plan_tasks = task::list_tasks(target_plan.id.clone())?;
+            let plan_tasks = tauri::async_runtime::block_on(task::list_tasks(target_plan.id.clone()))?;
 
             return Ok(ProcessUnattendedStructuredIntentResult {
                 handled: true,
@@ -614,7 +622,7 @@ pub fn process_structured_intent(
                 )
             })?;
 
-            let created_task = task::create_task(task::CreateTaskInput {
+            let created_task = tauri::async_runtime::block_on(task::create_task(task::CreateTaskInput {
                 plan_id: target_plan.id.clone(),
                 parent_id: None,
                 title,
@@ -637,7 +645,7 @@ pub fn process_structured_intent(
                 test_steps: None,
                 acceptance_criteria: None,
                 memory_library_ids: None,
-            })?;
+            }))?;
 
             update_thread_context(
                 &thread.id,
@@ -687,7 +695,7 @@ pub fn process_structured_intent(
             let mut matched_task: Option<task::Task> = None;
 
             for candidate_plan in ordered_plans.into_iter().take(6) {
-                let plan_tasks = task::list_tasks(candidate_plan.id.clone())?;
+                let plan_tasks = tauri::async_runtime::block_on(task::list_tasks(candidate_plan.id.clone()))?;
                 if let Some(candidate_task) =
                     resolve_task_by_hint(task_hint, &plan_tasks, thread.last_task_id.as_deref())
                 {
@@ -703,7 +711,7 @@ pub fn process_structured_intent(
                 .ok_or_else(|| "没有匹配到对应任务，请在消息里带上任务标题。".to_string())?;
 
             let updated_task = if input.intent_type == "stop_task" {
-                task::stop_task(target_task.id.clone())?
+                tauri::async_runtime::block_on(task::stop_task(target_task.id.clone()))?
             } else {
                 let updates = extract_task_updates_from_raw_text(&input.raw_text);
                 if !has_task_updates(&updates) {
@@ -719,7 +727,7 @@ pub fn process_structured_intent(
                         follow_up_action: None,
                     });
                 }
-                task::update_task(target_task.id.clone(), updates)?
+                tauri::async_runtime::block_on(task::update_task(target_task.id.clone(), updates))?
             };
 
             update_thread_context(
@@ -781,7 +789,7 @@ pub fn process_structured_intent(
             let mut matched_plan_tasks: Vec<task::Task> = Vec::new();
 
             for candidate_plan in ordered_plans.into_iter().take(6) {
-                let plan_tasks = task::list_tasks(candidate_plan.id.clone())?;
+                let plan_tasks = tauri::async_runtime::block_on(task::list_tasks(candidate_plan.id.clone()))?;
                 if let Some(candidate_task) =
                     resolve_task_by_hint(task_hint, &plan_tasks, thread.last_task_id.as_deref())
                 {
@@ -894,7 +902,7 @@ pub fn process_structured_intent(
             )?;
 
             if input.intent_type == "start_plan" {
-                let plan_tasks = task::list_tasks(target_plan.id.clone())?;
+                let plan_tasks = tauri::async_runtime::block_on(task::list_tasks(target_plan.id.clone()))?;
                 if plan_tasks.is_empty() {
                     return Ok(ProcessUnattendedStructuredIntentResult {
                         handled: true,

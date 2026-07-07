@@ -1,7 +1,5 @@
-use anyhow::Result;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
-use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
@@ -12,10 +10,10 @@ use std::time::{Duration, Instant};
 use std::process::Command;
 
 use super::message::remove_session_uploads;
-use super::support::{
-    now_rfc3339, open_db_connection,
-    repair_memory_search_indexes,
-};
+use super::support::{now_rfc3339, repair_memory_search_indexes};
+use crate::db;
+use crate::mappers::project as project_mapper;
+use crate::mappers::settings as settings_mapper;
 
 /// 文件操作结果
 #[derive(Debug, Serialize)]
@@ -76,17 +74,6 @@ pub struct Project {
     pub memory_library_ids: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
-}
-
-#[derive(Debug, Clone)]
-struct ProjectRecord {
-    id: String,
-    name: String,
-    path: String,
-    description: Option<String>,
-    session_count: i32,
-    created_at: String,
-    updated_at: String,
 }
 
 /// 文件树节点类型
@@ -228,141 +215,52 @@ fn normalize_memory_library_ids(library_ids: &[String]) -> Vec<String> {
     normalized
 }
 
-fn list_project_memory_library_ids(
-    conn: &rusqlite::Connection,
-    project_id: &str,
-) -> Result<Vec<String>, String> {
-    let mut stmt = conn
-        .prepare(
-            r#"
-            SELECT library_id
-            FROM project_memory_libraries
-            WHERE project_id = ?1
-            ORDER BY created_at ASC, library_id ASC
-            "#,
-        )
+/// 查询项目关联的记忆库 id 列表。
+async fn list_project_memory_library_ids(project_id: &str) -> Result<Vec<String>, String> {
+    let rows = project_mapper::list_project_memory_library_ids(db::rb(), project_id)
+        .await
         .map_err(|e| e.to_string())?;
-
-    let rows = stmt
-        .query_map([project_id], |row| row.get::<_, String>(0))
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-
-    Ok(rows)
-}
-
-fn replace_project_memory_libraries(
-    conn: &rusqlite::Connection,
-    project_id: &str,
-    library_ids: &[String],
-    now: &str,
-) -> Result<(), String> {
-    conn.execute(
-        "DELETE FROM project_memory_libraries WHERE project_id = ?1",
-        [project_id],
-    )
-    .map_err(|e| e.to_string())?;
-
-    let normalized_ids = normalize_memory_library_ids(library_ids);
-
-    for library_id in normalized_ids {
-        conn.execute(
-            r#"
-            INSERT INTO project_memory_libraries (project_id, library_id, created_at)
-            VALUES (?1, ?2, ?3)
-            "#,
-            params![project_id, library_id, now],
-        )
-        .map_err(|e| e.to_string())?;
-    }
-
-    Ok(())
-}
-
-fn get_project_session_count(conn: &rusqlite::Connection, project_id: &str) -> Result<i32, String> {
-    conn.query_row(
-        "SELECT COUNT(*) FROM sessions WHERE project_id = ?1",
-        [project_id],
-        |row| row.get(0),
-    )
-    .map_err(|e| e.to_string())
-}
-
-fn get_project_created_at(conn: &rusqlite::Connection, project_id: &str) -> Result<String, String> {
-    conn.query_row(
-        "SELECT created_at FROM projects WHERE id = ?1",
-        [project_id],
-        |row| row.get(0),
-    )
-    .map_err(|e| e.to_string())
-}
-
-fn hidden_mini_panel_project_id(conn: &rusqlite::Connection) -> Result<Option<String>, String> {
-    conn.query_row(
-        "SELECT value FROM app_settings WHERE key = ?1",
-        [super::mini_panel::MINI_PANEL_PROJECT_ID_KEY],
-        |row| row.get::<_, String>(0),
-    )
-    .optional()
-    .map_err(|e| e.to_string())
+    Ok(rows
+        .into_iter()
+        .filter_map(|r| crate::models::value_to_json_string_opt(r.value))
+        .collect())
 }
 
 /// 获取所有项目
 #[tauri::command]
-pub fn list_projects() -> Result<Vec<Project>, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    let hidden_project_id = hidden_mini_panel_project_id(&conn)?;
+pub async fn list_projects() -> Result<Vec<Project>, String> {
+    let rb = db::rb();
+    let hidden_project_id = settings_mapper::get_app_setting(
+        rb,
+        super::mini_panel::MINI_PANEL_PROJECT_ID_KEY,
+    )
+    .await
+    .ok()
+    .and_then(|rows| rows.into_iter().next())
+    .map(|row| crate::models::value_to_json_string(row.value));
 
-    let mut stmt = conn
-        .prepare(
-            r#"
-            SELECT p.id, p.name, p.path, p.description, p.created_at, p.updated_at,
-                   COALESCE(s.session_count, 0) as session_count
-            FROM projects p
-            LEFT JOIN (
-                SELECT project_id, COUNT(*) as session_count
-                FROM sessions
-                GROUP BY project_id
-            ) s ON p.id = s.project_id
-            ORDER BY p.updated_at DESC
-            "#,
-        )
+    let project_rows = project_mapper::list_projects_with_session_count(rb)
+        .await
         .map_err(|e| e.to_string())?;
-
-    let project_rows = stmt
-        .query_map([], |row| {
-            Ok(ProjectRecord {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                path: row.get(2)?,
-                description: row.get(3)?,
-                session_count: row.get(6)?,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
-            })
-        })
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-
-    drop(stmt);
 
     let mut projects = Vec::with_capacity(project_rows.len());
-    for project_row in project_rows {
-        if hidden_project_id.as_deref() == Some(project_row.id.as_str()) {
+    for row in project_rows {
+        let id = row.id.clone().unwrap_or_default();
+        if hidden_project_id.as_deref() == Some(id.as_str()) {
             continue;
         }
 
+        let memory_library_ids = list_project_memory_library_ids(&id).await?;
+
         projects.push(Project {
-            id: project_row.id.clone(),
-            name: project_row.name,
-            path: project_row.path,
-            description: project_row.description,
-            session_count: project_row.session_count,
-            memory_library_ids: list_project_memory_library_ids(&conn, &project_row.id)?,
-            created_at: project_row.created_at,
-            updated_at: project_row.updated_at,
+            id: id,
+            name: row.name.unwrap_or_default(),
+            path: row.path.unwrap_or_default(),
+            description: row.description,
+            session_count: row.session_count.unwrap_or(0) as i32,
+            memory_library_ids,
+            created_at: row.created_at.unwrap_or_default(),
+            updated_at: row.updated_at.unwrap_or_default(),
         });
     }
 
@@ -371,9 +269,7 @@ pub fn list_projects() -> Result<Vec<Project>, String> {
 
 /// 创建新项目
 #[tauri::command]
-pub fn create_project(input: CreateProjectInput) -> Result<Project, String> {
-    let mut conn = open_db_connection().map_err(|e| e.to_string())?;
-
+pub async fn create_project(input: CreateProjectInput) -> Result<Project, String> {
     // 解析并创建项目目录
     let resolved_path = crate::commands::fs_shared::expand_home_path(&input.path)?;
 
@@ -388,24 +284,32 @@ pub fn create_project(input: CreateProjectInput) -> Result<Project, String> {
     let now = now_rfc3339();
     let memory_library_ids = normalize_memory_library_ids(&input.memory_library_ids);
 
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let rb = db::rb();
+    let mut tx = rb.acquire_begin().await.map_err(|e| e.to_string())?;
 
-    tx.execute(
-        "INSERT INTO projects (id, name, path, description, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        rusqlite::params![
-            &id,
-            &input.name,
-            &input.path,
-            &input.description,
-            &now,
-            &now
-        ],
+    project_mapper::insert_project(
+        &tx,
+        &id,
+        &input.name,
+        &input.path,
+        input.description.as_deref(),
+        &now,
+        &now,
     )
+    .await
     .map_err(|e| e.to_string())?;
 
-    replace_project_memory_libraries(&tx, &id, &memory_library_ids, &now)?;
+    // 记忆库关联在事务内替换（先删后插）
+    project_mapper::delete_project_memory_libraries(&tx, &id)
+        .await
+        .map_err(|e| e.to_string())?;
+    for library_id in &memory_library_ids {
+        project_mapper::insert_project_memory_library(&tx, &id, library_id, &now)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
 
-    tx.commit().map_err(|e| e.to_string())?;
+    tx.commit().await.map_err(|e| e.to_string())?;
 
     Ok(Project {
         id,
@@ -421,25 +325,51 @@ pub fn create_project(input: CreateProjectInput) -> Result<Project, String> {
 
 /// 更新项目
 #[tauri::command]
-pub fn update_project(id: String, input: CreateProjectInput) -> Result<Project, String> {
-    let mut conn = open_db_connection().map_err(|e| e.to_string())?;
-
+pub async fn update_project(id: String, input: CreateProjectInput) -> Result<Project, String> {
+    let rb = db::rb();
     let now = now_rfc3339();
     let memory_library_ids = normalize_memory_library_ids(&input.memory_library_ids);
 
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let mut tx = rb.acquire_begin().await.map_err(|e| e.to_string())?;
 
-    tx.execute(
-        "UPDATE projects SET name = ?1, path = ?2, description = ?3, updated_at = ?4 WHERE id = ?5",
-        rusqlite::params![&input.name, &input.path, &input.description, &now, &id],
+    project_mapper::update_project_basic(
+        &tx,
+        &id,
+        &input.name,
+        &input.path,
+        input.description.as_deref(),
+        &now,
     )
+    .await
     .map_err(|e| e.to_string())?;
 
-    replace_project_memory_libraries(&tx, &id, &memory_library_ids, &now)?;
-    let created_at = get_project_created_at(&tx, &id)?;
-    let session_count = get_project_session_count(&tx, &id)?;
+    // 记忆库关联在事务内替换
+    project_mapper::delete_project_memory_libraries(&tx, &id)
+        .await
+        .map_err(|e| e.to_string())?;
+    for library_id in &memory_library_ids {
+        project_mapper::insert_project_memory_library(&tx, &id, library_id, &now)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
 
-    tx.commit().map_err(|e| e.to_string())?;
+    tx.commit().await.map_err(|e| e.to_string())?;
+
+    // 读取 created_at 和 session_count（事务外，非关键路径）
+    let created_at = project_mapper::get_project_created_at(rb, &id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .and_then(|r| crate::models::value_to_json_string_opt(r.value))
+        .unwrap_or_default();
+    let session_count = project_mapper::get_project_session_count(rb, &id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .and_then(|r| r.value)
+        .unwrap_or(0) as i32;
 
     Ok(Project {
         id,
@@ -455,104 +385,112 @@ pub fn update_project(id: String, input: CreateProjectInput) -> Result<Project, 
 
 /// 删除项目（级联删除关联的会话和消息）
 #[tauri::command]
-pub fn delete_project(id: String) -> Result<(), String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    repair_memory_search_indexes(&conn).map_err(|e| format!("修复记忆搜索索引失败: {}", e))?;
+pub async fn delete_project(id: String) -> Result<(), String> {
+    // 修复记忆搜索索引（FTS 维护）：该逻辑仍依赖 rusqlite 原生连接，
+    // 在记忆模块迁移到 rbatis 之前保留这一处 rusqlite 调用。
+    repair_memory_search_indexes()
+        .await
+        .map_err(|e| format!("修复记忆搜索索引失败: {}", e))?;
 
-    conn.execute("DELETE FROM projects WHERE id = ?1", [&id])
+    let rb = db::rb();
+    project_mapper::delete_project_by_id(rb, &id)
+        .await
         .map_err(|e| e.to_string())?;
 
     Ok(())
 }
 
 #[tauri::command]
-pub fn clear_project_runtime_data(
+pub async fn clear_project_runtime_data(
     project_id: String,
 ) -> Result<ProjectRuntimeCleanupResult, String> {
-    let mut conn = open_db_connection().map_err(|e| e.to_string())?;
-    repair_memory_search_indexes(&conn).map_err(|e| format!("修复记忆搜索索引失败: {}", e))?;
+    // 修复记忆搜索索引（FTS 维护）：rbatis 迁移后直接用全局连接池。
+    repair_memory_search_indexes()
+        .await
+        .map_err(|e| format!("修复记忆搜索索引失败: {}", e))?;
 
-    let session_ids = {
-        let mut stmt = conn
-            .prepare("SELECT id FROM sessions WHERE project_id = ?1")
-            .map_err(|e| e.to_string())?;
-        let rows = stmt
-            .query_map([&project_id], |row| row.get::<_, String>(0))
-            .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?
-    };
+    let rb = db::rb();
+
+    // 收集统计信息（事务前查询）
+    let session_id_rows = project_mapper::list_session_ids_by_project(rb, &project_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let session_ids: Vec<String> = session_id_rows
+        .into_iter()
+        .filter_map(|r| crate::models::value_to_json_string_opt(r.value))
+        .collect();
 
     let cleared_sessions = session_ids.len();
     // messages 表已废弃（ACP 消息不再本地落库，由 session/load 重放历史），恒为 0。
     let cleared_messages: usize = 0;
-    let cleared_plans: usize = conn
-        .query_row(
-            "SELECT COUNT(*) FROM plans WHERE project_id = ?1",
-            [&project_id],
-            |row| row.get(0),
-        )
-        .map_err(|e| e.to_string())?;
-    let cleared_tasks: usize = conn
-        .query_row(
-            "SELECT COUNT(*) FROM tasks WHERE project_id = ?1 OR plan_id IN (SELECT id FROM plans WHERE project_id = ?1)",
-            [&project_id],
-            |row| row.get(0),
-        )
-        .map_err(|e| e.to_string())?;
-    let cleared_plan_split_logs: usize = conn
-        .query_row(
-            "SELECT COUNT(*) FROM plan_split_logs WHERE plan_id IN (SELECT id FROM plans WHERE project_id = ?1)",
-            [&project_id],
-            |row| row.get(0),
-        )
-        .map_err(|e| e.to_string())?;
-    let cleared_plan_split_sessions: usize = conn
-        .query_row(
-            "SELECT COUNT(*) FROM task_split_sessions WHERE plan_id IN (SELECT id FROM plans WHERE project_id = ?1)",
-            [&project_id],
-            |row| row.get(0),
-        )
-        .map_err(|e| e.to_string())?;
-    let cleared_execution_results: usize = conn
-        .query_row(
-            "SELECT COUNT(*) FROM task_execution_results WHERE plan_id IN (SELECT id FROM plans WHERE project_id = ?1)",
-            [&project_id],
-            |row| row.get(0),
-        )
-        .map_err(|e| e.to_string())?;
-    let cleared_execution_logs: usize = conn
-        .query_row(
-            "SELECT COUNT(*) FROM task_execution_logs WHERE task_id IN (
-                SELECT id FROM tasks WHERE project_id = ?1 OR plan_id IN (SELECT id FROM plans WHERE project_id = ?1)
-            )",
-            [&project_id],
-            |row| row.get(0),
-        )
-        .map_err(|e| e.to_string())?;
+    let cleared_plans: usize = project_mapper::count_plans_by_project(rb, &project_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .and_then(|r| r.value)
+        .unwrap_or(0) as usize;
+    let cleared_tasks: usize = project_mapper::count_tasks_by_project(rb, &project_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .and_then(|r| r.value)
+        .unwrap_or(0) as usize;
+    let cleared_plan_split_logs: usize =
+        project_mapper::count_plan_split_logs_by_project(rb, &project_id)
+            .await
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .next()
+            .and_then(|r| r.value)
+            .unwrap_or(0) as usize;
+    let cleared_plan_split_sessions: usize =
+        project_mapper::count_task_split_sessions_by_project(rb, &project_id)
+            .await
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .next()
+            .and_then(|r| r.value)
+            .unwrap_or(0) as usize;
+    let cleared_execution_results: usize =
+        project_mapper::count_execution_results_by_project(rb, &project_id)
+            .await
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .next()
+            .and_then(|r| r.value)
+            .unwrap_or(0) as usize;
+    let cleared_execution_logs: usize =
+        project_mapper::count_execution_logs_by_project(rb, &project_id)
+            .await
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .next()
+            .and_then(|r| r.value)
+            .unwrap_or(0) as usize;
 
+    // 级联删除（事务内）
     let now = now_rfc3339();
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let mut tx = rb.acquire_begin().await.map_err(|e| e.to_string())?;
 
-    tx.execute(
-        "DELETE FROM window_session_locks WHERE session_id IN (SELECT id FROM sessions WHERE project_id = ?1)",
-        [&project_id],
-    )
-    .map_err(|e| e.to_string())?;
+    project_mapper::delete_window_locks_by_project_sessions(&tx, &project_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    project_mapper::delete_sessions_by_project(&tx, &project_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    project_mapper::delete_tasks_by_project(&tx, &project_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    project_mapper::delete_plans_by_project(&tx, &project_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    project_mapper::touch_project_updated_at(&tx, &project_id, &now)
+        .await
+        .map_err(|e| e.to_string())?;
 
-    tx.execute("DELETE FROM sessions WHERE project_id = ?1", [&project_id])
-        .map_err(|e| e.to_string())?;
-    tx.execute("DELETE FROM tasks WHERE project_id = ?1", [&project_id])
-        .map_err(|e| e.to_string())?;
-    tx.execute("DELETE FROM plans WHERE project_id = ?1", [&project_id])
-        .map_err(|e| e.to_string())?;
-    tx.execute(
-        "UPDATE projects SET updated_at = ?1 WHERE id = ?2",
-        rusqlite::params![&now, &project_id],
-    )
-    .map_err(|e| e.to_string())?;
-
-    tx.commit().map_err(|e| e.to_string())?;
+    tx.commit().await.map_err(|e| e.to_string())?;
 
     for session_id in &session_ids {
         remove_session_uploads(session_id)?;

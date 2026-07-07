@@ -3,7 +3,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::commands::conversation::types::AcpStreamEvent;
-use crate::commands::support::open_db_connection;
+use crate::db;
+use crate::mappers::settings as settings_mapper;
 
 pub fn build_content_event(session_id: &str, request_id: &str, content: String) -> AcpStreamEvent {
     AcpStreamEvent {
@@ -165,36 +166,27 @@ pub fn timeout_config_for_execution_mode(
     }
 }
 
-pub fn read_cli_timeout_minutes() -> Option<u64> {
-    let conn = match open_db_connection() {
-        Ok(c) => c,
-        Err(_) => return None,
+pub async fn read_cli_timeout_minutes() -> Option<u64> {
+    // 读取 app_settings.cliTimeoutMinutes。DB/反序列化失败一律视为未设置。
+    let value = match settings_mapper::get_app_setting(db::rb(), "cliTimeoutMinutes").await {
+        Ok(rows) => rows
+            .into_iter()
+            .next()
+            .map(|row| crate::models::value_to_json_string(row.value)),
+        _ => return None,
     };
-    let value: Option<String> = conn
-        .query_row(
-            "SELECT value FROM app_settings WHERE key = 'cliTimeoutMinutes'",
-            [],
-            |row| row.get(0),
-        )
-        .ok()
-        .flatten();
-    value.and_then(|v| v.parse::<u64>().ok())
+    value?.parse::<u64>().ok()
 }
 
-pub fn read_acp_permission_mode() -> String {
-    let conn = match open_db_connection() {
-        Ok(c) => c,
-        Err(_) => return "ask".to_string(),
-    };
-    let value: Option<String> = conn
-        .query_row(
-            "SELECT value FROM app_settings WHERE key = 'acpPermissionMode'",
-            [],
-            |row| row.get(0),
-        )
-        .ok()
-        .flatten();
-    value.unwrap_or_else(|| "ask".to_string())
+pub async fn read_acp_permission_mode() -> String {
+    match settings_mapper::get_app_setting(db::rb(), "acpPermissionMode").await {
+        Ok(rows) => rows
+            .into_iter()
+            .next()
+            .map(|row| crate::models::value_to_json_string(row.value))
+            .unwrap_or_else(|| "ask".to_string()),
+        _ => "ask".to_string(),
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

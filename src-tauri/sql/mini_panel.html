@@ -1,0 +1,24 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!-- 检查项目是否存在（存在返回 1，否则无行） -->
+  <select id="project_exists">
+    `select 1 as value from projects where id = #{id} limit 1`
+  </select>
+
+  <!-- 检查会话是否存在 -->
+  <select id="session_exists">
+    `select 1 as value from sessions where id = #{id} limit 1`
+  </select>
+
+  <!-- 插入 Mini Panel 托管项目 -->
+  <insert id="insert_mini_panel_project">
+    `insert into projects (id, name, path, description, created_at, updated_at) `
+    `values (#{id}, #{name}, #{path}, #{description}, #{created_at}, #{updated_at})`
+  </insert>
+
+  <!-- 插入 Mini Panel 托管会话 -->
+  <insert id="insert_mini_panel_session">
+    `insert into sessions (id, project_id, name, agent_type, status, created_at, updated_at) `
+    `values (#{id}, #{project_id}, #{name}, #{agent_type}, 'idle', #{created_at}, #{updated_at})`
+  </insert>
+</mapper>

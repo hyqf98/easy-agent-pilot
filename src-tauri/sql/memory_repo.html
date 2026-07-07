@@ -1,0 +1,103 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!-- 列出全部记忆库仓库（按 updated_at 倒序，再按 created_at 倒序） -->
+  <select id="list_memory_repos">
+    `select id, name, slug, description, repo_path, format, system_prompt,`
+    ` agent_id, model_id, internal_tools_enabled, enabled, created_at, updated_at`
+    ` from memory_repos`
+    ` order by updated_at desc, created_at desc`
+  </select>
+
+  <!-- 按 id 查询单个仓库 -->
+  <select id="get_memory_repo_by_id">
+    `select id, name, slug, description, repo_path, format, system_prompt,`
+    ` agent_id, model_id, internal_tools_enabled, enabled, created_at, updated_at`
+    ` from memory_repos`
+    ` where id = #{id}`
+  </select>
+
+  <!-- 插入新仓库 -->
+  <insert id="insert_memory_repo">
+    `insert into memory_repos`
+    ` (id, name, slug, description, repo_path, format, system_prompt,`
+    `  agent_id, model_id, internal_tools_enabled, enabled, created_at, updated_at)`
+    ` values`
+    ` (#{row.id}, #{row.name}, #{row.slug}, #{row.description}, #{row.repo_path}, #{row.format},`
+    `  #{row.system_prompt}, #{row.agent_id}, #{row.model_id},`
+    `  #{row.internal_tools_enabled}, #{row.enabled}, #{row.created_at}, #{row.updated_at})`
+  </insert>
+
+  <!-- 更新仓库元数据（全量字段更新） -->
+  <update id="update_memory_repo">
+    `update memory_repos`
+    ` set name = #{update.name},`
+    `     description = #{update.description},`
+    `     system_prompt = #{update.system_prompt},`
+    `     agent_id = #{update.agent_id},`
+    `     model_id = #{update.model_id},`
+    `     internal_tools_enabled = #{update.internal_tools_enabled},`
+    `     enabled = #{update.enabled},`
+    `     updated_at = #{update.updated_at}`
+    ` where id = #{update.id}`
+  </update>
+
+  <!-- 删除仓库 -->
+  <delete id="delete_memory_repo">
+    `delete from memory_repos where id = #{id}`
+  </delete>
+
+  <!-- 查询全部仓库名称（迁移去重用） -->
+  <select id="list_memory_repo_names">
+    `select name as value from memory_repos`
+  </select>
+
+  <!-- ==================== 内置工具可见范围（数据源） ==================== -->
+
+  <!-- 列出仓库的数据源（按 created_at 升序） -->
+  <select id="list_memory_repo_sources">
+    `select id, repo_id, source_type, CAST(config AS TEXT) as config, enabled, created_at`
+    ` from memory_repo_sources`
+    ` where repo_id = #{repo_id}`
+    ` order by created_at asc`
+  </select>
+
+  <!-- 按 repo_id + source_type 查询 id（判断是否已存在） -->
+  <select id="get_memory_repo_source_id_by_unique">
+    `select id as value from memory_repo_sources`
+    ` where repo_id = #{repo_id} and source_type = #{source_type}`
+  </select>
+
+  <!-- 插入数据源 -->
+  <insert id="insert_memory_repo_source">
+    `insert into memory_repo_sources`
+    ` (id, repo_id, source_type, config, enabled, created_at)`
+    ` values`
+    ` (#{id}, #{repo_id}, #{source_type}, #{config}, #{enabled}, #{created_at})`
+  </insert>
+
+  <!-- 更新数据源 -->
+  <update id="update_memory_repo_source">
+    `update memory_repo_sources`
+    ` set config = #{config}, enabled = #{enabled}`
+    ` where id = #{id}`
+  </update>
+
+  <!-- 按 id 查询数据源 -->
+  <select id="get_memory_repo_source_by_id">
+    `select id, repo_id, source_type, CAST(config AS TEXT) as config, enabled, created_at`
+    ` from memory_repo_sources`
+    ` where id = #{id}`
+  </select>
+
+  <!-- ==================== 旧库迁移 ==================== -->
+
+  <!-- 检查 memory_libraries 表是否存在 -->
+  <select id="count_memory_libraries_table">
+    `select count(*) as value from sqlite_master where type = 'table' and name = 'memory_libraries'`
+  </select>
+
+  <!-- 读取旧库全部记录（id, name, description, content_md） -->
+  <select id="list_legacy_memory_libraries">
+    `select id, name, description, content_md from memory_libraries`
+  </select>
+</mapper>

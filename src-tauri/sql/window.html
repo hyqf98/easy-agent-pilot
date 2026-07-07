@@ -1,0 +1,23 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!-- 锁定会话到窗口（upsert） -->
+  <insert id="lock_session">
+    `insert or replace into window_session_locks (session_id, window_label, locked_at) `
+    `values (#{session_id}, #{window_label}, strftime('%s', 'now'))`
+  </insert>
+
+  <!-- 释放会话锁定（按 session_id） -->
+  <delete id="release_session">
+    `delete from window_session_locks where session_id = #{session_id}`
+  </delete>
+
+  <!-- 检查会话是否被锁定，返回锁定窗口标签 -->
+  <select id="is_session_locked">
+    `select window_label from window_session_locks where session_id = #{session_id}`
+  </select>
+
+  <!-- 释放窗口的所有会话锁定 -->
+  <delete id="release_window_sessions">
+    `delete from window_session_locks where window_label = #{window_label}`
+  </delete>
+</mapper>

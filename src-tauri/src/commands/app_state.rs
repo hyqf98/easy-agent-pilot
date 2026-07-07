@@ -1,8 +1,8 @@
-use anyhow::Result;
-use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 
-use super::support::open_db_connection;
+use crate::db;
+use crate::mappers::app_state as app_state_mapper;
+use crate::models::AppStateRow;
 
 /// 应用状态键值
 #[derive(Debug, Serialize, Deserialize)]
@@ -13,64 +13,41 @@ pub struct AppStateEntry {
     pub updated_at: i64,
 }
 
+impl From<AppStateRow> for AppStateEntry {
+    fn from(row: AppStateRow) -> Self {
+        Self {
+            key: row.key.unwrap_or_default(),
+            value: row.value.unwrap_or_default(),
+            updated_at: row.updated_at.unwrap_or_default(),
+        }
+    }
+}
+
 /// 获取应用状态值
 #[tauri::command]
-pub fn get_app_state(key: String) -> Result<Option<String>, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
-    let mut stmt = conn
-        .prepare("SELECT value FROM app_state WHERE key = ?1")
-        .map_err(|e| e.to_string())?;
-
-    let result = stmt
-        .query_row([&key], |row| row.get::<_, String>(0))
-        .optional()
-        .map_err(|e| e.to_string())?;
-
-    Ok(result)
+pub async fn get_app_state(key: String) -> Result<Option<String>, String> {
+    app_state_mapper::get_app_state(db::rb(), &key)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// 设置应用状态值
 #[tauri::command]
-pub fn set_app_state(key: String, value: String) -> Result<(), String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
-    conn.execute(
-        "INSERT OR REPLACE INTO app_state (key, value, updated_at) VALUES (?1, ?2, strftime('%s', 'now'))",
-        [&key, &value],
-    )
-    .map_err(|e| e.to_string())?;
-
+pub async fn set_app_state(key: String, value: String) -> Result<(), String> {
+    app_state_mapper::set_app_state(db::rb(), &key, &value)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 /// 批量获取应用状态
 #[tauri::command]
-pub fn get_app_states(keys: Vec<String>) -> Result<Vec<AppStateEntry>, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
-    let placeholders: Vec<String> = keys.iter().map(|_| "?".to_string()).collect();
-    let sql = format!(
-        "SELECT key, value, updated_at FROM app_state WHERE key IN ({})",
-        placeholders.join(",")
-    );
-
-    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-
-    let params: Vec<&dyn rusqlite::ToSql> =
-        keys.iter().map(|k| k as &dyn rusqlite::ToSql).collect();
-
-    let entries = stmt
-        .query_map(params.as_slice(), |row| {
-            Ok(AppStateEntry {
-                key: row.get(0)?,
-                value: row.get(1)?,
-                updated_at: row.get(2)?,
-            })
-        })
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
+pub async fn get_app_states(keys: Vec<String>) -> Result<Vec<AppStateEntry>, String> {
+    if keys.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows = app_state_mapper::get_app_states(db::rb(), &keys)
+        .await
         .map_err(|e| e.to_string())?;
-
-    Ok(entries)
+    Ok(rows.into_iter().map(AppStateEntry::from).collect())
 }

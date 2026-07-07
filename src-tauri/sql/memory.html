@@ -1,0 +1,296 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!--
+    记忆模块 SQL。
+    涉及表：memory_libraries / raw_memory_records / memory_merge_runs /
+    memory_library_chunks / session_memory_reference_history / sessions / projects。
+    JSON 列 source_record_ids 以 TEXT 存取，命令层做 serde_json。
+    bool 列无（这里均 TEXT/INTEGER 普通列）。
+    注：原 rusqlite 实现的记忆搜索用的是 LOWER(...) LIKE 而非 FTS5 MATCH，
+    故此处同样用 LIKE；FTS5 虚表/触发器维护（repair_memory_search_indexes）
+    不在此模块，待 support.rs 迁移后由该处负责。
+  -->
+
+  <!-- =================== memory_libraries =================== -->
+
+  <!-- 列出全部记忆库（按 updated_at、created_at 倒序） -->
+  <select id="list_memory_libraries">
+    `select id, name, description, content_md, created_at, updated_at`
+    ` from memory_libraries`
+    ` order by updated_at desc, created_at desc`
+  </select>
+
+  <!-- 按 id 查询单个记忆库 -->
+  <select id="get_memory_library_by_id">
+    `select id, name, description, content_md, created_at, updated_at`
+    ` from memory_libraries`
+    ` where id = #{id}`
+  </select>
+
+  <!-- 插入新记忆库 -->
+  <insert id="insert_memory_library">
+    `insert into memory_libraries (id, name, description, content_md, created_at, updated_at)`
+    ` values`
+    ` (#{row.id}, #{row.name}, #{row.description}, #{row.content_md}, #{row.created_at}, #{row.updated_at})`
+  </insert>
+
+  <!-- 全量更新记忆库（create/update/merge 均复用，事务内） -->
+  <update id="update_memory_library_full">
+    `update memory_libraries`
+    ` set name = #{update.name},`
+    `     description = #{update.description},`
+    `     content_md = #{update.content_md},`
+    `     updated_at = #{update.updated_at}`
+    ` where id = #{update.id}`
+  </update>
+
+  <!-- 仅刷新 content_md + updated_at（merge 场景，事务内） -->
+  <update id="update_memory_library_content">
+    `update memory_libraries`
+    ` set content_md = #{content_md}, updated_at = #{updated_at}`
+    ` where id = #{id}`
+  </update>
+
+  <!-- 删除记忆库（事务内：先删 chunks 再删 library） -->
+  <delete id="delete_memory_library_chunks">
+    `delete from memory_library_chunks where library_id = #{library_id}`
+  </delete>
+
+  <delete id="delete_memory_library">
+    `delete from memory_libraries where id = #{id}`
+  </delete>
+
+  <!-- =================== memory_library_chunks =================== -->
+
+  <!-- 清空某 library 的所有 chunks（事务内） -->
+  <delete id="delete_chunks_by_library">
+    `delete from memory_library_chunks where library_id = #{library_id}`
+  </delete>
+
+  <!-- 插入单条 chunk（事务内循环调用） -->
+  <insert id="insert_memory_library_chunk">
+    `insert into memory_library_chunks`
+    ` (id, library_id, chunk_text, chunk_order, chunk_hash, created_at, updated_at)`
+    ` values`
+    ` (#{chunk.id}, #{chunk.library_id}, #{chunk.chunk_text}, #{chunk.chunk_order},`
+    `  #{chunk.chunk_hash}, #{chunk.created_at}, #{chunk.updated_at})`
+  </insert>
+
+  <!--
+    记忆库分块搜索建议。
+    排除已在本会话引用过的 chunk（LEFT JOIN session_memory_reference_history + IS NULL）。
+    关键词 OR 匹配（foreach 拼 LOWER(c.chunk_text) LIKE LOWER(?)）。
+    select 列顺序对齐 MemoryLibraryChunkSearchRow。
+  -->
+  <select id="search_library_suggestions">
+    `select`
+    ` c.id, c.chunk_text, l.id, l.name, l.updated_at`
+    ` from memory_library_chunks c`
+    ` join memory_libraries l on l.id = c.library_id`
+    ` left join session_memory_reference_history h`
+    `   on h.session_id = #{session_id}`
+    `  and h.source_type = 'library_chunk'`
+    `  and h.source_id = c.id`
+    ` where h.source_id is null`
+    ` and (`
+    <foreach collection="search_terms" item="term" separator=" OR ">
+      `LOWER(c.chunk_text) LIKE LOWER(#{term})`
+    </foreach>
+    ` )`
+    <if test="has_excluded_ids">
+      `and l.id not in `
+      <foreach collection="excluded_library_ids" item="lid" open="(" close=")" separator=",">
+        `#{lid}`
+      </foreach>
+    </if>
+    ` order by l.updated_at desc, c.chunk_order asc`
+  </select>
+
+  <!-- =================== raw_memory_records =================== -->
+
+  <!--
+    原始记忆列表（带可选筛选）。
+    WHERE 1=1 后 <if> 拼接 project_id / session_id / search(LIKE) /
+    start_at / end_at。select 列顺序对齐 RawMemoryRecordRow（10 列含 JOIN name）。
+  -->
+  <select id="list_raw_memory_records">
+    `select`
+    ` r.id, r.session_id, s.name, r.project_id, p.name, r.message_id,`
+    ` r.content, r.source_role, r.created_at, r.updated_at`
+    ` from raw_memory_records r`
+    ` left join sessions s on s.id = r.session_id`
+    ` left join projects p on p.id = r.project_id`
+    `<where>`
+      <if test="query.project_id != null">`and r.project_id = #{query.project_id}`</if>
+      <if test="query.session_id != null">`and r.session_id = #{query.session_id}`</if>
+      <if test="query.search != null">`and LOWER(r.content) LIKE LOWER(#{query.search})`</if>
+      <if test="start_at != null">`and r.created_at &gt;= #{start_at}`</if>
+      <if test="end_at != null">`and r.created_at &lt;= #{end_at}`</if>
+    `</where>`
+    ` order by r.created_at desc`
+  </select>
+
+  <!-- 按 id 查询单条原始记忆（JOIN name） -->
+  <select id="get_raw_memory_record_by_id">
+    `select`
+    ` r.id, r.session_id, s.name, r.project_id, p.name, r.message_id,`
+    ` r.content, r.source_role, r.created_at, r.updated_at`
+    ` from raw_memory_records r`
+    ` left join sessions s on s.id = r.session_id`
+    ` left join projects p on p.id = r.project_id`
+    ` where r.id = #{id}`
+  </select>
+
+  <!-- 按 message_id 查询原始记忆（capture_user_message 幂等判断） -->
+  <select id="get_raw_memory_record_by_message_id">
+    `select`
+    ` r.id, r.session_id, s.name, r.project_id, p.name, r.message_id,`
+    ` r.content, r.source_role, r.created_at, r.updated_at`
+    ` from raw_memory_records r`
+    ` left join sessions s on s.id = r.session_id`
+    ` left join projects p on p.id = r.project_id`
+    ` where r.message_id = #{message_id}`
+  </select>
+
+  <!-- 插入原始记忆（create_raw_memory_record / capture_user_message 复用） -->
+  <insert id="insert_raw_memory_record">
+    `insert into raw_memory_records`
+    ` (id, session_id, project_id, message_id, content, source_role, created_at, updated_at)`
+    ` values`
+    ` (#{row.id}, #{row.session_id}, #{row.project_id}, #{row.message_id},`
+    `  #{row.content}, #{row.source_role}, #{row.created_at}, #{row.updated_at})`
+  </insert>
+
+  <!-- 更新原始记忆内容（update_raw_memory_record） -->
+  <update id="update_raw_memory_record">
+    `update raw_memory_records`
+    ` set content = #{content}, updated_at = #{updated_at}`
+    ` where id = #{id}`
+  </update>
+
+  <!-- 按 id 删除单条原始记忆 -->
+  <delete id="delete_raw_memory_record_by_id">
+    `delete from raw_memory_records where id = #{id}`
+  </delete>
+
+  <!--
+    批量删除：先查出待删 id（list_raw_memory_record_ids，带筛选 + 排序 + limit），
+    再用 delete_raw_memory_records_in 事务内批量删除。
+    ${delete_order} 为内部生成的 ASC/DESC（非用户输入，安全）。
+  -->
+  <select id="list_raw_memory_record_ids">
+    `select r.id from raw_memory_records r`
+    `<where>`
+      <if test="query.project_id != null">`and r.project_id = #{query.project_id}`</if>
+      <if test="query.session_id != null">`and r.session_id = #{query.session_id}`</if>
+      <if test="query.search != null">`and LOWER(r.content) LIKE LOWER(#{query.search})`</if>
+      <if test="start_at != null">`and r.created_at &gt;= #{start_at}`</if>
+      <if test="end_at != null">`and r.created_at &lt;= #{end_at}`</if>
+    `</where>`
+    ` order by r.created_at ${delete_order}`
+    <if test="limit != null">`limit #{limit}`</if>
+  </select>
+
+  <!-- 事务内：批量删除指定 id（foreach 拼 IN） -->
+  <delete id="delete_raw_memory_records_in">
+    `delete from raw_memory_records where id in`
+    <foreach collection="ids" item="rid" open="(" close=")" separator=",">
+      `#{rid}`
+    </foreach>
+  </delete>
+
+  <!--
+    原始记忆搜索建议。
+    排除已引用 + 排除「用户主动引用的历史记忆」开头 + 关键词 OR(LIKE)。
+    select 列顺序对齐 RawMemorySearchRow（7 列）。
+  -->
+  <select id="search_raw_memory_suggestions">
+    `select`
+    ` r.id, r.content, r.session_id, s.name, r.project_id, p.name, r.created_at`
+    ` from raw_memory_records r`
+    ` left join sessions s on s.id = r.session_id`
+    ` left join projects p on p.id = r.project_id`
+    ` left join session_memory_reference_history h`
+    `   on h.session_id = #{session_id}`
+    `  and h.source_type = 'raw_record'`
+    `  and h.source_id = r.id`
+    ` where h.source_id is null`
+    ` and TRIM(r.content) not like '[用户主动引用的历史记忆]%'`
+    ` and (`
+    <foreach collection="search_terms" item="term" separator=" OR ">
+      `LOWER(r.content) LIKE LOWER(#{term})`
+    </foreach>
+    ` )`
+    ` order by r.created_at desc`
+  </select>
+
+  <!-- =================== 关联查询（sessions / project_memory_libraries） =================== -->
+
+  <!-- 按 session_id 查询所属 project_id（resolve_project_id_from_session，单列别名 value） -->
+  <select id="get_project_id_by_session">
+    `select project_id as value from sessions where id = #{session_id}`
+  </select>
+
+  <!-- 列出项目绑定的 memory library id（排除用，单列别名 value） -->
+  <select id="list_project_memory_library_ids">
+    `select library_id as value from project_memory_libraries`
+    ` where project_id = #{project_id}`
+    ` order by created_at asc, library_id asc`
+  </select>
+
+  <!--
+    统计给定 source_record_ids 中实际存在的数量（merge 前校验）。
+    返回 count 单列别名 value。
+  -->
+  <select id="count_existing_raw_records">
+    `select count(*) as value from raw_memory_records where id in`
+    <foreach collection="ids" item="rid" open="(" close=")" separator=",">
+      `#{rid}`
+    </foreach>
+  </select>
+
+  <!-- =================== session_memory_reference_history =================== -->
+
+  <!-- 记录会话已引用记忆（upsert，事务内循环调用） -->
+  <insert id="upsert_session_memory_reference">
+    `insert into session_memory_reference_history`
+    ` (session_id, source_type, source_id, message_id, created_at)`
+    ` values`
+    ` (#{session_id}, #{source_type}, #{source_id}, #{message_id}, #{created_at})`
+    ` on conflict(session_id, source_type, source_id) do update set`
+    `   message_id = excluded.message_id,`
+    `   created_at = excluded.created_at`
+  </insert>
+
+  <!-- =================== memory_merge_runs =================== -->
+
+  <!-- 按 library_id 列出合并记录（按 created_at 倒序） -->
+  <select id="list_memory_merge_runs">
+    `select`
+    ` id, library_id, CAST(source_record_ids AS TEXT) as source_record_ids, source_record_count,`
+    ` previous_content_md, merged_content_md, agent_id, model_id, created_at`
+    ` from memory_merge_runs`
+    ` where library_id = #{library_id}`
+    ` order by created_at desc`
+  </select>
+
+  <!-- 按 id 查询单条合并记录 -->
+  <select id="get_memory_merge_run_by_id">
+    `select`
+    ` id, library_id, CAST(source_record_ids AS TEXT) as source_record_ids, source_record_count,`
+    ` previous_content_md, merged_content_md, agent_id, model_id, created_at`
+    ` from memory_merge_runs`
+    ` where id = #{id}`
+  </select>
+
+  <!-- 插入合并记录（事务内） -->
+  <insert id="insert_memory_merge_run">
+    `insert into memory_merge_runs`
+    ` (id, library_id, source_record_ids, source_record_count,`
+    `  previous_content_md, merged_content_md, agent_id, model_id, created_at)`
+    ` values`
+    ` (#{row.id}, #{row.library_id}, #{row.source_record_ids}, #{row.source_record_count},`
+    `  #{row.previous_content_md}, #{row.merged_content_md}, #{row.agent_id}, #{row.model_id},`
+    `  #{row.created_at})`
+  </insert>
+</mapper>

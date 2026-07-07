@@ -1,0 +1,38 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!--
+    调度器模块 SQL。
+
+    - due memory jobs：schedule_status=scheduled 且 next_run_at<=now
+    - plan 触发：置 schedule_status=triggered + status=executing + execution_status=running
+    这两类操作由 scheduler/{memory,plan}_scheduler.rs 在 tokio 后台循环中调用。
+  -->
+
+  <!-- ==================== memory_jobs ==================== -->
+
+  <!-- 查询到期的记忆库任务 id（next_run_at<=now） -->
+  <select id="list_due_memory_job_ids">
+    `select id as value from memory_jobs`
+    ` where schedule_status = 'scheduled' and next_run_at is not null and next_run_at &lt;= #{now}`
+  </select>
+
+  <!-- 置记忆库任务为 triggered（立即触发） -->
+  <update id="trigger_memory_job_status">
+    `update memory_jobs set schedule_status = 'triggered', updated_at = #{updated_at}`
+    ` where id = #{id}`
+  </update>
+
+  <!-- ==================== plans ==================== -->
+
+  <!-- 查询到期的定时计划 id（scheduled_at<=now） -->
+  <select id="list_due_plan_ids">
+    `select id as value from plans`
+    ` where schedule_status = 'scheduled' and scheduled_at is not null and scheduled_at &lt;= #{now}`
+  </select>
+
+  <!-- 触发计划：置 schedule_status=triggered / status=executing / execution_status=running -->
+  <update id="trigger_plan_status">
+    `update plans set schedule_status = 'triggered', status = 'executing',`
+    ` execution_status = 'running', updated_at = #{updated_at} where id = #{id}`
+  </update>
+</mapper>

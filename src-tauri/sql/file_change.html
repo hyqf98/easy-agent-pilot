@@ -1,0 +1,57 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!-- 查询文件变更列表（request_id 为空时返回整段会话的全部变更） -->
+  <select id="list_file_change_traces">
+    `select id, session_id, request_id, tool_call_id, file_path, relative_path, `
+    `change_type, before_content, after_content, status, created_at `
+    `from file_change_traces`
+    `<where>`
+      `session_id = #{query.session_id}`
+      <if test="query.request_id != null">`and request_id = #{query.request_id}`</if>
+    `</where>`
+    `order by created_at asc, seq asc`
+  </select>
+
+  <!-- 更新变更状态（主要用于「采纳」标记 accepted） -->
+  <update id="update_file_change_status">
+    `update file_change_traces set status = #{status} where id = #{id}`
+  </update>
+
+  <!-- 按 id 查询单条变更（回滚时读取） -->
+  <select id="get_file_change_trace_by_id">
+    `select id, session_id, request_id, tool_call_id, file_path, relative_path, `
+    `change_type, before_content, after_content, status, created_at `
+    `from file_change_traces where id = #{id}`
+  </select>
+
+  <!-- 回滚成功后将状态置为 rolled_back -->
+  <update id="mark_file_change_rolled_back">
+    `update file_change_traces set status = 'rolled_back' where id = #{id}`
+  </update>
+
+  <!-- 读取会话所属项目的路径（用于把相对路径解析为绝对路径） -->
+  <select id="get_session_project_path">
+    `select p.path as value `
+    `from sessions s join projects p on p.id = s.project_id `
+    `where s.id = #{session_id}`
+  </select>
+
+  <!--
+    会话执行期 UPSERT 文件变更记录（ACP/CLI 策略写路径）。
+    以 (session_id, tool_call_id, file_path) 唯一键做 UPSERT：同一工具可能多次
+    更新同一文件，终态覆盖；但保留既有 status，避免覆盖用户已采纳/回滚的标记。
+  -->
+  <insert id="upsert_file_change_trace">
+    `insert into file_change_traces `
+    `(id, session_id, request_id, tool_call_id, file_path, relative_path, `
+    ` change_type, before_content, after_content, status, created_at, seq) `
+    `values `
+    `(#{row.id}, #{row.session_id}, #{row.request_id}, #{row.tool_call_id}, #{row.file_path}, #{row.relative_path}, `
+    ` #{row.change_type}, #{row.before_content}, #{row.after_content}, 'pending', #{row.created_at}, #{row.seq}) `
+    `on conflict(session_id, tool_call_id, file_path) do update set `
+    `relative_path = excluded.relative_path, `
+    `change_type = excluded.change_type, `
+    `before_content = coalesce(excluded.before_content, file_change_traces.before_content), `
+    `after_content = excluded.after_content`
+  </insert>
+</mapper>

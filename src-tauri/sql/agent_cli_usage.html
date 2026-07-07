@@ -1,0 +1,254 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!--
+    CLI 用量统计模块 SQL。
+    涉及表：agent_cli_usage_records / agent_models / agents / projects / sessions / tasks。
+
+    动态 SQL 说明：
+    - summary / timeline / breakdown / stacked 四类聚合查询共享同一筛选条件
+      （start_at / end_at / provider / model_keyword）。rbatis 不支持 MyBatis 的
+      <sql>/<include> 片段复用，故每个 <select> 内各自重复 <where>+<if>。
+    - bucket_expr / dimension_id_expr / dimension_label_expr / breakdown_order
+      这些 SQL 片段由命令层按 granularity/dimension 派生（受控枚举值，非用户输入），
+      通过 ${...} 原文注入（rbatis 的 ${} 是 format! 原文拼接，不参数化）。
+    - model_keyword 传入时已包好 %keyword%（命令层 lowercase 化）。
+
+    注意：原 rusqlite 实现的 summary 用 query_row 单行返回，timeline/breakdown/stacked
+    用 query_map 多行返回；rbatis 这里统一：
+      - summary → Option<UsageSummaryRow>
+      - timeline/breakdown/stacked → Vec<...>
+  -->
+
+  <!-- =================== 写入：upsert =================== -->
+
+  <!-- upsert 一条用量记录（ON CONFLICT 幂等更新） -->
+  <insert id="upsert_agent_cli_usage">
+    `insert into agent_cli_usage_records (`
+    ` execution_id, execution_mode, provider, agent_id, agent_name_snapshot, model_id,`
+    ` project_id, session_id, task_id, message_id, input_tokens, output_tokens, total_tokens,`
+    ` cache_read_input_tokens, cache_creation_input_tokens,`
+    ` call_count, estimated_input_cost_usd, estimated_output_cost_usd, estimated_total_cost_usd,`
+    ` pricing_status, pricing_version, occurred_at, created_at`
+    `) values (`
+    ` #{row.execution_id}, #{row.execution_mode}, #{row.provider}, #{row.agent_id},`
+    ` #{row.agent_name_snapshot}, #{row.model_id},`
+    ` #{row.project_id}, #{row.session_id}, #{row.task_id}, #{row.message_id},`
+    ` #{row.input_tokens}, #{row.output_tokens}, #{row.total_tokens},`
+    ` #{row.cache_read_input_tokens}, #{row.cache_creation_input_tokens},`
+    ` #{row.call_count}, #{row.estimated_input_cost_usd}, #{row.estimated_output_cost_usd},`
+    ` #{row.estimated_total_cost_usd},`
+    ` #{row.pricing_status}, #{row.pricing_version}, #{row.occurred_at}, #{row.created_at}`
+    `)`
+    `on conflict(execution_id) do update set`
+    ` execution_mode = excluded.execution_mode,`
+    ` provider = excluded.provider,`
+    ` agent_id = excluded.agent_id,`
+    ` agent_name_snapshot = excluded.agent_name_snapshot,`
+    ` model_id = excluded.model_id,`
+    ` project_id = excluded.project_id,`
+    ` session_id = excluded.session_id,`
+    ` task_id = excluded.task_id,`
+    ` message_id = excluded.message_id,`
+    ` input_tokens = excluded.input_tokens,`
+    ` output_tokens = excluded.output_tokens,`
+    ` total_tokens = excluded.total_tokens,`
+    ` cache_read_input_tokens = excluded.cache_read_input_tokens,`
+    ` cache_creation_input_tokens = excluded.cache_creation_input_tokens,`
+    ` call_count = excluded.call_count,`
+    ` estimated_input_cost_usd = excluded.estimated_input_cost_usd,`
+    ` estimated_output_cost_usd = excluded.estimated_output_cost_usd,`
+    ` estimated_total_cost_usd = excluded.estimated_total_cost_usd,`
+    ` pricing_status = excluded.pricing_status,`
+    ` pricing_version = excluded.pricing_version,`
+    ` occurred_at = excluded.occurred_at`
+  </insert>
+
+  <!-- 按 execution_id 回读单条记录（upsert 后返回详情，对齐 AgentCliUsageRow 23 列） -->
+  <select id="get_agent_cli_usage_by_execution_id">
+    `select`
+    ` execution_id, execution_mode, provider, agent_id, agent_name_snapshot, model_id,`
+    ` project_id, session_id, task_id, message_id, input_tokens, output_tokens, total_tokens,`
+    ` cache_read_input_tokens, cache_creation_input_tokens, call_count,`
+    ` estimated_input_cost_usd, estimated_output_cost_usd, estimated_total_cost_usd,`
+    ` pricing_status, pricing_version, occurred_at, created_at`
+    ` from agent_cli_usage_records`
+    ` where execution_id = #{execution_id}`
+  </select>
+
+  <!-- =================== 读：汇总（单行聚合） =================== -->
+
+  <!--
+    汇总：10 列 SUM 聚合。筛选条件用 <where>+<if>。
+    返回 Option<UsageSummaryRow>（无数据时各 SUM 经 COALESCE 仍为 0）。
+  -->
+  <select id="query_usage_summary">
+    `select`
+    ` coalesce(sum(call_count), 0) as total_calls,`
+    ` coalesce(sum(input_tokens), 0) as input_tokens,`
+    ` coalesce(sum(output_tokens), 0) as output_tokens,`
+    ` coalesce(sum(total_tokens), 0) as total_tokens,`
+    ` coalesce(sum(cache_read_input_tokens), 0) as cache_read_tokens,`
+    ` coalesce(sum(cache_creation_input_tokens), 0) as cache_creation_tokens,`
+    ` coalesce(sum(estimated_input_cost_usd), 0) as estimated_input_cost_usd,`
+    ` coalesce(sum(estimated_output_cost_usd), 0) as estimated_output_cost_usd,`
+    ` coalesce(sum(estimated_total_cost_usd), 0) as estimated_total_cost_usd,`
+    ` coalesce(sum(case when pricing_status != 'estimated' then call_count else 0 end), 0) as unpriced_calls`
+    ` from agent_cli_usage_records`
+    `<where>`
+      <if test="start_at != null">`and occurred_at &gt;= #{start_at}`</if>
+      <if test="end_at != null">`and occurred_at &lt;= #{end_at}`</if>
+      <if test="provider != null">`and provider = #{provider}`</if>
+      <if test="model_keyword != null">`and lower(coalesce(model_id, '')) like #{model_keyword}`</if>
+    `</where>`
+  </select>
+
+  <!-- =================== 读：时间趋势（按 bucket 分组） =================== -->
+
+  <!--
+    时间趋势：${bucket_expr} 为按 granularity 派生的时间桶表达式（原文注入）。
+    返回 Vec<UsageTimelineRow>。
+  -->
+  <select id="query_usage_timeline">
+    `select`
+    ` ${bucket_expr} as bucket,`
+    ` coalesce(sum(call_count), 0) as call_count,`
+    ` coalesce(sum(input_tokens), 0) as input_tokens,`
+    ` coalesce(sum(output_tokens), 0) as output_tokens,`
+    ` coalesce(sum(total_tokens), 0) as total_tokens,`
+    ` coalesce(sum(cache_read_input_tokens), 0) as cache_read_tokens,`
+    ` coalesce(sum(cache_creation_input_tokens), 0) as cache_creation_tokens,`
+    ` coalesce(sum(estimated_input_cost_usd), 0) as estimated_input_cost_usd,`
+    ` coalesce(sum(estimated_output_cost_usd), 0) as estimated_output_cost_usd,`
+    ` coalesce(sum(estimated_total_cost_usd), 0) as estimated_total_cost_usd`
+    ` from agent_cli_usage_records`
+    `<where>`
+      <if test="start_at != null">`and occurred_at &gt;= #{start_at}`</if>
+      <if test="end_at != null">`and occurred_at &lt;= #{end_at}`</if>
+      <if test="provider != null">`and provider = #{provider}`</if>
+      <if test="model_keyword != null">`and lower(coalesce(model_id, '')) like #{model_keyword}`</if>
+    `</where>`
+    ` group by bucket`
+    ` order by bucket asc`
+  </select>
+
+  <!-- =================== 读：维度明细 =================== -->
+
+  <!--
+    维度明细：${dimension_id_expr}/${dimension_label_expr}/${breakdown_order}
+    按 dimension（agent/model）派生（原文注入，受控值）。
+    返回 Vec<UsageBreakdownRow>。
+  -->
+  <select id="query_usage_breakdown">
+    `select`
+    ` ${dimension_id_expr} as dimension_id,`
+    ` ${dimension_label_expr} as dimension_label,`
+    ` min(provider) as provider,`
+    ` coalesce(sum(call_count), 0) as call_count,`
+    ` coalesce(sum(input_tokens), 0) as input_tokens,`
+    ` coalesce(sum(output_tokens), 0) as output_tokens,`
+    ` coalesce(sum(total_tokens), 0) as total_tokens,`
+    ` coalesce(sum(estimated_total_cost_usd), 0) as estimated_total_cost_usd,`
+    ` coalesce(sum(case when pricing_status != 'estimated' then call_count else 0 end), 0) as unpriced_calls`
+    ` from agent_cli_usage_records`
+    `<where>`
+      <if test="start_at != null">`and occurred_at &gt;= #{start_at}`</if>
+      <if test="end_at != null">`and occurred_at &lt;= #{end_at}`</if>
+      <if test="provider != null">`and provider = #{provider}`</if>
+      <if test="model_keyword != null">`and lower(coalesce(model_id, '')) like #{model_keyword}`</if>
+    `</where>`
+    ` group by dimension_id, dimension_label`
+    ` order by ${breakdown_order}`
+  </select>
+
+  <!-- =================== 读：堆叠图（bucket × dimension） =================== -->
+
+  <!--
+    堆叠图：${bucket_expr}/${dimension_id_expr}/${dimension_label_expr} 原文注入。
+    返回 Vec<UsageStackedRow>。
+  -->
+  <select id="query_usage_stacked">
+    `select`
+    ` ${bucket_expr} as bucket,`
+    ` ${dimension_id_expr} as dimension_id,`
+    ` ${dimension_label_expr} as dimension_label,`
+    ` min(provider) as provider,`
+    ` coalesce(sum(call_count), 0) as call_count,`
+    ` coalesce(sum(input_tokens), 0) as input_tokens,`
+    ` coalesce(sum(output_tokens), 0) as output_tokens,`
+    ` coalesce(sum(total_tokens), 0) as total_tokens,`
+    ` coalesce(sum(estimated_total_cost_usd), 0) as estimated_total_cost_usd`
+    ` from agent_cli_usage_records`
+    `<where>`
+      <if test="start_at != null">`and occurred_at &gt;= #{start_at}`</if>
+      <if test="end_at != null">`and occurred_at &lt;= #{end_at}`</if>
+      <if test="provider != null">`and provider = #{provider}`</if>
+      <if test="model_keyword != null">`and lower(coalesce(model_id, '')) like #{model_keyword}`</if>
+    `</where>`
+    ` group by bucket, dimension_id, dimension_label`
+    ` order by bucket asc, dimension_label asc`
+  </select>
+
+  <!-- =================== 读：会话级用量汇总 =================== -->
+
+  <!-- 按 session_id 聚合（query_session_usage_summary，单行） -->
+  <select id="query_session_usage_summary">
+    `select`
+    ` coalesce(sum(input_tokens), 0) as input_tokens,`
+    ` coalesce(sum(output_tokens), 0) as output_tokens,`
+    ` coalesce(sum(total_tokens), 0) as total_tokens,`
+    ` coalesce(sum(cache_read_input_tokens), 0) as cache_read_input_tokens,`
+    ` coalesce(sum(cache_creation_input_tokens), 0) as cache_creation_input_tokens,`
+    ` coalesce(sum(call_count), 0) as call_count`
+    ` from agent_cli_usage_records`
+    ` where session_id = #{session_id}`
+  </select>
+
+  <!-- =================== 读：修复历史 =================== -->
+
+  <!-- 统计可疑 Claude 历史记录数（repair_claude_usage_history，foreach 拼 IN） -->
+  <select id="count_suspicious_claude_history">
+    `select count(*) as value from agent_cli_usage_records`
+    ` where provider = 'claude'`
+    ` and lower(coalesce(model_id, '')) in`
+    <foreach collection="models" item="m" open="(" close=")" separator=",">
+      `#{m}`
+    </foreach>
+  </select>
+
+  <!-- 读取可疑历史记录（execution_id, input_tokens, output_tokens） -->
+  <select id="list_suspicious_claude_history">
+    `select execution_id, input_tokens, output_tokens from agent_cli_usage_records`
+    ` where provider = 'claude'`
+    ` and lower(coalesce(model_id, '')) in`
+    <foreach collection="models" item="m" open="(" close=")" separator=",">
+      `#{m}`
+    </foreach>
+  </select>
+
+  <!-- 修复单条历史记录的 model_id + 估价（循环调用） -->
+  <update id="repair_one_history_record">
+    `update agent_cli_usage_records`
+    ` set model_id = #{rec.model_id},`
+    `     estimated_input_cost_usd = #{rec.estimated_input_cost_usd},`
+    `     estimated_output_cost_usd = #{rec.estimated_output_cost_usd},`
+    `     estimated_total_cost_usd = #{rec.estimated_total_cost_usd},`
+    `     pricing_status = #{rec.pricing_status},`
+    `     pricing_version = #{rec.pricing_version}`
+    ` where execution_id = #{rec.execution_id}`
+  </update>
+
+  <!-- =================== 读：参照校验 + 价格 =================== -->
+
+  <!-- 检查 agents/projects/sessions/tasks 中 id 是否存在（reference_exists，单列 value） -->
+  <select id="reference_exists">
+    `select 1 as value from ${table} where id = #{id} limit 1`
+  </select>
+
+  <!-- 查询用户自定义模型价格（fetch_user_model_pricing，2 列） -->
+  <select id="fetch_user_model_pricing">
+    `select input_cost_per_million_usd, output_cost_per_million_usd`
+    ` from agent_models`
+    ` where lower(model_id) = lower(#{model_id})`
+    ` limit 1`
+  </select>
+</mapper>

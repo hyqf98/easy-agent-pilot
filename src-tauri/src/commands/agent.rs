@@ -1,13 +1,18 @@
+//! 智能体（agents 主表）命令 —— 已从 rusqlite 同步迁移到 rbatis async。
+//!
+//! DB 访问全部走 `mappers::agent` + `sql/agent.html`。
+//! 内置子代理种子经 `sub_agent::ensure_builtin_sub_agents`（已迁移到 rbatis）直接调用。
+
 use anyhow::Result;
-use rusqlite::{Connection, Row};
 use serde::{Deserialize, Serialize};
 
-use super::sub_agent::ensure_builtin_sub_agents;
 use super::cli_support::normalize_cli_identifier;
-use super::support::{
-    bind_optional, bind_optional_mapped, bind_value, bool_from_int, now_rfc3339,
-    open_db_connection, UpdateSqlBuilder,
-};
+use super::sub_agent::ensure_builtin_sub_agents;
+use super::support::now_rfc3339;
+
+use crate::db;
+use crate::mappers::agent as agent_mapper;
+use crate::models::AgentRow;
 
 /// 智能体配置数据结构
 /// 统一使用 ACP (Agent Client Protocol) 运行时
@@ -79,28 +84,27 @@ fn normalize_agent_cli_command(value: Option<String>) -> Option<String> {
     value.and_then(|item| normalize_cli_identifier(&item))
 }
 
-fn map_agent_row(row: &Row<'_>) -> rusqlite::Result<Agent> {
-    let cli_path = normalize_agent_cli_command(row.get(4)?);
-
-    Ok(Agent {
-        id: row.get(0)?,
-        name: row.get(1)?,
-        agent_type: row.get(2)?,
-        provider: row.get(3)?,
-        cli_path,
-        api_key: row.get(5)?,
-        base_url: row.get(6)?,
-        model_id: row.get(7)?,
-        custom_model_enabled: bool_from_int(row.get::<_, Option<i32>>(8)?),
-        mode: row.get(9)?,
-        model: row.get(10)?,
-        status: row.get(11)?,
-        test_message: row.get(12)?,
-        tested_at: row.get(13)?,
-        created_at: row.get(14)?,
-        updated_at: row.get(15)?,
-        acp_command: row.get(16)?,
-    })
+/// 把 rbatis 行映射 `AgentRow` 转成对外 DTO `Agent`（含 cli_path 归一化、bool 还原）。
+fn row_to_agent(row: AgentRow) -> Agent {
+    Agent {
+        id: row.id.unwrap_or_default(),
+        name: row.name.unwrap_or_default(),
+        agent_type: row.agent_type.unwrap_or_else(|| "acp".to_string()),
+        acp_command: row.acp_command,
+        cli_path: normalize_agent_cli_command(row.cli_path),
+        api_key: row.api_key,
+        base_url: row.base_url,
+        model_id: row.model_id,
+        custom_model_enabled: row.custom_model_enabled.map(|v| v != 0),
+        provider: row.provider,
+        mode: row.mode,
+        model: row.model,
+        status: row.status,
+        test_message: row.test_message,
+        tested_at: row.tested_at,
+        created_at: row.created_at.unwrap_or_default(),
+        updated_at: row.updated_at.unwrap_or_default(),
+    }
 }
 
 /// 解析智能体的运行模式。
@@ -115,44 +119,29 @@ fn resolve_agent_mode(
     (provider.cloned(), resolved_mode)
 }
 
+/// 执行内置子代理种子（sub_agent 模块已迁移到 rbatis，直接异步调用）。
+async fn ensure_builtin_sub_agents_safe() -> Result<(), String> {
+    ensure_builtin_sub_agents().await
+}
+
 /// 获取所有智能体配置
 #[tauri::command]
-pub fn list_agents() -> Result<Vec<Agent>, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
-    let mut stmt = conn
-        .prepare(
-            r#"
-            SELECT id, name, type, provider, cli_path, api_key, base_url, model_id, custom_model_enabled,
-                   mode, model, status, test_message, tested_at, created_at, updated_at, acp_command
-            FROM agents
-            ORDER BY updated_at DESC
-            "#,
-        )
+pub async fn list_agents() -> Result<Vec<Agent>, String> {
+    let rows = agent_mapper::list_agents(db::rb())
+        .await
         .map_err(|e| e.to_string())?;
-
-    let agents = stmt
-        .query_map([], map_agent_row)
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-
-    Ok(agents)
+    Ok(rows.into_iter().map(row_to_agent).collect())
 }
 
 /// 创建新智能体配置
 #[tauri::command]
-pub fn create_agent(input: CreateAgentInput) -> Result<Agent, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
+pub async fn create_agent(input: CreateAgentInput) -> Result<Agent, String> {
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_rfc3339();
     let status = "offline".to_string();
 
-    let (final_provider, final_mode) = resolve_agent_mode(
-        input.provider.as_ref(),
-        input.mode.as_ref(),
-    );
+    let (final_provider, final_mode) =
+        resolve_agent_mode(input.provider.as_ref(), input.mode.as_ref());
     let final_type = "acp".to_string();
 
     let custom_model_enabled_int = if input.custom_model_enabled.unwrap_or(false) {
@@ -162,30 +151,28 @@ pub fn create_agent(input: CreateAgentInput) -> Result<Agent, String> {
     };
     let cli_path = normalize_agent_cli_command(input.cli_path.clone());
 
-    conn.execute(
-        "INSERT INTO agents (id, name, type, provider, cli_path, api_key, base_url, model_id, custom_model_enabled, mode, model, status, acp_command, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
-        rusqlite::params![
-            &id,
-            &input.name,
-            &final_type,
-            &final_provider,
-            &cli_path,
-            &input.api_key,
-            &input.base_url,
-            &input.model_id,
-            &custom_model_enabled_int,
-            &final_mode,
-            &input.model,
-            &status,
-            &input.acp_command,
-            &now,
-            &now
-        ],
+    agent_mapper::create_agent(
+        db::rb(),
+        &id,
+        &input.name,
+        &final_type,
+        final_provider.as_deref(),
+        cli_path.as_deref(),
+        input.api_key.as_deref(),
+        input.base_url.as_deref(),
+        input.model_id.as_deref(),
+        custom_model_enabled_int,
+        &final_mode,
+        input.model.as_deref(),
+        &status,
+        input.acp_command.as_deref(),
+        &now,
+        &now,
     )
+    .await
     .map_err(|e| e.to_string())?;
 
-    ensure_builtin_sub_agents(&conn)?;
+    ensure_builtin_sub_agents_safe().await?;
 
     Ok(Agent {
         id,
@@ -210,91 +197,51 @@ pub fn create_agent(input: CreateAgentInput) -> Result<Agent, String> {
 
 /// 更新智能体配置
 #[tauri::command]
-pub fn update_agent(id: String, input: UpdateAgentInput) -> Result<Agent, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
+pub async fn update_agent(id: String, input: UpdateAgentInput) -> Result<Agent, String> {
     let now = now_rfc3339();
     let cli_path = normalize_agent_cli_command(input.cli_path.clone());
+    let custom_model_enabled = input.custom_model_enabled.map(|v| if v { 1 } else { 0 });
 
-    let mut updates = UpdateSqlBuilder::new();
-    updates.push("name", input.name.is_some());
-    updates.push("type", input.agent_type.is_some());
-    updates.push("provider", input.provider.is_some());
-    updates.push("cli_path", input.cli_path.is_some());
-    updates.push("api_key", input.api_key.is_some());
-    updates.push("base_url", input.base_url.is_some());
-    updates.push("model_id", input.model_id.is_some());
-    updates.push("custom_model_enabled", input.custom_model_enabled.is_some());
-    updates.push("mode", input.mode.is_some());
-    updates.push("model", input.model.is_some());
-    updates.push("status", input.status.is_some());
-    updates.push("acp_command", input.acp_command.is_some());
-
-    let sql = updates.finish("agents", "id");
-
-    let mut stmt = conn.prepare_cached(&sql).map_err(|e| e.to_string())?;
-
-    let mut param_count = 1;
-    bind_value(&mut stmt, &mut param_count, &now).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.name).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.agent_type).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.provider).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &cli_path).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.api_key).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.base_url).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.model_id).map_err(|e| e.to_string())?;
-    bind_optional_mapped(
-        &mut stmt,
-        &mut param_count,
-        &input.custom_model_enabled,
-        |value| if *value { 1 } else { 0 },
+    agent_mapper::update_agent(
+        db::rb(),
+        &id,
+        &now,
+        input.name.as_deref(),
+        input.agent_type.as_deref(),
+        input.provider.as_deref(),
+        cli_path.as_deref(),
+        input.api_key.as_deref(),
+        input.base_url.as_deref(),
+        input.model_id.as_deref(),
+        custom_model_enabled,
+        input.mode.as_deref(),
+        input.model.as_deref(),
+        input.status.as_deref(),
+        input.acp_command.as_deref(),
     )
+    .await
     .map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.mode).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.model).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.status).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.acp_command).map_err(|e| e.to_string())?;
-    bind_value(&mut stmt, &mut param_count, &id).map_err(|e| e.to_string())?;
 
-    stmt.raw_execute().map_err(|e| e.to_string())?;
-
-    ensure_builtin_sub_agents(&conn)?;
+    ensure_builtin_sub_agents_safe().await?;
 
     // 获取更新后的智能体
-    let agent = get_agent_by_id(&conn, &id)?;
-
-    Ok(agent)
-}
-
-/// 获取单个智能体
-fn get_agent_by_id(conn: &Connection, id: &str) -> Result<Agent, String> {
-    let mut stmt = conn
-        .prepare(
-            r#"
-            SELECT id, name, type, provider, cli_path, api_key, base_url, model_id, custom_model_enabled,
-                   mode, model, status, test_message, tested_at, created_at, updated_at, acp_command
-            FROM agents
-            WHERE id = ?1
-            "#,
-        )
-        .map_err(|e| e.to_string())?;
-
-    let agent = stmt
-        .query_row([id], map_agent_row)
-        .map_err(|e| e.to_string())?;
-
-    Ok(agent)
+    let row = agent_mapper::get_agent_by_id(db::rb(), &id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("智能体不存在: {}", id))?;
+    Ok(row_to_agent(row))
 }
 
 /// 删除智能体配置
 #[tauri::command]
-pub fn delete_agent(id: String) -> Result<(), String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
-    conn.execute("DELETE FROM agents WHERE id = ?1", [&id])
+pub async fn delete_agent(id: String) -> Result<(), String> {
+    agent_mapper::delete_agent(db::rb(), &id)
+        .await
         .map_err(|e| e.to_string())?;
 
-    ensure_builtin_sub_agents(&conn)?;
+    ensure_builtin_sub_agents_safe().await?;
 
     Ok(())
 }
@@ -302,18 +249,20 @@ pub fn delete_agent(id: String) -> Result<(), String> {
 /// 测试智能体连接
 #[tauri::command]
 pub async fn test_agent_connection(id: String) -> Result<TestResult, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
     // 获取智能体配置
-    let agent = get_agent_by_id(&conn, &id)?;
+    let row = agent_mapper::get_agent_by_id(db::rb(), &id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("智能体不存在: {}", id))?;
+    let agent = row_to_agent(row);
 
     // 更新状态为 testing
     let now = now_rfc3339();
-    conn.execute(
-        "UPDATE agents SET status = 'testing', updated_at = ?1 WHERE id = ?2",
-        rusqlite::params![&now, &id],
-    )
-    .map_err(|e| e.to_string())?;
+    agent_mapper::update_agent_status_testing(db::rb(), &id, &now)
+        .await
+        .map_err(|e| e.to_string())?;
 
     // 当前所有智能体统一使用 ACP 运行时，直接走 ACP 连接测试
     let (success, message) = test_acp_connection(&agent).await;
@@ -321,10 +270,15 @@ pub async fn test_agent_connection(id: String) -> Result<TestResult, String> {
     // 更新测试结果
     let status = if success { "online" } else { "error" };
     let tested_at = now_rfc3339();
-    conn.execute(
-        "UPDATE agents SET status = ?1, test_message = ?2, tested_at = ?3, updated_at = ?3 WHERE id = ?4",
-        rusqlite::params![status, &message, &tested_at, &id],
+    agent_mapper::update_agent_test_result(
+        db::rb(),
+        &id,
+        status,
+        &message,
+        &tested_at,
+        &tested_at,
     )
+    .await
     .map_err(|e| e.to_string())?;
 
     Ok(TestResult { success, message })

@@ -1,12 +1,27 @@
-use super::support::{
-    bind_optional, bind_optional_mapped, bind_value, bool_from_int, now_rfc3339,
-    open_db_connection, UpdateSqlBuilder,
-};
+//! Agent 子配置（MCP / Skills / Plugins / Models）命令 —— 已从 rusqlite 同步
+//! 迁移到 rbatis async。
+//!
+//! - DB 访问全部走 `mappers::agent_config` + `sql/agent_config.html`。
+//! - 动态更新用 .html 里的 `<set>+<if>`，彻底消灭旧 `UpdateSqlBuilder`
+//!   "push 字段顺序必须等于 bind 顺序" 的隐性 bug。
+//! - `sync_agent_models` 的事务改为 `rb.acquire_begin()` + `&mut tx` + `commit`。
+//! - 读取 agent provider / ACP 命令复用 `mappers::agent`。
+
 use anyhow::Result;
-use rusqlite::{Connection, Row};
 use serde::{Deserialize, Serialize};
 
+use super::support::now_rfc3339;
+
+use crate::db;
+use crate::mappers::agent as agent_mapper;
+use crate::mappers::agent_config as ac;
+use crate::models::{
+    value_to_json_string_opt, AgentMcpConfigRow, AgentModelRow, AgentPluginsConfigRow,
+    AgentSkillsConfigRow,
+};
+
 // ============================================================================
+// MCP 配置
 // ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,62 +67,6 @@ pub struct UpdateAgentMcpConfigInput {
     pub enabled: Option<bool>,
 }
 
-fn open_conn() -> Result<Connection, String> {
-    open_db_connection().map_err(|e| e.to_string())
-}
-
-const MCP_SELECT_BY_AGENT_SQL: &str = r#"
-    SELECT id, agent_id, name, transport_type, command, args, env, url, headers, scope, enabled, created_at, updated_at
-    FROM agent_mcp_configs
-    WHERE agent_id = ?1
-    ORDER BY updated_at DESC
-"#;
-const MCP_SELECT_BY_ID_SQL: &str = r#"
-    SELECT id, agent_id, name, transport_type, command, args, env, url, headers, scope, enabled, created_at, updated_at
-    FROM agent_mcp_configs
-    WHERE id = ?1
-"#;
-
-const SKILLS_SELECT_BY_AGENT_SQL: &str = r#"
-    SELECT id, agent_id, name, description, skill_path, scripts_path, references_path, assets_path, enabled, created_at, updated_at
-    FROM agent_skills_configs
-    WHERE agent_id = ?1
-    ORDER BY updated_at DESC
-"#;
-const SKILLS_SELECT_BY_ID_SQL: &str = r#"
-    SELECT id, agent_id, name, description, skill_path, scripts_path, references_path, assets_path, enabled, created_at, updated_at
-    FROM agent_skills_configs
-    WHERE id = ?1
-"#;
-
-const PLUGINS_SELECT_BY_AGENT_SQL: &str = r#"
-    SELECT id, agent_id, name, version, description, plugin_path, enabled, created_at, updated_at
-    FROM agent_plugins_configs
-    WHERE agent_id = ?1
-    ORDER BY updated_at DESC
-"#;
-const PLUGINS_SELECT_BY_ID_SQL: &str = r#"
-    SELECT id, agent_id, name, version, description, plugin_path, enabled, created_at, updated_at
-    FROM agent_plugins_configs
-    WHERE id = ?1
-"#;
-
-const MODELS_SELECT_BY_AGENT_SQL: &str = r#"
-    SELECT id, agent_id, model_id, display_name, is_builtin, is_default, sort_order, enabled, context_window, input_cost_per_million_usd, output_cost_per_million_usd, created_at, updated_at
-    FROM agent_models
-    WHERE agent_id = ?1
-    ORDER BY sort_order ASC, created_at ASC
-"#;
-const MODELS_SELECT_BY_ID_SQL: &str = r#"
-    SELECT id, agent_id, model_id, display_name, is_builtin, is_default, sort_order, enabled, context_window, input_cost_per_million_usd, output_cost_per_million_usd, created_at, updated_at
-    FROM agent_models
-    WHERE id = ?1
-"#;
-
-fn bool_from_db(value: Option<i32>, default: bool) -> bool {
-    bool_from_int(value).unwrap_or(default)
-}
-
 fn is_legacy_codex_builtin_model(model_id: &str) -> bool {
     matches!(
         model_id,
@@ -124,189 +83,156 @@ fn is_legacy_codex_builtin_model(model_id: &str) -> bool {
     )
 }
 
-fn is_codex_agent(conn: &Connection, agent_id: &str) -> Result<bool, String> {
-    Ok(get_agent_provider(conn, agent_id)?.as_deref() == Some("codex"))
-}
-
-fn get_agent_provider(conn: &Connection, agent_id: &str) -> Result<Option<String>, String> {
-    let provider = conn
-        .query_row(
-            "SELECT provider FROM agents WHERE id = ?1",
-            [agent_id],
-            |row| row.get::<_, Option<String>>(0),
+/// 读取 agent 的 provider（用于判定 codex/opencode）。
+async fn get_agent_provider(agent_id: &str) -> Result<Option<String>, String> {
+    // 直接用 rb.query 绕过 #[html_sql] 宏对 Option<T> + 0 行的反序列化问题
+    let value = db::rb()
+        .query(
+            "select provider as value from agents where id = ?",
+            vec![rbs::Value::String(agent_id.to_string())],
         )
+        .await
         .map_err(|e| e.to_string())?;
-
-    Ok(provider)
+    // 解析 Value::Array，取首行 Map 的首列；provider 是 TEXT，匹配 String
+    if let rbs::Value::Array(rows) = &value {
+        if let Some(first_row) = rows.first() {
+            if let rbs::Value::Map(m) = first_row {
+                if let Some((_, rbs::Value::String(s))) = m.0.iter().next() {
+                    return Ok(Some(s.clone()));
+                }
+            }
+        }
+    }
+    Ok(None)
 }
 
-fn list_configs<T, F>(
-    conn: &Connection,
-    sql: &str,
-    agent_id: &str,
-    mapper: F,
-) -> Result<Vec<T>, String>
-where
-    F: FnMut(&Row<'_>) -> rusqlite::Result<T>,
-{
-    let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
-    let rows = stmt
-        .query_map([agent_id], mapper)
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
+// ----------------------------- 行映射转换 ---------------------------------
+
+fn row_to_mcp(row: AgentMcpConfigRow) -> AgentMcpConfig {
+    AgentMcpConfig {
+        id: row.id.unwrap_or_default(),
+        agent_id: row.agent_id.unwrap_or_default(),
+        name: row.name.unwrap_or_default(),
+        transport_type: row
+            .transport_type
+            .unwrap_or_else(|| "stdio".to_string()),
+        command: row.command,
+        args: value_to_json_string_opt(row.args),
+        env: value_to_json_string_opt(row.env),
+        url: row.url,
+        headers: value_to_json_string_opt(row.headers),
+        scope: row.scope.unwrap_or_else(|| "user".to_string()),
+        enabled: row.enabled.map(|v| v != 0).unwrap_or(true),
+        created_at: row.created_at.unwrap_or_default(),
+        updated_at: row.updated_at.unwrap_or_default(),
+    }
+}
+
+fn row_to_skills(row: AgentSkillsConfigRow) -> AgentSkillsConfig {
+    AgentSkillsConfig {
+        id: row.id.unwrap_or_default(),
+        agent_id: row.agent_id.unwrap_or_default(),
+        name: row.name.unwrap_or_default(),
+        description: row.description,
+        skill_path: row.skill_path.unwrap_or_default(),
+        scripts_path: row.scripts_path,
+        references_path: row.references_path,
+        assets_path: row.assets_path,
+        enabled: row.enabled.map(|v| v != 0).unwrap_or(true),
+        created_at: row.created_at.unwrap_or_default(),
+        updated_at: row.updated_at.unwrap_or_default(),
+    }
+}
+
+fn row_to_plugins(row: AgentPluginsConfigRow) -> AgentPluginsConfig {
+    AgentPluginsConfig {
+        id: row.id.unwrap_or_default(),
+        agent_id: row.agent_id.unwrap_or_default(),
+        name: row.name.unwrap_or_default(),
+        version: row.version,
+        description: row.description,
+        plugin_path: row.plugin_path.unwrap_or_default(),
+        enabled: row.enabled.map(|v| v != 0).unwrap_or(true),
+        created_at: row.created_at.unwrap_or_default(),
+        updated_at: row.updated_at.unwrap_or_default(),
+    }
+}
+
+fn row_to_model(row: AgentModelRow) -> AgentModelConfig {
+    AgentModelConfig {
+        id: row.id.unwrap_or_default(),
+        agent_id: row.agent_id.unwrap_or_default(),
+        model_id: row.model_id.unwrap_or_default(),
+        display_name: row.display_name.unwrap_or_default(),
+        is_builtin: row.is_builtin.map(|v| v != 0).unwrap_or(false),
+        is_default: row.is_default.map(|v| v != 0).unwrap_or(false),
+        sort_order: row.sort_order.map(|v| v as i32).unwrap_or(0),
+        enabled: row.enabled.map(|v| v != 0).unwrap_or(true),
+        context_window: row.context_window.map(|v| v as i32),
+        input_cost_per_million_usd: row.input_cost_per_million_usd,
+        output_cost_per_million_usd: row.output_cost_per_million_usd,
+        created_at: row.created_at.unwrap_or_default(),
+        updated_at: row.updated_at.unwrap_or_default(),
+    }
+}
+
+/// 列出某 agent 的模型（含 codex 旧内置模型过滤逻辑，与旧实现一致）。
+async fn list_models_for_agent(agent_id: &str) -> Result<Vec<AgentModelConfig>, String> {
+    let rows = ac::select_models_by_agent(db::rb(), agent_id)
+        .await
         .map_err(|e| e.to_string())?;
-    Ok(rows)
-}
+    let mut models: Vec<AgentModelConfig> = rows.into_iter().map(row_to_model).collect();
 
-fn fetch_config_by_id<T, F>(conn: &Connection, sql: &str, id: &str, mapper: F) -> Result<T, String>
-where
-    F: FnOnce(&Row<'_>) -> rusqlite::Result<T>,
-{
-    conn.query_row(sql, [id], mapper).map_err(|e| e.to_string())
-}
-
-fn map_agent_mcp_config_row(row: &Row<'_>) -> rusqlite::Result<AgentMcpConfig> {
-    Ok(AgentMcpConfig {
-        id: row.get(0)?,
-        agent_id: row.get(1)?,
-        name: row.get(2)?,
-        transport_type: row.get(3)?,
-        command: row.get(4)?,
-        args: row.get(5)?,
-        env: row.get(6)?,
-        url: row.get(7)?,
-        headers: row.get(8)?,
-        scope: row.get(9)?,
-        enabled: bool_from_db(row.get::<_, Option<i32>>(10)?, true),
-        created_at: row.get(11)?,
-        updated_at: row.get(12)?,
-    })
-}
-
-fn map_agent_skills_config_row(row: &Row<'_>) -> rusqlite::Result<AgentSkillsConfig> {
-    Ok(AgentSkillsConfig {
-        id: row.get(0)?,
-        agent_id: row.get(1)?,
-        name: row.get(2)?,
-        description: row.get(3)?,
-        skill_path: row.get(4)?,
-        scripts_path: row.get(5)?,
-        references_path: row.get(6)?,
-        assets_path: row.get(7)?,
-        enabled: bool_from_db(row.get::<_, Option<i32>>(8)?, true),
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
-    })
-}
-
-fn map_agent_plugins_config_row(row: &Row<'_>) -> rusqlite::Result<AgentPluginsConfig> {
-    Ok(AgentPluginsConfig {
-        id: row.get(0)?,
-        agent_id: row.get(1)?,
-        name: row.get(2)?,
-        version: row.get(3)?,
-        description: row.get(4)?,
-        plugin_path: row.get(5)?,
-        enabled: bool_from_db(row.get::<_, Option<i32>>(6)?, true),
-        created_at: row.get(7)?,
-        updated_at: row.get(8)?,
-    })
-}
-
-fn map_agent_model_config_row(row: &Row<'_>) -> rusqlite::Result<AgentModelConfig> {
-    Ok(AgentModelConfig {
-        id: row.get(0)?,
-        agent_id: row.get(1)?,
-        model_id: row.get(2)?,
-        display_name: row.get(3)?,
-        is_builtin: bool_from_db(row.get::<_, Option<i32>>(4)?, false),
-        is_default: bool_from_db(row.get::<_, Option<i32>>(5)?, false),
-        sort_order: row.get::<_, Option<i32>>(6)?.unwrap_or(0),
-        enabled: bool_from_db(row.get::<_, Option<i32>>(7)?, true),
-        context_window: row.get(8)?,
-        input_cost_per_million_usd: row.get(9)?,
-        output_cost_per_million_usd: row.get(10)?,
-        created_at: row.get(11)?,
-        updated_at: row.get(12)?,
-    })
-}
-
-fn clear_default_models(conn: &Connection, agent_id: &str) -> Result<(), String> {
-    conn.execute(
-        "UPDATE agent_models SET is_default = 0 WHERE agent_id = ?1",
-        [agent_id],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-fn get_model_agent_id(conn: &Connection, id: &str) -> Result<String, String> {
-    conn.query_row(
-        "SELECT agent_id FROM agent_models WHERE id = ?1",
-        [id],
-        |row| row.get(0),
-    )
-    .map_err(|e| e.to_string())
-}
-
-fn list_models_for_agent(
-    conn: &Connection,
-    agent_id: &str,
-) -> Result<Vec<AgentModelConfig>, String> {
-    let mut models = list_configs(
-        conn,
-        MODELS_SELECT_BY_AGENT_SQL,
-        agent_id,
-        map_agent_model_config_row,
-    )?;
-
-    if is_codex_agent(conn, agent_id)? {
-        models
-            .retain(|model| !(model.is_builtin && is_legacy_codex_builtin_model(&model.model_id)));
+    if get_agent_provider(agent_id).await?.as_deref() == Some("codex") {
+        models.retain(|model| !(model.is_builtin && is_legacy_codex_builtin_model(&model.model_id)));
     }
 
     Ok(models)
 }
 
 #[tauri::command]
-pub fn list_agent_mcp_configs(agent_id: String) -> Result<Vec<AgentMcpConfig>, String> {
-    let conn = open_conn()?;
-    list_configs(
-        &conn,
-        MCP_SELECT_BY_AGENT_SQL,
-        &agent_id,
-        map_agent_mcp_config_row,
-    )
+pub async fn list_agent_mcp_configs(agent_id: String) -> Result<Vec<AgentMcpConfig>, String> {
+    let rows = ac::select_mcp_by_agent(db::rb(), &agent_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(rows.into_iter().map(row_to_mcp).collect())
 }
 
 #[tauri::command]
-pub fn create_agent_mcp_config(input: CreateAgentMcpConfigInput) -> Result<AgentMcpConfig, String> {
-    let conn = open_conn()?;
-
+pub async fn create_agent_mcp_config(
+    input: CreateAgentMcpConfigInput,
+) -> Result<AgentMcpConfig, String> {
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_rfc3339();
     let transport_type = input.transport_type.unwrap_or_else(|| "stdio".to_string());
     let scope = input.scope.unwrap_or_else(|| "user".to_string());
 
-    conn.execute(
-        "INSERT INTO agent_mcp_configs (id, agent_id, name, transport_type, command, args, env, url, headers, scope, enabled, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-        rusqlite::params![
-            &id,
-            &input.agent_id,
-            &input.name,
-            &transport_type,
-            &input.command,
-            &input.args,
-            &input.env,
-            &input.url,
-            &input.headers,
-            &scope,
-            1,
-            &now,
-            &now
-        ],
+    ac::insert_mcp(
+        db::rb(),
+        &id,
+        &input.agent_id,
+        &input.name,
+        &transport_type,
+        input.command.as_deref(),
+        input
+            .args
+            .as_ref()
+            .map(|v| rbs::Value::String(v.clone())),
+        input
+            .env
+            .as_ref()
+            .map(|v| rbs::Value::String(v.clone())),
+        input.url.as_deref(),
+        input
+            .headers
+            .as_ref()
+            .map(|v| rbs::Value::String(v.clone())),
+        &scope,
+        1,
+        &now,
+        &now,
     )
+    .await
     .map_err(|e| e.to_string())?;
 
     Ok(AgentMcpConfig {
@@ -327,67 +253,58 @@ pub fn create_agent_mcp_config(input: CreateAgentMcpConfigInput) -> Result<Agent
 }
 
 #[tauri::command]
-pub fn update_agent_mcp_config(
+pub async fn update_agent_mcp_config(
     id: String,
     input: UpdateAgentMcpConfigInput,
 ) -> Result<AgentMcpConfig, String> {
-    let conn = open_conn()?;
-
     let now = now_rfc3339();
-    let mut updates = UpdateSqlBuilder::new();
-    updates.push("name", input.name.is_some());
-    updates.push("transport_type", input.transport_type.is_some());
-    updates.push("command", input.command.is_some());
-    updates.push("args", input.args.is_some());
-    updates.push("env", input.env.is_some());
-    updates.push("url", input.url.is_some());
-    updates.push("headers", input.headers.is_some());
-    updates.push("scope", input.scope.is_some());
-    updates.push("enabled", input.enabled.is_some());
+    let enabled = input.enabled.map(|v| if v { 1 } else { 0 });
 
-    let sql = updates.finish("agent_mcp_configs", "id");
-    let mut stmt = conn.prepare_cached(&sql).map_err(|e| e.to_string())?;
-
-    let mut param_count = 1;
-    bind_value(&mut stmt, &mut param_count, &now).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.name).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.transport_type).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.command).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.args).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.env).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.url).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.headers).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.scope).map_err(|e| e.to_string())?;
-    bind_optional_mapped(&mut stmt, &mut param_count, &input.enabled, |enabled| {
-        if *enabled {
-            1
-        } else {
-            0
-        }
-    })
+    ac::update_mcp(
+        db::rb(),
+        &id,
+        &now,
+        input.name.as_deref(),
+        input.transport_type.as_deref(),
+        input.command.as_deref(),
+        input
+            .args
+            .as_ref()
+            .map(|v| rbs::Value::String(v.clone())),
+        input
+            .env
+            .as_ref()
+            .map(|v| rbs::Value::String(v.clone())),
+        input.url.as_deref(),
+        input
+            .headers
+            .as_ref()
+            .map(|v| rbs::Value::String(v.clone())),
+        input.scope.as_deref(),
+        enabled,
+    )
+    .await
     .map_err(|e| e.to_string())?;
-    bind_value(&mut stmt, &mut param_count, &id).map_err(|e| e.to_string())?;
 
-    stmt.raw_execute().map_err(|e| e.to_string())?;
-
-    get_mcp_config_by_id(&conn, &id)
-}
-
-fn get_mcp_config_by_id(conn: &Connection, id: &str) -> Result<AgentMcpConfig, String> {
-    fetch_config_by_id(conn, MCP_SELECT_BY_ID_SQL, id, map_agent_mcp_config_row)
+    let row = ac::select_mcp_by_id(db::rb(), &id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("MCP 配置不存在: {}", id))?;
+    Ok(row_to_mcp(row))
 }
 
 #[tauri::command]
-pub fn delete_agent_mcp_config(id: String) -> Result<(), String> {
-    let conn = open_conn()?;
-
-    conn.execute("DELETE FROM agent_mcp_configs WHERE id = ?1", [&id])
+pub async fn delete_agent_mcp_config(id: String) -> Result<(), String> {
+    ac::delete_mcp(db::rb(), &id)
+        .await
         .map_err(|e| e.to_string())?;
-
     Ok(())
 }
 
 // ============================================================================
+// Skills 配置
 // ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -428,42 +345,35 @@ pub struct UpdateAgentSkillsConfigInput {
 }
 
 #[tauri::command]
-pub fn list_agent_skills_configs(agent_id: String) -> Result<Vec<AgentSkillsConfig>, String> {
-    let conn = open_conn()?;
-    list_configs(
-        &conn,
-        SKILLS_SELECT_BY_AGENT_SQL,
-        &agent_id,
-        map_agent_skills_config_row,
-    )
+pub async fn list_agent_skills_configs(agent_id: String) -> Result<Vec<AgentSkillsConfig>, String> {
+    let rows = ac::select_skills_by_agent(db::rb(), &agent_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(rows.into_iter().map(row_to_skills).collect())
 }
 
 #[tauri::command]
-pub fn create_agent_skills_config(
+pub async fn create_agent_skills_config(
     input: CreateAgentSkillsConfigInput,
 ) -> Result<AgentSkillsConfig, String> {
-    let conn = open_conn()?;
-
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_rfc3339();
 
-    conn.execute(
-        "INSERT INTO agent_skills_configs (id, agent_id, name, description, skill_path, scripts_path, references_path, assets_path, enabled, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-        rusqlite::params![
-            &id,
-            &input.agent_id,
-            &input.name,
-            &input.description,
-            &input.skill_path,
-            &input.scripts_path,
-            &input.references_path,
-            &input.assets_path,
-            1,
-            &now,
-            &now
-        ],
+    ac::insert_skills(
+        db::rb(),
+        &id,
+        &input.agent_id,
+        &input.name,
+        input.description.as_deref(),
+        &input.skill_path,
+        input.scripts_path.as_deref(),
+        input.references_path.as_deref(),
+        input.assets_path.as_deref(),
+        1,
+        &now,
+        &now,
     )
+    .await
     .map_err(|e| e.to_string())?;
 
     Ok(AgentSkillsConfig {
@@ -482,69 +392,47 @@ pub fn create_agent_skills_config(
 }
 
 #[tauri::command]
-pub fn update_agent_skills_config(
+pub async fn update_agent_skills_config(
     id: String,
     input: UpdateAgentSkillsConfigInput,
 ) -> Result<AgentSkillsConfig, String> {
-    let conn = open_conn()?;
-
     let now = now_rfc3339();
-    let mut updates = UpdateSqlBuilder::new();
-    updates.push("name", input.name.is_some());
-    updates.push("description", input.description.is_some());
-    updates.push("skill_path", input.skill_path.is_some());
-    updates.push("scripts_path", input.scripts_path.is_some());
-    updates.push("references_path", input.references_path.is_some());
-    updates.push("assets_path", input.assets_path.is_some());
-    updates.push("enabled", input.enabled.is_some());
+    let enabled = input.enabled.map(|v| if v { 1 } else { 0 });
 
-    let sql = updates.finish("agent_skills_configs", "id");
-    let mut stmt = conn.prepare_cached(&sql).map_err(|e| e.to_string())?;
-
-    let mut param_count = 1;
-    bind_value(&mut stmt, &mut param_count, &now).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.name).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.description).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.skill_path).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.scripts_path).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.references_path)
-        .map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.assets_path).map_err(|e| e.to_string())?;
-    bind_optional_mapped(&mut stmt, &mut param_count, &input.enabled, |enabled| {
-        if *enabled {
-            1
-        } else {
-            0
-        }
-    })
-    .map_err(|e| e.to_string())?;
-    bind_value(&mut stmt, &mut param_count, &id).map_err(|e| e.to_string())?;
-
-    stmt.raw_execute().map_err(|e| e.to_string())?;
-
-    get_skills_config_by_id(&conn, &id)
-}
-
-fn get_skills_config_by_id(conn: &Connection, id: &str) -> Result<AgentSkillsConfig, String> {
-    fetch_config_by_id(
-        conn,
-        SKILLS_SELECT_BY_ID_SQL,
-        id,
-        map_agent_skills_config_row,
+    ac::update_skills(
+        db::rb(),
+        &id,
+        &now,
+        input.name.as_deref(),
+        input.description.as_deref(),
+        input.skill_path.as_deref(),
+        input.scripts_path.as_deref(),
+        input.references_path.as_deref(),
+        input.assets_path.as_deref(),
+        enabled,
     )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let row = ac::select_skills_by_id(db::rb(), &id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("Skills 配置不存在: {}", id))?;
+    Ok(row_to_skills(row))
 }
 
 #[tauri::command]
-pub fn delete_agent_skills_config(id: String) -> Result<(), String> {
-    let conn = open_conn()?;
-
-    conn.execute("DELETE FROM agent_skills_configs WHERE id = ?1", [&id])
+pub async fn delete_agent_skills_config(id: String) -> Result<(), String> {
+    ac::delete_skills(db::rb(), &id)
+        .await
         .map_err(|e| e.to_string())?;
-
     Ok(())
 }
 
 // ============================================================================
+// Plugins 配置
 // ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -579,40 +467,35 @@ pub struct UpdateAgentPluginsConfigInput {
 }
 
 #[tauri::command]
-pub fn list_agent_plugins_configs(agent_id: String) -> Result<Vec<AgentPluginsConfig>, String> {
-    let conn = open_conn()?;
-    list_configs(
-        &conn,
-        PLUGINS_SELECT_BY_AGENT_SQL,
-        &agent_id,
-        map_agent_plugins_config_row,
-    )
+pub async fn list_agent_plugins_configs(
+    agent_id: String,
+) -> Result<Vec<AgentPluginsConfig>, String> {
+    let rows = ac::select_plugins_by_agent(db::rb(), &agent_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(rows.into_iter().map(row_to_plugins).collect())
 }
 
 #[tauri::command]
-pub fn create_agent_plugins_config(
+pub async fn create_agent_plugins_config(
     input: CreateAgentPluginsConfigInput,
 ) -> Result<AgentPluginsConfig, String> {
-    let conn = open_conn()?;
-
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_rfc3339();
 
-    conn.execute(
-        "INSERT INTO agent_plugins_configs (id, agent_id, name, version, description, plugin_path, enabled, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        rusqlite::params![
-            &id,
-            &input.agent_id,
-            &input.name,
-            &input.version,
-            &input.description,
-            &input.plugin_path,
-            1,
-            &now,
-            &now
-        ],
+    ac::insert_plugins(
+        db::rb(),
+        &id,
+        &input.agent_id,
+        &input.name,
+        input.version.as_deref(),
+        input.description.as_deref(),
+        &input.plugin_path,
+        1,
+        &now,
+        &now,
     )
+    .await
     .map_err(|e| e.to_string())?;
 
     Ok(AgentPluginsConfig {
@@ -629,64 +512,45 @@ pub fn create_agent_plugins_config(
 }
 
 #[tauri::command]
-pub fn update_agent_plugins_config(
+pub async fn update_agent_plugins_config(
     id: String,
     input: UpdateAgentPluginsConfigInput,
 ) -> Result<AgentPluginsConfig, String> {
-    let conn = open_conn()?;
-
     let now = now_rfc3339();
-    let mut updates = UpdateSqlBuilder::new();
-    updates.push("name", input.name.is_some());
-    updates.push("version", input.version.is_some());
-    updates.push("description", input.description.is_some());
-    updates.push("plugin_path", input.plugin_path.is_some());
-    updates.push("enabled", input.enabled.is_some());
+    let enabled = input.enabled.map(|v| if v { 1 } else { 0 });
 
-    let sql = updates.finish("agent_plugins_configs", "id");
-    let mut stmt = conn.prepare_cached(&sql).map_err(|e| e.to_string())?;
-
-    let mut param_count = 1;
-    bind_value(&mut stmt, &mut param_count, &now).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.name).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.version).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.description).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.plugin_path).map_err(|e| e.to_string())?;
-    bind_optional_mapped(&mut stmt, &mut param_count, &input.enabled, |enabled| {
-        if *enabled {
-            1
-        } else {
-            0
-        }
-    })
-    .map_err(|e| e.to_string())?;
-    bind_value(&mut stmt, &mut param_count, &id).map_err(|e| e.to_string())?;
-
-    stmt.raw_execute().map_err(|e| e.to_string())?;
-
-    get_plugins_config_by_id(&conn, &id)
-}
-
-fn get_plugins_config_by_id(conn: &Connection, id: &str) -> Result<AgentPluginsConfig, String> {
-    fetch_config_by_id(
-        conn,
-        PLUGINS_SELECT_BY_ID_SQL,
-        id,
-        map_agent_plugins_config_row,
+    ac::update_plugins(
+        db::rb(),
+        &id,
+        &now,
+        input.name.as_deref(),
+        input.version.as_deref(),
+        input.description.as_deref(),
+        input.plugin_path.as_deref(),
+        enabled,
     )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let row = ac::select_plugins_by_id(db::rb(), &id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("Plugins 配置不存在: {}", id))?;
+    Ok(row_to_plugins(row))
 }
 
 #[tauri::command]
-pub fn delete_agent_plugins_config(id: String) -> Result<(), String> {
-    let conn = open_conn()?;
-
-    conn.execute("DELETE FROM agent_plugins_configs WHERE id = ?1", [&id])
+pub async fn delete_agent_plugins_config(id: String) -> Result<(), String> {
+    ac::delete_plugins(db::rb(), &id)
+        .await
         .map_err(|e| e.to_string())?;
-
     Ok(())
 }
 
 // ============================================================================
+// 模型配置
 // ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -732,15 +596,12 @@ pub struct UpdateAgentModelInput {
 }
 
 #[tauri::command]
-pub fn list_agent_models(agent_id: String) -> Result<Vec<AgentModelConfig>, String> {
-    let conn = open_conn()?;
-    list_models_for_agent(&conn, &agent_id)
+pub async fn list_agent_models(agent_id: String) -> Result<Vec<AgentModelConfig>, String> {
+    list_models_for_agent(&agent_id).await
 }
 
 #[tauri::command]
-pub fn create_agent_model(input: CreateAgentModelInput) -> Result<AgentModelConfig, String> {
-    let conn = open_conn()?;
-
+pub async fn create_agent_model(input: CreateAgentModelInput) -> Result<AgentModelConfig, String> {
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_rfc3339();
     let is_builtin = input.is_builtin.unwrap_or(false);
@@ -750,30 +611,30 @@ pub fn create_agent_model(input: CreateAgentModelInput) -> Result<AgentModelConf
     let input_cost_per_million_usd = input.input_cost_per_million_usd;
     let output_cost_per_million_usd = input.output_cost_per_million_usd;
 
-    // 濡傛灉璁剧疆涓洪粯璁わ紝闇€瑕佸厛娓呴櫎鍏朵粬榛樿璁剧�?
+    // 如果设置为默认，需要先清除其他默认配置
     if is_default {
-        clear_default_models(&conn, &input.agent_id)?;
+        ac::clear_default_models(db::rb(), &input.agent_id)
+            .await
+            .map_err(|e| e.to_string())?;
     }
 
-    conn.execute(
-        "INSERT INTO agent_models (id, agent_id, model_id, display_name, is_builtin, is_default, sort_order, enabled, context_window, input_cost_per_million_usd, output_cost_per_million_usd, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-        rusqlite::params![
-            &id,
-            &input.agent_id,
-            &input.model_id,
-            &input.display_name,
-            if is_builtin { 1 } else { 0 },
-            if is_default { 1 } else { 0 },
-            sort_order,
-            1,
-            context_window,
-            input_cost_per_million_usd,
-            output_cost_per_million_usd,
-            &now,
-            &now
-        ],
+    ac::insert_model(
+        db::rb(),
+        &id,
+        &input.agent_id,
+        &input.model_id,
+        &input.display_name,
+        if is_builtin { 1 } else { 0 },
+        if is_default { 1 } else { 0 },
+        sort_order as i64,
+        1,
+        context_window.map(|v| v as i64),
+        input_cost_per_million_usd,
+        output_cost_per_million_usd,
+        &now,
+        &now,
     )
+    .await
     .map_err(|e| e.to_string())?;
 
     Ok(AgentModelConfig {
@@ -792,82 +653,66 @@ pub fn create_agent_model(input: CreateAgentModelInput) -> Result<AgentModelConf
         updated_at: now,
     })
 }
-/// 鏇存柊妯″��閰嶇疆
+
+/// 更新模型配置
 #[tauri::command]
-pub fn update_agent_model(
+pub async fn update_agent_model(
     id: String,
     input: UpdateAgentModelInput,
 ) -> Result<AgentModelConfig, String> {
-    let conn = open_conn()?;
-
     let now = now_rfc3339();
 
-    // 濡傛灉璁剧疆涓洪粯璁わ紝闇€瑕佸厛娓呴櫎鍏朵粬榛樿璁剧�?
+    // 如果设置为默认，需要先清除同 agent 的其他默认配置
     if input.is_default.unwrap_or(false) {
-        clear_default_models(&conn, &get_model_agent_id(&conn, &id)?)?;
+        // 复用 select_model_by_id 取得 agent_id（避免新增专用 SQL/结构）
+        let existing = ac::select_model_by_id(db::rb(), &id)
+            .await
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .next()
+            .ok_or_else(|| format!("模型配置不存在: {}", id))?;
+        let agent_id = existing.agent_id.unwrap_or_default();
+        ac::clear_default_models(db::rb(), &agent_id)
+            .await
+            .map_err(|e| e.to_string())?;
     }
 
-    let mut updates = UpdateSqlBuilder::new();
-    updates.push("model_id", input.model_id.is_some());
-    updates.push("display_name", input.display_name.is_some());
-    updates.push("is_default", input.is_default.is_some());
-    updates.push("sort_order", input.sort_order.is_some());
-    updates.push("enabled", input.enabled.is_some());
-    updates.push("context_window", input.context_window.is_some());
-    updates.push("input_cost_per_million_usd", input.input_cost_per_million_usd.is_some());
-    updates.push("output_cost_per_million_usd", input.output_cost_per_million_usd.is_some());
+    let is_default = input.is_default.map(|v| if v { 1 } else { 0 });
+    let enabled = input.enabled.map(|v| if v { 1 } else { 0 });
+    let sort_order = input.sort_order.map(|v| v as i64);
+    let context_window = input.context_window.map(|v| v as i64);
 
-    let sql = updates.finish("agent_models", "id");
-    let mut stmt = conn.prepare_cached(&sql).map_err(|e| e.to_string())?;
-
-    let mut param_count = 1;
-    bind_value(&mut stmt, &mut param_count, &now).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.model_id).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.display_name).map_err(|e| e.to_string())?;
-    bind_optional_mapped(&mut stmt, &mut param_count, &input.is_default, |value| {
-        if *value {
-            1
-        } else {
-            0
-        }
-    })
-    .map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.sort_order).map_err(|e| e.to_string())?;
-    bind_optional_mapped(&mut stmt, &mut param_count, &input.enabled, |value| {
-        if *value {
-            1
-        } else {
-            0
-        }
-    })
-    .map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.context_window).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.input_cost_per_million_usd).map_err(|e| e.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.output_cost_per_million_usd).map_err(|e| e.to_string())?;
-    bind_value(&mut stmt, &mut param_count, &id).map_err(|e| e.to_string())?;
-
-    stmt.raw_execute().map_err(|e| e.to_string())?;
-
-    get_model_config_by_id(&conn, &id)
-}
-
-fn get_model_config_by_id(conn: &Connection, id: &str) -> Result<AgentModelConfig, String> {
-    fetch_config_by_id(
-        conn,
-        MODELS_SELECT_BY_ID_SQL,
-        id,
-        map_agent_model_config_row,
+    ac::update_model(
+        db::rb(),
+        &id,
+        &now,
+        input.model_id.as_deref(),
+        input.display_name.as_deref(),
+        is_default,
+        sort_order,
+        enabled,
+        context_window,
+        input.input_cost_per_million_usd,
+        input.output_cost_per_million_usd,
     )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let row = ac::select_model_by_id(db::rb(), &id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("模型配置不存在: {}", id))?;
+    Ok(row_to_model(row))
 }
 
-/// 鍒犻櫎妯″��閰嶇疆
+/// 删除模型配置
 #[tauri::command]
-pub fn delete_agent_model(id: String) -> Result<(), String> {
-    let conn = open_conn()?;
-
-    conn.execute("DELETE FROM agent_models WHERE id = ?1", [&id])
+pub async fn delete_agent_model(id: String) -> Result<(), String> {
+    ac::delete_model(db::rb(), &id)
+        .await
         .map_err(|e| e.to_string())?;
-
     Ok(())
 }
 
@@ -892,18 +737,12 @@ pub async fn sync_agent_models(agent_id: String) -> Result<SyncAgentModelsResult
     };
 
     // 1. 读取 agent 的 ACP 命令（与 test_acp_connection 同款取值优先级）
-    let mut conn = open_conn()?;
-    let raw_command = conn
-        .query_row(
-            "SELECT acp_command, cli_path FROM agents WHERE id = ?1",
-            [&agent_id],
-            |row| {
-                let acp_command: Option<String> = row.get(0)?;
-                let cli_path: Option<String> = row.get(1)?;
-                Ok(acp_command.or(cli_path))
-            },
-        )
-        .map_err(|e| e.to_string())?;
+    let raw_command = agent_mapper::select_agent_command(db::rb(), &agent_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .and_then(|row| crate::models::value_to_json_string_opt(row.value));
     let raw_command = raw_command
         .as_deref()
         .map(str::trim)
@@ -913,7 +752,7 @@ pub async fn sync_agent_models(agent_id: String) -> Result<SyncAgentModelsResult
     // 2. 按 provider 选择探测方式：
     //    - opencode 不通过 ACP 暴露模型，走原生 `opencode models` CLI
     //    - 其他（claude/codex/custom）走 ACP session/new 协议路径
-    let provider = get_agent_provider(&conn, &agent_id)?;
+    let provider = get_agent_provider(&agent_id).await?;
     let probed_ids = if provider.as_deref() == Some("opencode") {
         probe_opencode_models().await?
     } else {
@@ -922,7 +761,7 @@ pub async fn sync_agent_models(agent_id: String) -> Result<SyncAgentModelsResult
     };
 
     // 3. 事务内按 model_id 去重合并：已存在的跳过，缺失的新增
-    let existing = list_models_for_agent(&conn, &agent_id)?;
+    let existing = list_models_for_agent(&agent_id).await?;
     let existing_ids: std::collections::HashSet<&str> =
         existing.iter().map(|m| m.model_id.as_str()).collect();
 
@@ -931,7 +770,8 @@ pub async fn sync_agent_models(agent_id: String) -> Result<SyncAgentModelsResult
 
     if !probed_ids.is_empty() {
         let now = now_rfc3339();
-        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        let rb = db::rb();
+        let mut tx = rb.acquire_begin().await.map_err(|e| e.to_string())?;
 
         for model_id in &probed_ids {
             if existing_ids.contains(model_id.as_str()) {
@@ -939,21 +779,18 @@ pub async fn sync_agent_models(agent_id: String) -> Result<SyncAgentModelsResult
                 continue;
             }
 
-            let id = uuid::Uuid::new_v4().to_string();
-            tx.execute(
-                "INSERT INTO agent_models (id, agent_id, model_id, display_name, is_builtin, is_default, sort_order, enabled, context_window, input_cost_per_million_usd, output_cost_per_million_usd, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, 0, 0, 0, 1, 128000, NULL, NULL, ?5, ?5)",
-                rusqlite::params![&id, &agent_id, model_id, model_id, &now],
-            )
-            .map_err(|e| e.to_string())?;
+            let new_id = uuid::Uuid::new_v4().to_string();
+            ac::insert_synced_model(&mut tx, &new_id, &agent_id, model_id, &now)
+                .await
+                .map_err(|e| e.to_string())?;
             synced_count += 1;
         }
 
-        tx.commit().map_err(|e| e.to_string())?;
+        tx.commit().await.map_err(|e| e.to_string())?;
     }
 
     // 4. 返回合并后的完整列表（复用 list_models_for_agent 保留 codex 旧模型过滤逻辑）
-    let models = list_models_for_agent(&conn, &agent_id)?;
+    let models = list_models_for_agent(&agent_id).await?;
 
     Ok(SyncAgentModelsResult {
         synced_count,
@@ -961,4 +798,3 @@ pub async fn sync_agent_models(agent_id: String) -> Result<SyncAgentModelsResult
         models,
     })
 }
-

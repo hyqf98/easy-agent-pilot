@@ -5,10 +5,10 @@
 //! 2. 范围裁剪：根据仓库 `memory_repo_sources`（sourceType=`conversation_history`）的 config，
 //!    对 AI 传入的参数做交集/夹取，越界部分裁剪，保证工具只返回该仓库可见的历史。
 
-use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
-use crate::commands::support::open_db_connection;
+use crate::db;
+use crate::mappers::mcp_server as mapper;
 
 /// 工具入参（AI 侧传入）。
 #[derive(Debug, Clone, Deserialize)]
@@ -67,18 +67,17 @@ pub fn parse_repo_source_scope(config: &str) -> RepoSourceScope {
 }
 
 /// 按仓库 id 读取其 `conversation_history` 数据源配置（无则返回默认全开放）。
-pub fn load_repo_scope(repo_id: &str) -> Result<RepoSourceScope, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    let config: Option<String> = conn
-        .query_row(
-            "SELECT config FROM memory_repo_sources
-             WHERE repo_id = ?1 AND source_type = 'conversation_history' AND enabled = 1",
-            rusqlite::params![repo_id],
-            |row| row.get(0),
-        )
-        .ok()
-        .flatten();
-    Ok(match config {
+///
+/// 通过 rbatis（`db::rb()`）查询。调用方需确保 RBatis 已初始化（见 `entry.rs`）。
+pub async fn load_repo_scope(repo_id: &str) -> Result<RepoSourceScope, String> {
+    let row = mapper::get_repo_source_config(db::rb(), repo_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(match row
+        .into_iter()
+        .next()
+        .and_then(|item| crate::models::value_to_json_string_opt(item.value))
+    {
         Some(raw) => parse_repo_source_scope(&raw),
         None => RepoSourceScope::default(),
     })
@@ -156,7 +155,7 @@ fn stricter_until(a: Option<&str>, b: Option<&str>) -> Option<String> {
 ///
 /// 注意：ACP 消息不再本地落库（由 ACP 协议 session/load 重放历史），
 /// messages 表已废弃。此查询恒返回空列表，保留工具签名以维持 MCP 契约。
-pub fn run_query(_conn: &Connection, _params: &QueryHistoryParams) -> Result<Vec<HistoryMessage>, String> {
+pub fn run_query(_params: &QueryHistoryParams) -> Result<Vec<HistoryMessage>, String> {
     Ok(Vec::new())
 }
 

@@ -1,7 +1,18 @@
+//! Plan（计划）命令 —— 已从 rusqlite 同步迁移到 rbatis async。
+//!
+//! DB 访问全部走 `mappers::plan` + `sql/plan.html`。
+//! 事务：`create_plan`（insert plan + 替换记忆库关联 + touch project）、
+//! `delete_plan`（级联清理 + 删计划本体）使用 `rb.acquire_begin()`。
+
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use super::support::{now_rfc3339, open_db_connection};
+use super::support::now_rfc3339;
+
+use crate::db;
+use crate::mappers::plan as plan_mapper;
+use crate::mappers::plan::PlanUpdate;
+use crate::models::{value_to_json_string_opt, PlanRow};
 
 /// 计划数据结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -135,50 +146,50 @@ fn normalize_memory_library_ids(library_ids: &[String]) -> Vec<String> {
     normalized
 }
 
-fn list_plan_memory_library_ids(
-    conn: &rusqlite::Connection,
-    plan_id: &str,
-) -> Result<Vec<String>, String> {
-    let mut stmt = conn
-        .prepare(
-            r#"
-            SELECT library_id
-            FROM plan_memory_libraries
-            WHERE plan_id = ?1
-            ORDER BY created_at ASC, library_id ASC
-            "#,
-        )
-        .map_err(|e| e.to_string())?;
-
-    let rows = stmt
-        .query_map([plan_id], |row| row.get::<_, String>(0))
-        .map_err(|e| e.to_string())?;
-
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())
+/// 把三态 `UpdateField<String>` 拆成 (是否纳入更新, 写入值)。
+/// `Null` → (true, None)（写 SQL NULL）；`Value(v)` → (true, Some(v))；`Missing` → (false, None)。
+fn split_str_field(field: &UpdateField<String>) -> (bool, Option<String>) {
+    match field {
+        UpdateField::Value(v) => (true, Some(v.clone())),
+        UpdateField::Null => (true, None),
+        UpdateField::Missing => (false, None),
+    }
 }
 
-fn replace_plan_memory_libraries(
-    conn: &rusqlite::Connection,
+/// 把三态 `UpdateField<i32>` 拆成 (是否纳入更新, 写入值)。
+fn split_int_field(field: &UpdateField<i32>) -> (bool, Option<i64>) {
+    match field {
+        UpdateField::Value(v) => (true, Some(*v as i64)),
+        UpdateField::Null => (true, None),
+        UpdateField::Missing => (false, None),
+    }
+}
+
+async fn list_plan_memory_library_ids(plan_id: &str) -> Result<Vec<String>, String> {
+    let rows = plan_mapper::list_plan_memory_library_ids(db::rb(), plan_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| row.library_id)
+        .collect())
+}
+
+/// 在事务内替换计划的记忆库关联（先删后插）。
+async fn replace_plan_memory_libraries(
+    tx: &rbatis::executor::RBatisTxExecutor,
     plan_id: &str,
     library_ids: &[String],
     now: &str,
 ) -> Result<(), String> {
-    conn.execute(
-        "DELETE FROM plan_memory_libraries WHERE plan_id = ?1",
-        [plan_id],
-    )
-    .map_err(|e| e.to_string())?;
+    plan_mapper::delete_plan_memory_libraries(tx, plan_id)
+        .await
+        .map_err(|e| e.to_string())?;
 
     for library_id in normalize_memory_library_ids(library_ids) {
-        conn.execute(
-            r#"
-            INSERT INTO plan_memory_libraries (plan_id, library_id, created_at)
-            VALUES (?1, ?2, ?3)
-            "#,
-            rusqlite::params![plan_id, library_id, now],
-        )
-        .map_err(|e| e.to_string())?;
+        plan_mapper::insert_plan_memory_library(tx, plan_id, &library_id, now)
+            .await
+            .map_err(|e| e.to_string())?;
     }
 
     Ok(())
@@ -214,103 +225,72 @@ fn transform_plan(rust_plan: RustPlan) -> Plan {
     }
 }
 
-fn collect_plan_task_ids(
-    conn: &rusqlite::Connection,
-    plan_id: &str,
-) -> Result<Vec<String>, String> {
-    let mut stmt = conn
-        .prepare("SELECT id FROM tasks WHERE plan_id = ?1")
-        .map_err(|e| e.to_string())?;
-    let rows = stmt
-        .query_map([plan_id], |row| row.get::<_, String>(0))
-        .map_err(|e| e.to_string())?;
-
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())
-}
-
-fn map_plan_row(
-    conn: &rusqlite::Connection,
-    row: &rusqlite::Row<'_>,
-) -> rusqlite::Result<RustPlan> {
-    let plan_id: String = row.get(0)?;
-    let memory_library_ids = list_plan_memory_library_ids(conn, &plan_id).map_err(|error| {
-        rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            error,
-        )))
-    })?;
+/// 把 rbatis 行映射 `PlanRow` 转成内部 `RustPlan`（含 memory_library_ids 二次查询、类型还原）。
+async fn row_to_rust_plan(row: PlanRow) -> Result<RustPlan, String> {
+    let plan_id = row.id.clone().unwrap_or_default();
+    let memory_library_ids = list_plan_memory_library_ids(&plan_id).await?;
 
     Ok(RustPlan {
         id: plan_id,
-        project_id: row.get(1)?,
-        name: row.get(2)?,
-        description: row.get(3)?,
+        project_id: row.project_id.unwrap_or_default(),
+        name: row.name.unwrap_or_default(),
+        description: row.description,
         memory_library_ids,
-        execution_overview: row.get(4)?,
-        execution_overview_updated_at: row.get(5)?,
-        split_mode: row.get(6)?,
-        status: row.get(7)?,
-        agent_team: row.get(8)?,
-        split_expert_id: row.get(9)?,
-        split_agent_id: row.get(10)?,
-        split_model_id: row.get(11)?,
-        granularity: row.get(12)?,
-        max_retry_count: row.get(13)?,
-        execution_status: row.get(14)?,
-        current_task_id: row.get(15)?,
-        scheduled_at: row.get(16)?,
-        schedule_status: row.get(17)?,
-        created_at: row.get(18)?,
-        updated_at: row.get(19)?,
+        execution_overview: value_to_json_string_opt(row.execution_overview),
+        execution_overview_updated_at: row.execution_overview_updated_at,
+        split_mode: row.split_mode.unwrap_or_else(|| "ai".to_string()),
+        status: row.status.unwrap_or_else(|| "draft".to_string()),
+        agent_team: value_to_json_string_opt(row.agent_team),
+        split_expert_id: row.split_expert_id,
+        split_agent_id: row.split_agent_id,
+        split_model_id: row.split_model_id,
+        granularity: row.granularity.map(|v| v as i32).unwrap_or(20),
+        max_retry_count: row.max_retry_count.map(|v| v as i32).unwrap_or(3),
+        execution_status: row.execution_status,
+        current_task_id: row.current_task_id,
+        scheduled_at: row.scheduled_at,
+        schedule_status: row.schedule_status,
+        created_at: row.created_at.unwrap_or_default(),
+        updated_at: row.updated_at.unwrap_or_default(),
     })
 }
 
-const PLAN_SELECT_SQL: &str = r#"
-    SELECT id, project_id, name, description, execution_overview, execution_overview_updated_at,
-           split_mode, status, agent_team,
-           split_expert_id, split_agent_id, split_model_id,
-           granularity, max_retry_count, execution_status, current_task_id,
-           scheduled_at, schedule_status,
-           created_at, updated_at
-    FROM plans
-"#;
+async fn collect_plan_task_ids(plan_id: &str) -> Result<Vec<String>, String> {
+    let rows = plan_mapper::list_plan_task_ids(db::rb(), plan_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(rows.into_iter().filter_map(|row| row.id).collect())
+}
 
 /// 获取指定项目的所有计划
 #[tauri::command]
-pub fn list_plans(project_id: String) -> Result<Vec<Plan>, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    let sql = format!("{PLAN_SELECT_SQL} WHERE project_id = ?1 ORDER BY updated_at DESC");
-    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+pub async fn list_plans(project_id: String) -> Result<Vec<Plan>, String> {
+    let rows = plan_mapper::list_plans(db::rb(), &project_id)
+        .await
+        .map_err(|e| e.to_string())?;
 
-    let plans = stmt
-        .query_map([&project_id], |row| map_plan_row(&conn, row))
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .map(transform_plan)
-        .collect();
-
+    let mut plans = Vec::with_capacity(rows.len());
+    for row in rows {
+        plans.push(transform_plan(row_to_rust_plan(row).await?));
+    }
     Ok(plans)
 }
 
 /// 获取单个计划
 #[tauri::command]
-pub fn get_plan(id: String) -> Result<Plan, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    let sql = format!("{PLAN_SELECT_SQL} WHERE id = ?1");
-
-    conn.query_row(&sql, [&id], |row| map_plan_row(&conn, row))
-        .map(transform_plan)
-        .map_err(|e| e.to_string())
+pub async fn get_plan(id: String) -> Result<Plan, String> {
+    let row = plan_mapper::get_plan_by_id(db::rb(), &id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("计划不存在: {}", id))?;
+    Ok(transform_plan(row_to_rust_plan(row).await?))
 }
 
 /// 创建新计划
 #[tauri::command]
-pub fn create_plan(input: CreatePlanInput) -> Result<Plan, String> {
-    let mut conn = open_db_connection().map_err(|e| e.to_string())?;
-
+pub async fn create_plan(input: CreatePlanInput) -> Result<Plan, String> {
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_rfc3339();
     let status = "draft".to_string();
@@ -329,46 +309,42 @@ pub fn create_plan(input: CreatePlanInput) -> Result<Plan, String> {
         Some("none".to_string())
     };
 
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let rb = db::rb();
+    let tx = rb.acquire_begin().await.map_err(|e| e.to_string())?;
 
-    tx.execute(
-        "INSERT INTO plans (id, project_id, name, description, split_mode, split_expert_id, split_agent_id, split_model_id, status, agent_team,
-         granularity, max_retry_count, execution_status, current_task_id, execution_overview, execution_overview_updated_at, scheduled_at, schedule_status, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
-        rusqlite::params![
-            &id,
-            &input.project_id,
-            &input.name,
-            &input.description,
-            &split_mode,
-            &input.split_expert_id,
-            &input.split_agent_id,
-            &input.split_model_id,
-            &status,
-            &agent_team_json,
-            &granularity,
-            &max_retry_count,
-            &execution_status,
-            &None::<String>,
-            &None::<String>,
-            &None::<String>,
-            &input.scheduled_at,
-            &schedule_status,
-            &now,
-            &now
-        ],
+    plan_mapper::insert_plan(
+        &tx,
+        &id,
+        &input.project_id,
+        &input.name,
+        input.description.as_deref(),
+        &split_mode,
+        input.split_expert_id.as_deref(),
+        input.split_agent_id.as_deref(),
+        input.split_model_id.as_deref(),
+        &status,
+        agent_team_json.as_deref(),
+        granularity as i64,
+        max_retry_count as i64,
+        &execution_status,
+        None,
+        None,
+        None,
+        input.scheduled_at.as_deref(),
+        schedule_status.as_deref(),
+        &now,
+        &now,
     )
+    .await
     .map_err(|e| e.to_string())?;
 
-    replace_plan_memory_libraries(&tx, &id, &memory_library_ids, &now)?;
+    replace_plan_memory_libraries(&tx, &id, &memory_library_ids, &now).await?;
 
-    tx.execute(
-        "UPDATE projects SET updated_at = ?1 WHERE id = ?2",
-        rusqlite::params![&now, &input.project_id],
-    )
-    .map_err(|e| e.to_string())?;
+    plan_mapper::touch_project_updated_at(&tx, &input.project_id, &now)
+        .await
+        .map_err(|e| e.to_string())?;
 
-    tx.commit().map_err(|e| e.to_string())?;
+    tx.commit().await.map_err(|e| e.to_string())?;
 
     Ok(Plan {
         id,
@@ -397,296 +373,156 @@ pub fn create_plan(input: CreatePlanInput) -> Result<Plan, String> {
 
 /// 更新计划
 #[tauri::command]
-pub fn update_plan(id: String, input: UpdatePlanInput) -> Result<Plan, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
+pub async fn update_plan(id: String, input: UpdatePlanInput) -> Result<Plan, String> {
     let now = now_rfc3339();
 
-    let mut updates: Vec<String> = vec!["updated_at = ?1".to_string()];
-    let mut param_index = 2;
+    // 解析三态字段 → (present, value)
+    let (name_present, name) = split_str_field(&input.name);
+    let (description_present, description) = split_str_field(&input.description);
+    let (execution_overview_present, execution_overview) =
+        split_str_field(&input.execution_overview);
+    let (execution_overview_updated_at_present, execution_overview_updated_at) =
+        split_str_field(&input.execution_overview_updated_at);
+    let (split_mode_present, split_mode) = split_str_field(&input.split_mode);
+    let (split_expert_id_present, split_expert_id) = split_str_field(&input.split_expert_id);
+    let (split_agent_id_present, split_agent_id) = split_str_field(&input.split_agent_id);
+    let (split_model_id_present, split_model_id) = split_str_field(&input.split_model_id);
+    let (status_present, status) = split_str_field(&input.status);
+    let (agent_team_present, agent_team) = match &input.agent_team {
+        UpdateField::Value(value) => (
+            true,
+            Some(serde_json::to_string(value).unwrap_or_else(|_| "[]".to_string())),
+        ),
+        UpdateField::Null => (true, None),
+        UpdateField::Missing => (false, None),
+    };
+    let (granularity_present, granularity) = split_int_field(&input.granularity);
+    let (max_retry_count_present, max_retry_count) = split_int_field(&input.max_retry_count);
+    let (execution_status_present, execution_status) = split_str_field(&input.execution_status);
+    let (current_task_id_present, current_task_id) = split_str_field(&input.current_task_id);
+    let (scheduled_at_present, scheduled_at) = split_str_field(&input.scheduled_at);
+    let (schedule_status_present, schedule_status) = split_str_field(&input.schedule_status);
 
-    let push_update =
-        |updates: &mut Vec<String>, param_index: &mut usize, column: &str, present: bool| {
-            if present {
-                updates.push(format!("{column} = ?{}", *param_index));
-                *param_index += 1;
-            }
-        };
+    let update = PlanUpdate {
+        id: id.clone(),
+        updated_at: now,
+        name,
+        name_present,
+        description,
+        description_present,
+        execution_overview,
+        execution_overview_present,
+        execution_overview_updated_at,
+        execution_overview_updated_at_present,
+        split_mode,
+        split_mode_present,
+        split_expert_id,
+        split_expert_id_present,
+        split_agent_id,
+        split_agent_id_present,
+        split_model_id,
+        split_model_id_present,
+        status,
+        status_present,
+        agent_team,
+        agent_team_present,
+        granularity,
+        granularity_present,
+        max_retry_count,
+        max_retry_count_present,
+        execution_status,
+        execution_status_present,
+        current_task_id,
+        current_task_id_present,
+        scheduled_at,
+        scheduled_at_present,
+        schedule_status,
+        schedule_status_present,
+    };
 
-    push_update(
-        &mut updates,
-        &mut param_index,
-        "name",
-        !matches!(input.name, UpdateField::Missing),
-    );
-    push_update(
-        &mut updates,
-        &mut param_index,
-        "description",
-        !matches!(input.description, UpdateField::Missing),
-    );
-    push_update(
-        &mut updates,
-        &mut param_index,
-        "execution_overview",
-        !matches!(input.execution_overview, UpdateField::Missing),
-    );
-    push_update(
-        &mut updates,
-        &mut param_index,
-        "execution_overview_updated_at",
-        !matches!(input.execution_overview_updated_at, UpdateField::Missing),
-    );
-    push_update(
-        &mut updates,
-        &mut param_index,
-        "split_mode",
-        !matches!(input.split_mode, UpdateField::Missing),
-    );
-    push_update(
-        &mut updates,
-        &mut param_index,
-        "split_expert_id",
-        !matches!(input.split_expert_id, UpdateField::Missing),
-    );
-    push_update(
-        &mut updates,
-        &mut param_index,
-        "split_agent_id",
-        !matches!(input.split_agent_id, UpdateField::Missing),
-    );
-    push_update(
-        &mut updates,
-        &mut param_index,
-        "split_model_id",
-        !matches!(input.split_model_id, UpdateField::Missing),
-    );
-    push_update(
-        &mut updates,
-        &mut param_index,
-        "status",
-        !matches!(input.status, UpdateField::Missing),
-    );
-    push_update(
-        &mut updates,
-        &mut param_index,
-        "agent_team",
-        !matches!(input.agent_team, UpdateField::Missing),
-    );
-    push_update(
-        &mut updates,
-        &mut param_index,
-        "granularity",
-        !matches!(input.granularity, UpdateField::Missing),
-    );
-    push_update(
-        &mut updates,
-        &mut param_index,
-        "max_retry_count",
-        !matches!(input.max_retry_count, UpdateField::Missing),
-    );
-    push_update(
-        &mut updates,
-        &mut param_index,
-        "execution_status",
-        !matches!(input.execution_status, UpdateField::Missing),
-    );
-    push_update(
-        &mut updates,
-        &mut param_index,
-        "current_task_id",
-        !matches!(input.current_task_id, UpdateField::Missing),
-    );
-    push_update(
-        &mut updates,
-        &mut param_index,
-        "scheduled_at",
-        !matches!(input.scheduled_at, UpdateField::Missing),
-    );
-    push_update(
-        &mut updates,
-        &mut param_index,
-        "schedule_status",
-        !matches!(input.schedule_status, UpdateField::Missing),
-    );
-
-    let sql = format!(
-        "UPDATE plans SET {} WHERE id = ?{}",
-        updates.join(", "),
-        param_index
-    );
-
-    let mut stmt = conn.prepare_cached(&sql).map_err(|e| e.to_string())?;
-    let mut bind_index = 1;
-    stmt.raw_bind_parameter(bind_index, &now)
+    plan_mapper::update_plan(db::rb(), &update)
+        .await
         .map_err(|e| e.to_string())?;
-    bind_index += 1;
-
-    macro_rules! bind_field {
-        ($field:expr) => {
-            if !matches!($field, UpdateField::Missing) {
-                match $field {
-                    UpdateField::Value(ref value) => stmt
-                        .raw_bind_parameter(bind_index, value)
-                        .map_err(|e| e.to_string())?,
-                    UpdateField::Null => stmt
-                        .raw_bind_parameter(bind_index, rusqlite::types::Null)
-                        .map_err(|e| e.to_string())?,
-                    UpdateField::Missing => {}
-                }
-                bind_index += 1;
-            }
-        };
-    }
-
-    bind_field!(input.name);
-    bind_field!(input.description);
-    bind_field!(input.execution_overview);
-    bind_field!(input.execution_overview_updated_at);
-    bind_field!(input.split_mode);
-    bind_field!(input.split_expert_id);
-    bind_field!(input.split_agent_id);
-    bind_field!(input.split_model_id);
-    bind_field!(input.status);
-
-    if !matches!(input.agent_team, UpdateField::Missing) {
-        match input.agent_team {
-            UpdateField::Value(ref value) => {
-                let json = serde_json::to_string(value).unwrap_or_else(|_| "[]".to_string());
-                stmt.raw_bind_parameter(bind_index, json)
-                    .map_err(|e| e.to_string())?;
-            }
-            UpdateField::Null => stmt
-                .raw_bind_parameter(bind_index, rusqlite::types::Null)
-                .map_err(|e| e.to_string())?,
-            UpdateField::Missing => {}
-        }
-        bind_index += 1;
-    }
-
-    if let UpdateField::Value(value) = input.granularity {
-        stmt.raw_bind_parameter(bind_index, value)
-            .map_err(|e| e.to_string())?;
-        bind_index += 1;
-    } else if matches!(input.granularity, UpdateField::Null) {
-        stmt.raw_bind_parameter(bind_index, rusqlite::types::Null)
-            .map_err(|e| e.to_string())?;
-        bind_index += 1;
-    }
-
-    if let UpdateField::Value(value) = input.max_retry_count {
-        stmt.raw_bind_parameter(bind_index, value)
-            .map_err(|e| e.to_string())?;
-        bind_index += 1;
-    } else if matches!(input.max_retry_count, UpdateField::Null) {
-        stmt.raw_bind_parameter(bind_index, rusqlite::types::Null)
-            .map_err(|e| e.to_string())?;
-        bind_index += 1;
-    }
-
-    bind_field!(input.execution_status);
-    bind_field!(input.current_task_id);
-    bind_field!(input.scheduled_at);
-    bind_field!(input.schedule_status);
-
-    stmt.raw_bind_parameter(bind_index, &id)
-        .map_err(|e| e.to_string())?;
-    stmt.raw_execute().map_err(|e| e.to_string())?;
 
     if !matches!(input.memory_library_ids, UpdateField::Missing) {
-        let library_ids = match input.memory_library_ids {
-            UpdateField::Value(ref value) => value.clone(),
+        let library_ids = match &input.memory_library_ids {
+            UpdateField::Value(value) => value.clone(),
             UpdateField::Null => Vec::new(),
             UpdateField::Missing => Vec::new(),
         };
-        replace_plan_memory_libraries(&conn, &id, &library_ids, &now)?;
+        // 记忆库替换无需事务保护（先删后插，幂等），用全局 RBatis 即可。
+        let rb = db::rb();
+        plan_mapper::delete_plan_memory_libraries(rb, &id)
+            .await
+            .map_err(|e| e.to_string())?;
+        let now2 = now_rfc3339();
+        for library_id in normalize_memory_library_ids(&library_ids) {
+            plan_mapper::insert_plan_memory_library(rb, &id, &library_id, &now2)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
     }
 
-    get_plan(id)
+    get_plan(id).await
 }
 
 /// 删除计划
 #[tauri::command]
-pub fn delete_plan(id: String) -> Result<(), String> {
-    let mut conn = open_db_connection().map_err(|e| e.to_string())?;
-    let task_ids = collect_plan_task_ids(&conn, &id)?;
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
+pub async fn delete_plan(id: String) -> Result<(), String> {
+    let task_ids = collect_plan_task_ids(&id).await?;
 
-    tx.execute("DELETE FROM plan_split_logs WHERE plan_id = ?1", [&id])
+    let rb = db::rb();
+    let tx = rb.acquire_begin().await.map_err(|e| e.to_string())?;
+
+    plan_mapper::delete_plan_split_logs(&tx, &id)
+        .await
         .map_err(|e| e.to_string())?;
-    tx.execute("DELETE FROM task_split_sessions WHERE plan_id = ?1", [&id])
+    plan_mapper::delete_task_split_sessions(&tx, &id)
+        .await
         .map_err(|e| e.to_string())?;
-    tx.execute(
-        "DELETE FROM task_execution_results WHERE plan_id = ?1",
-        [&id],
-    )
-    .map_err(|e| e.to_string())?;
+    plan_mapper::delete_task_execution_results(&tx, &id)
+        .await
+        .map_err(|e| e.to_string())?;
 
     if !task_ids.is_empty() {
-        let placeholders = (0..task_ids.len())
-            .map(|_| "?")
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        let delete_execution_logs_sql = format!(
-            "DELETE FROM task_execution_logs WHERE task_id IN ({})",
-            placeholders
-        );
-        tx.execute(
-            &delete_execution_logs_sql,
-            rusqlite::params_from_iter(task_ids.iter()),
-        )
-        .map_err(|e| e.to_string())?;
-
-        let delete_usage_logs_sql = format!(
-            "DELETE FROM agent_cli_usage_records WHERE task_id IN ({})",
-            placeholders
-        );
-        tx.execute(
-            &delete_usage_logs_sql,
-            rusqlite::params_from_iter(task_ids.iter()),
-        )
-        .map_err(|e| e.to_string())?;
+        plan_mapper::delete_task_execution_logs_by_ids(&tx, &task_ids)
+            .await
+            .map_err(|e| e.to_string())?;
+        plan_mapper::delete_agent_cli_usage_records_by_ids(&tx, &task_ids)
+            .await
+            .map_err(|e| e.to_string())?;
     }
 
-    tx.execute("DELETE FROM plans WHERE id = ?1", [&id])
+    plan_mapper::delete_plan_by_id(&tx, &id)
+        .await
         .map_err(|e| e.to_string())?;
-    tx.commit().map_err(|e| e.to_string())?;
+
+    tx.commit().await.map_err(|e| e.to_string())?;
 
     Ok(())
 }
 
 /// 获取所有待执行的定时计划
 #[tauri::command]
-pub fn list_scheduled_plans() -> Result<Vec<Plan>, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    let sql = format!(
-        "{PLAN_SELECT_SQL} WHERE schedule_status = 'scheduled' AND scheduled_at IS NOT NULL ORDER BY scheduled_at ASC"
-    );
-    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+pub async fn list_scheduled_plans() -> Result<Vec<Plan>, String> {
+    let rows = plan_mapper::list_scheduled_plans(db::rb())
+        .await
+        .map_err(|e| e.to_string())?;
 
-    let plans = stmt
-        .query_map([], |row| map_plan_row(&conn, row))
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .map(transform_plan)
-        .collect();
-
+    let mut plans = Vec::with_capacity(rows.len());
+    for row in rows {
+        plans.push(transform_plan(row_to_rust_plan(row).await?));
+    }
     Ok(plans)
 }
 
 /// 取消计划定时
 #[tauri::command]
-pub fn cancel_plan_schedule(id: String) -> Result<Plan, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
+pub async fn cancel_plan_schedule(id: String) -> Result<Plan, String> {
     let now = now_rfc3339();
+    plan_mapper::cancel_plan_schedule(db::rb(), &id, &now)
+        .await
+        .map_err(|e| e.to_string())?;
 
-    conn.execute(
-        "UPDATE plans SET schedule_status = 'cancelled', scheduled_at = NULL, updated_at = ?1 WHERE id = ?2",
-        rusqlite::params![&now, &id],
-    )
-    .map_err(|e| e.to_string())?;
-
-    get_plan(id)
+    get_plan(id).await
 }

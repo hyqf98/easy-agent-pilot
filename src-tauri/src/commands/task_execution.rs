@@ -1,7 +1,14 @@
-use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use super::support::{now_rfc3339, open_db_connection};
+use super::support::now_rfc3339;
+use crate::db;
+use crate::mappers::task as task_mapper;
+use crate::mappers::task_execution as exec_mapper;
+use crate::models::{
+    value_to_json_string_opt, PlanExecutionOverviewRow, PlanExecutionTaskRow,
+    TaskExecutionLogRow, TaskExecutionResultRow, TaskOverviewRow,
+};
+use rbatis::executor::Executor;
 
 /// 执行日志数据结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,6 +80,14 @@ pub struct PlanExecutionProgress {
     pub success_count: i32,
     pub failed_count: i32,
     pub tasks: Vec<PlanExecutionTaskProgress>,
+}
+
+/// 执行日志统计
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionLogStats {
+    pub task_id: String,
+    pub log_count: i32,
+    pub last_log_at: Option<String>,
 }
 
 fn parse_json_string_array(value: Option<String>) -> Vec<String> {
@@ -279,39 +294,13 @@ fn summarize_task_file_changes(
     segments.join("；")
 }
 
-fn build_plan_execution_overview(
-    conn: &rusqlite::Connection,
+/// 构建计划执行概览文本（基于 tasks 表 last_result_* 列实时聚合）。
+async fn build_plan_execution_overview(
+    rb: &dyn Executor,
     plan_id: &str,
 ) -> Result<String, String> {
-    let mut stmt = conn
-        .prepare(
-            r#"
-            SELECT title, last_result_status, last_result_summary, last_result_files, last_fail_reason
-            FROM tasks
-            WHERE plan_id = ?1
-              AND last_result_status IS NOT NULL
-            ORDER BY COALESCE(last_result_at, updated_at) ASC, task_order ASC
-            "#,
-        )
-        .map_err(|e| e.to_string())?;
-
-    let records = stmt
-        .query_map([plan_id], |row| {
-            let title: String = row.get(0)?;
-            let status: Option<String> = row.get(1)?;
-            let summary: Option<String> = row.get(2)?;
-            let files_raw: Option<String> = row.get(3)?;
-            let fail_reason: Option<String> = row.get(4)?;
-            Ok((
-                title,
-                status,
-                summary,
-                parse_json_string_array(files_raw),
-                fail_reason,
-            ))
-        })
-        .map_err(|e| e.to_string())?
-        .collect::<std::result::Result<Vec<_>, _>>()
+    let records: Vec<TaskOverviewRow> = exec_mapper::list_plan_result_overview(rb, plan_id)
+        .await
         .map_err(|e| e.to_string())?;
 
     if records.is_empty() {
@@ -321,14 +310,19 @@ fn build_plan_execution_overview(
     let mut success_items: Vec<String> = Vec::new();
     let mut failed_items: Vec<String> = Vec::new();
 
-    for (title, status, summary, files, fail_reason) in records.iter() {
-        let summary_text = summary.as_deref().unwrap_or_default();
+    for row in records.iter() {
+        let title = row.title.clone().unwrap_or_default();
+        let status = row.last_result_status.clone();
+        let summary_text = row.last_result_summary.as_deref().unwrap_or_default();
+        let files = parse_json_string_array(value_to_json_string_opt(row.last_result_files.clone()));
+        let fail_reason = row.last_fail_reason.clone();
+
         let mut added_files: Vec<OverviewFileEntry> = Vec::new();
         let mut modified_files: Vec<OverviewFileEntry> = Vec::new();
         let mut changed_files: Vec<OverviewFileEntry> = Vec::new();
         let mut deleted_files: Vec<OverviewFileEntry> = Vec::new();
 
-        for raw_file in files {
+        for raw_file in &files {
             if let Some(path) = raw_file.strip_prefix("added:") {
                 push_unique_file_entry(&mut added_files, path.trim());
                 continue;
@@ -359,7 +353,7 @@ fn build_plan_execution_overview(
                 if !file_changes.is_empty() {
                     success_items.push(format!("{}（{}）", title, file_changes));
                 } else {
-                    success_items.push(format_task_overview_item(title, summary_text));
+                    success_items.push(format_task_overview_item(&title, summary_text));
                 }
             }
             Some("failed") => {
@@ -405,22 +399,26 @@ fn build_plan_execution_overview(
 
 /// 创建任务执行日志
 #[tauri::command]
-pub fn create_task_execution_log(
+pub async fn create_task_execution_log(
     task_id: String,
     log_type: String,
     content: String,
     metadata: Option<String>,
 ) -> Result<ExecutionLog, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
+    let rb = db::rb();
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_rfc3339();
 
-    conn.execute(
-        "INSERT INTO task_execution_logs (id, task_id, log_type, content, metadata, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        rusqlite::params![&id, &task_id, &log_type, &content, &metadata, &now],
+    exec_mapper::insert_task_execution_log(
+        rb,
+        &id,
+        &task_id,
+        &log_type,
+        &content,
+        metadata.as_deref(),
+        &now,
     )
+    .await
     .map_err(|e| e.to_string())?;
 
     Ok(ExecutionLog {
@@ -435,89 +433,75 @@ pub fn create_task_execution_log(
 
 /// 更新任务执行日志内容。
 #[tauri::command]
-pub fn update_task_execution_log(
+pub async fn update_task_execution_log(
     id: String,
     content: String,
     metadata: Option<String>,
 ) -> Result<(), String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
-    conn.execute(
-        "UPDATE task_execution_logs SET content = ?1, metadata = ?2 WHERE id = ?3",
-        rusqlite::params![&content, &metadata, &id],
-    )
-    .map_err(|e| e.to_string())?;
+    let rb = db::rb();
+    exec_mapper::update_task_execution_log(rb, &id, &content, metadata.as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(())
 }
 
 /// 获取任务的执行日志列表
 #[tauri::command]
-pub fn list_task_execution_logs(task_id: String) -> Result<Vec<ExecutionLog>, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, task_id, log_type, content, metadata, created_at
-             FROM task_execution_logs
-             WHERE task_id = ?1
-             ORDER BY created_at ASC",
-        )
+pub async fn list_task_execution_logs(task_id: String) -> Result<Vec<ExecutionLog>, String> {
+    let rb = db::rb();
+    let rows = exec_mapper::list_task_execution_logs(rb, &task_id)
+        .await
         .map_err(|e| e.to_string())?;
 
-    let logs = stmt
-        .query_map([&task_id], |row| {
-            Ok(ExecutionLog {
-                id: row.get(0)?,
-                task_id: row.get(1)?,
-                log_type: row.get(2)?,
-                content: row.get(3)?,
-                metadata: row.get(4)?,
-                created_at: row.get(5)?,
-            })
+    let logs = rows
+        .into_iter()
+        .map(|row: TaskExecutionLogRow| ExecutionLog {
+            id: row.id.unwrap_or_default(),
+            task_id: row.task_id.unwrap_or_default(),
+            log_type: row.log_type.unwrap_or_default(),
+            content: row.content.unwrap_or_default(),
+            metadata: value_to_json_string_opt(row.metadata),
+            created_at: row.created_at.unwrap_or_default(),
         })
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
+        .collect();
 
     Ok(logs)
 }
 
 /// 清除任务的执行日志
 #[tauri::command]
-pub fn clear_task_execution_logs(task_id: String) -> Result<(), String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
-    conn.execute(
-        "DELETE FROM task_execution_logs WHERE task_id = ?1",
-        [&task_id],
-    )
-    .map_err(|e| e.to_string())?;
+pub async fn clear_task_execution_logs(task_id: String) -> Result<(), String> {
+    let rb = db::rb();
+    exec_mapper::clear_task_execution_logs(rb, &task_id)
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(())
 }
 
 /// 保存任务执行结果（完成/失败）
 #[tauri::command]
-pub fn save_task_execution_result(
+pub async fn save_task_execution_result(
     input: SaveTaskExecutionResultInput,
 ) -> Result<TaskExecutionResultRecord, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
+    let rb = db::rb();
     let now = now_rfc3339();
     let id = uuid::Uuid::new_v4().to_string();
 
-    let (plan_id, task_title_snapshot, task_description_snapshot): (
-        String,
-        String,
-        Option<String>,
-    ) = conn
-        .query_row(
-            "SELECT plan_id, title, description FROM tasks WHERE id = ?1",
-            [&input.task_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .map_err(|e| e.to_string())?;
+    // 读取任务快照（plan_id / title / description）—— 复用 task mapper
+    let task_row = task_mapper::get_task_by_id(rb, &input.task_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("Task not found: {}", input.task_id))?;
+    let plan_id = task_row
+        .plan_id
+        .clone()
+        .ok_or_else(|| format!("Task {} has no plan_id", input.task_id))?;
+    let task_title_snapshot = task_row.title.clone().unwrap_or_default();
+    let task_description_snapshot = task_row.description.clone();
 
     let result_files = input.result_files.unwrap_or_default();
     let result_files_json = if result_files.is_empty() {
@@ -526,71 +510,53 @@ pub fn save_task_execution_result(
         Some(serde_json::to_string(&result_files).map_err(|e| e.to_string())?)
     };
 
-    conn.execute(
-        "INSERT INTO task_execution_results
-         (id, task_id, plan_id, task_title_snapshot, task_description_snapshot,
-          result_status, result_summary, result_files, fail_reason, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        rusqlite::params![
-            &id,
-            &input.task_id,
-            &plan_id,
-            &task_title_snapshot,
-            &task_description_snapshot,
-            &input.result_status,
-            &input.result_summary,
-            &result_files_json,
-            &input.fail_reason,
-            &now,
-        ],
+    // 多步写入放入事务，保证原子性（原实现为单连接多 execute，这里显式事务更安全）
+    let mut tx = rb.acquire_begin().await.map_err(|e| e.to_string())?;
+
+    exec_mapper::insert_task_execution_result(
+        &tx,
+        &id,
+        &input.task_id,
+        &plan_id,
+        &task_title_snapshot,
+        task_description_snapshot.as_deref(),
+        &input.result_status,
+        input.result_summary.as_deref(),
+        result_files_json.as_deref(),
+        input.fail_reason.as_deref(),
+        &now,
     )
+    .await
     .map_err(|e| e.to_string())?;
 
-    conn.execute(
-        "UPDATE tasks
-         SET last_result_status = ?1,
-             last_result_summary = ?2,
-             last_result_files = ?3,
-             last_fail_reason = ?4,
-             last_result_at = ?5,
-             updated_at = ?6
-         WHERE id = ?7",
-        rusqlite::params![
-            &input.result_status,
-            &input.result_summary,
-            &result_files_json,
-            &input.fail_reason,
-            &now,
-            &now,
-            &input.task_id
-        ],
+    exec_mapper::apply_result_to_task(
+        &tx,
+        &input.task_id,
+        &input.result_status,
+        input.result_summary.as_deref(),
+        result_files_json.as_deref(),
+        input.fail_reason.as_deref(),
+        &now,
+        &now,
     )
+    .await
     .map_err(|e| e.to_string())?;
 
-    conn.execute(
-        "UPDATE plans SET updated_at = ?1 WHERE id = ?2",
-        rusqlite::params![&now, &plan_id],
-    )
-    .map_err(|e| e.to_string())?;
+    task_mapper::touch_plan_updated_at(&tx, &plan_id, &now)
+        .await
+        .map_err(|e| e.to_string())?;
 
-    let execution_overview = build_plan_execution_overview(&conn, &plan_id)?;
-    conn.execute(
-        "UPDATE plans
-         SET execution_overview = ?1,
-             execution_overview_updated_at = ?2,
-             updated_at = ?2
-         WHERE id = ?3",
-        rusqlite::params![
-            if execution_overview.trim().is_empty() {
-                None::<String>
-            } else {
-                Some(execution_overview.clone())
-            },
-            &now,
-            &plan_id
-        ],
-    )
-    .map_err(|e| e.to_string())?;
+    let execution_overview = build_plan_execution_overview(&tx, &plan_id).await?;
+    let overview_value = if execution_overview.trim().is_empty() {
+        None
+    } else {
+        Some(execution_overview.as_str())
+    };
+    exec_mapper::update_plan_execution_overview(&tx, &plan_id, overview_value, &now)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    tx.commit().await.map_err(|e| e.to_string())?;
 
     Ok(TaskExecutionResultRecord {
         id,
@@ -608,89 +574,65 @@ pub fn save_task_execution_result(
 
 /// 获取计划下最近 N 条任务执行结果（用于下一个任务上下文）
 #[tauri::command]
-pub fn list_recent_plan_results(
+pub async fn list_recent_plan_results(
     plan_id: String,
     limit: Option<i32>,
 ) -> Result<Vec<TaskExecutionResultRecord>, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
+    let rb = db::rb();
+    let safe_limit = limit.unwrap_or(50).clamp(1, 500) as i64;
 
-    let safe_limit = limit.unwrap_or(50).clamp(1, 500);
-
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, task_id, plan_id, task_title_snapshot, task_description_snapshot,
-                    result_status, result_summary, result_files, fail_reason, created_at
-             FROM task_execution_results
-             WHERE plan_id = ?1
-             ORDER BY created_at DESC
-             LIMIT ?2",
-        )
+    let rows = exec_mapper::list_recent_plan_results(rb, &plan_id, safe_limit)
+        .await
         .map_err(|e| e.to_string())?;
 
-    let rows = stmt
-        .query_map(rusqlite::params![&plan_id, safe_limit], |row| {
-            let files_raw: Option<String> = row.get(7)?;
-            Ok(TaskExecutionResultRecord {
-                id: row.get(0)?,
-                task_id: row.get(1)?,
-                plan_id: row.get(2)?,
-                task_title_snapshot: row.get(3)?,
-                task_description_snapshot: row.get(4)?,
-                result_status: row.get(5)?,
-                result_summary: row.get(6)?,
-                result_files: parse_json_string_array(files_raw),
-                fail_reason: row.get(8)?,
-                created_at: row.get(9)?,
-            })
+    let records = rows
+        .into_iter()
+        .map(|row: TaskExecutionResultRow| TaskExecutionResultRecord {
+            id: row.id.unwrap_or_default(),
+            task_id: row.task_id.unwrap_or_default(),
+            plan_id: row.plan_id.unwrap_or_default(),
+            task_title_snapshot: row.task_title_snapshot.unwrap_or_default(),
+            task_description_snapshot: row.task_description_snapshot,
+            result_status: row.result_status.unwrap_or_default(),
+            result_summary: row.result_summary,
+            result_files: parse_json_string_array(value_to_json_string_opt(row.result_files)),
+            fail_reason: row.fail_reason,
+            created_at: row.created_at.unwrap_or_default(),
         })
-        .map_err(|e| e.to_string())?
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
+        .collect();
 
-    Ok(rows)
+    Ok(records)
 }
 
 /// 获取计划执行进度详情（右侧面板使用）
 #[tauri::command]
-pub fn list_plan_execution_progress(plan_id: String) -> Result<PlanExecutionProgress, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
+pub async fn list_plan_execution_progress(plan_id: String) -> Result<PlanExecutionProgress, String> {
+    let rb = db::rb();
 
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, title, status, task_order,
-                    expert_id, agent_id, model_id,
-                    last_result_status, last_result_summary, last_result_files,
-                    last_fail_reason, last_result_at, updated_at
-             FROM tasks
-             WHERE plan_id = ?1
-             ORDER BY task_order ASC, created_at ASC",
-        )
+    let task_rows = exec_mapper::list_plan_execution_tasks(rb, &plan_id)
+        .await
         .map_err(|e| e.to_string())?;
 
-    let tasks = stmt
-        .query_map([&plan_id], |row| {
-            let files_raw: Option<String> = row.get(9)?;
-            Ok(PlanExecutionTaskProgress {
-                task_id: row.get(0)?,
-                title: row.get(1)?,
-                status: row.get(2)?,
-                task_order: row.get(3)?,
-                expert_id: row.get(4)?,
-                agent_id: row.get(5)?,
-                model_id: row.get(6)?,
-                last_result_status: row.get(7)?,
-                last_result_summary: row.get(8)?,
-                last_result_files: parse_json_string_array(files_raw),
-                last_fail_reason: row.get(10)?,
-                last_result_at: row.get(11)?,
-                updated_at: row.get(12)?,
-            })
+    let mut tasks: Vec<PlanExecutionTaskProgress> = task_rows
+        .into_iter()
+        .map(|row: PlanExecutionTaskRow| PlanExecutionTaskProgress {
+            task_id: row.id.unwrap_or_default(),
+            title: row.title.unwrap_or_default(),
+            status: row.status.unwrap_or_default(),
+            task_order: row.task_order.unwrap_or(0) as i32,
+            expert_id: row.expert_id,
+            agent_id: row.agent_id,
+            model_id: row.model_id,
+            last_result_status: row.last_result_status,
+            last_result_summary: row.last_result_summary,
+            last_result_files: parse_json_string_array(value_to_json_string_opt(row.last_result_files)),
+            last_fail_reason: row.last_fail_reason,
+            last_result_at: row.last_result_at,
+            updated_at: row.updated_at.unwrap_or_default(),
         })
-        .map_err(|e| e.to_string())?
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
+        .collect();
 
-    let computed_execution_overview = build_plan_execution_overview(&conn, &plan_id)?;
+    let computed_execution_overview = build_plan_execution_overview(rb, &plan_id).await?;
     let computed_execution_overview = if computed_execution_overview.trim().is_empty() {
         None
     } else {
@@ -701,31 +643,28 @@ pub fn list_plan_execution_progress(plan_id: String) -> Result<PlanExecutionProg
         .filter_map(|task| task.last_result_at.clone())
         .max();
 
-    let (stored_execution_overview, stored_execution_overview_updated_at): (
-        Option<String>,
-        Option<String>,
-    ) = conn
-        .query_row(
-            "SELECT execution_overview, execution_overview_updated_at FROM plans WHERE id = ?1",
-            [&plan_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .map_err(|e| e.to_string())?;
+    let stored: PlanExecutionOverviewRow =
+        exec_mapper::get_plan_stored_overview(rb, &plan_id)
+            .await
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .next()
+            .unwrap_or(PlanExecutionOverviewRow {
+                execution_overview: None,
+                execution_overview_updated_at: None,
+            });
 
+    let stored_execution_overview = value_to_json_string_opt(stored.execution_overview);
     if stored_execution_overview != computed_execution_overview
-        || stored_execution_overview_updated_at != computed_execution_overview_updated_at
+        || stored.execution_overview_updated_at != computed_execution_overview_updated_at
     {
-        conn.execute(
-            "UPDATE plans
-             SET execution_overview = ?1,
-                 execution_overview_updated_at = ?2
-             WHERE id = ?3",
-            rusqlite::params![
-                &computed_execution_overview,
-                &computed_execution_overview_updated_at,
-                &plan_id
-            ],
+        exec_mapper::sync_plan_execution_overview(
+            rb,
+            &plan_id,
+            computed_execution_overview.as_deref(),
+            computed_execution_overview_updated_at.as_deref(),
         )
+        .await
         .map_err(|e| e.to_string())?;
     }
 
@@ -741,10 +680,10 @@ pub fn list_plan_execution_progress(plan_id: String) -> Result<PlanExecutionProg
         cancelled_count: 0,
         success_count: 0,
         failed_count: 0,
-        tasks,
+        tasks: Vec::new(),
     };
 
-    for task in &progress.tasks {
+    for task in &tasks {
         match task.status.as_str() {
             "pending" => progress.pending_count += 1,
             "in_progress" => progress.in_progress_count += 1,
@@ -761,107 +700,78 @@ pub fn list_plan_execution_progress(plan_id: String) -> Result<PlanExecutionProg
         }
     }
 
+    progress.tasks = std::mem::take(&mut tasks);
+
     Ok(progress)
 }
 
 /// 获取任务执行日志统计
 #[tauri::command]
-pub fn get_task_execution_log_stats(task_id: String) -> Result<ExecutionLogStats, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
+pub async fn get_task_execution_log_stats(task_id: String) -> Result<ExecutionLogStats, String> {
+    let rb = db::rb();
 
-    let count: i32 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM task_execution_logs WHERE task_id = ?1",
-            [&task_id],
-            |row| row.get(0),
-        )
-        .map_err(|e| e.to_string())?;
+    let count = exec_mapper::count_task_execution_logs(rb, &task_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .and_then(|row| row.value)
+        .unwrap_or(0);
 
-    let last_log_at: Option<String> = conn
-        .query_row(
-            "SELECT created_at FROM task_execution_logs WHERE task_id = ?1 ORDER BY created_at DESC LIMIT 1",
-            [&task_id],
-            |row| row.get(0),
-        )
-        .ok();
+    let last_log_at = exec_mapper::get_last_log_created_at(rb, &task_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .and_then(|row| crate::models::value_to_json_string_opt(row.value));
 
     Ok(ExecutionLogStats {
         task_id,
-        log_count: count,
+        log_count: count as i32,
         last_log_at,
     })
 }
 
-/// 执行日志统计
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExecutionLogStats {
-    pub task_id: String,
-    pub log_count: i32,
-    pub last_log_at: Option<String>,
-}
-
 /// 清除计划的执行结果（同时清除关联任务的日志）
 #[tauri::command]
-pub fn clear_plan_execution_results(plan_id: String) -> Result<i32, String> {
-    let mut conn = open_db_connection().map_err(|e| e.to_string())?;
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
+pub async fn clear_plan_execution_results(plan_id: String) -> Result<i32, String> {
+    let rb = db::rb();
+    let now = now_rfc3339();
+    let mut tx = rb.acquire_begin().await.map_err(|e| e.to_string())?;
 
     // 获取计划下所有任务 ID
-    let task_ids: Vec<String> = tx
-        .query_row(
-            "SELECT GROUP_CONCAT(id) FROM tasks WHERE plan_id = ?1",
-            [&plan_id],
-            |row| {
-                let ids_str: Option<String> = row.get(0)?;
-                Ok(ids_str
-                    .map(|s| s.split(',').map(|s| s.to_string()).collect())
-                    .unwrap_or_default())
-            },
-        )
-        .unwrap_or_default();
+    let id_rows = exec_mapper::list_task_ids_of_plan(&tx, &plan_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let task_ids: Vec<String> = id_rows
+        .into_iter()
+        .filter_map(|row| crate::models::value_to_json_string_opt(row.value))
+        .collect();
 
-    // 清除任务执行日志
+    // 清除任务执行日志（foreach IN）
     let logs_deleted = if task_ids.is_empty() {
-        0
+        0u64
     } else {
-        let placeholders = (0..task_ids.len())
-            .map(|_| "?")
-            .collect::<Vec<_>>()
-            .join(", ");
-        let sql = format!(
-            "DELETE FROM task_execution_logs WHERE task_id IN ({})",
-            placeholders
-        );
-        let params = rusqlite::params_from_iter(task_ids.iter());
-        tx.execute(&sql, params).map_err(|e| e.to_string())?
+        exec_mapper::delete_logs_for_tasks(&tx, &task_ids)
+            .await
+            .map_err(|e| e.to_string())?
+            .rows_affected
     };
 
-    let results_deleted = tx
-        .execute(
-            "DELETE FROM task_execution_results WHERE plan_id = ?1",
-            [&plan_id],
-        )
+    let results_deleted = exec_mapper::delete_results_of_plan(&tx, &plan_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .rows_affected;
+
+    exec_mapper::clear_task_result_fields(&tx, &plan_id)
+        .await
         .map_err(|e| e.to_string())?;
 
-    tx.execute(
-        "UPDATE tasks SET last_result_status = NULL, last_result_summary = NULL,
-         last_result_files = NULL, last_fail_reason = NULL, last_result_at = NULL
-         WHERE plan_id = ?1",
-        [&plan_id],
-    )
-    .map_err(|e| e.to_string())?;
+    exec_mapper::clear_plan_execution_overview(&tx, &plan_id, &now)
+        .await
+        .map_err(|e| e.to_string())?;
 
-    tx.execute(
-        "UPDATE plans
-         SET execution_overview = NULL,
-             execution_overview_updated_at = NULL,
-             updated_at = ?1
-         WHERE id = ?2",
-        rusqlite::params![now_rfc3339(), &plan_id],
-    )
-    .map_err(|e| e.to_string())?;
-
-    tx.commit().map_err(|e| e.to_string())?;
+    tx.commit().await.map_err(|e| e.to_string())?;
 
     Ok(logs_deleted as i32 + results_deleted as i32)
 }

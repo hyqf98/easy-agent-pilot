@@ -1,0 +1,113 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!-- 列出指定项目的全部会话（按 pinned、updated_at 倒序） -->
+  <select id="list_sessions">
+    `select s.id, s.project_id, s.name, s.expert_id, s.agent_id, s.agent_type, `
+    `s.cli_session_id, s.cli_session_provider, s.status, `
+    `coalesce(s.pinned, 0) as pinned, `
+    `s.last_message, s.error_message, 0 as message_count, `
+    `coalesce(s.plan_mode, 0) as plan_mode, `
+    `s.created_at, s.updated_at `
+    `from sessions s `
+    `where s.project_id = #{project_id} `
+    `order by s.pinned desc, s.updated_at desc`
+  </select>
+
+  <!-- 按 id 查询单个会话 -->
+  <select id="get_session_by_id">
+    `select s.id, s.project_id, s.name, s.expert_id, s.agent_id, s.agent_type, `
+    `s.cli_session_id, s.cli_session_provider, s.status, `
+    `coalesce(s.pinned, 0) as pinned, `
+    `s.last_message, s.error_message, 0 as message_count, `
+    `coalesce(s.plan_mode, 0) as plan_mode, `
+    `s.created_at, s.updated_at `
+    `from sessions s `
+    `where s.id = #{id}`
+  </select>
+
+  <!-- 插入新会话 -->
+  <insert id="insert_session">
+    `insert into sessions `
+    `(id, project_id, name, expert_id, agent_id, agent_type, status, created_at, updated_at) `
+    `values `
+    `(#{row.id}, #{row.project_id}, #{row.name}, #{row.expert_id}, #{row.agent_id}, #{row.agent_type}, `
+    ` #{row.status}, #{row.created_at}, #{row.updated_at})`
+  </insert>
+
+  <!-- 创建/更新会话时刷新项目的 updated_at -->
+  <update id="touch_project_updated_at">
+    `update projects set updated_at = #{updated_at} where id = #{project_id}`
+  </update>
+
+  <!-- 动态更新会话：仅更新非空字段（配合 SessionUpdate 参数结构） -->
+  <update id="update_session">
+    `update sessions`
+    `<set>`
+      `updated_at = #{update.updated_at},`
+      <if test="update.name != null">`name = #{update.name},`</if>
+      <if test="update.status != null">`status = #{update.status},`</if>
+      <if test="update.pinned != null">`pinned = #{update.pinned},`</if>
+      <if test="update.last_message != null">`last_message = #{update.last_message},`</if>
+      <if test="update.error_message != null">`error_message = #{update.error_message},`</if>
+      <if test="update.expert_id != null">`expert_id = #{update.expert_id},`</if>
+      <if test="update.agent_id != null">`agent_id = #{update.agent_id},`</if>
+      <if test="update.agent_type != null">`agent_type = #{update.agent_type},`</if>
+      <if test="update.cli_session_id != null">`cli_session_id = #{update.cli_session_id},`</if>
+      <if test="update.cli_session_provider != null">`cli_session_provider = #{update.cli_session_provider},`</if>
+      <if test="update.plan_mode != null">`plan_mode = #{update.plan_mode},`</if>
+    `</set>`
+    `where id = #{update.id}`
+  </update>
+
+  <!-- 切换固定状态：读取当前 pinned 值 -->
+  <select id="get_session_pinned">
+    `select coalesce(pinned, 0) as value from sessions where id = #{id}`
+  </select>
+
+  <!-- 切换固定状态：写入新 pinned 值 -->
+  <update id="set_session_pinned">
+    `update sessions set pinned = #{pinned}, updated_at = #{updated_at} where id = #{id}`
+  </update>
+
+  <!-- 删除会话（事务内） -->
+  <delete id="delete_session_by_id">
+    `delete from sessions where id = #{id}`
+  </delete>
+
+  <!-- 删除会话关联数据（事务内） -->
+  <delete id="delete_window_session_locks">
+    `delete from window_session_locks where session_id = #{session_id}`
+  </delete>
+
+  <update id="nullify_tasks_session">
+    `update tasks set session_id = null, updated_at = #{updated_at} where session_id = #{session_id}`
+  </update>
+
+  <delete id="delete_agent_cli_usage_records">
+    `delete from agent_cli_usage_records where session_id = #{session_id}`
+  </delete>
+
+  <!-- 会话运行时绑定：读取 -->
+  <select id="get_session_runtime_binding">
+    `select session_id, runtime_key, external_session_id, created_at, updated_at `
+    `from session_runtime_bindings `
+    `where session_id = #{session_id} and runtime_key = #{runtime_key}`
+  </select>
+
+  <!-- 会话运行时绑定：upsert（SQLite ON CONFLICT） -->
+  <insert id="upsert_session_runtime_binding">
+    `insert into session_runtime_bindings `
+    `(session_id, runtime_key, external_session_id, created_at, updated_at) `
+    `values `
+    `(#{session_id}, #{runtime_key}, #{external_session_id}, #{created_at}, #{updated_at}) `
+    `on conflict(session_id, runtime_key) do update set `
+    `external_session_id = excluded.external_session_id, `
+    `updated_at = excluded.updated_at`
+  </insert>
+
+  <!-- 会话运行时绑定：删除 -->
+  <delete id="delete_session_runtime_binding">
+    `delete from session_runtime_bindings `
+    `where session_id = #{session_id} and runtime_key = #{runtime_key}`
+  </delete>
+</mapper>

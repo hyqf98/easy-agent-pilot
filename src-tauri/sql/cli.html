@@ -1,0 +1,61 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!-- 列出全部 CLI 路径配置（按 created_at 倒序） -->
+  <select id="list_cli_paths">
+    `select id, name, path, version, created_at, updated_at`
+    ` from cli_paths`
+    ` order by created_at desc`
+  </select>
+
+  <!-- 插入 CLI 路径配置 -->
+  <insert id="insert_cli_path">
+    `insert into cli_paths (id, name, path, version, created_at, updated_at)`
+    ` values (#{id}, #{name}, #{path}, #{version}, #{created_at}, #{updated_at})`
+  </insert>
+
+  <!-- 更新 CLI 路径配置 -->
+  <update id="update_cli_path">
+    `update cli_paths`
+    ` set name = #{name}, path = #{path}, version = #{version}, updated_at = #{updated_at}`
+    ` where id = #{id}`
+  </update>
+
+  <!-- 删除 CLI 路径配置 -->
+  <delete id="delete_cli_path">
+    `delete from cli_paths where id = #{id}`
+  </delete>
+
+  <!-- ==================== 迁移到智能体配置 ==================== -->
+
+  <!-- 读取 app_settings 中的迁移标记值 -->
+  <select id="get_migration_flag">
+    `select value from app_settings where key = #{key}`
+  </select>
+
+  <!-- 统计 cli_paths 行数 -->
+  <select id="count_cli_paths">
+    `select count(*) as value from cli_paths`
+  </select>
+
+  <!-- 查询全部 CLI 路径配置（迁移用，全量） -->
+  <select id="list_all_cli_paths">
+    `select id, name, path, version, created_at, updated_at from cli_paths`
+  </select>
+
+  <!-- 按 cli_path 查询已存在的智能体 id -->
+  <select id="find_agent_id_by_cli_path">
+    `select id as value from agents where cli_path = #{cli_path}`
+  </select>
+
+  <!-- 插入迁移生成的智能体 -->
+  <insert id="insert_agent_for_migration">
+    `insert into agents (id, name, type, provider, cli_path, status, created_at, updated_at)`
+    ` values (#{id}, #{name}, 'cli', #{provider}, #{cli_path}, 'offline', #{created_at}, #{updated_at})`
+  </insert>
+
+  <!-- 写入迁移完成标记 -->
+  <insert id="upsert_migration_flag">
+    `insert or replace into app_settings (key, value, updated_at)`
+    ` values (#{key}, #{value}, #{updated_at})`
+  </insert>
+</mapper>

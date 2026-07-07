@@ -1,0 +1,19 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!-- 记录项目访问：upsert + 访问计数自增 -->
+  <insert id="record_project_access">
+    `insert into project_access_log (project_id, last_accessed_at, access_count) `
+    `values (#{project_id}, strftime('%s', 'now'), 1) `
+    `on conflict(project_id) do update set last_accessed_at = strftime('%s', 'now'), access_count = access_count + 1`
+  </insert>
+
+  <!-- 获取最近访问的项目（按访问时间倒序，取前 N 个） -->
+  <select id="get_recent_projects">
+    `select project_id from project_access_log order by last_accessed_at desc limit #{limit}`
+  </select>
+
+  <!-- 删除项目访问记录 -->
+  <delete id="delete_project_access_log">
+    `delete from project_access_log where project_id = #{project_id}`
+  </delete>
+</mapper>

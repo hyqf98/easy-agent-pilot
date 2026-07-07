@@ -1,0 +1,13 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!--
+    MCP server 模块 SQL：读取仓库 `conversation_history` 数据源 config（作为
+    query_conversation_history 工具的上界裁剪依据）。enabled 存为 INTEGER。
+  -->
+
+  <!-- 按 repo_id 读取 conversation_history 数据源 config（单列） -->
+  <select id="get_repo_source_config">
+    `select CAST(config AS TEXT) as value from memory_repo_sources`
+    ` where repo_id = #{repo_id} and source_type = 'conversation_history' and enabled = 1`
+  </select>
+</mapper>

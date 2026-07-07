@@ -1,0 +1,160 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!-- ============================ MCP 配置 ============================ -->
+  <select id="select_mcp_by_agent">
+    `select id, agent_id, name, transport_type, command,`
+    ` CAST(args AS TEXT) as args, CAST(env AS TEXT) as env, url, CAST(headers AS TEXT) as headers,`
+    ` scope, enabled, created_at, updated_at`
+    ` from agent_mcp_configs where agent_id = #{agent_id} order by updated_at desc`
+  </select>
+
+  <select id="select_mcp_by_id">
+    `select id, agent_id, name, transport_type, command,`
+    ` CAST(args AS TEXT) as args, CAST(env AS TEXT) as env, url, CAST(headers AS TEXT) as headers,`
+    ` scope, enabled, created_at, updated_at`
+    ` from agent_mcp_configs where id = #{id}`
+  </select>
+
+  <insert id="insert_mcp">
+    `insert into agent_mcp_configs (id, agent_id, name, transport_type, command, args, env, url, headers, scope, enabled, created_at, updated_at)`
+    ` values (#{id}, #{agent_id}, #{name}, #{transport_type}, #{command}, #{args}, #{env}, #{url}, #{headers}, #{scope}, #{enabled}, #{created_at}, #{updated_at})`
+  </insert>
+
+  <!-- 动态更新 MCP 配置（<set>+<if> 取代 UpdateSqlBuilder） -->
+  <update id="update_mcp">
+    `update agent_mcp_configs`
+    <set>
+      ` updated_at = #{updated_at},`
+      <if test="name != null">` name = #{name},`</if>
+      <if test="transport_type != null">` transport_type = #{transport_type},`</if>
+      <if test="command != null">` command = #{command},`</if>
+      <if test="args != null">` args = #{args},`</if>
+      <if test="env != null">` env = #{env},`</if>
+      <if test="url != null">` url = #{url},`</if>
+      <if test="headers != null">` headers = #{headers},`</if>
+      <if test="scope != null">` scope = #{scope},`</if>
+      <if test="enabled != null">` enabled = #{enabled},`</if>
+    </set>
+    ` where id = #{id}`
+  </update>
+
+  <delete id="delete_mcp">
+    `delete from agent_mcp_configs where id = #{id}`
+  </delete>
+
+  <!-- =========================== Skills 配置 ========================== -->
+  <select id="select_skills_by_agent">
+    `select id, agent_id, name, description, skill_path, scripts_path, references_path, assets_path, enabled, created_at, updated_at`
+    ` from agent_skills_configs where agent_id = #{agent_id} order by updated_at desc`
+  </select>
+
+  <select id="select_skills_by_id">
+    `select id, agent_id, name, description, skill_path, scripts_path, references_path, assets_path, enabled, created_at, updated_at`
+    ` from agent_skills_configs where id = #{id}`
+  </select>
+
+  <insert id="insert_skills">
+    `insert into agent_skills_configs (id, agent_id, name, description, skill_path, scripts_path, references_path, assets_path, enabled, created_at, updated_at)`
+    ` values (#{id}, #{agent_id}, #{name}, #{description}, #{skill_path}, #{scripts_path}, #{references_path}, #{assets_path}, #{enabled}, #{created_at}, #{updated_at})`
+  </insert>
+
+  <update id="update_skills">
+    `update agent_skills_configs`
+    <set>
+      ` updated_at = #{updated_at},`
+      <if test="name != null">` name = #{name},`</if>
+      <if test="description != null">` description = #{description},`</if>
+      <if test="skill_path != null">` skill_path = #{skill_path},`</if>
+      <if test="scripts_path != null">` scripts_path = #{scripts_path},`</if>
+      <if test="references_path != null">` references_path = #{references_path},`</if>
+      <if test="assets_path != null">` assets_path = #{assets_path},`</if>
+      <if test="enabled != null">` enabled = #{enabled},`</if>
+    </set>
+    ` where id = #{id}`
+  </update>
+
+  <delete id="delete_skills">
+    `delete from agent_skills_configs where id = #{id}`
+  </delete>
+
+  <!-- ========================== Plugins 配置 ========================= -->
+  <select id="select_plugins_by_agent">
+    `select id, agent_id, name, version, description, plugin_path, enabled, created_at, updated_at`
+    ` from agent_plugins_configs where agent_id = #{agent_id} order by updated_at desc`
+  </select>
+
+  <select id="select_plugins_by_id">
+    `select id, agent_id, name, version, description, plugin_path, enabled, created_at, updated_at`
+    ` from agent_plugins_configs where id = #{id}`
+  </select>
+
+  <insert id="insert_plugins">
+    `insert into agent_plugins_configs (id, agent_id, name, version, description, plugin_path, enabled, created_at, updated_at)`
+    ` values (#{id}, #{agent_id}, #{name}, #{version}, #{description}, #{plugin_path}, #{enabled}, #{created_at}, #{updated_at})`
+  </insert>
+
+  <update id="update_plugins">
+    `update agent_plugins_configs`
+    <set>
+      ` updated_at = #{updated_at},`
+      <if test="name != null">` name = #{name},`</if>
+      <if test="version != null">` version = #{version},`</if>
+      <if test="description != null">` description = #{description},`</if>
+      <if test="plugin_path != null">` plugin_path = #{plugin_path},`</if>
+      <if test="enabled != null">` enabled = #{enabled},`</if>
+    </set>
+    ` where id = #{id}`
+  </update>
+
+  <delete id="delete_plugins">
+    `delete from agent_plugins_configs where id = #{id}`
+  </delete>
+
+  <!-- =========================== 模型配置 ============================ -->
+  <select id="select_models_by_agent">
+    `select id, agent_id, model_id, display_name, is_builtin, is_default, sort_order, enabled, context_window, input_cost_per_million_usd, output_cost_per_million_usd, created_at, updated_at`
+    ` from agent_models where agent_id = #{agent_id} order by sort_order asc, created_at asc`
+  </select>
+
+  <select id="select_model_by_id">
+    `select id, agent_id, model_id, display_name, is_builtin, is_default, sort_order, enabled, context_window, input_cost_per_million_usd, output_cost_per_million_usd, created_at, updated_at`
+    ` from agent_models where id = #{id}`
+  </select>
+
+  <insert id="insert_model">
+    `insert into agent_models (id, agent_id, model_id, display_name, is_builtin, is_default, sort_order, enabled, context_window, input_cost_per_million_usd, output_cost_per_million_usd, created_at, updated_at)`
+    ` values (#{id}, #{agent_id}, #{model_id}, #{display_name}, #{is_builtin}, #{is_default}, #{sort_order}, #{enabled},`
+    ` #{context_window}, #{input_cost_per_million_usd}, #{output_cost_per_million_usd}, #{created_at}, #{updated_at})`
+  </insert>
+
+  <update id="update_model">
+    `update agent_models`
+    <set>
+      ` updated_at = #{updated_at},`
+      <if test="model_id != null">` model_id = #{model_id},`</if>
+      <if test="display_name != null">` display_name = #{display_name},`</if>
+      <if test="is_default != null">` is_default = #{is_default},`</if>
+      <if test="sort_order != null">` sort_order = #{sort_order},`</if>
+      <if test="enabled != null">` enabled = #{enabled},`</if>
+      <if test="context_window != null">` context_window = #{context_window},`</if>
+      <if test="input_cost_per_million_usd != null">` input_cost_per_million_usd = #{input_cost_per_million_usd},`</if>
+      <if test="output_cost_per_million_usd != null">` output_cost_per_million_usd = #{output_cost_per_million_usd},`</if>
+    </set>
+    ` where id = #{id}`
+  </update>
+
+  <delete id="delete_model">
+    `delete from agent_models where id = #{id}`
+  </delete>
+
+  <!-- 清空某 agent 下的默认模型标记（设置新默认前调用） -->
+  <update id="clear_default_models">
+    `update agent_models set is_default = 0 where agent_id = #{agent_id}`
+  </update>
+
+  <!-- 模型同步事务专用：插入探测到的新模型（内置默认值固定） -->
+  <insert id="insert_synced_model">
+    `insert into agent_models (id, agent_id, model_id, display_name, is_builtin, is_default, sort_order, enabled, context_window, input_cost_per_million_usd, output_cost_per_million_usd, created_at, updated_at)`
+    ` values (#{id}, #{agent_id}, #{model_id}, #{model_id}, 0, 0, 0, 1, 128000, NULL, NULL, #{now}, #{now})`
+  </insert>
+</mapper>

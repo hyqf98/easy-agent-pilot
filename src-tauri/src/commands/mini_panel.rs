@@ -1,12 +1,13 @@
-use anyhow::Result;
-use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use uuid::Uuid;
 
-use super::support::{now_rfc3339, open_db_connection};
+use super::support::now_rfc3339;
+use crate::db;
+use crate::mappers::mini_panel as mini_panel_mapper;
+use crate::mappers::settings as settings_mapper;
 
 pub const MINI_PANEL_WINDOW_LABEL: &str = "mini-panel";
 pub const MINI_PANEL_PROJECT_ID_KEY: &str = "miniPanelProjectId";
@@ -55,23 +56,22 @@ pub struct MiniPanelDirectorySuggestion {
     pub insert_value: String,
 }
 
-fn set_setting(conn: &rusqlite::Connection, key: &str, value: &str) -> Result<(), String> {
-    conn.execute(
-        "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
-        [key, value, &now_rfc3339()],
-    )
-    .map_err(|e| e.to_string())?;
+async fn set_setting(key: &str, value: &str) -> Result<(), String> {
+    let updated_at = now_rfc3339();
+    settings_mapper::save_app_setting(db::rb(), key, value, &updated_at)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
-fn get_setting(conn: &rusqlite::Connection, key: &str) -> Result<Option<String>, String> {
-    conn.query_row(
-        "SELECT value FROM app_settings WHERE key = ?1",
-        [key],
-        |row| row.get::<_, String>(0),
-    )
-    .optional()
-    .map_err(|e| e.to_string())
+async fn get_setting(key: &str) -> Result<Option<String>, String> {
+    let row = settings_mapper::get_app_setting(db::rb(), key)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(row
+        .into_iter()
+        .next()
+        .map(|r| crate::models::value_to_json_string(r.value)))
 }
 
 fn home_directory() -> Result<PathBuf, String> {
@@ -210,31 +210,15 @@ fn build_suggestion_value(
     }
 }
 
-fn project_exists(conn: &rusqlite::Connection, project_id: &str) -> Result<bool, String> {
-    conn.query_row(
-        "SELECT 1 FROM projects WHERE id = ?1 LIMIT 1",
-        [project_id],
-        |_row| Ok(()),
-    )
-    .optional()
-    .map(|result| result.is_some())
-    .map_err(|e| e.to_string())
-}
-
-fn session_exists(conn: &rusqlite::Connection, session_id: &str) -> Result<bool, String> {
-    conn.query_row(
-        "SELECT 1 FROM sessions WHERE id = ?1 LIMIT 1",
-        [session_id],
-        |_row| Ok(()),
-    )
-    .optional()
-    .map(|result| result.is_some())
-    .map_err(|e| e.to_string())
-}
-
-fn ensure_mini_panel_project(conn: &rusqlite::Connection) -> Result<String, String> {
-    if let Some(project_id) = get_setting(conn, MINI_PANEL_PROJECT_ID_KEY)? {
-        if project_exists(conn, &project_id)? {
+async fn ensure_mini_panel_project() -> Result<String, String> {
+    if let Some(project_id) = get_setting(MINI_PANEL_PROJECT_ID_KEY).await? {
+        let exists = mini_panel_mapper::project_exists(db::rb(), &project_id)
+            .await
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .next()
+            .is_some();
+        if exists {
             return Ok(project_id);
         }
     }
@@ -244,29 +228,31 @@ fn ensure_mini_panel_project(conn: &rusqlite::Connection) -> Result<String, Stri
     let path = mini_panel_project_path()?;
     let path_str = path.to_string_lossy().to_string();
 
-    conn.execute(
-        "INSERT INTO projects (id, name, path, description, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        rusqlite::params![
-            &project_id,
-            MINI_PANEL_PROJECT_NAME,
-            &path_str,
-            MINI_PANEL_PROJECT_DESCRIPTION,
-            &now,
-            &now
-        ],
+    mini_panel_mapper::insert_mini_panel_project(
+        db::rb(),
+        &project_id,
+        MINI_PANEL_PROJECT_NAME,
+        &path_str,
+        MINI_PANEL_PROJECT_DESCRIPTION,
+        &now,
+        &now,
     )
+    .await
     .map_err(|e| e.to_string())?;
 
-    set_setting(conn, MINI_PANEL_PROJECT_ID_KEY, &project_id)?;
+    set_setting(MINI_PANEL_PROJECT_ID_KEY, &project_id).await?;
     Ok(project_id)
 }
 
-fn ensure_mini_panel_session(
-    conn: &rusqlite::Connection,
-    project_id: &str,
-) -> Result<String, String> {
-    if let Some(session_id) = get_setting(conn, MINI_PANEL_SESSION_ID_KEY)? {
-        if session_exists(conn, &session_id)? {
+async fn ensure_mini_panel_session(project_id: &str) -> Result<String, String> {
+    if let Some(session_id) = get_setting(MINI_PANEL_SESSION_ID_KEY).await? {
+        let exists = mini_panel_mapper::session_exists(db::rb(), &session_id)
+            .await
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .next()
+            .is_some();
+        if exists {
             return Ok(session_id);
         }
     }
@@ -274,27 +260,26 @@ fn ensure_mini_panel_session(
     let session_id = Uuid::new_v4().to_string();
     let now = now_rfc3339();
 
-    conn.execute(
-        "INSERT INTO sessions (id, project_id, name, agent_type, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, 'idle', ?5, ?6)",
-        rusqlite::params![
-            &session_id,
-            project_id,
-            MINI_PANEL_SESSION_NAME,
-            MINI_PANEL_DEFAULT_AGENT_TYPE,
-            &now,
-            &now
-        ],
+    mini_panel_mapper::insert_mini_panel_session(
+        db::rb(),
+        &session_id,
+        project_id,
+        MINI_PANEL_SESSION_NAME,
+        MINI_PANEL_DEFAULT_AGENT_TYPE,
+        &now,
+        &now,
     )
+    .await
     .map_err(|e| e.to_string())?;
 
-    set_setting(conn, MINI_PANEL_SESSION_ID_KEY, &session_id)?;
+    set_setting(MINI_PANEL_SESSION_ID_KEY, &session_id).await?;
     Ok(session_id)
 }
 
-fn ensure_working_directory(conn: &rusqlite::Connection) -> Result<String, String> {
+async fn ensure_working_directory() -> Result<String, String> {
     let home = home_directory()?;
     let home_str = home.to_string_lossy().to_string();
-    let stored = get_setting(conn, MINI_PANEL_WORKING_DIRECTORY_KEY)?;
+    let stored = get_setting(MINI_PANEL_WORKING_DIRECTORY_KEY).await?;
     let next = stored
         .as_ref()
         .filter(|path| Path::new(path).is_dir())
@@ -302,16 +287,16 @@ fn ensure_working_directory(conn: &rusqlite::Connection) -> Result<String, Strin
         .unwrap_or_else(|| home_str.clone());
 
     if stored.as_deref() != Some(next.as_str()) {
-        set_setting(conn, MINI_PANEL_WORKING_DIRECTORY_KEY, &next)?;
+        set_setting(MINI_PANEL_WORKING_DIRECTORY_KEY, &next).await?;
     }
 
     Ok(next)
 }
 
-fn ensure_mini_panel_state_internal(conn: &rusqlite::Connection) -> Result<MiniPanelState, String> {
-    let project_id = ensure_mini_panel_project(conn)?;
-    let session_id = ensure_mini_panel_session(conn, &project_id)?;
-    let working_directory = ensure_working_directory(conn)?;
+async fn ensure_mini_panel_state_internal() -> Result<MiniPanelState, String> {
+    let project_id = ensure_mini_panel_project().await?;
+    let session_id = ensure_mini_panel_session(&project_id).await?;
+    let working_directory = ensure_working_directory().await?;
 
     Ok(MiniPanelState {
         project_id,
@@ -341,17 +326,15 @@ fn ensure_window(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
 }
 
 #[tauri::command]
-pub fn ensure_mini_panel_state() -> Result<MiniPanelState, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    ensure_mini_panel_state_internal(&conn)
+pub async fn ensure_mini_panel_state() -> Result<MiniPanelState, String> {
+    ensure_mini_panel_state_internal().await
 }
 
 #[tauri::command]
-pub fn set_mini_panel_working_directory(
+pub async fn set_mini_panel_working_directory(
     path: String,
     current_directory: Option<String>,
 ) -> Result<MiniPanelDirectoryResult, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
     let base = current_directory
         .filter(|value| !value.trim().is_empty())
         .map(PathBuf::from)
@@ -359,7 +342,7 @@ pub fn set_mini_panel_working_directory(
     let resolved = resolve_path_input(&path, &base)?;
     let resolved_str = resolved.to_string_lossy().to_string();
 
-    set_setting(&conn, MINI_PANEL_WORKING_DIRECTORY_KEY, &resolved_str)?;
+    set_setting(MINI_PANEL_WORKING_DIRECTORY_KEY, &resolved_str).await?;
 
     Ok(MiniPanelDirectoryResult {
         working_directory: resolved_str,

@@ -1,0 +1,286 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!--
+    任务模块 SQL。
+    tasks 表 select 列顺序固定为 TaskRow 字段顺序（见 models/mod.rs）。
+    JSON 列（dependencies/implementation_steps/test_steps/acceptance_criteria/
+    memory_library_ids/input_request/input_response）以 TEXT 存取，命令层做 serde_json。
+  -->
+
+  <!-- 按 id 查询单个任务 -->
+  <select id="get_task_by_id">
+    `select id, project_id, plan_id, parent_id, title, description, status, priority, `
+    `assignee, expert_id, agent_id, model_id, session_id, cli_session_provider, progress_file, `
+    `CAST(dependencies AS TEXT) as dependencies, task_order, retry_count, max_retries, error_message, `
+    `CAST(implementation_steps AS TEXT) as implementation_steps, CAST(test_steps AS TEXT) as test_steps, `
+    `CAST(acceptance_criteria AS TEXT) as acceptance_criteria, CAST(memory_library_ids AS TEXT) as memory_library_ids, `
+    `block_reason, CAST(input_request AS TEXT) as input_request, CAST(input_response AS TEXT) as input_response, created_at, updated_at `
+    `from tasks where id = #{id}`
+  </select>
+
+  <!-- 按 plan_id 列出任务（按 task_order、created_at 升序） -->
+  <select id="list_tasks_by_plan">
+    `select id, project_id, plan_id, parent_id, title, description, status, priority, `
+    `assignee, expert_id, agent_id, model_id, session_id, cli_session_provider, progress_file, `
+    `CAST(dependencies AS TEXT) as dependencies, task_order, retry_count, max_retries, error_message, `
+    `CAST(implementation_steps AS TEXT) as implementation_steps, CAST(test_steps AS TEXT) as test_steps, `
+    `CAST(acceptance_criteria AS TEXT) as acceptance_criteria, CAST(memory_library_ids AS TEXT) as memory_library_ids, `
+    `block_reason, CAST(input_request AS TEXT) as input_request, CAST(input_response AS TEXT) as input_response, created_at, updated_at `
+    `from tasks where plan_id = #{plan_id} `
+    `order by task_order asc, created_at asc`
+  </select>
+
+  <!-- 按项目列出未挂载到有效计划的任务 -->
+  <select id="list_project_unplanned_tasks">
+    `select id, project_id, plan_id, parent_id, title, description, status, priority, `
+    `assignee, expert_id, agent_id, model_id, session_id, cli_session_provider, progress_file, `
+    `CAST(dependencies AS TEXT) as dependencies, task_order, retry_count, max_retries, error_message, `
+    `CAST(implementation_steps AS TEXT) as implementation_steps, CAST(test_steps AS TEXT) as test_steps, `
+    `CAST(acceptance_criteria AS TEXT) as acceptance_criteria, CAST(memory_library_ids AS TEXT) as memory_library_ids, `
+    `block_reason, CAST(input_request AS TEXT) as input_request, CAST(input_response AS TEXT) as input_response, created_at, updated_at `
+    `from tasks `
+    `where project_id = #{project_id} `
+    `and (trim(coalesce(plan_id, '')) = '' `
+    `or not exists (select 1 from plans where plans.id = tasks.plan_id)) `
+    `order by task_order asc, created_at asc`
+  </select>
+
+  <!-- 按 parent_id 列出子任务 -->
+  <select id="list_subtasks_by_parent">
+    `select id, project_id, plan_id, parent_id, title, description, status, priority, `
+    `assignee, expert_id, agent_id, model_id, session_id, cli_session_provider, progress_file, `
+    `CAST(dependencies AS TEXT) as dependencies, task_order, retry_count, max_retries, error_message, `
+    `CAST(implementation_steps AS TEXT) as implementation_steps, CAST(test_steps AS TEXT) as test_steps, `
+    `CAST(acceptance_criteria AS TEXT) as acceptance_criteria, CAST(memory_library_ids AS TEXT) as memory_library_ids, `
+    `block_reason, CAST(input_request AS TEXT) as input_request, CAST(input_response AS TEXT) as input_response, created_at, updated_at `
+    `from tasks where parent_id = #{parent_id} `
+    `order by task_order asc, created_at asc`
+  </select>
+
+  <!-- 按 session_id 查询首个关联任务（LIMIT 1） -->
+  <select id="get_task_by_session_id">
+    `select id, project_id, plan_id, parent_id, title, description, status, priority, `
+    `assignee, expert_id, agent_id, model_id, session_id, cli_session_provider, progress_file, `
+    `CAST(dependencies AS TEXT) as dependencies, task_order, retry_count, max_retries, error_message, `
+    `CAST(implementation_steps AS TEXT) as implementation_steps, CAST(test_steps AS TEXT) as test_steps, `
+    `CAST(acceptance_criteria AS TEXT) as acceptance_criteria, CAST(memory_library_ids AS TEXT) as memory_library_ids, `
+    `block_reason, CAST(input_request AS TEXT) as input_request, CAST(input_response AS TEXT) as input_response, created_at, updated_at `
+    `from tasks where session_id = #{session_id} limit 1`
+  </select>
+
+  <!-- 查询任务所属 plan_id（仅单列） -->
+  <select id="get_plan_id_of_task">
+    `select plan_id as value from tasks where id = #{id}`
+  </select>
+
+  <!-- 查询 plan 对应的 project_id（仅单列，来自 plans 表） -->
+  <select id="get_project_id_of_plan">
+    `select project_id as value from plans where id = #{plan_id}`
+  </select>
+
+  <!-- 查询 plan 下当前最大 task_order（缺省 -1） -->
+  <select id="get_max_task_order_of_plan">
+    `select coalesce(max(task_order), -1) as value from tasks where plan_id = #{plan_id}`
+  </select>
+
+  <!-- 插入任务（完整列，create_task / batch_create_tasks 复用） -->
+  <insert id="insert_task">
+    `insert into tasks `
+    `(id, project_id, plan_id, parent_id, title, description, status, priority, `
+    ` assignee, expert_id, agent_id, model_id, session_id, cli_session_provider, progress_file, `
+    ` dependencies, task_order, retry_count, max_retries, error_message, `
+    ` implementation_steps, test_steps, acceptance_criteria, memory_library_ids, `
+    ` created_at, updated_at) `
+    `values `
+    `(#{id}, #{project_id}, #{plan_id}, #{parent_id}, #{title}, #{description}, #{status}, #{priority}, `
+    ` #{assignee}, #{expert_id}, #{agent_id}, #{model_id}, #{session_id}, #{cli_session_provider}, #{progress_file}, `
+    ` #{dependencies}, #{task_order}, #{retry_count}, #{max_retries}, #{error_message}, `
+    ` #{implementation_steps}, #{test_steps}, #{acceptance_criteria}, #{memory_library_ids}, `
+    ` #{created_at}, #{updated_at})`
+  </insert>
+
+  <!-- 触发计划 updated_at（创建/更新任务后） -->
+  <update id="touch_plan_updated_at">
+    `update plans set updated_at = #{updated_at} where id = #{plan_id}`
+  </update>
+
+  <!--
+    动态更新任务：仅更新 UpdateField::Value 或 Null 表示的字段，
+    Missing 字段不出现。用 <set>+<if> 取代旧 UpdateSqlBuilder。
+    依赖映射：UpdateField.Value→Option(Some) 写入；UpdateField.Null→Option(None) 写入 NULL；
+    UpdateField.Missing 用“字段缺省标记”区分——命令层把 Missing 字段传 None 并通过 has 标记控制。
+    这里所有列均用 has_xxx bool 控制是否参与更新（has_xxx=true 表示 caller 想更新该列）。
+  -->
+  <update id="update_task">
+    `update tasks`
+    `<set>`
+      `updated_at = #{update.updated_at},`
+      <if test="update.has_title">`title = #{update.title},`</if>
+      <if test="update.has_description">`description = #{update.description},`</if>
+      <if test="update.has_status">`status = #{update.status},`</if>
+      <if test="update.has_priority">`priority = #{update.priority},`</if>
+      <if test="update.has_assignee">`assignee = #{update.assignee},`</if>
+      <if test="update.has_expert_id">`expert_id = #{update.expert_id},`</if>
+      <if test="update.has_agent_id">`agent_id = #{update.agent_id},`</if>
+      <if test="update.has_model_id">`model_id = #{update.model_id},`</if>
+      <if test="update.has_session_id">`session_id = #{update.session_id},`</if>
+      <if test="update.has_cli_session_provider">`cli_session_provider = #{update.cli_session_provider},`</if>
+      <if test="update.has_progress_file">`progress_file = #{update.progress_file},`</if>
+      <if test="update.has_dependencies">`dependencies = #{update.dependencies},`</if>
+      <if test="update.has_order">`task_order = #{update.order_value},`</if>
+      <if test="update.has_retry_count">`retry_count = #{update.retry_count},`</if>
+      <if test="update.has_max_retries">`max_retries = #{update.max_retries},`</if>
+      <if test="update.has_error_message">`error_message = #{update.error_message},`</if>
+      <if test="update.has_implementation_steps">`implementation_steps = #{update.implementation_steps},`</if>
+      <if test="update.has_test_steps">`test_steps = #{update.test_steps},`</if>
+      <if test="update.has_acceptance_criteria">`acceptance_criteria = #{update.acceptance_criteria},`</if>
+      <if test="update.has_memory_library_ids">`memory_library_ids = #{update.memory_library_ids},`</if>
+      <if test="update.has_block_reason">`block_reason = #{update.block_reason},`</if>
+      <if test="update.has_input_request">`input_request = #{update.input_request},`</if>
+      <if test="update.has_input_response">`input_response = #{update.input_response},`</if>
+    `</set>`
+    `where id = #{update.id}`
+  </update>
+
+  <!-- 重试任务：重置 status/retry_count/error_message -->
+  <update id="retry_task">
+    `update tasks set status = 'pending', retry_count = 0, error_message = null, `
+    `updated_at = #{updated_at} where id = #{id}`
+  </update>
+
+  <!-- 批量更新状态：仅更新 plan 下 pending 任务 -->
+  <update id="batch_update_status">
+    `update tasks set status = #{status}, updated_at = #{updated_at} `
+    `where plan_id = #{plan_id} and status = 'pending'`
+  </update>
+
+  <!-- 停止任务：状态改 pending（保留 retry_count） -->
+  <update id="stop_task">
+    `update tasks set status = 'pending', updated_at = #{updated_at} where id = #{id}`
+  </update>
+
+  <!-- 批量更新单任务顺序（reorder_tasks 事务内循环调用） -->
+  <update id="reorder_one_task">
+    `update tasks set task_order = #{order_value}, updated_at = #{updated_at} where id = #{id}`
+  </update>
+
+  <!-- 递归收集任务子树 id（含自身） -->
+  <select id="collect_task_subtree_ids">
+    `with recursive descendants(id) as ( `
+    `select id from tasks where id = #{id} `
+    `union all `
+    `select tasks.id from tasks inner join descendants on tasks.parent_id = descendants.id `
+    `) select id as value from descendants`
+  </select>
+
+  <!-- 删除单个任务（事务内） -->
+  <delete id="delete_task_by_id">
+    `delete from tasks where id = #{id}`
+  </delete>
+
+  <!-- 清理已删任务引用：删除 agent_cli_usage_records（foreach 拼接 IN） -->
+  <delete id="delete_agent_cli_usage_for_tasks">
+    `delete from agent_cli_usage_records where task_id in `
+    <foreach collection="task_ids" item="tid" open="(" close=")" separator=",">
+      `#{tid}`
+    </foreach>
+  </delete>
+
+  <!-- 清理已删任务引用：置空 plans.current_task_id（foreach 拼接 IN） -->
+  <update id="nullify_plan_current_task_for_tasks">
+    `update plans set current_task_id = null, updated_at = #{updated_at} `
+    `where current_task_id in `
+    <foreach collection="task_ids" item="tid" open="(" close=")" separator=",">
+      `#{tid}`
+    </foreach>
+  </update>
+
+  <!-- 读取 plan 下带 dependencies 的任务（id, dependencies），用于清理失效依赖 -->
+  <select id="list_plan_dependencies">
+    `select id, CAST(dependencies AS TEXT) as dependencies from tasks `
+    `where plan_id = #{plan_id} and dependencies is not null and dependencies != ''`
+  </select>
+
+  <!-- 写回过滤后的 dependencies（清理失效依赖，事务内） -->
+  <update id="update_task_dependencies">
+    `update tasks set dependencies = #{dependencies}, updated_at = #{updated_at} where id = #{id}`
+  </update>
+
+  <!-- =================== task_memory_libraries =================== -->
+
+  <!-- 列出任务关联的 memory library id（按 created_at、library_id 升序） -->
+  <select id="list_task_memory_library_ids">
+    `select library_id as value from task_memory_libraries `
+    `where task_id = #{task_id} order by created_at asc, library_id asc`
+  </select>
+
+  <!-- 清空任务的 memory library 关联 -->
+  <delete id="delete_task_memory_libraries">
+    `delete from task_memory_libraries where task_id = #{task_id}`
+  </delete>
+
+  <!-- 插入单条 memory library 关联 -->
+  <insert id="insert_task_memory_library">
+    `insert into task_memory_libraries (task_id, library_id, created_at) `
+    `values (#{task_id}, #{library_id}, #{created_at})`
+  </insert>
+
+  <!-- =================== task_runtime_bindings =================== -->
+
+  <!-- 读取任务运行时绑定 -->
+  <select id="get_task_runtime_binding">
+    `select task_id, runtime_key, external_session_id, created_at, updated_at `
+    `from task_runtime_bindings `
+    `where task_id = #{task_id} and runtime_key = #{runtime_key}`
+  </select>
+
+  <!-- upsert 任务运行时绑定（SQLite ON CONFLICT） -->
+  <insert id="upsert_task_runtime_binding">
+    `insert into task_runtime_bindings `
+    `(task_id, runtime_key, external_session_id, created_at, updated_at) `
+    `values `
+    `(#{task_id}, #{runtime_key}, #{external_session_id}, #{created_at}, #{updated_at}) `
+    `on conflict(task_id, runtime_key) do update set `
+    `external_session_id = excluded.external_session_id, `
+    `updated_at = excluded.updated_at`
+  </insert>
+
+  <!-- 删除任务运行时绑定 -->
+  <delete id="delete_task_runtime_binding">
+    `delete from task_runtime_bindings where task_id = #{task_id} and runtime_key = #{runtime_key}`
+  </delete>
+
+  <!-- =================== task_split_sessions =================== -->
+
+  <!-- 按 plan_id 查询拆分会话 -->
+  <select id="get_split_session_by_plan">
+    `select id, plan_id, status, raw_content, CAST(parsed_output AS TEXT) as parsed_output, parse_error, granularity, `
+    `created_at, updated_at from task_split_sessions where plan_id = #{plan_id}`
+  </select>
+
+  <!-- 按 plan_id 查询拆分会话 id（判断是否已存在） -->
+  <select id="get_split_session_id_by_plan">
+    `select id as value from task_split_sessions where plan_id = #{plan_id}`
+  </select>
+
+  <!-- 插入拆分会话 -->
+  <insert id="insert_split_session">
+    `insert into task_split_sessions `
+    `(id, plan_id, status, raw_content, parsed_output, parse_error, granularity, created_at, updated_at) `
+    `values `
+    `(#{id}, #{plan_id}, #{status}, #{raw_content}, #{parsed_output}, #{parse_error}, `
+    ` #{granularity}, #{created_at}, #{updated_at})`
+  </insert>
+
+  <!-- 更新拆分会话 -->
+  <update id="update_split_session">
+    `update task_split_sessions set status = #{status}, raw_content = #{raw_content}, `
+    `parsed_output = #{parsed_output}, parse_error = #{parse_error}, `
+    `granularity = #{granularity}, updated_at = #{updated_at} where id = #{id}`
+  </update>
+
+  <!-- 删除拆分会话 -->
+  <delete id="delete_split_session">
+    `delete from task_split_sessions where plan_id = #{plan_id}`
+  </delete>
+</mapper>

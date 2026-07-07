@@ -5,11 +5,14 @@
 //! 执行完回写 `done/error` + `last_run_*` 并重算 `next_run_at`。
 
 use chrono::{Datelike, DateTime, Duration, Utc};
-use rusqlite::{params};
 use serde::{Deserialize, Serialize};
 use tauri::Emitter;
 
-use super::support::{now_rfc3339, open_db_connection};
+use super::support::now_rfc3339;
+use crate::db;
+use crate::mappers::memory_job as job_mapper;
+use crate::mappers::memory_job::{MemoryJobInsert, MemoryJobUpdate};
+use crate::models::{value_to_json_string_opt, MemoryJobRow};
 
 // ==================== 数据结构 ====================
 
@@ -97,43 +100,35 @@ fn normalize_required_string(value: String, field: &str) -> Result<String, Strin
     Ok(trimmed.to_string())
 }
 
-fn map_memory_job(row: &rusqlite::Row) -> rusqlite::Result<MemoryJob> {
+/// 把 rbatis 行映射转换为对外的 MemoryJob DTO。
+fn job_row_to_job(row: MemoryJobRow) -> Result<MemoryJob, String> {
     Ok(MemoryJob {
-        id: row.get(0)?,
-        repo_id: row.get(1)?,
-        name: row.get(2)?,
-        instruction: row.get(3)?,
-        cron: row.get(4)?,
-        next_run_at: row.get(5)?,
-        schedule_status: row.get(6)?,
-        last_run_at: row.get(7)?,
-        last_run_status: row.get(8)?,
-        last_run_summary: row.get(9)?,
-        agent_id: row.get(10)?,
-        model_id: row.get(11)?,
-        created_at: row.get(12)?,
-        updated_at: row.get(13)?,
+        id: row.id.ok_or("memory_jobs.id 缺失")?,
+        repo_id: row.repo_id.ok_or("memory_jobs.repo_id 缺失")?,
+        name: row.name.ok_or("memory_jobs.name 缺失")?,
+        instruction: row.instruction.ok_or("memory_jobs.instruction 缺失")?,
+        cron: row.cron,
+        next_run_at: row.next_run_at,
+        schedule_status: row.schedule_status.unwrap_or_else(|| "none".to_string()),
+        last_run_at: row.last_run_at,
+        last_run_status: row.last_run_status,
+        last_run_summary: row.last_run_summary,
+        agent_id: row.agent_id,
+        model_id: row.model_id,
+        created_at: row.created_at.ok_or("memory_jobs.created_at 缺失")?,
+        updated_at: row.updated_at.ok_or("memory_jobs.updated_at 缺失")?,
     })
 }
 
-const MEMORY_JOB_SELECT_SQL: &str = r#"
-    SELECT id, repo_id, name, instruction, cron, next_run_at, schedule_status,
-           last_run_at, last_run_status, last_run_summary, agent_id, model_id,
-           created_at, updated_at
-    FROM memory_jobs
-"#;
-
-fn map_job_run(row: &rusqlite::Row) -> rusqlite::Result<MemoryJobRun> {
-    Ok(MemoryJobRun {
-        id: row.get(0)?,
-        job_id: row.get(1)?,
-        repo_id: row.get(2)?,
-        status: row.get(3)?,
-        summary: row.get(4)?,
-        files_changed: row.get(5)?,
-        started_at: row.get(6)?,
-        finished_at: row.get(7)?,
-    })
+/// 按 id 读取任务（内部复用）。
+async fn fetch_job_by_id(id: &str) -> Result<MemoryJob, String> {
+    let row = job_mapper::get_memory_job_by_id(db::rb(), id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("任务不存在: {}", id))?;
+    job_row_to_job(row)
 }
 
 /// 根据 cron 计算下一次执行时间（v1：daily/weekly；无 cron 则返回 None）。
@@ -205,21 +200,16 @@ fn next_weekly(from: DateTime<Utc>, target_weekday: u32, h: u32, m: u32) -> Date
 
 /// 列出仓库下的全部定时任务。
 #[tauri::command]
-pub fn list_memory_jobs(repo_id: String) -> Result<Vec<MemoryJob>, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    let sql = format!("{} WHERE repo_id = ?1 ORDER BY created_at ASC", MEMORY_JOB_SELECT_SQL);
-    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-    let jobs = stmt
-        .query_map(params![&repo_id], map_memory_job)
-        .map_err(|e| e.to_string())?
-        .collect::<rusqlite::Result<Vec<_>>>()
+pub async fn list_memory_jobs(repo_id: String) -> Result<Vec<MemoryJob>, String> {
+    let rows = job_mapper::list_memory_jobs(db::rb(), &repo_id)
+        .await
         .map_err(|e| e.to_string())?;
-    Ok(jobs)
+    rows.into_iter().map(job_row_to_job).collect()
 }
 
 /// 创建定时任务。无 next_run_at 时按 cron 计算。
 #[tauri::command]
-pub fn create_memory_job(input: CreateMemoryJobInput) -> Result<MemoryJob, String> {
+pub async fn create_memory_job(input: CreateMemoryJobInput) -> Result<MemoryJob, String> {
     let name = normalize_required_string(input.name, "任务名称")?;
     let instruction = normalize_required_string(input.instruction, "任务指令")?;
     let now = now_rfc3339();
@@ -237,43 +227,33 @@ pub fn create_memory_job(input: CreateMemoryJobInput) -> Result<MemoryJob, Strin
         "none".to_string()
     };
 
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    conn.execute(
-        r#"
-        INSERT INTO memory_jobs
-            (id, repo_id, name, instruction, cron, next_run_at, schedule_status,
-             last_run_at, last_run_status, last_run_summary, agent_id, model_id,
-             created_at, updated_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, NULL, NULL, ?8, ?9, ?10, ?10)
-        "#,
-        params![
-            &id,
-            &input.repo_id,
-            &name,
-            &instruction,
-            input.cron,
-            &next_run_at,
-            &schedule_status,
-            input.agent_id,
-            input.model_id,
-            &now
-        ],
-    )
-    .map_err(|e| e.to_string())?;
+    let row = MemoryJobInsert {
+        id: id.clone(),
+        repo_id: input.repo_id.clone(),
+        name,
+        instruction,
+        cron: input.cron,
+        next_run_at,
+        schedule_status: schedule_status.clone(),
+        last_run_at: None,
+        last_run_status: None,
+        last_run_summary: None,
+        agent_id: input.agent_id,
+        model_id: input.model_id,
+        created_at: now.clone(),
+        updated_at: now,
+    };
+    job_mapper::insert_memory_job(db::rb(), &row)
+        .await
+        .map_err(|e| e.to_string())?;
 
-    let sql = format!("{} WHERE id = ?1", MEMORY_JOB_SELECT_SQL);
-    conn.query_row(&sql, params![&id], map_memory_job)
-        .map_err(|e| e.to_string())
+    fetch_job_by_id(&id).await
 }
 
 /// 更新定时任务。
 #[tauri::command]
-pub fn update_memory_job(id: String, input: UpdateMemoryJobInput) -> Result<MemoryJob, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    let sql_get = format!("{} WHERE id = ?1", MEMORY_JOB_SELECT_SQL);
-    let existing: MemoryJob = conn
-        .query_row(&sql_get, params![&id], map_memory_job)
-        .map_err(|e| e.to_string())?;
+pub async fn update_memory_job(id: String, input: UpdateMemoryJobInput) -> Result<MemoryJob, String> {
+    let existing = fetch_job_by_id(&id).await?;
 
     let now = now_rfc3339();
     let cron_changed = input.cron.is_some();
@@ -299,43 +279,43 @@ pub fn update_memory_job(id: String, input: UpdateMemoryJobInput) -> Result<Memo
     let agent_id = input.agent_id.or(existing.agent_id);
     let model_id = input.model_id.or(existing.model_id);
 
-    conn.execute(
-        r#"
-        UPDATE memory_jobs
-        SET name = ?1, instruction = ?2, cron = ?3, next_run_at = ?4,
-            schedule_status = ?5, agent_id = ?6, model_id = ?7, updated_at = ?8
-        WHERE id = ?9
-        "#,
-        params![&name, &instruction, &cron, &next_run_at, &schedule_status, agent_id, model_id, &now, &id],
-    )
-    .map_err(|e| e.to_string())?;
+    let update = MemoryJobUpdate {
+        id: id.clone(),
+        name,
+        instruction,
+        cron,
+        next_run_at,
+        schedule_status,
+        agent_id,
+        model_id,
+        updated_at: now,
+    };
+    job_mapper::update_memory_job(db::rb(), &update)
+        .await
+        .map_err(|e| e.to_string())?;
 
-    conn.query_row(&sql_get, params![&id], map_memory_job)
-        .map_err(|e| e.to_string())
+    fetch_job_by_id(&id).await
 }
 
 /// 删除定时任务。
 #[tauri::command]
-pub fn delete_memory_job(id: String) -> Result<(), String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    conn.execute("DELETE FROM memory_jobs WHERE id = ?1", params![&id])
+pub async fn delete_memory_job(id: String) -> Result<(), String> {
+    job_mapper::delete_memory_job(db::rb(), &id)
+        .await
         .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 /// 立即触发任务（置 triggered + emit memory:job-trigger）。前端监听后执行。
 #[tauri::command]
-pub fn trigger_memory_job(
+pub async fn trigger_memory_job(
     app: tauri::AppHandle,
     id: String,
 ) -> Result<(), String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
     let now = now_rfc3339();
-    conn.execute(
-        "UPDATE memory_jobs SET schedule_status = 'triggered', updated_at = ?1 WHERE id = ?2",
-        params![&now, &id],
-    )
-    .map_err(|e| e.to_string())?;
+    job_mapper::trigger_memory_job(db::rb(), &id, &now)
+        .await
+        .map_err(|e| e.to_string())?;
 
     app.emit("memory:job-trigger", &id)
         .map_err(|e| e.to_string())?;
@@ -344,36 +324,36 @@ pub fn trigger_memory_job(
 
 /// 列出任务的运行历史。
 #[tauri::command]
-pub fn list_memory_job_runs(job_id: String) -> Result<Vec<MemoryJobRun>, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, job_id, repo_id, status, summary, files_changed, started_at, finished_at
-             FROM memory_job_runs WHERE job_id = ?1 ORDER BY started_at DESC",
-        )
+pub async fn list_memory_job_runs(job_id: String) -> Result<Vec<MemoryJobRun>, String> {
+    let rows = job_mapper::list_memory_job_runs(db::rb(), &job_id)
+        .await
         .map_err(|e| e.to_string())?;
-    let runs = stmt
-        .query_map(params![&job_id], map_job_run)
-        .map_err(|e| e.to_string())?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(|e| e.to_string())?;
-    Ok(runs)
+    rows.into_iter()
+        .map(|r| {
+            Ok(MemoryJobRun {
+                id: r.id.ok_or("memory_job_runs.id 缺失")?,
+                job_id: r.job_id.ok_or("memory_job_runs.job_id 缺失")?,
+                repo_id: r.repo_id.ok_or("memory_job_runs.repo_id 缺失")?,
+                status: r.status.ok_or("memory_job_runs.status 缺失")?,
+                summary: r.summary,
+                files_changed: value_to_json_string_opt(r.files_changed),
+                started_at: r.started_at.ok_or("memory_job_runs.started_at 缺失")?,
+                finished_at: r.finished_at.ok_or("memory_job_runs.finished_at 缺失")?,
+            })
+        })
+        .collect()
 }
 
 /// 记录一次运行结果（前端执行完调用）并重算 next_run_at。
 #[tauri::command]
-pub fn record_memory_job_run(input: RecordJobRunInput) -> Result<MemoryJobRun, String> {
-    let mut conn = open_db_connection().map_err(|e| e.to_string())?;
+pub async fn record_memory_job_run(input: RecordJobRunInput) -> Result<MemoryJobRun, String> {
     let now = now_rfc3339();
     let run_id = generate_id();
 
     // 取任务的 repo_id / cron
-    let sql_get = format!("{} WHERE id = ?1", MEMORY_JOB_SELECT_SQL);
-    let (repo_id, cron): (String, Option<String>) = conn
-        .query_row(&sql_get, params![&input.job_id], |row| {
-            Ok((row.get(1)?, row.get(4)?))
-        })
-        .map_err(|e| e.to_string())?;
+    let job = fetch_job_by_id(&input.job_id).await?;
+    let repo_id = job.repo_id.clone();
+    let cron = job.cron.clone();
 
     let files_changed_json = input
         .files_changed
@@ -383,38 +363,57 @@ pub fn record_memory_job_run(input: RecordJobRunInput) -> Result<MemoryJobRun, S
     let started_at = now.clone();
     let finished_at = now.clone();
 
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
-    tx.execute(
-        r#"
-        INSERT INTO memory_job_runs
-            (id, job_id, repo_id, status, summary, files_changed, started_at, finished_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-        "#,
-        params![&run_id, &input.job_id, &repo_id, &input.status, input.summary, &files_changed_json, &started_at, &finished_at],
+    // 事务：插入运行记录 + 回写任务状态（二者须原子）
+    let rb = db::rb();
+    let tx = rb.acquire_begin().await.map_err(|e| e.to_string())?;
+
+    job_mapper::insert_memory_job_run(
+        &tx,
+        &run_id,
+        &input.job_id,
+        &repo_id,
+        &input.status,
+        input.summary.as_deref(),
+        files_changed_json.map(rbs::Value::String),
+        &started_at,
+        &finished_at,
     )
+    .await
     .map_err(|e| e.to_string())?;
 
     let next_run_at = compute_next_run(cron.as_deref(), Utc::now()).map(|dt| dt.to_rfc3339());
     let new_status = if next_run_at.is_some() { "scheduled" } else { "done" };
-    tx.execute(
-        r#"
-        UPDATE memory_jobs
-        SET last_run_at = ?1, last_run_status = ?2, last_run_summary = ?3,
-            next_run_at = ?4, schedule_status = ?5, updated_at = ?6
-        WHERE id = ?7
-        "#,
-        params![&now, &input.status, &input.summary, &next_run_at, new_status, &now, &input.job_id],
+    job_mapper::apply_job_run_result(
+        &tx,
+        &input.job_id,
+        &now,
+        &input.status,
+        input.summary.as_deref(),
+        next_run_at.as_deref(),
+        new_status,
+        &now,
     )
+    .await
     .map_err(|e| e.to_string())?;
-    tx.commit().map_err(|e| e.to_string())?;
 
-    conn.query_row(
-        "SELECT id, job_id, repo_id, status, summary, files_changed, started_at, finished_at
-         FROM memory_job_runs WHERE id = ?1",
-        params![&run_id],
-        map_job_run,
-    )
-    .map_err(|e| e.to_string())
+    tx.commit().await.map_err(|e| e.to_string())?;
+
+    let row = job_mapper::get_memory_job_run_by_id(db::rb(), &run_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or_else(|| "运行记录写入后读取失败".to_string())?;
+    Ok(MemoryJobRun {
+        id: row.id.ok_or("memory_job_runs.id 缺失")?,
+        job_id: row.job_id.ok_or("memory_job_runs.job_id 缺失")?,
+        repo_id: row.repo_id.ok_or("memory_job_runs.repo_id 缺失")?,
+        status: row.status.ok_or("memory_job_runs.status 缺失")?,
+        summary: row.summary,
+        files_changed: value_to_json_string_opt(row.files_changed),
+        started_at: row.started_at.ok_or("memory_job_runs.started_at 缺失")?,
+        finished_at: row.finished_at.ok_or("memory_job_runs.finished_at 缺失")?,
+    })
 }
 
 #[cfg(test)]

@@ -7,13 +7,16 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use super::skill_plugin::{
     scaffold_skill_package, CreateSkillReferenceInput, SkillFileEntry, SkillScaffoldRequest,
 };
-use super::support::{now_rfc3339, open_db_connection};
+use super::support::now_rfc3339;
+use crate::db;
+use crate::mappers::memory_repo as repo_mapper;
+use crate::mappers::memory_repo::{MemoryRepoInsert, MemoryRepoUpdate};
+use crate::models::{value_to_json_string, MemoryRepoRow};
 
 // ==================== 数据结构 ====================
 
@@ -174,51 +177,34 @@ fn write_repo_config_file(repo_path: &Path, repo: &MemoryRepo) -> Result<(), Str
         .map_err(|e| format!("Failed to write memory.config.json: {}", e))
 }
 
-fn map_memory_repo(row: &rusqlite::Row) -> rusqlite::Result<MemoryRepo> {
+/// 把 rbatis 行映射转换为对外的 MemoryRepo DTO。
+fn repo_row_to_repo(row: MemoryRepoRow) -> Result<MemoryRepo, String> {
     Ok(MemoryRepo {
-        id: row.get(0)?,
-        name: row.get(1)?,
-        slug: row.get(2)?,
-        description: row.get(3)?,
-        repo_path: row.get(4)?,
-        format: row.get(5)?,
-        system_prompt: row.get(6)?,
-        agent_id: row.get(7)?,
-        model_id: row.get(8)?,
-        internal_tools_enabled: row.get::<_, i64>(9)? != 0,
-        enabled: row.get::<_, i64>(10)? != 0,
-        created_at: row.get(11)?,
-        updated_at: row.get(12)?,
+        id: row.id.ok_or("memory_repos.id 缺失")?,
+        name: row.name.ok_or("memory_repos.name 缺失")?,
+        slug: row.slug.ok_or("memory_repos.slug 缺失")?,
+        description: row.description,
+        repo_path: row.repo_path.ok_or("memory_repos.repo_path 缺失")?,
+        format: row.format.unwrap_or_else(|| "skill".to_string()),
+        system_prompt: row.system_prompt.unwrap_or_default(),
+        agent_id: row.agent_id,
+        model_id: row.model_id,
+        internal_tools_enabled: row.internal_tools_enabled.unwrap_or(1) != 0,
+        enabled: row.enabled.unwrap_or(1) != 0,
+        created_at: row.created_at.ok_or("memory_repos.created_at 缺失")?,
+        updated_at: row.updated_at.ok_or("memory_repos.updated_at 缺失")?,
     })
 }
 
-const MEMORY_REPO_SELECT_SQL: &str = r#"
-    SELECT id, name, slug, description, repo_path, format, system_prompt,
-           agent_id, model_id, internal_tools_enabled, enabled, created_at, updated_at
-    FROM memory_repos
-"#;
-
-fn get_repo_by_id(conn: &rusqlite::Connection, id: &str) -> Result<MemoryRepo, String> {
-    let sql = format!("{} WHERE id = ?1", MEMORY_REPO_SELECT_SQL);
-    conn.query_row(&sql, params![id], map_memory_repo)
-        .map_err(|e| {
-            if matches!(e, rusqlite::Error::QueryReturnedNoRows) {
-                format!("记忆库仓库不存在: {}", id)
-            } else {
-                e.to_string()
-            }
-        })
-}
-
-fn map_repo_source(row: &rusqlite::Row) -> rusqlite::Result<MemoryRepoSource> {
-    Ok(MemoryRepoSource {
-        id: row.get(0)?,
-        repo_id: row.get(1)?,
-        source_type: row.get(2)?,
-        config: row.get(3)?,
-        enabled: row.get::<_, i64>(4)? != 0,
-        created_at: row.get(5)?,
-    })
+/// 按 id 读取仓库（内部复用）。
+async fn fetch_repo_by_id(id: &str) -> Result<MemoryRepo, String> {
+    let row = repo_mapper::get_memory_repo_by_id(db::rb(), id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("记忆库仓库不存在: {}", id))?;
+    repo_row_to_repo(row)
 }
 
 /// 物化仓库目录内容（按 format 落盘）。
@@ -253,28 +239,22 @@ fn materialize_repo_disk(input: &CreateMemoryRepoInput, repo: &MemoryRepo) -> Re
 
 /// 列出全部记忆库仓库（按更新时间倒序）。
 #[tauri::command]
-pub fn list_memory_repos() -> Result<Vec<MemoryRepo>, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    let sql = format!("{} ORDER BY updated_at DESC, created_at DESC", MEMORY_REPO_SELECT_SQL);
-    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-    let repos = stmt
-        .query_map([], map_memory_repo)
-        .map_err(|e| e.to_string())?
-        .collect::<rusqlite::Result<Vec<_>>>()
+pub async fn list_memory_repos() -> Result<Vec<MemoryRepo>, String> {
+    let rows = repo_mapper::list_memory_repos(db::rb())
+        .await
         .map_err(|e| e.to_string())?;
-    Ok(repos)
+    rows.into_iter().map(repo_row_to_repo).collect()
 }
 
 /// 获取单个仓库。
 #[tauri::command]
-pub fn get_memory_repo(id: String) -> Result<MemoryRepo, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    get_repo_by_id(&conn, &id)
+pub async fn get_memory_repo(id: String) -> Result<MemoryRepo, String> {
+    fetch_repo_by_id(&id).await
 }
 
 /// 创建记忆库仓库（DB 元数据 + 磁盘目录物化）。
 #[tauri::command]
-pub fn create_memory_repo(input: CreateMemoryRepoInput) -> Result<MemoryRepo, String> {
+pub async fn create_memory_repo(input: CreateMemoryRepoInput) -> Result<MemoryRepo, String> {
     let name = normalize_required_string(input.name.clone(), "记忆库名称")?;
     let slug = slugify_name(&name, "memory-repo");
     let repo_dir = resolve_unique_repo_dir(&slug)?;
@@ -286,7 +266,6 @@ pub fn create_memory_repo(input: CreateMemoryRepoInput) -> Result<MemoryRepo, St
         .unwrap_or(&slug)
         .to_string();
 
-    let mut conn = open_db_connection().map_err(|e| e.to_string())?;
     let now = now_rfc3339();
     let id = generate_id();
     let format = match input.format.as_deref() {
@@ -296,40 +275,34 @@ pub fn create_memory_repo(input: CreateMemoryRepoInput) -> Result<MemoryRepo, St
     let system_prompt = input.system_prompt.clone().unwrap_or_default();
     let description = normalize_optional_string(input.description.clone());
 
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
-    tx.execute(
-        r#"
-        INSERT INTO memory_repos
-            (id, name, slug, description, repo_path, format, system_prompt,
-             agent_id, model_id, internal_tools_enabled, enabled, created_at, updated_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, 1, ?10, ?10)
-        "#,
-        params![
-            &id,
-            &name,
-            &final_slug,
-            description,
-            repo_dir.to_string_lossy(),
-            &format,
-            &system_prompt,
-            input.agent_id,
-            input.model_id,
-            &now
-        ],
-    )
-    .map_err(|e| e.to_string())?;
-    tx.commit().map_err(|e| e.to_string())?;
+    let row = MemoryRepoInsert {
+        id: id.clone(),
+        name: name.clone(),
+        slug: final_slug.clone(),
+        description: description.clone(),
+        repo_path: repo_dir.to_string_lossy().to_string(),
+        format: format.clone(),
+        system_prompt: system_prompt.clone(),
+        agent_id: input.agent_id.clone(),
+        model_id: input.model_id.clone(),
+        internal_tools_enabled: 1,
+        enabled: 1,
+        created_at: now.clone(),
+        updated_at: now.clone(),
+    };
+    repo_mapper::insert_memory_repo(db::rb(), &row)
+        .await
+        .map_err(|e| e.to_string())?;
 
-    let repo = get_repo_by_id(&conn, &id)?;
+    let repo = fetch_repo_by_id(&id).await?;
     materialize_repo_disk(&input, &repo)?;
     Ok(repo)
 }
 
 /// 更新仓库元数据（不直接改文件内容，文件走 read/write_file_content）。
 #[tauri::command]
-pub fn update_memory_repo(id: String, input: UpdateMemoryRepoInput) -> Result<MemoryRepo, String> {
-    let mut conn = open_db_connection().map_err(|e| e.to_string())?;
-    let existing = get_repo_by_id(&conn, &id)?;
+pub async fn update_memory_repo(id: String, input: UpdateMemoryRepoInput) -> Result<MemoryRepo, String> {
+    let existing = fetch_repo_by_id(&id).await?;
     let now = now_rfc3339();
 
     let name = match input.name {
@@ -354,36 +327,22 @@ pub fn update_memory_repo(id: String, input: UpdateMemoryRepoInput) -> Result<Me
         .unwrap_or(existing.internal_tools_enabled);
     let enabled = input.enabled.unwrap_or(existing.enabled);
 
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
-    tx.execute(
-        r#"
-        UPDATE memory_repos
-        SET name = ?1,
-            description = ?2,
-            system_prompt = ?3,
-            agent_id = ?4,
-            model_id = ?5,
-            internal_tools_enabled = ?6,
-            enabled = ?7,
-            updated_at = ?8
-        WHERE id = ?9
-        "#,
-        params![
-            &name,
-            description,
-            &system_prompt,
-            agent_id,
-            model_id,
-            if internal_tools_enabled { 1 } else { 0 },
-            if enabled { 1 } else { 0 },
-            &now,
-            &id
-        ],
-    )
-    .map_err(|e| e.to_string())?;
-    tx.commit().map_err(|e| e.to_string())?;
+    let update = MemoryRepoUpdate {
+        id: id.clone(),
+        name: name.clone(),
+        description: description.clone(),
+        system_prompt: system_prompt.clone(),
+        agent_id: agent_id.clone(),
+        model_id: model_id.clone(),
+        internal_tools_enabled: if internal_tools_enabled { 1 } else { 0 },
+        enabled: if enabled { 1 } else { 0 },
+        updated_at: now,
+    };
+    repo_mapper::update_memory_repo(db::rb(), &update)
+        .await
+        .map_err(|e| e.to_string())?;
 
-    let repo = get_repo_by_id(&conn, &id)?;
+    let repo = fetch_repo_by_id(&id).await?;
     // 同步缓存文件（非致命）
     if let Err(e) = write_repo_config_file(&PathBuf::from(&repo.repo_path), &repo) {
         println!("memory_repo[{}] config cache write warning: {}", id, e);
@@ -393,14 +352,12 @@ pub fn update_memory_repo(id: String, input: UpdateMemoryRepoInput) -> Result<Me
 
 /// 删除仓库（同时移除磁盘目录）。
 #[tauri::command]
-pub fn delete_memory_repo(id: String) -> Result<(), String> {
-    let mut conn = open_db_connection().map_err(|e| e.to_string())?;
-    let repo = get_repo_by_id(&conn, &id)?;
+pub async fn delete_memory_repo(id: String) -> Result<(), String> {
+    let repo = fetch_repo_by_id(&id).await?;
 
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
-    tx.execute("DELETE FROM memory_repos WHERE id = ?1", [&id])
+    repo_mapper::delete_memory_repo(db::rb(), &id)
+        .await
         .map_err(|e| e.to_string())?;
-    tx.commit().map_err(|e| e.to_string())?;
 
     // 删除磁盘目录（级联表已清，目录移除失败不阻断）
     if let Err(e) = fs::remove_dir_all(&repo.repo_path) {
@@ -413,9 +370,8 @@ pub fn delete_memory_repo(id: String) -> Result<(), String> {
 
 /// 扫描仓库目录下的全部文件（复用 list_skill_all_files 逻辑，路径限定在 repo_path）。
 #[tauri::command]
-pub fn scan_memory_repo_files(id: String) -> Result<Vec<SkillFileEntry>, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    let repo = get_repo_by_id(&conn, &id)?;
+pub async fn scan_memory_repo_files(id: String) -> Result<Vec<SkillFileEntry>, String> {
+    let repo = fetch_repo_by_id(&id).await?;
     super::skill_plugin::list_skill_all_files(repo.repo_path)
 }
 
@@ -423,20 +379,22 @@ pub fn scan_memory_repo_files(id: String) -> Result<Vec<SkillFileEntry>, String>
 
 /// 列出仓库的内置工具可见范围配置。
 #[tauri::command]
-pub fn list_memory_repo_sources(repo_id: String) -> Result<Vec<MemoryRepoSource>, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, repo_id, source_type, config, enabled, created_at
-             FROM memory_repo_sources WHERE repo_id = ?1 ORDER BY created_at ASC",
-        )
+pub async fn list_memory_repo_sources(repo_id: String) -> Result<Vec<MemoryRepoSource>, String> {
+    let rows = repo_mapper::list_memory_repo_sources(db::rb(), &repo_id)
+        .await
         .map_err(|e| e.to_string())?;
-    let rows = stmt
-        .query_map(params![&repo_id], map_repo_source)
-        .map_err(|e| e.to_string())?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(|e| e.to_string())?;
-    Ok(rows)
+    rows.into_iter()
+        .map(|r| {
+            Ok(MemoryRepoSource {
+                id: r.id.ok_or("memory_repo_sources.id 缺失")?,
+                repo_id: r.repo_id.ok_or("memory_repo_sources.repo_id 缺失")?,
+                source_type: r.source_type.ok_or("memory_repo_sources.source_type 缺失")?,
+                config: value_to_json_string(r.config),
+                enabled: r.enabled.unwrap_or(1) != 0,
+                created_at: r.created_at.ok_or("memory_repo_sources.created_at 缺失")?,
+            })
+        })
+        .collect()
 }
 
 /// 内置工具可见范围写入请求。
@@ -451,49 +409,61 @@ pub struct UpsertMemoryRepoSourceInput {
 
 /// 新建或更新仓库的可见范围（按 repo_id + source_type 唯一）。
 #[tauri::command]
-pub fn upsert_memory_repo_source(input: UpsertMemoryRepoSourceInput) -> Result<MemoryRepoSource, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
+pub async fn upsert_memory_repo_source(input: UpsertMemoryRepoSourceInput) -> Result<MemoryRepoSource, String> {
     let now = now_rfc3339();
     let config = input.config.unwrap_or_else(|| "{}".to_string());
     let enabled = input.enabled.unwrap_or(true);
+    let enabled_int = if enabled { 1 } else { 0 };
 
     // 先查是否已存在
-    let existing: Option<(String,)> = conn
-        .query_row(
-            "SELECT id FROM memory_repo_sources WHERE repo_id = ?1 AND source_type = ?2",
-            params![&input.repo_id, &input.source_type],
-            |row| Ok((row.get(0)?,)),
-        )
-        .optional()
-        .map_err(|e| e.to_string())?;
+    let existing = repo_mapper::get_memory_repo_source_id_by_unique(
+        db::rb(),
+        &input.repo_id,
+        &input.source_type,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
 
-    let target_id = match existing {
-        Some((id,)) => {
-            conn.execute(
-                "UPDATE memory_repo_sources SET config = ?1, enabled = ?2 WHERE id = ?3",
-                params![&config, if enabled { 1 } else { 0 }, &id],
-            )
-            .map_err(|e| e.to_string())?;
+    let target_id = match existing.into_iter().next() {
+        Some(id_row) => {
+            let id = crate::models::value_to_json_string_opt(id_row.value)
+                .ok_or("memory_repo_sources.id 缺失")?;
+            repo_mapper::update_memory_repo_source(db::rb(), &id, rbs::Value::String(config.clone()), enabled_int)
+                .await
+                .map_err(|e| e.to_string())?;
             id
         }
         None => {
             let id = generate_id();
-            conn.execute(
-                "INSERT INTO memory_repo_sources (id, repo_id, source_type, config, enabled, created_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![&id, &input.repo_id, &input.source_type, &config, if enabled { 1 } else { 0 }, &now],
+            repo_mapper::insert_memory_repo_source(
+                db::rb(),
+                &id,
+                &input.repo_id,
+                &input.source_type,
+                rbs::Value::String(config.clone()),
+                enabled_int,
+                &now,
             )
+            .await
             .map_err(|e| e.to_string())?;
             id
         }
     };
 
-    conn.query_row(
-        "SELECT id, repo_id, source_type, config, enabled, created_at FROM memory_repo_sources WHERE id = ?1",
-        params![&target_id],
-        map_repo_source,
-    )
-    .map_err(|e| e.to_string())
+    let row = repo_mapper::get_memory_repo_source_by_id(db::rb(), &target_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or_else(|| "数据源写入后读取失败".to_string())?;
+    Ok(MemoryRepoSource {
+        id: row.id.ok_or("memory_repo_sources.id 缺失")?,
+        repo_id: row.repo_id.ok_or("memory_repo_sources.repo_id 缺失")?,
+        source_type: row.source_type.ok_or("memory_repo_sources.source_type 缺失")?,
+        config: value_to_json_string(row.config),
+        enabled: row.enabled.unwrap_or(1) != 0,
+        created_at: row.created_at.ok_or("memory_repo_sources.created_at 缺失")?,
+    })
 }
 
 // ==================== 命令：旧库迁移 ====================
@@ -518,17 +488,16 @@ pub struct MigratedLibraryItem {
 }
 
 #[tauri::command]
-pub fn migrate_legacy_memory_libraries() -> Result<MigrateLegacyLibrariesResult, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-
+pub async fn migrate_legacy_memory_libraries() -> Result<MigrateLegacyLibrariesResult, String> {
     // 旧表是否存在
-    let has_legacy: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'memory_libraries'",
-            [],
-            |row| row.get(0),
-        )
+    let count_row = repo_mapper::count_memory_libraries_table(db::rb())
+        .await
         .map_err(|e| e.to_string())?;
+    let has_legacy = count_row
+        .into_iter()
+        .next()
+        .and_then(|r| r.value)
+        .unwrap_or(0);
     if has_legacy == 0 {
         return Ok(MigrateLegacyLibrariesResult {
             migrated: 0,
@@ -537,44 +506,29 @@ pub fn migrate_legacy_memory_libraries() -> Result<MigrateLegacyLibrariesResult,
         });
     }
 
-    type LegacyRow = (String, String, Option<String>, String);
-    let mut stmt = conn
-        .prepare("SELECT id, name, description, content_md FROM memory_libraries")
+    let legacy = repo_mapper::list_legacy_memory_libraries(db::rb())
+        .await
         .map_err(|e| e.to_string())?;
-    let legacy: Vec<LegacyRow> = stmt
-        .query_map([], |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-            ))
-        })
-        .map_err(|e| e.to_string())?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(|e| e.to_string())?;
-    drop(stmt);
 
     // 既有仓库名集合（去重）
-    let existing_names: Vec<String> = {
-        let mut s = conn
-            .prepare("SELECT name FROM memory_repos")
-            .map_err(|e| e.to_string())?;
-        let rows = s
-            .query_map([], |row| row.get::<_, String>(0))
-            .map_err(|e| e.to_string())?;
-        let mut acc = Vec::new();
-        for row in rows {
-            acc.push(row.map_err(|e| e.to_string())?);
-        }
-        acc
-    };
+    let existing_name_rows = repo_mapper::list_memory_repo_names(db::rb())
+        .await
+        .map_err(|e| e.to_string())?;
+    let existing_names: Vec<String> = existing_name_rows
+        .into_iter()
+        .filter_map(|r| crate::models::value_to_json_string_opt(r.value))
+        .collect();
 
     let mut migrated = 0;
     let mut skipped = 0;
     let mut items = Vec::new();
 
-    for (library_id, name, description, content_md) in legacy {
+    for row in legacy {
+        let library_id = row.id.unwrap_or_default();
+        let name = row.name.unwrap_or_default();
+        let description = row.description;
+        let content_md = row.content_md.unwrap_or_default();
+
         if existing_names.iter().any(|n| n == &name) {
             skipped += 1;
             continue;
@@ -594,16 +548,24 @@ pub fn migrate_legacy_memory_libraries() -> Result<MigrateLegacyLibrariesResult,
 
         let id = generate_id();
         let now = now_rfc3339();
-        conn.execute(
-            r#"
-            INSERT INTO memory_repos
-                (id, name, slug, description, repo_path, format, system_prompt,
-                 agent_id, model_id, internal_tools_enabled, enabled, created_at, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, 'single', '', NULL, NULL, 1, 1, ?6, ?6)
-            "#,
-            params![&id, &name, &final_slug, description, repo_dir.to_string_lossy(), &now],
-        )
-        .map_err(|e| e.to_string())?;
+        let insert = MemoryRepoInsert {
+            id: id.clone(),
+            name: name.clone(),
+            slug: final_slug.clone(),
+            description: description.clone(),
+            repo_path: repo_dir.to_string_lossy().to_string(),
+            format: "single".to_string(),
+            system_prompt: String::new(),
+            agent_id: None,
+            model_id: None,
+            internal_tools_enabled: 1,
+            enabled: 1,
+            created_at: now.clone(),
+            updated_at: now,
+        };
+        repo_mapper::insert_memory_repo(db::rb(), &insert)
+            .await
+            .map_err(|e| e.to_string())?;
 
         items.push(MigratedLibraryItem {
             library_id,
@@ -635,9 +597,8 @@ pub struct ExportMemoryRepoResult {
 ///
 /// 复制时跳过 `memory.config.json` / `schedule.json`（仓库内部文件，不属标准 Skills 包）。
 #[tauri::command]
-pub fn export_memory_repo(id: String, target_dir: Option<String>) -> Result<ExportMemoryRepoResult, String> {
-    let conn = open_db_connection().map_err(|e| e.to_string())?;
-    let repo = get_repo_by_id(&conn, &id)?;
+pub async fn export_memory_repo(id: String, target_dir: Option<String>) -> Result<ExportMemoryRepoResult, String> {
+    let repo = fetch_repo_by_id(&id).await?;
     let src = PathBuf::from(&repo.repo_path);
     if !src.is_dir() {
         return Err(format!("仓库目录不存在: {}", repo.repo_path));

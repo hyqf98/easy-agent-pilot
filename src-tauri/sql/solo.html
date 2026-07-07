@@ -1,0 +1,247 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!--
+    SOLO 模块 SQL。
+    solo_runs/solo_steps/solo_logs/solo_runtime_bindings 表 select 列顺序固定为
+    对应 Row 字段顺序（见 models/mod.rs）。JSON 列以 TEXT 存取，命令层做 serde_json。
+    动态更新统一用 <set>+<if>（has_xxx 标记控制是否参与更新），取代旧 UpdateSqlBuilder。
+  -->
+
+  <!-- 列出项目下的 SOLO 运行（按 updated_at 倒序） -->
+  <select id="list_solo_runs">
+    `select id, project_id, execution_path, name, requirement, goal, `
+    `CAST(memory_library_ids_json AS TEXT) as memory_library_ids_json, `
+    `CAST(participant_expert_ids_json AS TEXT) as participant_expert_ids_json, `
+    `coordinator_expert_id, coordinator_agent_id, coordinator_model_id, `
+    `max_dispatch_depth, current_depth, current_step_id, `
+    `status, execution_status, last_error, `
+    `CAST(input_request_json AS TEXT) as input_request_json, `
+    `CAST(input_response_json AS TEXT) as input_response_json, `
+    `created_at, updated_at, started_at, completed_at, stopped_at `
+    `from solo_runs where project_id = #{project_id} order by updated_at desc`
+  </select>
+
+  <!-- 按 id 查询单个 SOLO 运行 -->
+  <select id="get_solo_run_by_id">
+    `select id, project_id, execution_path, name, requirement, goal, `
+    `CAST(memory_library_ids_json AS TEXT) as memory_library_ids_json, `
+    `CAST(participant_expert_ids_json AS TEXT) as participant_expert_ids_json, `
+    `coordinator_expert_id, coordinator_agent_id, coordinator_model_id, `
+    `max_dispatch_depth, current_depth, current_step_id, `
+    `status, execution_status, last_error, `
+    `CAST(input_request_json AS TEXT) as input_request_json, `
+    `CAST(input_response_json AS TEXT) as input_response_json, `
+    `created_at, updated_at, started_at, completed_at, stopped_at `
+    `from solo_runs where id = #{id}`
+  </select>
+
+  <!-- 插入 SOLO 运行（current_depth=0，status='draft'，execution_status='idle'） -->
+  <insert id="insert_solo_run">
+    `insert into solo_runs `
+    `(id, project_id, execution_path, name, requirement, goal, `
+    ` memory_library_ids_json, participant_expert_ids_json, `
+    ` coordinator_expert_id, coordinator_agent_id, coordinator_model_id, `
+    ` max_dispatch_depth, current_depth, current_step_id, `
+    ` status, execution_status, last_error, input_request_json, input_response_json, `
+    ` created_at, updated_at, started_at, completed_at, stopped_at) `
+    `values `
+    `(#{row.id}, #{row.project_id}, #{row.execution_path}, #{row.name}, #{row.requirement}, #{row.goal}, `
+    ` #{row.memory_library_ids_json}, #{row.participant_expert_ids_json}, `
+    ` #{row.coordinator_expert_id}, #{row.coordinator_agent_id}, #{row.coordinator_model_id}, `
+    ` #{row.max_dispatch_depth}, 0, null, 'draft', 'idle', null, null, null, `
+    ` #{row.created_at}, #{row.updated_at}, null, null, null)`
+  </insert>
+
+  <!--
+    动态更新 SOLO 运行：仅更新 UpdateField::Value/Null 表示的字段（Missing 不出现）。
+    命令层用 has_xxx bool 控制是否参与更新，值统一 Option（Value→Some，Null→None）。
+    整数列用 Option<i64> 传递。
+  -->
+  <update id="update_solo_run">
+    `update solo_runs`
+    `<set>`
+      `updated_at = #{update.updated_at},`
+      <if test="update.has_execution_path">`execution_path = #{update.execution_path},`</if>
+      <if test="update.has_name">`name = #{update.name},`</if>
+      <if test="update.has_requirement">`requirement = #{update.requirement},`</if>
+      <if test="update.has_goal">`goal = #{update.goal},`</if>
+      <if test="update.has_memory_library_ids_json">`memory_library_ids_json = #{update.memory_library_ids_json},`</if>
+      <if test="update.has_participant_expert_ids_json">`participant_expert_ids_json = #{update.participant_expert_ids_json},`</if>
+      <if test="update.has_coordinator_expert_id">`coordinator_expert_id = #{update.coordinator_expert_id},`</if>
+      <if test="update.has_coordinator_agent_id">`coordinator_agent_id = #{update.coordinator_agent_id},`</if>
+      <if test="update.has_coordinator_model_id">`coordinator_model_id = #{update.coordinator_model_id},`</if>
+      <if test="update.has_max_dispatch_depth">`max_dispatch_depth = #{update.max_dispatch_depth},`</if>
+      <if test="update.has_current_depth">`current_depth = #{update.current_depth},`</if>
+      <if test="update.has_current_step_id">`current_step_id = #{update.current_step_id},`</if>
+      <if test="update.has_status">`status = #{update.status},`</if>
+      <if test="update.has_execution_status">`execution_status = #{update.execution_status},`</if>
+      <if test="update.has_last_error">`last_error = #{update.last_error},`</if>
+      <if test="update.has_input_request_json">`input_request_json = #{update.input_request_json},`</if>
+      <if test="update.has_input_response_json">`input_response_json = #{update.input_response_json},`</if>
+      <if test="update.has_started_at">`started_at = #{update.started_at},`</if>
+      <if test="update.has_completed_at">`completed_at = #{update.completed_at},`</if>
+      <if test="update.has_stopped_at">`stopped_at = #{update.stopped_at},`</if>
+    `</set>`
+    `where id = #{update.id}`
+  </update>
+
+  <!-- 删除 SOLO 运行 -->
+  <delete id="delete_solo_run_by_id">
+    `delete from solo_runs where id = #{id}`
+  </delete>
+
+  <!-- 创建/更新步骤后刷新运行 current_step_id/current_depth（MAX 语义） -->
+  <update id="touch_solo_run_on_step">
+    `update solo_runs set updated_at = #{updated_at}, current_step_id = #{step_id}, `
+    `current_depth = max(current_depth, #{depth}) where id = #{run_id}`
+  </update>
+
+  <!-- 记录日志后刷新运行 updated_at -->
+  <update id="touch_solo_run_on_log">
+    `update solo_runs set updated_at = #{updated_at} where id = #{run_id}`
+  </update>
+
+  <!-- =================== solo_steps =================== -->
+
+  <!-- 列出运行下的全部步骤（按 created_at 升序） -->
+  <select id="list_solo_steps">
+    `select id, run_id, step_ref, parent_step_ref, depth, title, description, `
+    `execution_prompt, selected_expert_id, status, summary, result_summary, `
+    `CAST(result_files_json AS TEXT) as result_files_json, fail_reason, created_at, updated_at, started_at, completed_at `
+    `from solo_steps where run_id = #{run_id} order by created_at asc`
+  </select>
+
+  <!-- 按 id 查询单个步骤 -->
+  <select id="get_solo_step_by_id">
+    `select id, run_id, step_ref, parent_step_ref, depth, title, description, `
+    `execution_prompt, selected_expert_id, status, summary, result_summary, `
+    `CAST(result_files_json AS TEXT) as result_files_json, fail_reason, created_at, updated_at, started_at, completed_at `
+    `from solo_steps where id = #{id}`
+  </select>
+
+  <!-- 插入步骤（result_summary/result_files_json/fail_reason/completed_at 置 null） -->
+  <insert id="insert_solo_step">
+    `insert into solo_steps `
+    `(id, run_id, step_ref, parent_step_ref, depth, title, description, `
+    ` execution_prompt, selected_expert_id, status, summary, result_summary, `
+    ` result_files_json, fail_reason, created_at, updated_at, started_at, completed_at) `
+    `values `
+    `(#{row.id}, #{row.run_id}, #{row.step_ref}, #{row.parent_step_ref}, #{row.depth}, `
+    ` #{row.title}, #{row.description}, #{row.execution_prompt}, #{row.selected_expert_id}, `
+    ` #{row.status}, #{row.summary}, null, null, null, `
+    ` #{row.created_at}, #{row.updated_at}, #{row.started_at}, null)`
+  </insert>
+
+  <!-- 动态更新步骤（同 update_solo_run 的 has_xxx 模式） -->
+  <update id="update_solo_step">
+    `update solo_steps`
+    `<set>`
+      `updated_at = #{update.updated_at},`
+      <if test="update.has_parent_step_ref">`parent_step_ref = #{update.parent_step_ref},`</if>
+      <if test="update.has_depth">`depth = #{update.depth},`</if>
+      <if test="update.has_title">`title = #{update.title},`</if>
+      <if test="update.has_description">`description = #{update.description},`</if>
+      <if test="update.has_execution_prompt">`execution_prompt = #{update.execution_prompt},`</if>
+      <if test="update.has_selected_expert_id">`selected_expert_id = #{update.selected_expert_id},`</if>
+      <if test="update.has_status">`status = #{update.status},`</if>
+      <if test="update.has_summary">`summary = #{update.summary},`</if>
+      <if test="update.has_result_summary">`result_summary = #{update.result_summary},`</if>
+      <if test="update.has_result_files_json">`result_files_json = #{update.result_files_json},`</if>
+      <if test="update.has_fail_reason">`fail_reason = #{update.fail_reason},`</if>
+      <if test="update.has_started_at">`started_at = #{update.started_at},`</if>
+      <if test="update.has_completed_at">`completed_at = #{update.completed_at},`</if>
+    `</set>`
+    `where id = #{update.id}`
+  </update>
+
+  <!-- =================== solo_logs =================== -->
+
+  <!-- 插入日志 -->
+  <insert id="insert_solo_log">
+    `insert into solo_logs `
+    `(id, run_id, step_id, scope, log_type, content, metadata, created_at) `
+    `values `
+    `(#{id}, #{run_id}, #{step_id}, #{scope}, #{log_type}, #{content}, #{metadata}, #{created_at})`
+  </insert>
+
+  <!-- 更新日志内容/metadata -->
+  <update id="update_solo_log">
+    `update solo_logs set content = #{content}, metadata = #{metadata} where id = #{id}`
+  </update>
+
+  <!-- 列出运行日志（step_id 可选） -->
+  <select id="list_solo_logs">
+    `select id, run_id, step_id, scope, log_type, content, CAST(metadata AS TEXT) as metadata, created_at `
+    `from solo_logs`
+    `<where>`
+      `run_id = #{run_id}`
+      <if test="step_id != null">`and step_id = #{step_id}`</if>
+    `</where>`
+    `order by created_at asc`
+  </select>
+
+  <!-- =================== solo_run_memory_libraries =================== -->
+
+  <!-- 清空运行关联的 memory library -->
+  <delete id="delete_solo_run_memory_libraries">
+    `delete from solo_run_memory_libraries where run_id = #{run_id}`
+  </delete>
+
+  <!-- 插入单条 memory library 关联 -->
+  <insert id="insert_solo_run_memory_library">
+    `insert into solo_run_memory_libraries (run_id, library_id, created_at) `
+    `values (#{run_id}, #{library_id}, #{created_at})`
+  </insert>
+
+  <!-- =================== solo_runtime_bindings =================== -->
+
+  <!-- 读取运行时绑定 -->
+  <select id="get_solo_runtime_binding">
+    `select run_id, runtime_key, external_session_id, created_at, updated_at `
+    `from solo_runtime_bindings `
+    `where run_id = #{run_id} and runtime_key = #{runtime_key}`
+  </select>
+
+  <!-- upsert 运行时绑定（SQLite ON CONFLICT） -->
+  <insert id="upsert_solo_runtime_binding">
+    `insert into solo_runtime_bindings `
+    `(run_id, runtime_key, external_session_id, created_at, updated_at) `
+    `values `
+    `(#{run_id}, #{runtime_key}, #{external_session_id}, #{created_at}, #{updated_at}) `
+    `on conflict(run_id, runtime_key) do update set `
+    `external_session_id = excluded.external_session_id, `
+    `updated_at = excluded.updated_at`
+  </insert>
+
+  <!-- 删除运行时绑定 -->
+  <delete id="delete_solo_runtime_binding">
+    `delete from solo_runtime_bindings `
+    `where run_id = #{run_id} and runtime_key = #{runtime_key}`
+  </delete>
+
+  <!-- =================== clear_solo_run_progress（事务内） =================== -->
+
+  <!-- 清理运行日志（事务内） -->
+  <delete id="clear_solo_logs">
+    `delete from solo_logs where run_id = #{run_id}`
+  </delete>
+
+  <!-- 清理运行步骤（事务内） -->
+  <delete id="clear_solo_steps">
+    `delete from solo_steps where run_id = #{run_id}`
+  </delete>
+
+  <!-- 清理运行时绑定（事务内） -->
+  <delete id="clear_solo_runtime_bindings">
+    `delete from solo_runtime_bindings where run_id = #{run_id}`
+  </delete>
+
+  <!-- 重置运行状态（事务内） -->
+  <update id="reset_solo_run_progress">
+    `update solo_runs set current_depth = 0, current_step_id = null, `
+    `status = 'draft', execution_status = 'idle', last_error = null, `
+    `input_request_json = null, input_response_json = null, started_at = null, `
+    `completed_at = null, stopped_at = null, updated_at = #{updated_at} `
+    `where id = #{run_id}`
+  </update>
+</mapper>

@@ -1,0 +1,67 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!--
+    MCP 模块 SQL。
+    mcp_servers 表 select 列顺序固定为 McpServerRow 字段顺序（见 models/mod.rs）。
+    `enabled`/`tool_count` 在 SQLite 中存为 INTEGER，映射为 Option<i64>，
+    命令层用 `!= 0` 还原为 bool。
+  -->
+
+  <!-- 列出全部 MCP 服务器（按 created_at 倒序） -->
+  <select id="list_mcp_servers">
+    `select id, name, server_type, command,`
+    ` CAST(args AS TEXT) as args, CAST(env AS TEXT) as env, url, CAST(headers AS TEXT) as headers,`
+    ` enabled, test_status, test_message, tool_count, tested_at, created_at, updated_at `
+    `from mcp_servers order by created_at desc`
+  </select>
+
+  <!-- 读取运行时配置（7 列子集，供 MCP 测试/工具列表/工具调用使用） -->
+  <select id="load_runtime_server_config">
+    `select name, server_type, command,`
+    ` CAST(args AS TEXT) as args, CAST(env AS TEXT) as env, url, CAST(headers AS TEXT) as headers `
+    `from mcp_servers where id = #{id}`
+  </select>
+
+  <!-- 读取服务器 (server_type, name)（删除/更新时定位旧配置文件用） -->
+  <select id="get_mcp_server_type_name">
+    `select server_type, name from mcp_servers where id = #{id}`
+  </select>
+
+  <!-- 名称重复计数（排除指定 id，传入 null 表示不排除） -->
+  <select id="count_mcp_by_name">
+    `select count(*) as value from mcp_servers where name = #{name}`
+    <if test="exclude_id != null">`and id != #{exclude_id}`</if>
+  </select>
+
+  <!-- 插入 MCP 服务器 -->
+  <insert id="insert_mcp_server">
+    `insert into mcp_servers `
+    `(id, name, server_type, command, args, env, url, headers, enabled, created_at, updated_at) `
+    `values `
+    `(#{id}, #{name}, #{server_type}, #{command}, #{args}, #{env}, #{url}, #{headers}, `
+    ` #{enabled}, #{created_at}, #{updated_at})`
+  </insert>
+
+  <!-- 更新 MCP 服务器（全字段） -->
+  <update id="update_mcp_server_full">
+    `update mcp_servers set name = #{name}, server_type = #{server_type}, command = #{command}, `
+    `args = #{args}, env = #{env}, url = #{url}, headers = #{headers}, enabled = #{enabled}, `
+    `updated_at = #{updated_at} where id = #{id}`
+  </update>
+
+  <!-- 删除 MCP 服务器 -->
+  <delete id="delete_mcp_server_by_id">
+    `delete from mcp_servers where id = #{id}`
+  </delete>
+
+  <!-- 切换启用状态 -->
+  <update id="toggle_mcp_server_enabled">
+    `update mcp_servers set enabled = #{enabled}, updated_at = #{updated_at} where id = #{id}`
+  </update>
+
+  <!-- 写入测试结果 -->
+  <update id="save_mcp_test_result">
+    `update mcp_servers set test_status = #{test_status}, test_message = #{test_message}, `
+    `tool_count = #{tool_count}, tested_at = #{tested_at} where id = #{id}`
+  </update>
+</mapper>

@@ -1,0 +1,141 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!-- 列出指定项目的全部计划（按 updated_at 倒序） -->
+  <select id="list_plans">
+    `select id, project_id, name, description, CAST(execution_overview AS TEXT) as execution_overview, execution_overview_updated_at,`
+    ` split_mode, status, CAST(agent_team AS TEXT) as agent_team, split_expert_id, split_agent_id, split_model_id,`
+    ` granularity, max_retry_count, execution_status, current_task_id, scheduled_at, schedule_status,`
+    ` created_at, updated_at`
+    ` from plans where project_id = #{project_id} order by updated_at desc`
+  </select>
+
+  <!-- 按 id 查询单个计划 -->
+  <select id="get_plan_by_id">
+    `select id, project_id, name, description, CAST(execution_overview AS TEXT) as execution_overview, execution_overview_updated_at,`
+    ` split_mode, status, CAST(agent_team AS TEXT) as agent_team, split_expert_id, split_agent_id, split_model_id,`
+    ` granularity, max_retry_count, execution_status, current_task_id, scheduled_at, schedule_status,`
+    ` created_at, updated_at`
+    ` from plans where id = #{id}`
+  </select>
+
+  <!-- 查询所有待执行的定时计划（schedule_status=scheduled 且 scheduled_at 非空） -->
+  <select id="list_scheduled_plans">
+    `select id, project_id, name, description, CAST(execution_overview AS TEXT) as execution_overview, execution_overview_updated_at,`
+    ` split_mode, status, CAST(agent_team AS TEXT) as agent_team, split_expert_id, split_agent_id, split_model_id,`
+    ` granularity, max_retry_count, execution_status, current_task_id, scheduled_at, schedule_status,`
+    ` created_at, updated_at`
+    ` from plans where schedule_status = 'scheduled' and scheduled_at is not null`
+    ` order by scheduled_at asc`
+  </select>
+
+  <!-- 插入新计划（事务内） -->
+  <insert id="insert_plan">
+    `insert into plans`
+    ` (id, project_id, name, description, split_mode, split_expert_id, split_agent_id, split_model_id,`
+    `  status, agent_team, granularity, max_retry_count, execution_status, current_task_id,`
+    `  execution_overview, execution_overview_updated_at, scheduled_at, schedule_status,`
+    `  created_at, updated_at)`
+    ` values`
+    ` (#{id}, #{project_id}, #{name}, #{description}, #{split_mode}, #{split_expert_id}, #{split_agent_id},`
+    `  #{split_model_id}, #{status}, #{agent_team}, #{granularity}, #{max_retry_count}, #{execution_status},`
+    `  #{current_task_id}, #{execution_overview}, #{execution_overview_updated_at}, #{scheduled_at},`
+    `  #{schedule_status}, #{created_at}, #{updated_at})`
+  </insert>
+
+  <!-- 动态更新计划：<set>+<if> 取代旧 format!/手动拼参 -->
+  <!-- 三态：每个字段配 *_present 布尔标记（true=纳入 SET），值列 Option<T>，
+       None 时 #{xxx} 被 rbdc-sqlite 写成 SQL NULL，从而支持显式置空。 -->
+  <update id="update_plan">
+    `update plans`
+    <set>
+      ` updated_at = #{update.updated_at},`
+      <if test="update.name_present">` name = #{update.name},`</if>
+      <if test="update.description_present">` description = #{update.description},`</if>
+      <if test="update.execution_overview_present">` execution_overview = #{update.execution_overview},`</if>
+      <if test="update.execution_overview_updated_at_present">` execution_overview_updated_at = #{update.execution_overview_updated_at},`</if>
+      <if test="update.split_mode_present">` split_mode = #{update.split_mode},`</if>
+      <if test="update.split_expert_id_present">` split_expert_id = #{update.split_expert_id},`</if>
+      <if test="update.split_agent_id_present">` split_agent_id = #{update.split_agent_id},`</if>
+      <if test="update.split_model_id_present">` split_model_id = #{update.split_model_id},`</if>
+      <if test="update.status_present">` status = #{update.status},`</if>
+      <if test="update.agent_team_present">` agent_team = #{update.agent_team},`</if>
+      <if test="update.granularity_present">` granularity = #{update.granularity},`</if>
+      <if test="update.max_retry_count_present">` max_retry_count = #{update.max_retry_count},`</if>
+      <if test="update.execution_status_present">` execution_status = #{update.execution_status},`</if>
+      <if test="update.current_task_id_present">` current_task_id = #{update.current_task_id},`</if>
+      <if test="update.scheduled_at_present">` scheduled_at = #{update.scheduled_at},`</if>
+      <if test="update.schedule_status_present">` schedule_status = #{update.schedule_status},`</if>
+    </set>
+    ` where id = #{update.id}`
+  </update>
+
+  <!-- 取消计划定时（写死字段，非动态更新） -->
+  <update id="cancel_plan_schedule">
+    `update plans set schedule_status = 'cancelled', scheduled_at = null, updated_at = #{updated_at}`
+    ` where id = #{id}`
+  </update>
+
+  <!-- ==================== plan_memory_libraries ==================== -->
+
+  <!-- 查询计划关联的记忆库 id（按 created_at、library_id 升序） -->
+  <select id="list_plan_memory_library_ids">
+    `select library_id from plan_memory_libraries`
+    ` where plan_id = #{plan_id} order by created_at asc, library_id asc`
+  </select>
+
+  <!-- 删除计划关联的全部记忆库（替换前先清空，事务内） -->
+  <delete id="delete_plan_memory_libraries">
+    `delete from plan_memory_libraries where plan_id = #{plan_id}`
+  </delete>
+
+  <!-- 插入一条计划-记忆库关联（事务内） -->
+  <insert id="insert_plan_memory_library">
+    `insert into plan_memory_libraries (plan_id, library_id, created_at)`
+    ` values (#{plan_id}, #{library_id}, #{created_at})`
+  </insert>
+
+  <!-- ==================== 关联清理（删除计划事务内） ==================== -->
+
+  <!-- 查询计划关联的任务 id 列表 -->
+  <select id="list_plan_task_ids">
+    `select id from tasks where plan_id = #{plan_id}`
+  </select>
+
+  <delete id="delete_plan_split_logs">
+    `delete from plan_split_logs where plan_id = #{plan_id}`
+  </delete>
+
+  <delete id="delete_task_split_sessions">
+    `delete from task_split_sessions where plan_id = #{plan_id}`
+  </delete>
+
+  <delete id="delete_task_execution_results">
+    `delete from task_execution_results where plan_id = #{plan_id}`
+  </delete>
+
+  <!-- 按 task_id 批量删除任务执行日志（foreach 拼 IN 列表） -->
+  <delete id="delete_task_execution_logs_by_ids">
+    `delete from task_execution_logs where task_id in`
+    <foreach collection="task_ids" item="task_id" open="(" close=")" separator=",">
+      `#{task_id}`
+    </foreach>
+  </delete>
+
+  <!-- 按 task_id 批量删除 CLI 用量记录（foreach 拼 IN 列表） -->
+  <delete id="delete_agent_cli_usage_records_by_ids">
+    `delete from agent_cli_usage_records where task_id in`
+    <foreach collection="task_ids" item="task_id" open="(" close=")" separator=",">
+      `#{task_id}`
+    </foreach>
+  </delete>
+
+  <!-- 删除计划本体（事务内） -->
+  <delete id="delete_plan_by_id">
+    `delete from plans where id = #{id}`
+  </delete>
+
+  <!-- 刷新项目 updated_at（创建计划事务内） -->
+  <update id="touch_project_updated_at">
+    `update projects set updated_at = #{updated_at} where id = #{project_id}`
+  </update>
+</mapper>

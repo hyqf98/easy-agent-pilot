@@ -1,8 +1,15 @@
-use anyhow::Result;
-use rusqlite::{params, params_from_iter};
+use rbatis::executor::Executor;
 use serde::{Deserialize, Serialize};
 
-use super::support::{now_rfc3339, open_db_connection};
+use super::provider_profile;
+use super::support::now_rfc3339;
+use crate::db;
+use crate::mappers::agent_cli_usage as usage_mapper;
+use crate::mappers::agent_cli_usage::{AgentCliUsageUpsert, RepairHistoryRecord};
+use crate::models::{
+    AgentCliUsageRow, AgentModelPricingRow, SessionUsageRow, SuspiciousHistoryRow, UsageBreakdownRow,
+    UsageStackedRow, UsageSummaryRow, UsageTimelineRow,
+};
 
 const PRICING_VERSION: &str = "2026-03-25";
 
@@ -384,45 +391,37 @@ fn estimate_pricing(
 ///
 /// 命中且输入/输出单价均存在时返回；否则返回 `None`（由内置价目表兜底）。
 /// 匹配忽略大小写，任意 agent 下配置的同名模型均可命中。
-fn fetch_user_model_pricing(
-    conn: &rusqlite::Connection,
+async fn fetch_user_model_pricing(
+    rb: &dyn Executor,
     model_id: Option<&str>,
 ) -> Option<ModelPricing> {
     let model_id = normalize_model_id(model_id)?;
-    conn.query_row(
-        "SELECT input_cost_per_million_usd, output_cost_per_million_usd
-         FROM agent_models
-         WHERE LOWER(model_id) = LOWER(?1)
-         LIMIT 1",
-        [&model_id],
-        |row| {
-            let input: Option<f64> = row.get(0)?;
-            let output: Option<f64> = row.get(1)?;
-            Ok((input, output))
-        },
-    )
-    .ok()
-    .and_then(|(input, output)| match (input, output) {
+    let row: AgentModelPricingRow = match usage_mapper::fetch_user_model_pricing(rb, &model_id).await {
+        Ok(rows) if !rows.is_empty() => rows.into_iter().next().unwrap(),
+        _ => return None,
+    };
+    match (row.input_cost_per_million_usd, row.output_cost_per_million_usd) {
         (Some(input), Some(output)) => Some(ModelPricing {
             input_per_million_usd: input,
             output_per_million_usd: output,
         }),
         _ => None,
-    })
+    }
 }
 
-fn reference_exists(conn: &rusqlite::Connection, table: &str, id: &str) -> Result<bool, String> {
-    let sql = format!("SELECT 1 FROM {} WHERE id = ?1 LIMIT 1", table);
-    conn.query_row(&sql, [id], |_| Ok(()))
-        .map(|_| true)
-        .or_else(|error| match error {
-            rusqlite::Error::QueryReturnedNoRows => Ok(false),
-            other => Err(other.to_string()),
-        })
+/// 检查某个 agents/projects/sessions/tasks 的 id 是否存在。
+///
+/// `table` 为命令层硬编码的表名（非用户输入），通过 ${} 原文注入。
+async fn reference_exists(rb: &dyn Executor, table: &str, id: &str) -> Result<bool, String> {
+    let row = usage_mapper::reference_exists(rb, table, id)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(row.into_iter().next().map(|r| r.value.unwrap_or(0)).unwrap_or(0) > 0)
 }
 
-fn normalize_reference_id(
-    conn: &rusqlite::Connection,
+/// 规整外键 id：去空白 + 校验存在性；不存在则返回 None。
+async fn normalize_reference_id(
+    rb: &dyn Executor,
     table: &str,
     value: Option<String>,
 ) -> Result<Option<String>, String> {
@@ -431,42 +430,15 @@ fn normalize_reference_id(
         return Ok(None);
     };
 
-    if reference_exists(conn, table, &id)? {
+    if reference_exists(rb, table, &id).await? {
         Ok(Some(id))
     } else {
         Ok(None)
     }
 }
 
-fn build_where_clause(input: &QueryAgentCliUsageStatsInput) -> (String, Vec<String>) {
-    let mut clauses = vec!["1 = 1".to_string()];
-    let mut params = Vec::new();
-
-    if let Some(start_at) = normalize_optional_text(input.start_at.clone()) {
-        clauses.push("occurred_at >= ?".to_string());
-        params.push(start_at);
-    }
-
-    if let Some(end_at) = normalize_optional_text(input.end_at.clone()) {
-        clauses.push("occurred_at <= ?".to_string());
-        params.push(end_at);
-    }
-
-    let provider_filter = normalize_provider_filter(input.provider_filter.clone());
-    if provider_filter != "all" {
-        clauses.push("provider = ?".to_string());
-        params.push(provider_filter);
-    }
-
-    if let Some(model_keyword) = normalize_optional_text(input.model_keyword.clone()) {
-        clauses.push("LOWER(COALESCE(model_id, '')) LIKE ?".to_string());
-        params.push(format!("%{}%", model_keyword.to_lowercase()));
-    }
-
-    (clauses.join(" AND "), params)
-}
-
-fn bucket_sql(granularity: &str) -> &'static str {
+/// 按 granularity 派生时间桶表达式（${} 原文注入用，受控枚举值）。
+fn bucket_expr(granularity: &str) -> &'static str {
     match granularity {
         "year" => "strftime('%Y', datetime(occurred_at, 'localtime'))",
         "month" => "strftime('%Y-%m', datetime(occurred_at, 'localtime'))",
@@ -474,14 +446,15 @@ fn bucket_sql(granularity: &str) -> &'static str {
     }
 }
 
-fn dimension_sql(dimension: &str, include_provider_prefix: bool) -> (&'static str, &'static str) {
+/// 按 dimension 派生 (dimension_id_expr, dimension_label_expr)。
+fn dimension_exprs(dimension: &str, include_provider_prefix: bool) -> (&'static str, &'static str) {
     if dimension == "model" {
         if include_provider_prefix {
             (
                 "COALESCE(NULLIF(model_id, ''), '__default_model__')",
-                "CASE
-                    WHEN model_id IS NULL OR trim(model_id) = '' THEN provider || ' / Default model'
-                    ELSE provider || ' / ' || model_id
+                "CASE\
+                    WHEN model_id IS NULL OR trim(model_id) = '' THEN provider || ' / Default model'\
+                    ELSE provider || ' / ' || model_id\
                  END",
             )
         } else {
@@ -498,7 +471,8 @@ fn dimension_sql(dimension: &str, include_provider_prefix: bool) -> (&'static st
     }
 }
 
-fn breakdown_order_sql(dimension: &str) -> &'static str {
+/// 按 dimension 派生 breakdown 排序表达式。
+fn breakdown_order_expr(dimension: &str) -> &'static str {
     if dimension == "model" {
         "SUM(estimated_total_cost_usd) DESC, SUM(total_tokens) DESC, dimension_label ASC"
     } else {
@@ -506,10 +480,39 @@ fn breakdown_order_sql(dimension: &str) -> &'static str {
     }
 }
 
-fn repair_claude_usage_history(
-    conn: &rusqlite::Connection,
+/// 把 AgentCliUsageRow（23 列完整行）转成对外 DTO。
+fn map_usage_row(row: AgentCliUsageRow) -> Result<AgentCliUsageRecord, String> {
+    Ok(AgentCliUsageRecord {
+        execution_id: row.execution_id.ok_or("execution_id 缺失")?,
+        execution_mode: row.execution_mode.ok_or("execution_mode 缺失")?,
+        provider: row.provider.ok_or("provider 缺失")?,
+        agent_id: row.agent_id,
+        agent_name_snapshot: row.agent_name_snapshot,
+        model_id: row.model_id,
+        project_id: row.project_id,
+        session_id: row.session_id,
+        task_id: row.task_id,
+        message_id: row.message_id,
+        input_tokens: row.input_tokens.unwrap_or(0),
+        output_tokens: row.output_tokens.unwrap_or(0),
+        total_tokens: row.total_tokens.unwrap_or(0),
+        call_count: row.call_count.unwrap_or(1),
+        estimated_input_cost_usd: row.estimated_input_cost_usd,
+        estimated_output_cost_usd: row.estimated_output_cost_usd,
+        estimated_total_cost_usd: row.estimated_total_cost_usd,
+        pricing_status: row
+            .pricing_status
+            .unwrap_or_else(|| "missing_usage".to_string()),
+        pricing_version: row.pricing_version.unwrap_or_default(),
+        occurred_at: row.occurred_at.ok_or("occurred_at 缺失")?,
+        created_at: row.created_at.ok_or("created_at 缺失")?,
+    })
+}
+
+async fn repair_claude_usage_history(
+    rb: &dyn Executor,
 ) -> Result<RepairAgentCliUsageHistoryResult, String> {
-    let current_profile = super::provider_profile::read_current_cli_config("claude".to_string())?;
+    let current_profile = provider_profile::read_current_cli_config("claude".to_string())?;
     let Some(target_model_id) = normalize_optional_text(current_profile.main_model.clone()) else {
         return Ok(RepairAgentCliUsageHistoryResult {
             provider: "claude".to_string(),
@@ -528,26 +531,15 @@ fn repair_claude_usage_history(
         });
     }
 
-    let suspicious_models = suspicious_claude_history_models();
-    let suspicious_count: i64 = conn
-        .query_row(
-            r#"
-            SELECT COUNT(*)
-            FROM agent_cli_usage_records
-            WHERE provider = 'claude'
-              AND LOWER(COALESCE(model_id, '')) IN (?1, ?2, ?3, ?4, ?5, ?6)
-            "#,
-            params![
-                suspicious_models[0],
-                suspicious_models[1],
-                suspicious_models[2],
-                suspicious_models[3],
-                suspicious_models[4],
-                suspicious_models[5]
-            ],
-            |row| row.get(0),
-        )
-        .map_err(|error| error.to_string())?;
+    let suspicious_models: Vec<String> =
+        suspicious_claude_history_models().iter().map(|s| s.to_string()).collect();
+    let count_row = usage_mapper::count_suspicious_claude_history(rb, &suspicious_models)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or("count 查询失败")?;
+    let suspicious_count = count_row.value.unwrap_or(0);
 
     if suspicious_count == 0 {
         return Ok(RepairAgentCliUsageHistoryResult {
@@ -558,41 +550,16 @@ fn repair_claude_usage_history(
         });
     }
 
-    let mut select_stmt = conn
-        .prepare(
-            r#"
-            SELECT execution_id, input_tokens, output_tokens
-            FROM agent_cli_usage_records
-            WHERE provider = 'claude'
-              AND LOWER(COALESCE(model_id, '')) IN (?1, ?2, ?3, ?4, ?5, ?6)
-            "#,
-        )
-        .map_err(|error| error.to_string())?;
-
-    let repair_rows = select_stmt
-        .query_map(
-            params![
-                suspicious_models[0],
-                suspicious_models[1],
-                suspicious_models[2],
-                suspicious_models[3],
-                suspicious_models[4],
-                suspicious_models[5]
-            ],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, i64>(1)?,
-                    row.get::<_, i64>(2)?,
-                ))
-            },
-        )
-        .map_err(|error| error.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| error.to_string())?;
+    let repair_rows: Vec<SuspiciousHistoryRow> =
+        usage_mapper::list_suspicious_claude_history(rb, &suspicious_models)
+            .await
+            .map_err(|e| e.to_string())?;
 
     let mut updated_count = 0_i64;
-    for (execution_id, input_tokens, output_tokens) in repair_rows {
+    for row in repair_rows {
+        let Some(execution_id) = row.execution_id else { continue };
+        let input_tokens = row.input_tokens.unwrap_or(0);
+        let output_tokens = row.output_tokens.unwrap_or(0);
         let pricing = estimate_pricing(
             "claude",
             Some(target_model_id.as_str()),
@@ -601,29 +568,19 @@ fn repair_claude_usage_history(
             None,
         );
 
-        updated_count += conn
-            .execute(
-                r#"
-                UPDATE agent_cli_usage_records
-                SET model_id = ?1,
-                    estimated_input_cost_usd = ?2,
-                    estimated_output_cost_usd = ?3,
-                    estimated_total_cost_usd = ?4,
-                    pricing_status = ?5,
-                    pricing_version = ?6
-                WHERE execution_id = ?7
-                "#,
-                params![
-                    target_model_id,
-                    pricing.estimated_input_cost_usd,
-                    pricing.estimated_output_cost_usd,
-                    pricing.estimated_total_cost_usd,
-                    pricing.pricing_status,
-                    PRICING_VERSION,
-                    execution_id
-                ],
-            )
-            .map_err(|error| error.to_string())? as i64;
+        let rec = RepairHistoryRecord {
+            execution_id: execution_id.clone(),
+            model_id: target_model_id.clone(),
+            estimated_input_cost_usd: pricing.estimated_input_cost_usd,
+            estimated_output_cost_usd: pricing.estimated_output_cost_usd,
+            estimated_total_cost_usd: pricing.estimated_total_cost_usd,
+            pricing_status: pricing.pricing_status,
+            pricing_version: PRICING_VERSION.to_string(),
+        };
+        usage_mapper::repair_one_history_record(rb, &rec)
+            .await
+            .map_err(|e| e.to_string())?;
+        updated_count += 1;
     }
 
     Ok(RepairAgentCliUsageHistoryResult {
@@ -641,10 +598,10 @@ fn repair_claude_usage_history(
 /// 返回值：返回已写入或已更新的统计记录。
 /// 关键副作用：写入本地 SQLite 统计表；同一 execution_id 会执行幂等更新。
 #[tauri::command]
-pub fn record_agent_cli_usage(
+pub async fn record_agent_cli_usage(
     input: RecordAgentCliUsageInput,
 ) -> Result<AgentCliUsageRecord, String> {
-    let conn = open_db_connection().map_err(|error| error.to_string())?;
+    let rb = db::rb();
     let now = now_rfc3339();
     let RecordAgentCliUsageInput {
         execution_id,
@@ -671,13 +628,13 @@ pub fn record_agent_cli_usage(
     let cache_read_input_tokens = cache_read_input_tokens.unwrap_or(0).max(0);
     let cache_creation_input_tokens = cache_creation_input_tokens.unwrap_or(0).max(0);
     let model_id = normalize_optional_text(model_id);
-    let agent_id = normalize_reference_id(&conn, "agents", agent_id)?;
-    let project_id = normalize_reference_id(&conn, "projects", project_id)?;
-    let session_id = normalize_reference_id(&conn, "sessions", session_id)?;
-    let task_id = normalize_reference_id(&conn, "tasks", task_id)?;
+    let agent_id = normalize_reference_id(rb, "agents", agent_id).await?;
+    let project_id = normalize_reference_id(rb, "projects", project_id).await?;
+    let session_id = normalize_reference_id(rb, "sessions", session_id).await?;
+    let task_id = normalize_reference_id(rb, "tasks", task_id).await?;
     let message_id = normalize_optional_text(message_id);
     let agent_name_snapshot = normalize_optional_text(agent_name_snapshot);
-    let user_pricing = fetch_user_model_pricing(&conn, model_id.as_deref());
+    let user_pricing = fetch_user_model_pricing(rb, model_id.as_deref()).await;
     let pricing = estimate_pricing(
         &provider,
         model_id.as_deref(),
@@ -686,108 +643,42 @@ pub fn record_agent_cli_usage(
         user_pricing,
     );
 
-    conn.execute(
-        r#"
-        INSERT INTO agent_cli_usage_records (
-            execution_id, execution_mode, provider, agent_id, agent_name_snapshot, model_id,
-            project_id, session_id, task_id, message_id, input_tokens, output_tokens, total_tokens,
-            cache_read_input_tokens, cache_creation_input_tokens,
-            call_count, estimated_input_cost_usd, estimated_output_cost_usd, estimated_total_cost_usd,
-            pricing_status, pricing_version, occurred_at, created_at
-        ) VALUES (
-            ?1, ?2, ?3, ?4, ?5, ?6,
-            ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-            ?14, ?15,
-            1, ?16, ?17, ?18,
-            ?19, ?20, ?21, ?22
-        )
-        ON CONFLICT(execution_id) DO UPDATE SET
-            execution_mode = excluded.execution_mode,
-            provider = excluded.provider,
-            agent_id = excluded.agent_id,
-            agent_name_snapshot = excluded.agent_name_snapshot,
-            model_id = excluded.model_id,
-            project_id = excluded.project_id,
-            session_id = excluded.session_id,
-            task_id = excluded.task_id,
-            message_id = excluded.message_id,
-            input_tokens = excluded.input_tokens,
-            output_tokens = excluded.output_tokens,
-            total_tokens = excluded.total_tokens,
-            cache_read_input_tokens = excluded.cache_read_input_tokens,
-            cache_creation_input_tokens = excluded.cache_creation_input_tokens,
-            call_count = excluded.call_count,
-            estimated_input_cost_usd = excluded.estimated_input_cost_usd,
-            estimated_output_cost_usd = excluded.estimated_output_cost_usd,
-            estimated_total_cost_usd = excluded.estimated_total_cost_usd,
-            pricing_status = excluded.pricing_status,
-            pricing_version = excluded.pricing_version,
-            occurred_at = excluded.occurred_at
-        "#,
-        params![
-            execution_id,
-            execution_mode,
-            provider,
-            agent_id,
-            agent_name_snapshot,
-            model_id,
-            project_id,
-            session_id,
-            task_id,
-            message_id,
-            input_tokens,
-            output_tokens,
-            total_tokens,
-            cache_read_input_tokens,
-            cache_creation_input_tokens,
-            pricing.estimated_input_cost_usd,
-            pricing.estimated_output_cost_usd,
-            pricing.estimated_total_cost_usd,
-            pricing.pricing_status,
-            PRICING_VERSION,
-            occurred_at,
-            now,
-        ],
-    )
-    .map_err(|error| error.to_string())?;
+    let row = AgentCliUsageUpsert {
+        execution_id: execution_id.clone(),
+        execution_mode,
+        provider,
+        agent_id,
+        agent_name_snapshot,
+        model_id,
+        project_id,
+        session_id,
+        task_id,
+        message_id,
+        input_tokens,
+        output_tokens,
+        total_tokens,
+        cache_read_input_tokens,
+        cache_creation_input_tokens,
+        call_count: 1,
+        estimated_input_cost_usd: pricing.estimated_input_cost_usd,
+        estimated_output_cost_usd: pricing.estimated_output_cost_usd,
+        estimated_total_cost_usd: pricing.estimated_total_cost_usd,
+        pricing_status: pricing.pricing_status,
+        pricing_version: PRICING_VERSION.to_string(),
+        occurred_at,
+        created_at: now,
+    };
+    usage_mapper::upsert_agent_cli_usage(rb, &row)
+        .await
+        .map_err(|e| e.to_string())?;
 
-    conn.query_row(
-        r#"
-        SELECT execution_id, execution_mode, provider, agent_id, agent_name_snapshot, model_id,
-               project_id, session_id, task_id, message_id, input_tokens, output_tokens, total_tokens,
-               call_count, estimated_input_cost_usd, estimated_output_cost_usd, estimated_total_cost_usd,
-               pricing_status, pricing_version, occurred_at, created_at
-        FROM agent_cli_usage_records
-        WHERE execution_id = ?1
-        "#,
-        [execution_id],
-        |row| {
-            Ok(AgentCliUsageRecord {
-                execution_id: row.get(0)?,
-                execution_mode: row.get(1)?,
-                provider: row.get(2)?,
-                agent_id: row.get(3)?,
-                agent_name_snapshot: row.get(4)?,
-                model_id: row.get(5)?,
-                project_id: row.get(6)?,
-                session_id: row.get(7)?,
-                task_id: row.get(8)?,
-                message_id: row.get(9)?,
-                input_tokens: row.get(10)?,
-                output_tokens: row.get(11)?,
-                total_tokens: row.get(12)?,
-                call_count: row.get(13)?,
-                estimated_input_cost_usd: row.get(14)?,
-                estimated_output_cost_usd: row.get(15)?,
-                estimated_total_cost_usd: row.get(16)?,
-                pricing_status: row.get(17)?,
-                pricing_version: row.get(18)?,
-                occurred_at: row.get(19)?,
-                created_at: row.get(20)?,
-            })
-        },
-    )
-    .map_err(|error| error.to_string())
+    let read_row = usage_mapper::get_agent_cli_usage_by_execution_id(rb, &execution_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or("写入后回读失败")?;
+    map_usage_row(read_row)
 }
 
 /// 查询 CLI 用量统计聚合结果。
@@ -797,180 +688,142 @@ pub fn record_agent_cli_usage(
 /// 返回值：返回汇总、趋势、分组明细和图表堆叠序列。
 /// 关键副作用：无，仅执行只读查询。
 #[tauri::command]
-pub fn query_agent_cli_usage_stats(
+pub async fn query_agent_cli_usage_stats(
     input: QueryAgentCliUsageStatsInput,
 ) -> Result<AgentCliUsageStatsResponse, String> {
-    let conn = open_db_connection().map_err(|error| error.to_string())?;
+    let rb = db::rb();
     let granularity = normalize_granularity(&input.granularity);
     let dimension = normalize_dimension(&input.dimension);
     let provider_filter = normalize_provider_filter(input.provider_filter.clone());
-    let (where_clause, params) = build_where_clause(&input);
-    let bucket_expr = bucket_sql(&granularity);
-    let (dimension_id_expr, dimension_label_expr) =
-        dimension_sql(&dimension, provider_filter == "all" && dimension == "model");
-    let breakdown_order_expr = breakdown_order_sql(&dimension);
 
-    let summary_sql = format!(
-        r#"
-        SELECT
-            COALESCE(SUM(call_count), 0),
-            COALESCE(SUM(input_tokens), 0),
-            COALESCE(SUM(output_tokens), 0),
-            COALESCE(SUM(total_tokens), 0),
-            COALESCE(SUM(cache_read_input_tokens), 0),
-            COALESCE(SUM(cache_creation_input_tokens), 0),
-            COALESCE(SUM(estimated_input_cost_usd), 0),
-            COALESCE(SUM(estimated_output_cost_usd), 0),
-            COALESCE(SUM(estimated_total_cost_usd), 0),
-            COALESCE(SUM(CASE WHEN pricing_status != 'estimated' THEN call_count ELSE 0 END), 0)
-        FROM agent_cli_usage_records
-        WHERE {}
-        "#,
-        where_clause
-    );
+    // 规整筛选参数（Option 化：None 表示该条件不参与 where）。
+    let start_at = normalize_optional_text(input.start_at.clone());
+    let end_at = normalize_optional_text(input.end_at.clone());
+    let provider_opt = if provider_filter == "all" {
+        None
+    } else {
+        Some(provider_filter.as_str())
+    };
+    let model_keyword = normalize_optional_text(input.model_keyword.clone()).map(|kw| {
+        // 模板里是 lower(coalesce(model_id,'')) like #{model_keyword}，故传已小写的 %kw%。
+        format!("%{}%", kw.to_lowercase())
+    });
 
-    let summary = conn
-        .query_row(&summary_sql, params_from_iter(params.iter()), |row| {
-            Ok(AgentCliUsageSummary {
-                total_calls: row.get(0)?,
-                input_tokens: row.get(1)?,
-                output_tokens: row.get(2)?,
-                total_tokens: row.get(3)?,
-                cache_read_tokens: row.get(4)?,
-                cache_creation_tokens: row.get(5)?,
-                estimated_input_cost_usd: row.get(6)?,
-                estimated_output_cost_usd: row.get(7)?,
-                estimated_total_cost_usd: row.get(8)?,
-                unpriced_calls: row.get(9)?,
-            })
+    let bucket = bucket_expr(&granularity);
+    let (dim_id_expr, dim_label_expr) =
+        dimension_exprs(&dimension, provider_filter == "all" && dimension == "model");
+    let order_expr = breakdown_order_expr(&dimension);
+
+    // 汇总（单行）。
+    let summary_row: UsageSummaryRow = usage_mapper::query_usage_summary(
+        rb,
+        start_at.as_deref(),
+        end_at.as_deref(),
+        provider_opt,
+        model_keyword.as_deref(),
+    )
+    .await
+    .map_err(|e| e.to_string())?
+    .into_iter()
+    .next()
+    .ok_or("summary 查询失败")?;
+    let summary = AgentCliUsageSummary {
+        total_calls: summary_row.total_calls.unwrap_or(0),
+        input_tokens: summary_row.input_tokens.unwrap_or(0),
+        output_tokens: summary_row.output_tokens.unwrap_or(0),
+        total_tokens: summary_row.total_tokens.unwrap_or(0),
+        cache_read_tokens: summary_row.cache_read_tokens.unwrap_or(0),
+        cache_creation_tokens: summary_row.cache_creation_tokens.unwrap_or(0),
+        estimated_input_cost_usd: summary_row.estimated_input_cost_usd.unwrap_or(0.0),
+        estimated_output_cost_usd: summary_row.estimated_output_cost_usd.unwrap_or(0.0),
+        estimated_total_cost_usd: summary_row.estimated_total_cost_usd.unwrap_or(0.0),
+        unpriced_calls: summary_row.unpriced_calls.unwrap_or(0),
+    };
+
+    // 时间趋势。
+    let timeline_rows: Vec<UsageTimelineRow> = usage_mapper::query_usage_timeline(
+        rb,
+        bucket,
+        start_at.as_deref(),
+        end_at.as_deref(),
+        provider_opt,
+        model_keyword.as_deref(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    let timeline = timeline_rows
+        .into_iter()
+        .map(|row| AgentCliUsageTimelinePoint {
+            label: row.bucket.clone().unwrap_or_default(),
+            bucket: row.bucket.unwrap_or_default(),
+            call_count: row.call_count.unwrap_or(0),
+            input_tokens: row.input_tokens.unwrap_or(0),
+            output_tokens: row.output_tokens.unwrap_or(0),
+            total_tokens: row.total_tokens.unwrap_or(0),
+            cache_read_tokens: row.cache_read_tokens.unwrap_or(0),
+            cache_creation_tokens: row.cache_creation_tokens.unwrap_or(0),
+            estimated_input_cost_usd: row.estimated_input_cost_usd.unwrap_or(0.0),
+            estimated_output_cost_usd: row.estimated_output_cost_usd.unwrap_or(0.0),
+            estimated_total_cost_usd: row.estimated_total_cost_usd.unwrap_or(0.0),
         })
-        .map_err(|error| error.to_string())?;
+        .collect();
 
-    let timeline_sql = format!(
-        r#"
-        SELECT
-            {bucket_expr} AS bucket,
-            COALESCE(SUM(call_count), 0),
-            COALESCE(SUM(input_tokens), 0),
-            COALESCE(SUM(output_tokens), 0),
-            COALESCE(SUM(total_tokens), 0),
-            COALESCE(SUM(cache_read_input_tokens), 0),
-            COALESCE(SUM(cache_creation_input_tokens), 0),
-            COALESCE(SUM(estimated_input_cost_usd), 0),
-            COALESCE(SUM(estimated_output_cost_usd), 0),
-            COALESCE(SUM(estimated_total_cost_usd), 0)
-        FROM agent_cli_usage_records
-        WHERE {where_clause}
-        GROUP BY bucket
-        ORDER BY bucket ASC
-        "#
-    );
-
-    let mut timeline_stmt = conn
-        .prepare(&timeline_sql)
-        .map_err(|error| error.to_string())?;
-    let timeline = timeline_stmt
-        .query_map(params_from_iter(params.iter()), |row| {
-            let bucket: String = row.get(0)?;
-            Ok(AgentCliUsageTimelinePoint {
-                label: bucket.clone(),
-                bucket,
-                call_count: row.get(1)?,
-                input_tokens: row.get(2)?,
-                output_tokens: row.get(3)?,
-                total_tokens: row.get(4)?,
-                cache_read_tokens: row.get(5)?,
-                cache_creation_tokens: row.get(6)?,
-                estimated_input_cost_usd: row.get(7)?,
-                estimated_output_cost_usd: row.get(8)?,
-                estimated_total_cost_usd: row.get(9)?,
-            })
+    // 维度明细。
+    let breakdown_rows: Vec<UsageBreakdownRow> = usage_mapper::query_usage_breakdown(
+        rb,
+        dim_id_expr,
+        dim_label_expr,
+        order_expr,
+        start_at.as_deref(),
+        end_at.as_deref(),
+        provider_opt,
+        model_keyword.as_deref(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    let breakdown = breakdown_rows
+        .into_iter()
+        .map(|row| AgentCliUsageBreakdownRow {
+            dimension_id: row.dimension_id.unwrap_or_default(),
+            label: row.dimension_label.unwrap_or_default(),
+            provider: row.provider.unwrap_or_default(),
+            call_count: row.call_count.unwrap_or(0),
+            input_tokens: row.input_tokens.unwrap_or(0),
+            output_tokens: row.output_tokens.unwrap_or(0),
+            total_tokens: row.total_tokens.unwrap_or(0),
+            estimated_total_cost_usd: row.estimated_total_cost_usd.unwrap_or(0.0),
+            unpriced_calls: row.unpriced_calls.unwrap_or(0),
         })
-        .map_err(|error| error.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| error.to_string())?;
+        .collect();
 
-    let breakdown_sql = format!(
-        r#"
-        SELECT
-            {dimension_id_expr} AS dimension_id,
-            {dimension_label_expr} AS dimension_label,
-            MIN(provider) AS provider,
-            COALESCE(SUM(call_count), 0),
-            COALESCE(SUM(input_tokens), 0),
-            COALESCE(SUM(output_tokens), 0),
-            COALESCE(SUM(total_tokens), 0),
-            COALESCE(SUM(estimated_total_cost_usd), 0),
-            COALESCE(SUM(CASE WHEN pricing_status != 'estimated' THEN call_count ELSE 0 END), 0)
-        FROM agent_cli_usage_records
-        WHERE {where_clause}
-        GROUP BY dimension_id, dimension_label
-        ORDER BY {breakdown_order_expr}
-        "#
-    );
-
-    let mut breakdown_stmt = conn
-        .prepare(&breakdown_sql)
-        .map_err(|error| error.to_string())?;
-    let breakdown = breakdown_stmt
-        .query_map(params_from_iter(params.iter()), |row| {
-            Ok(AgentCliUsageBreakdownRow {
-                dimension_id: row.get(0)?,
-                label: row.get(1)?,
-                provider: row.get(2)?,
-                call_count: row.get(3)?,
-                input_tokens: row.get(4)?,
-                output_tokens: row.get(5)?,
-                total_tokens: row.get(6)?,
-                estimated_total_cost_usd: row.get(7)?,
-                unpriced_calls: row.get(8)?,
-            })
+    // 堆叠图。
+    let stacked_rows: Vec<UsageStackedRow> = usage_mapper::query_usage_stacked(
+        rb,
+        bucket,
+        dim_id_expr,
+        dim_label_expr,
+        start_at.as_deref(),
+        end_at.as_deref(),
+        provider_opt,
+        model_keyword.as_deref(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    let stacked_timeline = stacked_rows
+        .into_iter()
+        .map(|row| AgentCliUsageStackedPoint {
+            label: row.bucket.clone().unwrap_or_default(),
+            bucket: row.bucket.unwrap_or_default(),
+            dimension_id: row.dimension_id.unwrap_or_default(),
+            dimension_label: row.dimension_label.unwrap_or_default(),
+            provider: row.provider.unwrap_or_default(),
+            call_count: row.call_count.unwrap_or(0),
+            input_tokens: row.input_tokens.unwrap_or(0),
+            output_tokens: row.output_tokens.unwrap_or(0),
+            total_tokens: row.total_tokens.unwrap_or(0),
+            estimated_total_cost_usd: row.estimated_total_cost_usd.unwrap_or(0.0),
         })
-        .map_err(|error| error.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| error.to_string())?;
-
-    let stacked_sql = format!(
-        r#"
-        SELECT
-            {bucket_expr} AS bucket,
-            {dimension_id_expr} AS dimension_id,
-            {dimension_label_expr} AS dimension_label,
-            MIN(provider) AS provider,
-            COALESCE(SUM(call_count), 0),
-            COALESCE(SUM(input_tokens), 0),
-            COALESCE(SUM(output_tokens), 0),
-            COALESCE(SUM(total_tokens), 0),
-            COALESCE(SUM(estimated_total_cost_usd), 0)
-        FROM agent_cli_usage_records
-        WHERE {where_clause}
-        GROUP BY bucket, dimension_id, dimension_label
-        ORDER BY bucket ASC, dimension_label ASC
-        "#
-    );
-
-    let mut stacked_stmt = conn
-        .prepare(&stacked_sql)
-        .map_err(|error| error.to_string())?;
-    let stacked_timeline = stacked_stmt
-        .query_map(params_from_iter(params.iter()), |row| {
-            let bucket: String = row.get(0)?;
-            Ok(AgentCliUsageStackedPoint {
-                label: bucket.clone(),
-                bucket,
-                dimension_id: row.get(1)?,
-                dimension_label: row.get(2)?,
-                provider: row.get(3)?,
-                call_count: row.get(4)?,
-                input_tokens: row.get(5)?,
-                output_tokens: row.get(6)?,
-                total_tokens: row.get(7)?,
-                estimated_total_cost_usd: row.get(8)?,
-            })
-        })
-        .map_err(|error| error.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| error.to_string())?;
+        .collect();
 
     let cost_partial = summary.unpriced_calls > 0;
 
@@ -999,11 +852,10 @@ pub fn query_agent_cli_usage_stats(
 /// 返回值：返回目标模型、修复数量和跳过原因。
 /// 关键副作用：可能更新本地 SQLite 中的 `agent_cli_usage_records` 历史数据。
 #[tauri::command]
-pub fn repair_agent_cli_usage_history(
+pub async fn repair_agent_cli_usage_history(
     provider: Option<String>,
 ) -> Result<RepairAgentCliUsageHistoryResult, String> {
     let normalized_provider = normalize_provider_filter(provider);
-    let conn = open_db_connection().map_err(|error| error.to_string())?;
 
     if normalized_provider != "all" && normalized_provider != "claude" {
         return Ok(RepairAgentCliUsageHistoryResult {
@@ -1014,7 +866,7 @@ pub fn repair_agent_cli_usage_history(
         });
     }
 
-    repair_claude_usage_history(&conn)
+    repair_claude_usage_history(db::rb()).await
 }
 
 /// 查询单个会话的累计用量汇总（输入/输出/缓存 token 与调用次数）。
@@ -1022,35 +874,23 @@ pub fn repair_agent_cli_usage_history(
 /// 用途：为消息输入框上下文进度环浮层提供会话级累计用量指标。
 /// 关键副作用：无，仅执行只读查询。
 #[tauri::command]
-pub fn query_session_usage_summary(
+pub async fn query_session_usage_summary(
     session_id: String,
 ) -> Result<SessionUsageSummary, String> {
-    let conn = open_db_connection().map_err(|error| error.to_string())?;
-    conn.query_row(
-        r#"
-        SELECT
-            COALESCE(SUM(input_tokens), 0),
-            COALESCE(SUM(output_tokens), 0),
-            COALESCE(SUM(total_tokens), 0),
-            COALESCE(SUM(cache_read_input_tokens), 0),
-            COALESCE(SUM(cache_creation_input_tokens), 0),
-            COALESCE(SUM(call_count), 0)
-        FROM agent_cli_usage_records
-        WHERE session_id = ?1
-        "#,
-        [&session_id],
-        |row| {
-            Ok(SessionUsageSummary {
-                input_tokens: row.get(0)?,
-                output_tokens: row.get(1)?,
-                total_tokens: row.get(2)?,
-                cache_read_input_tokens: row.get(3)?,
-                cache_creation_input_tokens: row.get(4)?,
-                call_count: row.get(5)?,
-            })
-        },
-    )
-    .map_err(|error| error.to_string())
+    let row: SessionUsageRow = usage_mapper::query_session_usage_summary(db::rb(), &session_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or("会话用量查询失败")?;
+    Ok(SessionUsageSummary {
+        input_tokens: row.input_tokens.unwrap_or(0),
+        output_tokens: row.output_tokens.unwrap_or(0),
+        cache_read_input_tokens: row.cache_read_input_tokens.unwrap_or(0),
+        cache_creation_input_tokens: row.cache_creation_input_tokens.unwrap_or(0),
+        total_tokens: row.total_tokens.unwrap_or(0),
+        call_count: row.call_count.unwrap_or(0),
+    })
 }
 
 #[cfg(test)]

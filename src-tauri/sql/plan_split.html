@@ -1,0 +1,139 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!--
+    计划拆分模块 SQL。
+    task_split_sessions select 列顺序固定为 PlanSplitSessionRow 字段顺序（20 列）。
+    plan_split_logs select 列顺序固定为 PlanSplitLogRow 字段顺序（7 列）。
+    parsed_output 列在命令层映射为 PlanSplitSession.result_json。
+  -->
+
+  <!-- 按 plan_id 查询拆分会话（完整 20 列） -->
+  <select id="get_plan_split_session_by_plan">
+    `select id, plan_id, status, execution_session_id, raw_content, CAST(parsed_output AS TEXT) as parsed_output, `
+    `parse_error, error_message, granularity, task_count_mode, `
+    `CAST(llm_messages_json AS TEXT) as llm_messages_json, CAST(messages_json AS TEXT) as messages_json, `
+    `CAST(execution_request_json AS TEXT) as execution_request_json, CAST(form_queue_json AS TEXT) as form_queue_json, `
+    `current_form_index, `
+    `created_at, updated_at, started_at, completed_at, stopped_at `
+    `from task_split_sessions where plan_id = #{plan_id}`
+  </select>
+
+  <!-- 按 plan_id 查询拆分会话 id（判断是否已存在） -->
+  <select id="get_plan_split_session_id_by_plan">
+    `select id as value from task_split_sessions where plan_id = #{plan_id}`
+  </select>
+
+  <!-- 插入拆分会话（完整 20 列） -->
+  <insert id="insert_plan_split_session">
+    `insert into task_split_sessions `
+    `(id, plan_id, status, execution_session_id, raw_content, parsed_output, parse_error, `
+    ` error_message, granularity, task_count_mode, llm_messages_json, messages_json, execution_request_json, `
+    ` form_queue_json, current_form_index, created_at, updated_at, started_at, completed_at, stopped_at) `
+    `values `
+    `(#{session.id}, #{session.plan_id}, #{session.status}, #{session.execution_session_id}, `
+    ` #{session.raw_content}, #{session.parsed_output}, #{session.parse_error}, `
+    ` #{session.error_message}, #{session.granularity}, #{session.task_count_mode}, `
+    ` #{session.llm_messages_json}, #{session.messages_json}, #{session.execution_request_json}, `
+    ` #{session.form_queue_json}, #{session.current_form_index}, #{session.created_at}, `
+    ` #{session.updated_at}, #{session.started_at}, #{session.completed_at}, #{session.stopped_at})`
+  </insert>
+
+  <!-- 更新拆分会话（17 列 SET，按 id） -->
+  <update id="update_plan_split_session">
+    `update task_split_sessions set `
+    `status = #{session.status}, `
+    `execution_session_id = #{session.execution_session_id}, `
+    `raw_content = #{session.raw_content}, `
+    `parsed_output = #{session.parsed_output}, `
+    `parse_error = #{session.parse_error}, `
+    `error_message = #{session.error_message}, `
+    `granularity = #{session.granularity}, `
+    `task_count_mode = #{session.task_count_mode}, `
+    `llm_messages_json = #{session.llm_messages_json}, `
+    `messages_json = #{session.messages_json}, `
+    `execution_request_json = #{session.execution_request_json}, `
+    `form_queue_json = #{session.form_queue_json}, `
+    `current_form_index = #{session.current_form_index}, `
+    `updated_at = #{session.updated_at}, `
+    `started_at = #{session.started_at}, `
+    `completed_at = #{session.completed_at}, `
+    `stopped_at = #{session.stopped_at} `
+    `where id = #{session.id}`
+  </update>
+
+  <!-- ==================== plan_split_logs ==================== -->
+
+  <!-- 按 plan_id 列出全部日志（按 created_at 升序） -->
+  <select id="list_plan_split_logs_by_plan">
+    `select id, plan_id, session_id, log_type, content, CAST(metadata AS TEXT) as metadata, created_at `
+    `from plan_split_logs where plan_id = #{plan_id} order by created_at asc`
+  </select>
+
+  <!-- 按 plan_id 列出最近 N 条日志（子查询取 DESC LIMIT 后再 ASC 排序） -->
+  <select id="list_recent_plan_split_logs">
+    `select id, plan_id, session_id, log_type, content, CAST(metadata AS TEXT) as metadata, created_at from ( `
+    `  select id, plan_id, session_id, log_type, content, CAST(metadata AS TEXT) as metadata, created_at `
+    `  from plan_split_logs where plan_id = #{plan_id} `
+    `  order by created_at desc limit #{limit} `
+    `) order by created_at asc`
+  </select>
+
+  <!-- 按 session_id 查询 content 类型日志的 content 单列（按 created_at 升序） -->
+  <select id="list_content_logs_by_session">
+    `select content as value from plan_split_logs `
+    `where session_id = #{session_id} and log_type = 'content' order by created_at asc`
+  </select>
+
+  <!-- 按 session_id 查询结构化输出相关日志（log_type IN 三种，按 created_at 升序） -->
+  <select id="list_structured_output_logs_by_session">
+    `select id, plan_id, session_id, log_type, content, CAST(metadata AS TEXT) as metadata, created_at `
+    `from plan_split_logs `
+    `where session_id = #{session_id} `
+    `and log_type in ('tool_use', 'tool_input_delta', 'tool_result') `
+    `order by created_at asc`
+  </select>
+
+  <!-- 按 plan_id 查询日志 id 列表（用于按时间戳过滤后删除） -->
+  <select id="list_plan_split_log_ids_by_plan">
+    `select id as value from plan_split_logs where plan_id = #{plan_id}`
+  </select>
+
+  <!-- 插入拆分日志 -->
+  <insert id="insert_plan_split_log">
+    `insert into plan_split_logs (id, plan_id, session_id, log_type, content, metadata, created_at) `
+    `values (#{id}, #{plan_id}, #{session_id}, #{log_type}, #{content}, #{metadata}, #{created_at})`
+  </insert>
+
+  <!-- 更新拆分日志内容与元数据（按 id） -->
+  <update id="update_plan_split_log">
+    `update plan_split_logs set content = #{content}, metadata = #{metadata} where id = #{id}`
+  </update>
+
+  <!-- 按 id 删除单条日志 -->
+  <delete id="delete_plan_split_log_by_id">
+    `delete from plan_split_logs where id = #{id}`
+  </delete>
+
+  <!-- 按 plan_id + session_id 删除日志 -->
+  <delete id="delete_plan_split_logs_by_plan_and_session">
+    `delete from plan_split_logs where plan_id = #{plan_id} and session_id = #{session_id}`
+  </delete>
+
+  <!-- 按 plan_id 删除全部日志 -->
+  <delete id="delete_plan_split_logs_by_plan">
+    `delete from plan_split_logs where plan_id = #{plan_id}`
+  </delete>
+
+  <!-- 按 id 批量删除日志（foreach 拼 IN 列表） -->
+  <delete id="delete_plan_split_logs_by_ids">
+    `delete from plan_split_logs where id in`
+    <foreach collection="ids" item="lid" open="(" close=")" separator=",">
+      `#{lid}`
+    </foreach>
+  </delete>
+
+  <!-- 按 plan_id 删除拆分会话 -->
+  <delete id="delete_task_split_session_by_plan">
+    `delete from task_split_sessions where plan_id = #{plan_id}`
+  </delete>
+</mapper>

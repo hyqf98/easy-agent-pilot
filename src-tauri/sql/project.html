@@ -1,0 +1,133 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://raw.githubusercontent.com/rbatis/rbatis/master/rbatis-codegen/mybatis-3-mapper.dtd">
+<mapper>
+  <!--
+    项目模块 SQL。
+    projects 表 select 列顺序固定为 ProjectRow 字段顺序（见 models/mod.rs）。
+    list_projects 用 LEFT JOIN sessions 聚合 session_count。
+  -->
+
+  <!-- 列出全部项目（含会话计数，按 updated_at 倒序） -->
+  <select id="list_projects_with_session_count">
+    `select p.id, p.name, p.path, p.description, p.created_at, p.updated_at, `
+    `coalesce(s.session_count, 0) as session_count `
+    `from projects p `
+    `left join ( `
+    `  select project_id, count(*) as session_count from sessions group by project_id `
+    `) s on p.id = s.project_id `
+    `order by p.updated_at desc`
+  </select>
+
+  <!-- 查询项目关联的记忆库 id（按 created_at、library_id 升序） -->
+  <select id="list_project_memory_library_ids">
+    `select library_id as value from project_memory_libraries `
+    `where project_id = #{project_id} order by created_at asc, library_id asc`
+  </select>
+
+  <!-- 清空项目的记忆库关联（事务内，替换前先清空） -->
+  <delete id="delete_project_memory_libraries">
+    `delete from project_memory_libraries where project_id = #{project_id}`
+  </delete>
+
+  <!-- 插入一条项目-记忆库关联（事务内） -->
+  <insert id="insert_project_memory_library">
+    `insert into project_memory_libraries (project_id, library_id, created_at) `
+    `values (#{project_id}, #{library_id}, #{created_at})`
+  </insert>
+
+  <!-- 插入新项目（事务内） -->
+  <insert id="insert_project">
+    `insert into projects (id, name, path, description, created_at, updated_at) `
+    `values (#{id}, #{name}, #{path}, #{description}, #{created_at}, #{updated_at})`
+  </insert>
+
+  <!-- 更新项目基本信息（事务内） -->
+  <update id="update_project_basic">
+    `update projects set name = #{name}, path = #{path}, description = #{description}, updated_at = #{updated_at} `
+    `where id = #{id}`
+  </update>
+
+  <!-- 查询项目的会话数 -->
+  <select id="get_project_session_count">
+    `select count(*) as value from sessions where project_id = #{project_id}`
+  </select>
+
+  <!-- 查询项目的 created_at -->
+  <select id="get_project_created_at">
+    `select created_at as value from projects where id = #{id}`
+  </select>
+
+  <!-- 删除项目本体 -->
+  <delete id="delete_project_by_id">
+    `delete from projects where id = #{id}`
+  </delete>
+
+  <!-- 刷新项目 updated_at -->
+  <update id="touch_project_updated_at">
+    `update projects set updated_at = #{updated_at} where id = #{id}`
+  </update>
+
+  <!-- ==================== clear_project_runtime_data ==================== -->
+
+  <!-- 查询项目关联的会话 id 列表 -->
+  <select id="list_session_ids_by_project">
+    `select id as value from sessions where project_id = #{project_id}`
+  </select>
+
+  <!-- 统计项目关联的计划数 -->
+  <select id="count_plans_by_project">
+    `select count(*) as value from plans where project_id = #{project_id}`
+  </select>
+
+  <!-- 统计项目关联的任务数（含 plan 间接关联） -->
+  <select id="count_tasks_by_project">
+    `select count(*) as value from tasks `
+    `where project_id = #{project_id} `
+    `or plan_id in (select id from plans where project_id = #{project_id})`
+  </select>
+
+  <!-- 统计项目关联的 plan_split_logs 数 -->
+  <select id="count_plan_split_logs_by_project">
+    `select count(*) as value from plan_split_logs `
+    `where plan_id in (select id from plans where project_id = #{project_id})`
+  </select>
+
+  <!-- 统计项目关联的 task_split_sessions 数 -->
+  <select id="count_task_split_sessions_by_project">
+    `select count(*) as value from task_split_sessions `
+    `where plan_id in (select id from plans where project_id = #{project_id})`
+  </select>
+
+  <!-- 统计项目关联的 task_execution_results 数 -->
+  <select id="count_execution_results_by_project">
+    `select count(*) as value from task_execution_results `
+    `where plan_id in (select id from plans where project_id = #{project_id})`
+  </select>
+
+  <!-- 统计项目关联的 task_execution_logs 数 -->
+  <select id="count_execution_logs_by_project">
+    `select count(*) as value from task_execution_logs `
+    `where task_id in (select id from tasks where project_id = #{project_id} `
+    `or plan_id in (select id from plans where project_id = #{project_id}))`
+  </select>
+
+  <!-- 删除项目会话关联的窗口锁（事务内） -->
+  <delete id="delete_window_locks_by_project_sessions">
+    `delete from window_session_locks where session_id in `
+    `(select id from sessions where project_id = #{project_id})`
+  </delete>
+
+  <!-- 删除项目关联的会话（事务内） -->
+  <delete id="delete_sessions_by_project">
+    `delete from sessions where project_id = #{project_id}`
+  </delete>
+
+  <!-- 删除项目关联的任务（事务内） -->
+  <delete id="delete_tasks_by_project">
+    `delete from tasks where project_id = #{project_id}`
+  </delete>
+
+  <!-- 删除项目关联的计划（事务内） -->
+  <delete id="delete_plans_by_project">
+    `delete from plans where project_id = #{project_id}`
+  </delete>
+</mapper>

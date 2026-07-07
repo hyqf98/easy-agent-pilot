@@ -1,12 +1,12 @@
 use anyhow::Result;
-use rusqlite::{params, Row};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-use super::support::{
-    bind_optional, bind_optional_mapped, bind_value, now_rfc3339, open_db_connection,
-    UpdateSqlBuilder,
-};
+use super::support::now_rfc3339;
+
+use crate::db;
+use crate::mappers::sub_agent as sub_agent_mapper;
+use crate::models::{value_to_json_string_opt, SubAgentRow};
 
 /// 写盘子代理文件的标记前缀。仅清理带此前缀的文件，避免覆盖用户手写配置。
 const EA_SUB_AGENT_FILE_PREFIX: &str = "ea-";
@@ -427,126 +427,126 @@ fn parse_json_array(raw: Option<String>) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// 子代理查询列顺序（与建表/SELECT 语句保持一致）。
-const SUB_AGENT_COLUMNS: &str = "id, builtin_code, name, description, prompt, \
-    category, tags, recommended_scenes, tools, disallowed_tools, \
-    model, permission_mode, max_turns, \
-    is_builtin, is_enabled, is_system, sort_order, created_at, updated_at";
-
-fn map_sub_agent_row(row: &Row<'_>) -> rusqlite::Result<SubAgent> {
-    Ok(SubAgent {
-        id: row.get(0)?,
-        builtin_code: row.get(1)?,
-        name: row.get(2)?,
-        description: row.get(3)?,
-        prompt: row.get(4)?,
-        category: row.get(5)?,
-        tags: parse_json_array(row.get(6)?),
-        recommended_scenes: parse_json_array(row.get(7)?),
-        tools: parse_json_array(row.get(8)?),
-        disallowed_tools: parse_json_array(row.get(9)?),
-        model: row.get(10)?,
-        permission_mode: row.get(11)?,
-        max_turns: row.get(12)?,
-        is_builtin: row.get::<_, i32>(13)? != 0,
-        is_enabled: row.get::<_, i32>(14)? != 0,
-        is_system: row.get::<_, i32>(15)? != 0,
-        sort_order: row.get(16)?,
-        created_at: row.get(17)?,
-        updated_at: row.get(18)?,
-    })
+/// 把 rbatis 行映射 `SubAgentRow` 转成对外 DTO `SubAgent`（含 JSON 数组解析、bool 还原）。
+fn row_to_sub_agent(row: SubAgentRow) -> SubAgent {
+    SubAgent {
+        id: row.id.unwrap_or_default(),
+        builtin_code: row.builtin_code,
+        name: row.name.unwrap_or_default(),
+        description: row.description,
+        prompt: row.prompt.unwrap_or_default(),
+        category: row.category.unwrap_or_else(|| "custom".to_string()),
+        tags: parse_json_array(value_to_json_string_opt(row.tags)),
+        recommended_scenes: parse_json_array(value_to_json_string_opt(row.recommended_scenes)),
+        tools: parse_json_array(value_to_json_string_opt(row.tools)),
+        disallowed_tools: parse_json_array(value_to_json_string_opt(row.disallowed_tools)),
+        model: row.model,
+        permission_mode: row.permission_mode,
+        max_turns: row.max_turns.map(|v| v as i32),
+        is_builtin: row.is_builtin.unwrap_or(0) != 0,
+        is_enabled: row.is_enabled.unwrap_or(0) != 0,
+        is_system: row.is_system.unwrap_or(0) != 0,
+        sort_order: row.sort_order.unwrap_or(0) as i32,
+        created_at: row.created_at.unwrap_or_default(),
+        updated_at: row.updated_at.unwrap_or_default(),
+    }
 }
 
-pub(crate) fn ensure_builtin_sub_agents(conn: &rusqlite::Connection) -> Result<(), String> {
+/// 确保内置子代理存在（INSERT OR IGNORE + 按 builtin_code 刷新基础字段）。
+pub(crate) async fn ensure_builtin_sub_agents() -> Result<(), String> {
+    let rb = db::rb();
+
+    // 前置检查：表非空则跳过（避免每次 list 都跑 11×2 次串行 exec）。
+    // INSERT OR IGNORE 本身幂等，但重复执行浪费连接池资源。
+    let existing: i64 = match rb
+        .query("select count(*) as c from sub_agents", vec![])
+        .await
+    {
+        Ok(value) => {
+            // 查询结果形如 Value::Array(rows)；取第一行，其内部为单元素 Map，取其 value。
+            if let rbs::Value::Array(rows) = &value {
+                if let Some(first_row) = rows.first() {
+                    if let rbs::Value::Map(m) = first_row {
+                        if let Some((_, v)) = m.0.iter().next() {
+                            crate::commands::support::value_to_i64(v)
+                        } else { 0 }
+                    } else { 0 }
+                } else { 0 }
+            } else { 0 }
+        }
+        Err(_) => 0,
+    };
+    if existing > 0 {
+        return Ok(());
+    }
+
     let now = now_rfc3339();
 
     for seed in builtin_sub_agent_seeds() {
-        conn.execute(
-            &format!(
-                "INSERT OR IGNORE INTO sub_agents ({}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, NULL, NULL, 1, 1, 1, ?11, ?12, ?13)",
-                SUB_AGENT_COLUMNS
-            ),
-            params![
-                uuid::Uuid::new_v4().to_string(),
-                seed.builtin_code,
-                seed.name,
-                seed.description,
-                seed.prompt,
-                seed.category,
-                serde_json::to_string(seed.tags).unwrap_or_else(|_| "[]".to_string()),
-                serde_json::to_string(seed.recommended_scenes).unwrap_or_else(|_| "[]".to_string()),
-                "[]",
-                "[]",
-                seed.sort_order,
-                now,
-                now,
-            ],
-        )
-        .map_err(|error| error.to_string())?;
+        let tags_json = serde_json::to_string(seed.tags).unwrap_or_else(|_| "[]".to_string());
+        let scenes_json =
+            serde_json::to_string(seed.recommended_scenes).unwrap_or_else(|_| "[]".to_string());
+        let new_id = uuid::Uuid::new_v4().to_string();
 
-        conn.execute(
-            "UPDATE sub_agents
-             SET name = ?1,
-                 description = ?2,
-                 prompt = ?3,
-                 category = ?4,
-                 tags = ?5,
-                 recommended_scenes = ?6,
-                 sort_order = ?7,
-                 updated_at = ?8
-             WHERE builtin_code = ?9",
-            params![
-                seed.name,
-                seed.description,
-                seed.prompt,
-                seed.category,
-                serde_json::to_string(seed.tags).unwrap_or_else(|_| "[]".to_string()),
-                serde_json::to_string(seed.recommended_scenes).unwrap_or_else(|_| "[]".to_string()),
-                seed.sort_order,
-                now_rfc3339(),
-                seed.builtin_code,
-            ],
-        )
-        .map_err(|error| error.to_string())?;
+        // 用 exec 裸 SQL 绕过 #[html_sql] 宏诊断
+        let insert_sql = format!(
+            "insert or ignore into sub_agents (id, builtin_code, name, description, prompt, category, tags, recommended_scenes, tools, disallowed_tools, model, permission_mode, max_turns, is_builtin, is_enabled, is_system, sort_order, created_at, updated_at) values ('{}','{}','{}','{}','{}','{}','{}','{}','[]','[]',NULL,NULL,NULL,1,1,1,{},{},{})",
+            new_id.replace('\'', "''"),
+            seed.builtin_code.replace('\'', "''"),
+            seed.name.replace('\'', "''"),
+            seed.description.replace('\'', "''"),
+            seed.prompt.replace('\'', "''"),
+            seed.category.replace('\'', "''"),
+            tags_json.replace('\'', "''"),
+            scenes_json.replace('\'', "''"),
+            seed.sort_order,
+            // created_at/updated_at 用 sqlite 的 strftime，避免引号问题
+            "strftime('%s','now')",
+            "strftime('%s','now')"
+        );
+        if let Err(e) = rb.exec(&insert_sql, vec![]).await {
+            return Err(format!("insert_builtin({}): {}", seed.builtin_code, e.to_string()));
+        }
+
+        // update 用 exec 裸 SQL（同 insert，避免 #[html_sql] 宏对 JSON 字符串参数的 rbs 解析问题）
+        let update_sql = format!(
+            "update sub_agents set name='{}', description='{}', prompt='{}', category='{}', tags='{}', recommended_scenes='{}', sort_order={}, updated_at='{}' where builtin_code='{}'",
+            seed.name.replace('\'', "''"),
+            seed.description.replace('\'', "''"),
+            seed.prompt.replace('\'', "''"),
+            seed.category.replace('\'', "''"),
+            tags_json.replace('\'', "''"),
+            scenes_json.replace('\'', "''"),
+            seed.sort_order,
+            now_rfc3339(),
+            seed.builtin_code.replace('\'', "''"),
+        );
+        if let Err(e) = rb.exec(&update_sql, vec![]).await {
+            return Err(format!("update_builtin({}): {}", seed.builtin_code, e.to_string()));
+        }
     }
 
     Ok(())
 }
 
-fn fetch_sub_agent_by_id(conn: &rusqlite::Connection, id: &str) -> Result<SubAgent, String> {
-    conn.query_row(
-        &format!("SELECT {} FROM sub_agents WHERE id = ?1", SUB_AGENT_COLUMNS),
-        [id],
-        map_sub_agent_row,
-    )
-    .map_err(|error| error.to_string())
+async fn fetch_sub_agent_by_id(id: &str) -> Result<SubAgent, String> {
+    // 用 list（Vec 返回，已验证可用）过滤，绕过 #[html_sql] 对 Option<SubAgentRow> 单行解码的差异
+    let rows = sub_agent_mapper::list_sub_agents(db::rb())
+        .await
+        .map_err(|error| error.to_string())?;
+    let row = rows
+        .into_iter()
+        .find(|r| r.id.as_deref() == Some(id))
+        .ok_or_else(|| format!("子代理不存在: {}", id))?;
+    Ok(row_to_sub_agent(row))
 }
 
-fn count_sub_agent_references_with_conn(
-    conn: &rusqlite::Connection,
+async fn count_sub_agent_references_inner(
     sub_agent_id: &str,
 ) -> Result<SubAgentReferenceSummary, String> {
-    let plans = conn
-        .query_row(
-            "SELECT COUNT(*) FROM plans WHERE split_expert_id = ?1",
-            [sub_agent_id],
-            |row| row.get::<_, i64>(0),
-        )
-        .map_err(|error| error.to_string())?;
-    let tasks = conn
-        .query_row(
-            "SELECT COUNT(*) FROM tasks WHERE expert_id = ?1",
-            [sub_agent_id],
-            |row| row.get::<_, i64>(0),
-        )
-        .map_err(|error| error.to_string())?;
-    let sessions = conn
-        .query_row(
-            "SELECT COUNT(*) FROM sessions WHERE expert_id = ?1",
-            [sub_agent_id],
-            |row| row.get::<_, i64>(0),
-        )
-        .map_err(|error| error.to_string())?;
+    let plans = sub_agent_mapper::count_plan_refs(db::rb(), sub_agent_id).await;
+    let tasks = sub_agent_mapper::count_task_refs(db::rb(), sub_agent_id).await;
+    let sessions = sub_agent_mapper::count_session_refs(db::rb(), sub_agent_id).await;
 
     Ok(SubAgentReferenceSummary {
         plans,
@@ -556,181 +556,122 @@ fn count_sub_agent_references_with_conn(
 }
 
 #[tauri::command]
-pub fn seed_builtin_sub_agents() -> Result<(), String> {
-    let conn = open_db_connection().map_err(|error| error.to_string())?;
-    ensure_builtin_sub_agents(&conn)
+pub async fn seed_builtin_sub_agents() -> Result<(), String> {
+    ensure_builtin_sub_agents().await
 }
 
 #[tauri::command]
-pub fn list_sub_agents() -> Result<Vec<SubAgent>, String> {
-    let conn = open_db_connection().map_err(|error| error.to_string())?;
-    ensure_builtin_sub_agents(&conn)?;
+pub async fn list_sub_agents() -> Result<Vec<SubAgent>, String> {
+    ensure_builtin_sub_agents().await?;
 
-    let mut stmt = conn
-        .prepare(&format!(
-            "SELECT {} FROM sub_agents ORDER BY is_builtin DESC, sort_order ASC, updated_at DESC",
-            SUB_AGENT_COLUMNS
-        ))
+    let rows = sub_agent_mapper::list_sub_agents(db::rb())
+        .await
         .map_err(|error| error.to_string())?;
-
-    let sub_agents = stmt
-        .query_map([], map_sub_agent_row)
-        .map_err(|error| error.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| error.to_string())?;
-
-    Ok(sub_agents)
+    Ok(rows.into_iter().map(row_to_sub_agent).collect())
 }
 
 /// 仅返回用户自建的子代理（`is_system = 0`），供配置页使用。
 /// 系统级子代理（引擎 fallback 用）不在其中。
 #[tauri::command]
-pub fn list_user_sub_agents() -> Result<Vec<SubAgent>, String> {
-    let conn = open_db_connection().map_err(|error| error.to_string())?;
-
-    let mut stmt = conn
-        .prepare(&format!(
-            "SELECT {} FROM sub_agents WHERE is_system = 0 ORDER BY sort_order ASC, updated_at DESC",
-            SUB_AGENT_COLUMNS
-        ))
+pub async fn list_user_sub_agents() -> Result<Vec<SubAgent>, String> {
+    let rows = sub_agent_mapper::list_user_sub_agents(db::rb())
+        .await
         .map_err(|error| error.to_string())?;
-
-    let sub_agents = stmt
-        .query_map([], map_sub_agent_row)
-        .map_err(|error| error.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| error.to_string())?;
-
-    Ok(sub_agents)
+    Ok(rows.into_iter().map(row_to_sub_agent).collect())
 }
 
 #[tauri::command]
-pub fn create_sub_agent(input: CreateSubAgentInput) -> Result<SubAgent, String> {
-    let conn = open_db_connection().map_err(|error| error.to_string())?;
-
+pub async fn create_sub_agent(input: CreateSubAgentInput) -> Result<SubAgent, String> {
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_rfc3339();
-    conn.execute(
-        &format!(
-            "INSERT INTO sub_agents ({}) VALUES (?1, NULL, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, ?13, 0, ?14, ?15, ?16)",
-            SUB_AGENT_COLUMNS
-        ),
-        params![
-            id,
-            input.name.trim(),
-            input.description.as_ref().map(|value| value.trim()).filter(|value| !value.is_empty()),
-            input.prompt.trim(),
-            input.category.unwrap_or_else(|| "custom".to_string()),
-            to_json_array(&input.tags.unwrap_or_default()),
-            to_json_array(&input.recommended_scenes.unwrap_or_default()),
-            to_json_array(&input.tools.unwrap_or_default()),
-            to_json_array(&input.disallowed_tools.unwrap_or_default()),
-            input.model.as_ref().map(|value| value.trim()).filter(|value| !value.is_empty()),
-            input.permission_mode.as_ref().map(|value| value.trim()).filter(|value| !value.is_empty()),
-            input.max_turns,
-            if input.is_enabled.unwrap_or(true) { 1 } else { 0 },
-            input.sort_order.unwrap_or(100),
-            now,
-            now,
-        ],
+
+    // 用 rb.exec + ? 占位符绕过 #[html_sql] 宏对 JSON 字符串参数的二次解析
+    let tags_json = to_json_array(&input.tags.unwrap_or_default());
+    let scenes_json = to_json_array(&input.recommended_scenes.unwrap_or_default());
+    let tools_json = to_json_array(&input.tools.unwrap_or_default());
+    let disallowed_json = to_json_array(&input.disallowed_tools.unwrap_or_default());
+    let category = input.category.unwrap_or_else(|| "custom".to_string());
+    let model = input.model.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty());
+    let permission_mode = input.permission_mode.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty());
+    let description = input.description.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty());
+
+    let insert_sql = "insert into sub_agents (id, builtin_code, name, description, prompt, category, tags, recommended_scenes, tools, disallowed_tools, model, permission_mode, max_turns, is_builtin, is_enabled, is_system, sort_order, created_at, updated_at) values (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 0, 0, ?, ?)";
+    let params = vec![
+        rbs::Value::String(id.clone()),
+        rbs::Value::String(input.name.trim().to_string()),
+        description.map(|s| rbs::Value::String(s.to_string())).unwrap_or(rbs::Value::Null),
+        rbs::Value::String(input.prompt.trim().to_string()),
+        rbs::Value::String(category),
+        rbs::Value::String(tags_json),
+        rbs::Value::String(scenes_json),
+        rbs::Value::String(tools_json),
+        rbs::Value::String(disallowed_json),
+        model.map(|s| rbs::Value::String(s.to_string())).unwrap_or(rbs::Value::Null),
+        permission_mode.map(|s| rbs::Value::String(s.to_string())).unwrap_or(rbs::Value::Null),
+        input.max_turns.map(|v| v as i64).map(rbs::Value::I64).unwrap_or(rbs::Value::Null),
+        input.is_enabled.map(|v| if v { 1 } else { 0 }).map(rbs::Value::I64).unwrap_or(rbs::Value::I64(1)),
+        rbs::Value::String(now.clone()),
+        rbs::Value::String(now),
+    ];
+    db::rb().exec(insert_sql, params).await.map_err(|e| e.to_string())?;
+
+    fetch_sub_agent_by_id(&id).await
+}
+
+#[tauri::command]
+pub async fn update_sub_agent(id: String, input: UpdateSubAgentInput) -> Result<SubAgent, String> {
+    let now = now_rfc3339();
+
+    sub_agent_mapper::update_sub_agent(
+        db::rb(),
+        &id,
+        &now,
+        input.name.as_deref(),
+        input.description.as_deref(),
+        input.prompt.as_deref(),
+        input.category.as_deref(),
+        input.tags.as_ref().map(|v| rbs::Value::String(to_json_array(v))),
+        input
+            .recommended_scenes
+            .as_ref()
+            .map(|v| rbs::Value::String(to_json_array(v))),
+        input.tools.as_ref().map(|v| rbs::Value::String(to_json_array(v))),
+        input
+            .disallowed_tools
+            .as_ref()
+            .map(|v| rbs::Value::String(to_json_array(v))),
+        input.model.as_deref(),
+        input.permission_mode.as_deref(),
+        input.max_turns.map(|v| v as i64),
+        input.is_enabled.map(|v| if v { 1 } else { 0 }),
+        input.sort_order.map(|v| v as i64),
     )
+    .await
     .map_err(|error| error.to_string())?;
 
-    fetch_sub_agent_by_id(&conn, &id)
+    fetch_sub_agent_by_id(&id).await
 }
 
 #[tauri::command]
-pub fn update_sub_agent(id: String, input: UpdateSubAgentInput) -> Result<SubAgent, String> {
-    let conn = open_db_connection().map_err(|error| error.to_string())?;
-
-    let mut updates = UpdateSqlBuilder::new();
-    updates.push("name", input.name.is_some());
-    updates.push("description", input.description.is_some());
-    updates.push("prompt", input.prompt.is_some());
-    updates.push("category", input.category.is_some());
-    updates.push("tags", input.tags.is_some());
-    updates.push("recommended_scenes", input.recommended_scenes.is_some());
-    updates.push("tools", input.tools.is_some());
-    updates.push("disallowed_tools", input.disallowed_tools.is_some());
-    updates.push("model", input.model.is_some());
-    updates.push("permission_mode", input.permission_mode.is_some());
-    updates.push("max_turns", input.max_turns.is_some());
-    updates.push("is_enabled", input.is_enabled.is_some());
-    updates.push("sort_order", input.sort_order.is_some());
-
-    let sql = updates.finish("sub_agents", "id");
-    let mut stmt = conn
-        .prepare_cached(&sql)
-        .map_err(|error| error.to_string())?;
-    let mut param_count = 1;
-    bind_value(&mut stmt, &mut param_count, &now_rfc3339()).map_err(|error| error.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.name).map_err(|error| error.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.description)
-        .map_err(|error| error.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.prompt).map_err(|error| error.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.category)
-        .map_err(|error| error.to_string())?;
-    bind_optional_mapped(&mut stmt, &mut param_count, &input.tags, |value| {
-        to_json_array(value)
-    })
-    .map_err(|error| error.to_string())?;
-    bind_optional_mapped(
-        &mut stmt,
-        &mut param_count,
-        &input.recommended_scenes,
-        |value| to_json_array(value),
-    )
-    .map_err(|error| error.to_string())?;
-    bind_optional_mapped(&mut stmt, &mut param_count, &input.tools, |value| {
-        to_json_array(value)
-    })
-    .map_err(|error| error.to_string())?;
-    bind_optional_mapped(&mut stmt, &mut param_count, &input.disallowed_tools, |value| {
-        to_json_array(value)
-    })
-    .map_err(|error| error.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.model).map_err(|error| error.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.permission_mode)
-        .map_err(|error| error.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.max_turns)
-        .map_err(|error| error.to_string())?;
-    bind_optional_mapped(&mut stmt, &mut param_count, &input.is_enabled, |value| {
-        if *value {
-            1
-        } else {
-            0
-        }
-    })
-    .map_err(|error| error.to_string())?;
-    bind_optional(&mut stmt, &mut param_count, &input.sort_order)
-        .map_err(|error| error.to_string())?;
-    bind_value(&mut stmt, &mut param_count, &id).map_err(|error| error.to_string())?;
-    stmt.raw_execute().map_err(|error| error.to_string())?;
-
-    fetch_sub_agent_by_id(&conn, &id)
+pub async fn count_sub_agent_references(id: String) -> Result<SubAgentReferenceSummary, String> {
+    count_sub_agent_references_inner(&id).await
 }
 
 #[tauri::command]
-pub fn count_sub_agent_references(id: String) -> Result<SubAgentReferenceSummary, String> {
-    let conn = open_db_connection().map_err(|error| error.to_string())?;
-    count_sub_agent_references_with_conn(&conn, &id)
-}
-
-#[tauri::command]
-pub fn delete_sub_agent(id: String) -> Result<(), String> {
-    let conn = open_db_connection().map_err(|error| error.to_string())?;
-    let sub_agent = fetch_sub_agent_by_id(&conn, &id)?;
+pub async fn delete_sub_agent(id: String) -> Result<(), String> {
+    let sub_agent = fetch_sub_agent_by_id(&id).await?;
 
     if sub_agent.is_builtin || sub_agent.is_system {
         return Err("内置/系统子代理不可删除".to_string());
     }
 
-    let references = count_sub_agent_references_with_conn(&conn, &id)?;
+    let references = count_sub_agent_references_inner(&id).await?;
     if references.plans > 0 || references.tasks > 0 || references.sessions > 0 {
         return Err("该子代理仍被计划、任务或会话引用，无法删除".to_string());
     }
 
-    conn.execute("DELETE FROM sub_agents WHERE id = ?1", [id])
+    sub_agent_mapper::delete_sub_agent(db::rb(), &id)
+        .await
         .map_err(|error| error.to_string())?;
 
     Ok(())
