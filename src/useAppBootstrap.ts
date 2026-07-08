@@ -22,6 +22,7 @@ import { useUIStore } from '@/stores/ui'
 import { useWindowStateStore } from '@/stores/windowState'
 import { useSessionStore } from '@/stores/session'
 import { useProjectStore } from '@/stores/project'
+import { useMessageStore } from '@/stores/message'
 import { useWindowManagerStore } from '@/stores/windowManager'
 import { useAppUpdateStore } from '@/stores/appUpdate'
 import { useAppStateStore } from '@/stores/appState'
@@ -47,6 +48,7 @@ export function useAppBootstrap() {
   const windowStateStore = useWindowStateStore()
   const sessionStore = useSessionStore()
   const projectStore = useProjectStore()
+  const messageStore = useMessageStore()
   const windowManagerStore = useWindowManagerStore()
   const appUpdateStore = useAppUpdateStore()
   const appStateStore = useAppStateStore()
@@ -403,6 +405,20 @@ export function useAppBootstrap() {
           sessionStore.setCurrentSession(
             sessionStore.openSessionIds[sessionStore.openSessionIds.length - 1] ?? null
           )
+        }
+
+        // 显式触发历史消息加载：主会话（当前激活）以及其余已恢复标签页并行加载，
+        // 不依赖中间区域组件挂载时序——只要会话被打开就加载其历史数据。
+        const restoredSessionIds = [...sessionStore.openSessionIds]
+        const currentActive = sessionStore.currentSessionId
+        if (currentActive) {
+          // 主会话优先加载（高优先级、显示 loading）
+          void messageStore.loadMessages(currentActive)
+        }
+        for (const sessionId of restoredSessionIds) {
+          if (sessionId === currentActive) continue
+          // 其余标签页后台静默预取，互不阻塞
+          void messageStore.loadMessages(sessionId, { background: true })
         }
       }
     }

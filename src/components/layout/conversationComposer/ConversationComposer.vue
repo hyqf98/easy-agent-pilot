@@ -127,6 +127,7 @@ const {
   tokenUsage,
   handleActiveFormSubmit,
   handleActiveFormCancel,
+  isHistoryLoading,
   isStopButtonMode,
   sendButtonDisabled,
   sendButtonTitle
@@ -489,8 +490,8 @@ defineExpose({
                   'conversation-composer__textarea--overlay': shouldUseRichTextOverlay
                 }"
                 rows="2"
-                :disabled="!sessionId"
-                :placeholder="shouldUseRichTextOverlay ? '' : (inputPlaceholder || t('message.inputPlaceholder', { shortcut: t('message.shortcutEnter') }))"
+                :disabled="!sessionId || isHistoryLoading"
+                :placeholder="shouldUseRichTextOverlay ? '' : (isHistoryLoading ? t('message.loadingSession') : (inputPlaceholder || t('message.inputPlaceholder', { shortcut: t('message.shortcutEnter') })))"
                 @compositionstart="handleCompositionStart"
                 @compositionend="handleCompositionEnd"
                 @input="handleInput"

@@ -61,8 +61,10 @@ export function useSessionView() {
       await sessionStore.openSession(id)
     }
 
-    if (session?.projectId) {
-      void sessionStore.loadSessions(session.projectId, { force: true }).catch(() => {})
+    // 仅在项目尚未加载会话列表时补充加载；避免每次点击都用 force 重新拉取，
+    // 触发 replaceProjectSessions 整体替换导致左侧列表瞬时闪烁/消失。
+    if (session?.projectId && !sessionStore.loadedProjectIds.has(session.projectId)) {
+      void sessionStore.loadSessions(session.projectId).catch(() => {})
     }
   }
 

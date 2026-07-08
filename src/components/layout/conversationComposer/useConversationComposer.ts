@@ -20,6 +20,7 @@ import { useSessionStore } from '@/stores/session'
 import { useSettingsStore } from '@/stores/settings'
 import { useThemeStore } from '@/stores/theme'
 import { usePermissionStore } from '@/stores/permission'
+import { useMessageStore } from '@/stores/message'
 import type { SlashCommandPanelType } from '@/services/slashCommands'
 import { EaButton, EaIcon } from '@/components/common'
 import TokenProgressBar from '@/components/common/TokenProgressBar/TokenProgressBar.vue'
@@ -68,6 +69,7 @@ export function useConversationComposer(
   const sessionStore = useSessionStore()
   const themeStore = useThemeStore()
   const permissionStore = usePermissionStore()
+  const messageStore = useMessageStore()
   const rootRef = ref<HTMLElement | null>(null)
   const isDragOver = ref(false)
   const isQueueCollapsed = ref(true)
@@ -204,8 +206,18 @@ export function useConversationComposer(
     composer.isSending.value && !hasDraftContent.value
   ))
 
+  // 当前会话正在加载历史且本地尚无缓存消息时，输入框与发送按钮均禁用，
+  // 避免在历史回放完成前提交消息导致消息顺序错乱。
+  const isHistoryLoading = computed(() => {
+    const sessionId = props.sessionId
+    if (!sessionId) return false
+    if (!messageStore.isLoadingSession(sessionId)) return false
+    return messageStore.messagesBySession(sessionId).length === 0
+  })
+
   const sendButtonDisabled = computed(() => (
     !props.sessionId
+    || isHistoryLoading.value
     || composer.isUploadingImages.value
     || (!hasDraftContent.value && !isStopButtonMode.value)
   ))
@@ -253,6 +265,7 @@ export function useConversationComposer(
     isMiniPanel,
     isPlanMode,
     hasPermissionPrompt,
+    isHistoryLoading,
     isQueueCollapsed,
     queuedDraftEditText,
     rootRef,

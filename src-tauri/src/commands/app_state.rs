@@ -26,9 +26,7 @@ impl From<AppStateRow> for AppStateEntry {
 /// 获取应用状态值
 #[tauri::command]
 pub async fn get_app_state(key: String) -> Result<Option<String>, String> {
-    app_state_mapper::get_app_state(db::rb(), &key)
-        .await
-        .map_err(|e| e.to_string())
+    Ok(app_state_mapper::get_app_state(db::rb(), &key).await)
 }
 
 /// 设置应用状态值
@@ -46,8 +44,6 @@ pub async fn get_app_states(keys: Vec<String>) -> Result<Vec<AppStateEntry>, Str
     if keys.is_empty() {
         return Ok(Vec::new());
     }
-    let rows = app_state_mapper::get_app_states(db::rb(), &keys)
-        .await
-        .map_err(|e| e.to_string())?;
+    let rows = app_state_mapper::get_app_states(db::rb(), &keys).await;
     Ok(rows.into_iter().map(AppStateEntry::from).collect())
 }

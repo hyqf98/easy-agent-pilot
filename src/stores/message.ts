@@ -161,8 +161,6 @@ export interface LoadMessagesOptions {
   force?: boolean
   /** 有缓存时静默刷新，不展示 loading spinner */
   background?: boolean
-  /** 低优先级预取（可被当前会话加载插队） */
-  priority?: 'high' | 'low'
 }
 
 interface AcpEventsCacheEntry {
@@ -173,10 +171,11 @@ interface AcpEventsCacheEntry {
 const ACP_EVENTS_CACHE_TTL_MS = 5 * 60 * 1000
 const acpEventsCache = new Map<string, AcpEventsCacheEntry>()
 const pendingReloadSessionIds = new Set<string>()
-let loadRequestToken = 0
-let loadMessagesInFlightSessionId: string | null = null
-let loadMessagesInFlight: Promise<void> | null = null
-let queuedHighPrioritySessionId: string | null = null
+
+// 按 sessionId 维度的加载并发控制：支持多会话历史同时加载（每个会话独立去重）。
+// 同一 sessionId 的重复请求（非 force）会等待首发起方完成；force 请求直接覆盖旧请求的结果。
+// 替代旧的模块级单会话锁（loadMessagesInFlightSessionId 单例），避免快速切换会话时请求互相丢弃。
+const inflightLoadsBySession = new Map<string, Promise<void>>()
 
 /** @deprecated 旧名保留兼容，内部改用 isVisibleForRender */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -459,51 +458,22 @@ export const useMessageStore = defineStore('message', () => {
   }
 
   async function loadMessages(sessionId: string, options: LoadMessagesOptions = {}) {
-    const { force = false, background = false, priority = 'high' } = options
+    const { force = false, background = false } = options
     const cachedMessages = sessionMessages.value.get(sessionId) ?? EMPTY_MESSAGES
 
     // Stale-while-revalidate：有缓存时立即展示，后台静默刷新
     if (!force && !background && cachedMessages.length > 0) {
-      void loadMessages(sessionId, { force: true, background: true, priority: 'low' })
+      void loadMessages(sessionId, { force: true, background: true })
       return
     }
 
-    // 同一会话已在加载：非 force 时直接等待
-    if (loadMessagesInFlightSessionId === sessionId && loadMessagesInFlight && !force) {
-      try { await loadMessagesInFlight } catch { /* 已由首发起方处理 */ }
+    // 同一 sessionId 已在加载：非 force 时等待首发起方结果（去重）
+    const existing = inflightLoadsBySession.get(sessionId)
+    if (existing && !force) {
+      try { await existing } catch { /* 已由首发起方处理 */ }
       return
     }
 
-    // 高优先级请求插队：取消排队中的低优先级，优先加载当前会话
-    if (
-      priority === 'high'
-      && loadMessagesInFlightSessionId
-      && loadMessagesInFlightSessionId !== sessionId
-      && loadMessagesInFlight
-    ) {
-      loadRequestToken += 1
-      queuedHighPrioritySessionId = sessionId
-      try { await loadMessagesInFlight } catch { /* 忽略被丢弃的请求 */ }
-      if (queuedHighPrioritySessionId === sessionId) {
-        queuedHighPrioritySessionId = null
-      } else {
-        return
-      }
-    } else if (
-      priority === 'low'
-      && loadMessagesInFlightSessionId
-      && loadMessagesInFlightSessionId !== sessionId
-      && loadMessagesInFlight
-    ) {
-      try { await loadMessagesInFlight } catch { /* 忽略 */ }
-    }
-
-    if (loadMessagesInFlightSessionId === sessionId && loadMessagesInFlight && !force) {
-      try { await loadMessagesInFlight } catch { /* 已由首发起方处理 */ }
-      return
-    }
-
-    const requestToken = ++loadRequestToken
     const showLoadingIndicator = !background || cachedMessages.length === 0
 
     if (showLoadingIndicator) {
@@ -513,30 +483,22 @@ export const useMessageStore = defineStore('message', () => {
       loadingSessions.value = next
     }
 
-    loadMessagesInFlightSessionId = sessionId
-
-    const task = executeLoadMessages(sessionId, requestToken, showLoadingIndicator)
-    loadMessagesInFlight = task
+    // 每个会话独立的加载任务（不同 sessionId 可并发执行）
+    const task = executeLoadMessages(sessionId, showLoadingIndicator)
+    inflightLoadsBySession.set(sessionId, task)
 
     try {
       await task
     } finally {
-      if (loadMessagesInFlightSessionId === sessionId) {
-        loadMessagesInFlightSessionId = null
-        loadMessagesInFlight = null
-      }
-      // 处理插队期间排队的会话
-      const queuedSessionId = queuedHighPrioritySessionId
-      if (queuedSessionId && queuedSessionId !== sessionId) {
-        queuedHighPrioritySessionId = null
-        void loadMessages(queuedSessionId, { force: true, priority: 'high' })
+      // 仅当 Map 中仍是当前任务时才清理，避免 force 覆盖旧任务后误删新任务
+      if (inflightLoadsBySession.get(sessionId) === task) {
+        inflightLoadsBySession.delete(sessionId)
       }
     }
   }
 
   async function executeLoadMessages(
     sessionId: string,
-    requestToken: number,
     showLoadingIndicator: boolean
   ): Promise<void> {
     const notificationStore = useNotificationStore()
@@ -557,8 +519,6 @@ export const useMessageStore = defineStore('message', () => {
         console.error('[MessageStore] load agent plan failed', err)
       }
     }
-
-    const isStaleRequest = () => requestToken !== loadRequestToken
 
     try {
       const session = sessionStore.sessions.find(item => item.id === sessionId)
@@ -603,7 +563,6 @@ export const useMessageStore = defineStore('message', () => {
 
         if (!agentCmd) {
           pendingReloadSessionIds.add(sessionId)
-          if (isStaleRequest()) return
           tokenStore.clearRealtimeTokens(sessionId)
           updateGlobalMessagesForSession(sessionId, [])
           setSessionMessages(sessionId, [])
@@ -619,8 +578,6 @@ export const useMessageStore = defineStore('message', () => {
 
         pendingReloadSessionIds.delete(sessionId)
 
-        if (isStaleRequest()) return
-
         let events: AcpReplayedEvent[]
         const cacheEntry = acpEventsCache.get(externalSessionId)
         const cacheFresh = cacheEntry
@@ -630,7 +587,6 @@ export const useMessageStore = defineStore('message', () => {
           events = cacheEntry.events
         } else {
           const result = await readSessionDetail(agentCmd, externalSessionId, cwd)
-          if (isStaleRequest()) return
           events = result.events
           acpEventsCache.set(externalSessionId, { events, fetchedAt: Date.now() })
         }
@@ -651,7 +607,6 @@ export const useMessageStore = defineStore('message', () => {
             )
           } else {
             const snapshot = await readSessionCliUsageSnapshot(session)
-            if (isStaleRequest()) return
             if (snapshot) {
               tokenStore.updateRealtimeTokens(
                 sessionId,
@@ -671,8 +626,6 @@ export const useMessageStore = defineStore('message', () => {
           tokenStore.clearRealtimeTokens(sessionId)
         }
 
-        if (isStaleRequest()) return
-
         updateGlobalMessagesForSession(sessionId, correctedSessionMessages)
         setSessionMessages(sessionId, correctedSessionMessages)
         pagination.value.set(sessionId, {
@@ -682,7 +635,6 @@ export const useMessageStore = defineStore('message', () => {
           oldestMessageCreatedAt: correctedSessionMessages[0]?.createdAt ?? null
         })
       } else {
-        if (isStaleRequest()) return
         tokenStore.clearRealtimeTokens(sessionId)
         updateGlobalMessagesForSession(sessionId, [])
         setSessionMessages(sessionId, [])
@@ -696,7 +648,6 @@ export const useMessageStore = defineStore('message', () => {
 
       void loadSessionAttachments()
     } catch (error) {
-      if (isStaleRequest()) return
       console.error('Failed to load messages:', error)
       updateGlobalMessagesForSession(sessionId, [])
       clearSessionDerivedState(sessionId)
@@ -723,7 +674,7 @@ export const useMessageStore = defineStore('message', () => {
     const sessionIds = [...pendingReloadSessionIds]
     pendingReloadSessionIds.clear()
     for (const pendingSessionId of sessionIds) {
-      void loadMessages(pendingSessionId, { force: true, priority: 'low' })
+      void loadMessages(pendingSessionId, { force: true })
     }
   }
 
@@ -737,7 +688,7 @@ export const useMessageStore = defineStore('message', () => {
       if (cached && cached.length > 0) {
         continue
       }
-      void loadMessages(openSessionId, { priority: 'low', background: true })
+      void loadMessages(openSessionId, { background: true })
     }
   }
 
