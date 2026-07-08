@@ -1,67 +1,89 @@
+/* ===================================================================
+   会话列表样式
+   设计语言：Cursor/Notion 式克制美学
+   - 无边框、无投影，靠背景明度差分层（与 tool-call 组件体系一致）
+   - 激活态：实色背景块 + 左侧 3px 锚点条（不用主题色描边）
+   - 强调用中性深色（--workspace-text-primary），不引入品牌蓝
+   =================================================================== */
+
 .session-list {
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto;
-  gap: var(--spacing-2);
-  padding: var(--spacing-2);
-  min-height: 0;
+  /* 取内容高度，不纵向拉伸，让 .session-more-btn 紧跟最后一条会话。
+     左对齐由外层 .project-content 的 margin-left 统一提供，此处不再额外缩进。 */
+  flex: 0 1 auto;
+  gap: 0;
+  padding: 1px 0 4px;
   width: 100%;
   min-width: 0;
+  min-height: 0;
   overflow-y: auto;
   box-sizing: border-box;
 }
 
+/* ── 会话条目：无边框、无阴影，透明背景，紧凑布局 ──────────────────── */
 .session-item {
   position: relative;
   display: flex;
+  align-items: center;
   container-type: inline-size;
-  align-items: flex-start;
-  padding: var(--spacing-3);
+  padding: 3px 6px;
   cursor: pointer;
-  transition: all var(--transition-fast) var(--easing-default);
-  border-radius: var(--radius-md);
-  background-color: var(--color-surface);
   border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  transition:
+    background-color var(--transition-fast) var(--easing-default);
 }
 
 .session-item:hover {
-  background-color: var(--color-primary-light);
-  border-color: var(--color-primary-light);
+  background: var(--workspace-list-hover-bg);
+  box-shadow: none;
 }
 
+/* 当前激活会话：实色背景块（与 tool-call-active 一致的克制处理） */
 .session-item--active {
-  background-color: var(--color-primary-light);
-  border-color: var(--color-primary);
+  background: var(--workspace-list-active-bg);
+  box-shadow: none;
 }
 
 .session-item--active:hover {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 1px var(--color-primary);
+  background: var(--workspace-list-active-bg);
+  box-shadow: none;
 }
 
+/* 左侧强调条：激活态唯一的视觉锚点，用中性主色而非品牌蓝 */
+.session-item--active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 75%;
+  border-radius: 0 3px 3px 0;
+  background: var(--workspace-text-primary);
+  opacity: 0.5;
+}
+
+/* 批量勾选选中态：轻量内描边，不抢视觉 */
 .session-item--selected {
-  background-color: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
-  border-color: color-mix(in srgb, var(--color-primary) 32%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 24%, transparent);
+  background: var(--workspace-list-active-bg);
+  box-shadow: none;
 }
 
-[data-theme='dark'] .session-item--active {
-  background-color: var(--color-active-bg);
-  border-color: var(--color-active-border);
+.session-item--selected:hover {
+  background: var(--workspace-list-active-bg);
 }
 
-[data-theme='dark'] .session-item--active:hover {
-  background-color: var(--color-active-bg-hover);
-  border-color: var(--color-active-border);
-  box-shadow: 0 0 0 1px var(--color-active-border);
-}
-
+/* ── 内容布局 ──────────────────────────────────────────────────────── */
 .session-item__content {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-2);
+  gap: 1px;
 }
 
 .session-item__lead {
@@ -77,82 +99,51 @@
 .session-item__main {
   display: flex;
   align-items: center;
-  gap: var(--spacing-2);
+  gap: 6px;
   flex: 1;
   min-width: 0;
   flex-wrap: nowrap;
 }
 
+/* ── 批量选择框：极简，与控制组件一致 ──────────────────────────────── */
 .session-item__selector {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 15px;
+  height: 15px;
   padding: 0;
   appearance: none;
-  border: none;
-  border: 1.5px solid var(--color-border-strong, var(--color-border));
-  border-radius: 999px;
+  border: 1px solid var(--workspace-border-strong);
+  border-radius: 4px;
   background: transparent;
-  color: var(--color-primary);
+  color: var(--workspace-text-primary);
   flex-shrink: 0;
   cursor: pointer;
   box-sizing: border-box;
   transition:
     border-color var(--transition-fast) var(--easing-default),
-    background-color var(--transition-fast) var(--easing-default),
-    box-shadow var(--transition-fast) var(--easing-default);
-}
-
-.session-item__status-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  color: var(--workspace-text-tertiary, var(--color-text-tertiary));
-}
-
-.session-item__status-icon--running {
-  color: var(--workspace-text-secondary, var(--color-text-secondary));
-  animation: session-status-spin 1s linear infinite;
-}
-
-.session-item__status-icon--error {
-  color: var(--color-error);
-}
-
-@keyframes session-status-spin {
-  from {
-    transform: rotate(0deg);
-  }
-
-  to {
-    transform: rotate(360deg);
-  }
+    background-color var(--transition-fast) var(--easing-default);
 }
 
 .session-item__selector:not(.session-item__selector--selected):hover {
-  border-color: var(--color-primary);
-  background-color: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  border-color: var(--workspace-text-secondary);
+  background-color: var(--workspace-control-hover-bg);
 }
 
 .session-item__selector:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--color-primary) 28%, transparent);
+  outline: 2px solid var(--workspace-border-strong);
   outline-offset: 2px;
 }
 
 .session-item__selector--selected {
-  border-color: var(--color-primary);
-  background-color: var(--color-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 16%, transparent);
+  border-color: var(--workspace-text-primary);
+  background-color: var(--workspace-text-primary);
 }
 
 .session-item__selector--selected:hover {
-  border-color: var(--color-primary);
-  background-color: var(--color-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 16%, transparent);
+  border-color: var(--workspace-text-primary);
+  background-color: var(--workspace-text-primary);
 }
 
 .session-item__selector-indicator {
@@ -161,7 +152,7 @@
   justify-content: center;
   width: 100%;
   height: 100%;
-  color: #fff;
+  color: var(--workspace-panel-bg);
   opacity: 0;
   transform: scale(0.72);
 }
@@ -176,37 +167,69 @@
   transform: scale(1);
 }
 
+/* ── 状态图标 ──────────────────────────────────────────────────────── */
+.session-item__status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--workspace-text-tertiary);
+}
+
+.session-item__status-icon--running {
+  color: var(--workspace-text-secondary);
+  animation: session-status-spin 1s linear infinite;
+}
+
+.session-item__status-icon--error {
+  color: var(--color-error);
+}
+
+@keyframes session-status-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ── 会话名称：激活时仅加粗，不变色（保持克制） ───────────────────── */
 .session-item__name {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--sidebar-font-primary);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-primary);
+  font-size: 12px;
+  font-weight: 450;
+  color: var(--workspace-text-primary);
+  transition: font-weight var(--transition-fast) var(--easing-default);
 }
 
-.session-item--active .session-item__name,
+.session-item--active .session-item__name {
+  font-weight: var(--font-weight-semibold);
+  color: var(--workspace-text-primary);
+}
+
 .session-item:hover .session-item__name {
-  color: var(--color-primary);
+  color: var(--workspace-text-primary);
 }
 
+/* ── 时间 / 元信息 / 预览 ───────────────────────────────────────────── */
 .session-item__time {
   flex-shrink: 0;
-  font-size: var(--sidebar-font-meta);
-  color: var(--color-text-tertiary);
+  font-size: 11px;
+  color: var(--workspace-text-tertiary);
   white-space: nowrap;
 }
 
 .session-item__status-text {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   flex-shrink: 0;
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-xs);
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
   font-weight: var(--font-weight-medium);
+  line-height: 1.5;
 }
 
 .session-item__status-dot {
@@ -217,30 +240,31 @@
   flex-shrink: 0;
 }
 
+/* 状态色用低饱和底色，与 workspace 体系一致（不用亮色 light 变体） */
 .session-item__status-text--running {
-  color: var(--color-primary);
-  background-color: var(--color-primary-light);
+  color: var(--workspace-text-secondary);
+  background-color: var(--workspace-control-hover-bg);
 }
 
 .session-item__status-text--completed {
-  color: var(--color-success);
-  background-color: var(--color-success-light);
+  color: var(--workspace-text-secondary);
+  background-color: var(--workspace-control-hover-bg);
 }
 
 .session-item__status-text--error {
   color: var(--color-error);
-  background-color: var(--color-error-light);
+  background-color: var(--tool-call-error-bg);
 }
 
 .session-item__status-text--paused {
-  color: var(--color-warning);
-  background-color: var(--color-warning-light);
+  color: var(--workspace-text-secondary);
+  background-color: var(--workspace-control-hover-bg);
 }
 
 .session-item__meta {
   display: flex;
   align-items: center;
-  gap: var(--spacing-3);
+  gap: 7px;
   padding-left: 0;
   min-width: 0;
   flex-wrap: nowrap;
@@ -251,8 +275,8 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-1);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
+  font-size: 11px;
+  color: var(--workspace-text-tertiary);
   min-width: 0;
   white-space: nowrap;
 }
@@ -261,17 +285,16 @@
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--color-primary);
 }
 
 .session-item__meta-item--created {
-  color: var(--color-text-quaternary);
+  color: var(--workspace-text-tertiary);
 }
 
 .session-item__preview {
   padding-left: 0;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
+  font-size: 11px;
+  color: var(--workspace-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -279,14 +302,14 @@
 }
 
 .session-item__token-progress {
-  padding-left: calc(18px + var(--spacing-2));
+  padding-left: calc(18px + 7px);
 }
 
 .session-item__token-progress :deep(.token-progress) {
   gap: 8px;
   padding: 4px 10px;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--color-surface) 94%, white);
+  background: var(--workspace-control-bg);
   box-shadow: none;
 }
 
@@ -300,6 +323,7 @@
   font-size: 11px;
 }
 
+/* ── 内联重命名 ────────────────────────────────────────────────────── */
 .session-item__name-edit {
   display: flex;
   align-items: center;
@@ -310,12 +334,16 @@
 .session-name-input {
   flex: 1;
   padding: 2px var(--spacing-1);
-  border: 1px solid var(--color-primary);
+  border: 1px solid var(--workspace-border-strong);
   border-radius: var(--radius-sm);
   font-size: var(--font-size-sm);
-  background: var(--color-surface);
-  color: var(--color-text-primary);
+  background: var(--workspace-panel-bg);
+  color: var(--workspace-text-primary);
   outline: none;
+}
+
+.session-name-input:focus {
+  border-color: var(--workspace-text-secondary);
 }
 
 .edit-action-btn {
@@ -325,17 +353,18 @@
   width: 20px;
   height: 20px;
   border-radius: var(--radius-sm);
-  color: var(--color-text-secondary);
+  color: var(--workspace-text-secondary);
   background: transparent;
   border: none;
   cursor: pointer;
 }
 
 .edit-action-btn:hover {
-  background-color: var(--color-surface-hover);
-  color: var(--color-primary);
+  background-color: var(--workspace-control-hover-bg);
+  color: var(--workspace-text-primary);
 }
 
+/* ── 悬停操作按钮 ──────────────────────────────────────────────────── */
 .session-item__actions {
   display: flex;
   align-items: center;
@@ -359,154 +388,36 @@
   width: 22px;
   height: 22px;
   border-radius: var(--radius-sm);
-  color: var(--color-text-tertiary);
+  color: var(--workspace-text-tertiary);
   background: transparent;
   border: none;
   cursor: pointer;
 }
 
 .session-action-btn:hover {
-  background-color: var(--color-surface-hover);
-  color: var(--color-text-secondary);
+  background-color: var(--workspace-control-hover-bg);
+  color: var(--workspace-text-secondary);
 }
 
 .session-action-btn--danger:hover {
-  background-color: var(--color-error-light);
+  background-color: var(--tool-call-error-bg);
   color: var(--color-error);
 }
 
+/* ── 空状态 ────────────────────────────────────────────────────────── */
 .session-empty {
   padding: var(--spacing-4);
   text-align: center;
-  color: var(--color-text-tertiary);
-  font-size: var(--sidebar-font-meta);
-}
-
-.session-list {
-  /* 取内容高度，不纵向拉伸，让 .session-more-btn 紧跟最后一条会话 */
-  flex: 0 1 auto;
-  gap: 2px;
-  padding: 2px 0 6px;
-  overflow-y: auto;
-  min-height: 0;
-}
-
-.session-item {
-  align-items: center;
-  padding: 6px 7px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-}
-
-.session-item:hover,
-.session-item--active {
-  background: var(--workspace-list-hover-bg);
-  border-color: transparent;
-}
-
-.session-item--active {
-  background: var(--workspace-list-active-bg);
-  position: relative;
-}
-
-/* 当前选中会话：左侧强调条 */
-.session-item--active::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 60%;
-  border-radius: 0 3px 3px 0;
-  background: var(--workspace-text-primary, var(--color-text-primary));
-  opacity: 0.5;
-}
-
-.session-item--active:hover {
-  border-color: transparent;
-  box-shadow: none;
-}
-
-.session-item--selected {
-  background: var(--workspace-list-active-bg);
-  border-color: transparent;
-  box-shadow: none;
-}
-
-.session-item__content {
-  gap: 2px;
-}
-
-.session-item__main {
-  gap: 7px;
-}
-
-.session-item__selector {
-  width: 15px;
-  height: 15px;
-  border-width: 1px;
-  opacity: 1;
-  border-radius: 4px;
-  background: var(--workspace-panel-bg, var(--color-surface));
-  border-color: var(--workspace-border-strong, var(--color-border));
-}
-
-.session-item__name {
-  color: var(--workspace-text-primary);
-  font-size: 12px;
-  font-weight: 450;
-}
-
-.session-item--active .session-item__name,
-.session-item:hover .session-item__name {
-  color: var(--workspace-text-primary);
-}
-
-.session-item__time {
   color: var(--workspace-text-tertiary);
   font-size: 11px;
 }
 
-.session-item__status-text {
-  padding: 0;
-  background: transparent;
-  font-size: 11px;
-}
-
-.session-item__meta,
-.session-item__preview {
-  padding-left: 0;
-}
-
-.session-item__meta {
-  gap: 7px;
-}
-
-.session-item__meta-item,
-.session-item__preview {
-  color: var(--workspace-text-tertiary);
-  font-size: 11px;
-}
-
-.session-item__meta-item:first-child {
-  color: var(--workspace-text-tertiary);
-}
-
-.session-item__actions,
-.session-item:hover .session-item__actions {
-  display: flex;
-  visibility: visible;
-}
-
-.session-item__meta-item--created {
-  color: var(--workspace-text-tertiary);
-}
-
+/* ===================================================================
+   响应式：窄屏逐步隐藏低优先级信息
+   =================================================================== */
 @container (max-width: 320px) {
   .session-item {
-    padding: var(--spacing-2) var(--spacing-3);
+    padding: 3px 6px;
   }
 
   .session-item__meta {
@@ -545,7 +456,7 @@
   }
 }
 
-/* 极窄屏优化 - 隐藏更多低优先级元信息 */
+/* 极窄屏优化：隐藏更多低优先级元信息 */
 @container (max-width: 240px) {
   .session-item__selector {
     display: none;

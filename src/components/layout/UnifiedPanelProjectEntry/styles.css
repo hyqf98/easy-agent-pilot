@@ -335,9 +335,10 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  width: calc(100% - var(--spacing-4));
+  /* 左对齐由外层 .project-content 的 margin-left 统一提供；右侧沿用面板内边距 */
+  width: calc(100% - var(--spacing-2));
   min-height: 28px;
-  margin: 0 var(--spacing-2) var(--spacing-2);
+  margin: 0 var(--spacing-2) var(--spacing-2) 0;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -583,12 +584,18 @@
   color: var(--workspace-text-primary);
   font-size: 12px;
   font-weight: 500;
+  /* 禁止文本选中：避免点击项目时触发 ::selection 蓝色高亮 */
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .project-item__meta {
   gap: 6px;
   color: var(--workspace-text-tertiary);
   font-size: 11px;
+  /* 禁止文本选中：与项目名一致，避免点击触发蓝色高亮 */
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .project-item__menu {
@@ -620,7 +627,9 @@
 .project-content {
   min-height: 0;
   max-width: none;
-  margin: 0 0 3px 24px;
+  /* margin-left 对齐到项目条目内容（箭头）位置：面板 padding 8px + 此处 8px = 16px，
+     使会话列表与更多按钮均与项目条目左对齐。 */
+  margin: 0 0 3px var(--spacing-2);
   border: none;
   border-radius: 0;
   background: transparent;
