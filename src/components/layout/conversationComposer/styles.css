@@ -140,6 +140,8 @@
   box-shadow: 0 12px 34px rgba(15, 23, 42, 0.08);
   backdrop-filter: blur(14px);
   overflow: visible;
+  /* 聚焦/失焦不做过渡，配合 panel 的 transition: none 杜绝放大缩小错觉 */
+  transition: none;
 }
 
 .conversation-composer--main .conversation-composer__panel {
@@ -2194,10 +2196,8 @@
   box-shadow: 0 18px 40px rgba(24, 24, 22, 0.055);
   backdrop-filter: blur(18px);
   transform: none;
-  transition:
-    border-color 0.16s ease,
-    background-color 0.16s ease,
-    box-shadow 0.16s ease;
+  /* 聚焦/失焦不做任何视觉过渡：避免输入框点击时的放大缩小错觉 */
+  transition: none;
 }
 
 .conversation-composer--main .conversation-composer__editor-shell {
@@ -2400,10 +2400,8 @@
   box-shadow: 0 18px 40px rgba(24, 24, 22, 0.055);
   backdrop-filter: blur(18px);
   overflow: visible;
-  transition:
-    border-color 0.16s ease,
-    background-color 0.16s ease,
-    box-shadow 0.16s ease;
+  /* 聚焦/失焦不做任何过渡：杜绝输入框点击时的放大缩小错觉 */
+  transition: none;
 }
 
 .conversation-composer--main .conversation-composer__panel {
