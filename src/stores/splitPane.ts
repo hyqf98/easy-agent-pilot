@@ -113,13 +113,19 @@ export const useSplitPaneStore = defineStore('splitPane', () => {
   }
 
   function movePaneToNewRow(paneId: string) {
+    movePaneToNewRowAt(paneId, paneGrid.value.length)
+  }
+
+  /** 把 pane 移动到新的独立行，可指定插入位置（row 索引，默认追加到底部）。 */
+  function movePaneToNewRowAt(paneId: string, atRow: number) {
     const pos = getPanePosition(paneId)
     if (!pos) return
     paneGrid.value[pos.row].splice(pos.col, 1)
     if (paneGrid.value[pos.row].length === 0) {
       paneGrid.value.splice(pos.row, 1)
     }
-    paneGrid.value.push([paneId])
+    const insertAt = Math.max(0, Math.min(atRow, paneGrid.value.length))
+    paneGrid.value.splice(insertAt, 0, [paneId])
     paneGrid.value = paneGrid.value.filter(row => row.length > 0)
     focusedPaneId.value = paneId
   }
@@ -367,6 +373,7 @@ export const useSplitPaneStore = defineStore('splitPane', () => {
     addPaneToNewRow,
     removePane,
     movePaneToNewRow,
+    movePaneToNewRowAt,
     movePaneBefore,
     movePaneAfter,
     focusPane,

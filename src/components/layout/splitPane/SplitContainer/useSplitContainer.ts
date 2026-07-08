@@ -32,10 +32,6 @@ interface DisplayRow {
   cells: GridCell[]
 }
 
-const DRAG_Y_SPLIT = 0.5
-// 拖拽 tab 时四边吸附阈值（距边占比）
-const EDGE_THRESHOLD = 0.28
-
 const { t } = useI18n()
 const splitPaneStore = useSplitPaneStore()
 const { dragState, endTabDrag } = useTabDrag()
@@ -84,7 +80,9 @@ const displayRows = computed<DisplayRow[]>(() => {
   }
 
   if (dt.position === 'new-row') {
-    sourceRows.push([ghost])
+    // row 表示插入位置：grid.length = 追加底部；0 = 插入顶部
+    const insertAt = Math.min(dt.row, sourceRows.length)
+    sourceRows.splice(insertAt, 0, [ghost])
   } else if (dt.position === 'new-row-below') {
     const insertAt = Math.min(dt.row + 1, sourceRows.length)
     sourceRows.splice(insertAt, 0, [ghost])
@@ -117,9 +115,63 @@ function flushMove() {
 }
 
 // ========== 整 pane 重排（mouse 事件）==========
+
+// 拖拽开始时快照所有 row 的 rect（含 ghost 前的稳定布局），
+// 避免 ghost 插入/移除导致 rect 抖动 → dropTarget 反复翻转 → 闪烁。
+interface RowSnapshot {
+  top: number
+  bottom: number
+  left: number
+  right: number
+  panes: { paneId: string; col: number; left: number; right: number; top: number; bottom: number }[]
+}
+let rowSnapshots: RowSnapshot[] = []
+
+function snapshotRows() {
+  const container = containerRef.value
+  if (!container) {
+    rowSnapshots = []
+    return
+  }
+  const allRows = container.querySelectorAll('.split-row')
+  rowSnapshots = []
+  for (let r = 0; r < allRows.length; r++) {
+    const rowEl = allRows[r] as HTMLElement
+    const rowRect = rowEl.getBoundingClientRect()
+    const wrappers = rowEl.querySelectorAll<HTMLElement>('.split-pane-wrapper')
+    const panes: RowSnapshot['panes'] = []
+    // 用 grid 列号映射（跳过被拖拽的 pane，但不影响 col 对齐：仍按 DOM 顺序取 col）
+    let visibleCol = 0
+    for (let c = 0; c < wrappers.length; c++) {
+      const wEl = wrappers[c]
+      const pid = wEl.dataset.paneId
+      if (!pid) continue
+      const wr = wEl.getBoundingClientRect()
+      panes.push({
+        paneId: pid,
+        col: visibleCol,
+        left: wr.left,
+        right: wr.right,
+        top: wr.top,
+        bottom: wr.bottom
+      })
+      visibleCol++
+    }
+    rowSnapshots.push({
+      top: rowRect.top,
+      bottom: rowRect.bottom,
+      left: rowRect.left,
+      right: rowRect.right,
+      panes
+    })
+  }
+}
+
 function onPaneDragStart(paneId: string) {
   draggingPaneId.value = paneId
   dropTarget.value = null
+  // 在 ghost 插入前快照稳定布局，后续命中判断一律基于此快照
+  snapshotRows()
 
   onMouseMove = (e: MouseEvent) => {
     if (!draggingPaneId.value) return
@@ -141,91 +193,96 @@ function onPaneDragStart(paneId: string) {
   document.body.style.cursor = 'grabbing'
 }
 
-function updateDropTarget(clientX: number, clientY: number) {
-  const container = containerRef.value
-  if (!container) return
+// 四边吸附阈值（基于快照 rect 的占比）
+const PANE_EDGE_THRESHOLD = 0.3
 
-  const allRows = container.querySelectorAll('.split-row')
-  if (allRows.length === 0) return
+function updateDropTarget(clientX: number, clientY: number) {
+  if (rowSnapshots.length === 0) return
 
   const grid = splitPaneStore.paneGrid
+  const lastSnap = rowSnapshots[rowSnapshots.length - 1]
 
-  const lastRowRect = allRows[allRows.length - 1].getBoundingClientRect()
-  if (clientY > lastRowRect.bottom) {
+  // 鼠标在最后一行下方 → 新增一行（水平方向上不区分，整行）
+  if (clientY > lastSnap.bottom) {
     dropTarget.value = { row: grid.length, col: 0, position: 'new-row' }
     return
   }
 
+  // 鼠标在第一行上方 → 在最顶新增一行
+  if (clientY < rowSnapshots[0].top) {
+    dropTarget.value = { row: 0, col: 0, position: 'new-row' }
+    return
+  }
+
+  // 命中哪一行（基于快照，不抖动）
   let hitRow = -1
-  for (let r = 0; r < allRows.length; r++) {
-    const rr = allRows[r].getBoundingClientRect()
-    if (clientY >= rr.top && clientY <= rr.bottom) {
+  for (let r = 0; r < rowSnapshots.length; r++) {
+    const snap = rowSnapshots[r]
+    if (clientY >= snap.top && clientY <= snap.bottom) {
       hitRow = r
       break
     }
   }
-
   if (hitRow < 0) {
     dropTarget.value = null
     return
   }
 
-  const rowWrappers = allRows[hitRow].querySelectorAll<HTMLElement>('.split-pane-wrapper')
-  const paneCount = rowWrappers.length
-
-  let hitCol = -1
-  let hitRect: DOMRect | null = null
-
-  for (let c = 0; c < paneCount; c++) {
-    const pid = rowWrappers[c].dataset.paneId
-    if (pid === draggingPaneId.value) continue
-    const wr = rowWrappers[c].getBoundingClientRect()
-    if (clientX >= wr.left && clientX <= wr.right) {
-      hitCol = c
-      hitRect = wr
-      break
-    }
-  }
-
-  if (hitCol < 0 && paneCount > 0) {
-    const firstW = rowWrappers[0].getBoundingClientRect()
-    const lastW = rowWrappers[paneCount - 1].getBoundingClientRect()
-    if (clientX < firstW.left) {
-      hitCol = 0
-      hitRect = firstW
-    } else if (clientX > lastW.right) {
-      hitCol = paneCount - 1
-      hitRect = lastW
-    }
-  }
-
-  if (hitCol < 0 || !hitRect) {
+  const snap = rowSnapshots[hitRow]
+  const otherPanes = snap.panes.filter(p => p.paneId !== draggingPaneId.value)
+  if (otherPanes.length === 0) {
     dropTarget.value = null
     return
   }
 
-  const hitPaneId = rowWrappers[hitCol].dataset.paneId
-  if (hitPaneId === draggingPaneId.value) {
+  // 命中哪个 pane（X 轴）
+  let hitPane = otherPanes.find(p => clientX >= p.left && clientX <= p.right)
+  if (!hitPane) {
+    // 超出行宽：吸附到最近端
+    const first = otherPanes[0]
+    const last = otherPanes[otherPanes.length - 1]
+    if (clientX < first.left) hitPane = first
+    else if (clientX > last.right) hitPane = last
+    else hitPane = otherPanes.reduce((acc, p) => {
+      const dAcc = Math.min(Math.abs(clientX - acc.left), Math.abs(clientX - acc.right))
+      const dP = Math.min(Math.abs(clientX - p.left), Math.abs(clientX - p.right))
+      return dP < dAcc ? p : acc
+    }, otherPanes[0])
+  }
+  if (!hitPane) {
     dropTarget.value = null
     return
   }
 
-  const yRatio = (clientY - hitRect.top) / hitRect.height
+  // 四边吸附：基于命中 pane 的占比判断上/下/左/右/中心
+  const xRatio = (clientX - hitPane.left) / (hitPane.right - hitPane.left)
+  const yRatio = (clientY - hitPane.top) / (hitPane.bottom - hitPane.top)
+  const fromLeft = xRatio
+  const fromRight = 1 - xRatio
+  const fromTop = yRatio
+  const fromBottom = 1 - yRatio
+  const minEdge = Math.min(fromLeft, fromRight, fromTop, fromBottom)
 
-  if (yRatio > DRAG_Y_SPLIT) {
-    const srcPos = splitPaneStore.getPanePosition(draggingPaneId.value!)
-    const isLastInRow = srcPos && srcPos.row === hitRow && srcPos.col === rowWrappers.length - 1
-    if (isLastInRow && paneCount <= 1) {
-      dropTarget.value = null
-      return
+  if (minEdge < PANE_EDGE_THRESHOLD) {
+    if (fromTop === minEdge) {
+      // 顶部吸附：在当前 pane 上方插入（同行前/或新行取决于行内 pane 数）
+      dropTarget.value = { row: hitRow, col: hitPane.col, position: 'before' }
+    } else if (fromBottom === minEdge) {
+      // 底部吸附：当前 pane 下方 → 默认在右侧新增（水平分配），让底部也能左右分配
+      dropTarget.value = { row: hitRow, col: hitPane.col, position: 'after' }
+    } else if (fromLeft === minEdge) {
+      dropTarget.value = { row: hitRow, col: hitPane.col, position: 'before' }
+    } else {
+      dropTarget.value = { row: hitRow, col: hitPane.col, position: 'after' }
     }
-    const actualCol = parseInt(rowWrappers[hitCol].dataset.col || '0')
-    dropTarget.value = { row: hitRow, col: actualCol, position: 'new-row-below' }
   } else {
-    const midX = (hitRect.left + hitRect.right) / 2
-    const pos = clientX < midX ? 'before' : 'after'
-    const actualCol = parseInt(rowWrappers[hitCol].dataset.col || '0')
-    dropTarget.value = { row: hitRow, col: actualCol, position: pos }
+    // 中心区：在同行 pane 之间按 X 中线决定 before/after
+    const midX = (hitPane.left + hitPane.right) / 2
+    dropTarget.value = {
+      row: hitRow,
+      col: hitPane.col,
+      position: clientX < midX ? 'before' : 'after'
+    }
   }
 }
 
@@ -236,14 +293,19 @@ function finishDrag() {
   if (onMouseUp) document.removeEventListener('mouseup', onMouseUp)
   document.body.style.userSelect = ''
   document.body.style.cursor = ''
+  // 清理快照，避免下次拖拽误用旧布局
+  rowSnapshots = []
 
   if (draggingPaneId.value && dropTarget.value) {
     const dt = dropTarget.value
     const pid = draggingPaneId.value
     const grid = splitPaneStore.paneGrid
 
-    if (dt.position === 'new-row' || dt.position === 'new-row-below') {
-      splitPaneStore.movePaneToNewRow(pid)
+    if (dt.position === 'new-row') {
+      // dt.row 为 0 表示插入顶部，grid.length 表示追加底部
+      splitPaneStore.movePaneToNewRowAt(pid, dt.row)
+    } else if (dt.position === 'new-row-below') {
+      splitPaneStore.movePaneToNewRowAt(pid, dt.row + 1)
     } else if (dt.position === 'before') {
       const targetId = grid[dt.row]?.[dt.col]
       if (targetId && targetId !== pid) {
@@ -264,6 +326,9 @@ function finishDrag() {
 }
 
 // ========== tab 跨分屏拖拽（document 级坐标命中，绕开子组件 stopPropagation）==========
+// 拖拽 tab 时四边吸附阈值（距边占比）
+const EDGE_THRESHOLD = 0.28
+
 function computeZone(rect: DOMRect, clientX: number, clientY: number): DropZone {
   const xRatio = (clientX - rect.left) / rect.width
   const yRatio = (clientY - rect.top) / rect.height
