@@ -1,5 +1,5 @@
 /** useMainLayout — MainLayout 主布局组件的 composable，装配各工作模式面板、分屏容器、底部终端及快捷键编排。 */
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useLayoutStore } from '@/stores/layout'
 import { useUIStore } from '@/stores/ui'
@@ -13,18 +13,32 @@ import PanelContainer from '../PanelContainer/PanelContainer.vue'
 import SessionTabs from '../SessionTabs/SessionTabs.vue'
 import MessageArea from '../messageArea/MessageArea/MessageArea.vue'
 import { SplitContainer } from '../splitPane'
-import { PlanModePanel } from '@/views/plan'
 import RightTaskPanelContent from '@/views/plan/rightTaskPanelContent/RightTaskPanelContent.vue'
-import { MemoryRepoPanel } from '@/views/memory'
-import { SoloModePanel } from '@/views/solo'
-import { SettingsShell } from '@/views/settings'
 import { FileTree, refreshProjectFileTreeView } from '@/components/fileTree'
 import { EaIcon } from '@/components/common'
-import { FileEditorWorkspace, FileChangeReviewWorkspace, openProjectFileInWorkspace } from '@/modules/fileEditor'
-import { OfficeViewerWorkspace } from '@/modules/officeViewer'
 import { useTerminalStore } from '@/stores/terminal'
 import { useSessionStore } from '@/stores/session'
 import { useFileChangeStore } from '@/stores/fileChange'
+
+// 重型面板懒加载：Monaco(9.4MB) / OfficeViewer(exceljs) / Mermaid / Echarts 等
+// 只在用户实际切换到对应模式时才加载，避免启动即全量解析
+const PlanModePanel = defineAsyncComponent(() => import('@/views/plan').then(m => m.PlanModePanel))
+const MemoryRepoPanel = defineAsyncComponent(() => import('@/views/memory').then(m => m.MemoryRepoPanel))
+const SoloModePanel = defineAsyncComponent(() => import('@/views/solo').then(m => m.SoloModePanel))
+const SettingsShell = defineAsyncComponent(() => import('@/views/settings').then(m => m.SettingsShell))
+const FileEditorWorkspace = defineAsyncComponent(() => import('@/modules/fileEditor').then(m => m.FileEditorWorkspace))
+const FileChangeReviewWorkspace = defineAsyncComponent(() => import('@/modules/fileEditor').then(m => m.FileChangeReviewWorkspace))
+const OfficeViewerWorkspace = defineAsyncComponent(() => import('@/modules/officeViewer').then(m => m.OfficeViewerWorkspace))
+
+/** 动态加载 openProjectFileInWorkspace（来自 Monaco 依赖的重型模块），首次调用后缓存 */
+let _openProjectFileInWorkspace: typeof import('@/modules/fileEditor').openProjectFileInWorkspace | null = null
+async function getOpenProjectFileInWorkspace() {
+  if (!_openProjectFileInWorkspace) {
+    const mod = await import('@/modules/fileEditor')
+    _openProjectFileInWorkspace = mod.openProjectFileInWorkspace
+  }
+  return _openProjectFileInWorkspace
+}
 
 
 export function useMainLayout() {
@@ -112,7 +126,8 @@ async function handleRightFileSelect(filePath: string) {
   }
 
   projectStore.setCurrentProject(project.id)
-  await openProjectFileInWorkspace({
+  const openFn = await getOpenProjectFileInWorkspace()
+  await openFn({
     projectId: project.id,
     projectPath: project.path,
     filePath

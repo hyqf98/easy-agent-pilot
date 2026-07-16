@@ -115,6 +115,9 @@ import {
 export const useTaskExecutionStore = defineStore('taskExecution', () => {
   // ==================== State ====================
 
+  /** 单任务内存中保留的日志上限，超出时丢弃最旧的（DB 仍保留全量） */
+  const MAX_IN_MEMORY_LOGS = 500
+
   const executionStates = ref<Map<string, TaskExecutionState>>(new Map())
 
   const executionQueues = ref<Map<string, ExecutionQueue>>(new Map())
@@ -1389,6 +1392,10 @@ export const useTaskExecutionStore = defineStore('taskExecution', () => {
       : createExecutionLogEntry(input)
 
     state.logs.push(entry)
+    // 超出上限时丢弃最旧日志（DB 已持久化全量，内存仅保留最近窗口）
+    if (state.logs.length > MAX_IN_MEMORY_LOGS) {
+      state.logs.splice(0, state.logs.length - MAX_IN_MEMORY_LOGS)
+    }
     return entry
   }
 

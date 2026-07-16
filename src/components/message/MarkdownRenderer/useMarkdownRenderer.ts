@@ -1,8 +1,21 @@
 /** useMarkdownRenderer — MarkdownRenderer 组件的 composable，装配 markdown-it + highlight.js + mermaid 并处理代码块与链接交互。 */
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import MarkdownIt from 'markdown-it'
-import hljs from 'highlight.js'
-import mermaid from 'mermaid'
+import hljs from 'highlight.js/lib/core'
+import typescript from 'highlight.js/lib/languages/typescript'
+import javascript from 'highlight.js/lib/languages/javascript'
+import python from 'highlight.js/lib/languages/python'
+import rust from 'highlight.js/lib/languages/rust'
+import bash from 'highlight.js/lib/languages/bash'
+import json from 'highlight.js/lib/languages/json'
+import xml from 'highlight.js/lib/languages/xml'
+import css from 'highlight.js/lib/languages/css'
+import sql from 'highlight.js/lib/languages/sql'
+import markdownLang from 'highlight.js/lib/languages/markdown'
+import shell from 'highlight.js/lib/languages/shell'
+import yaml from 'highlight.js/lib/languages/yaml'
+import go from 'highlight.js/lib/languages/go'
+import java from 'highlight.js/lib/languages/java'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { useProjectStore } from '@/stores/project'
 import { useUIStore } from '@/stores/ui'
@@ -10,6 +23,38 @@ import { useNotificationStore } from '@/stores/notification'
 import { useRightFilePanelStore } from '@/stores/rightFilePanel'
 import { useThemeStore } from '@/stores/theme'
 import { openProjectFileInWorkspace } from '@/modules/fileEditor'
+
+// ── highlight.js 按需注册（避免全量导入 ~190 种语言 ~1MB） ──────────────
+;[
+  typescript, javascript, python, rust, bash, json, xml, css,
+  sql, markdownLang, shell, yaml, go, java
+].forEach((lang) => {
+  hljs.registerLanguage(lang.name, lang)
+})
+// 常见别名映射（用户可能写 ts/js/sh/dockerfile/yml 等）
+hljs.registerAliases(['ts'], { languageName: 'typescript' })
+hljs.registerAliases(['js'], { languageName: 'javascript' })
+hljs.registerAliases(['py'], { languageName: 'python' })
+hljs.registerAliases(['rs'], { languageName: 'rust' })
+hljs.registerAliases(['sh', 'zsh', 'shell'], { languageName: 'bash' })
+hljs.registerAliases(['yml'], { languageName: 'yaml' })
+hljs.registerAliases(['html', 'vue', 'svelte'], { languageName: 'xml' })
+
+// ── mermaid 动态导入（~3MB，仅在检测到图表块时加载） ────────────────────
+type MermaidModule = typeof import('mermaid')['default']
+let _mermaidModule: MermaidModule | null = null
+let _mermaidLoading: Promise<MermaidModule> | null = null
+
+async function ensureMermaidModule(): Promise<MermaidModule> {
+  if (_mermaidModule) return _mermaidModule
+  if (_mermaidLoading) return _mermaidLoading
+  _mermaidLoading = import('mermaid').then((mod) => {
+    _mermaidModule = mod.default
+    _mermaidLoading = null
+    return _mermaidModule
+  })
+  return _mermaidLoading
+}
 
 export interface MarkdownRendererProps {
   content: string
@@ -200,7 +245,7 @@ export function useMarkdownRenderer(props: MarkdownRendererProps) {
     }
   }
 
-  // 创建 MarkdownIt 实例
+  // 创建 MarkdownIt 实例（每组件实例独立，renderer.rules 闭包持有 per-component 状态）
   const md = new MarkdownIt({
     html: false,
     breaks: true,
@@ -421,11 +466,11 @@ export function useMarkdownRenderer(props: MarkdownRendererProps) {
   }
 
   // ── Mermaid 图表渲染 ──────────────────────────────────────────────────
-  // mermaid 只需初始化一次；主题跟随应用 isDark（dark / default），保持与消息配色一致
+  // mermaid 动态加载：只在检测到 mermaid 占位时才 import ~3MB 的库
   let mermaidInitialized = false
-  function ensureMermaidInitialized() {
+  async function ensureMermaidInitialized() {
     if (mermaidInitialized) return
-    mermaidInitialized = true
+    const mermaid = await ensureMermaidModule()
     mermaid.initialize({
       startOnLoad: false,
       theme: themeStore.isDark ? 'dark' : 'default',
@@ -451,6 +496,7 @@ export function useMarkdownRenderer(props: MarkdownRendererProps) {
             tertiaryColor: '#e2e8f0'
           }
     })
+    mermaidInitialized = true
   }
 
   // 渲染容器内所有未处理的 mermaid 占位为 SVG；失败时回退显示源码 + 错误提示
@@ -460,7 +506,8 @@ export function useMarkdownRenderer(props: MarkdownRendererProps) {
     const nodes = Array.from(container.querySelectorAll<HTMLElement>('.mermaid'))
     if (nodes.length === 0) return
 
-    ensureMermaidInitialized()
+    await ensureMermaidInitialized()
+    const mermaid = await ensureMermaidModule()
 
     for (const node of nodes) {
       // 跳过已渲染或已失败的节点（流式期间 watch 会重复触发）
@@ -517,7 +564,6 @@ export function useMarkdownRenderer(props: MarkdownRendererProps) {
   // 主题切换时重新初始化 mermaid 并重绘已渲染的图（浅色 ↔ 深色）
   watch(() => themeStore.isDark, () => {
     mermaidInitialized = false
-    ensureMermaidInitialized()
     const container = containerRef.value
     if (!container) return
     // 重置所有 mermaid 节点的渲染标记，触发重绘

@@ -1,6 +1,6 @@
 /** 文件变更追踪记录（FileChangeTrace）查询与回滚的 Pinia store。 */
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, ref, shallowRef } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { FileChangeStatus, FileEditChangeType, FileEditTrace } from '@/types/fileTrace'
 
@@ -36,8 +36,10 @@ function toTrace(row: FileChangeTraceRow): FileEditTrace {
 }
 
 export const useFileChangeStore = defineStore('fileChange', () => {
-  /** 全部文件变更追踪（按 sessionId 分组查阅） */
-  const tracesBySession = ref<Map<string, FileEditTrace[]>>(new Map())
+  /** 全部文件变更追踪（按 sessionId 分组查阅）
+   *  shallowRef：FileEditTrace 含 beforeContent/afterContent 完整文件内容字符串，
+   *  深层响应式开销大且无必要（每次更新都是整体替换 Map 实例触发响应） */
+  const tracesBySession = shallowRef<Map<string, FileEditTrace[]>>(new Map())
   /** 已展开汇总条的回合（requestId） */
   const expandedRequests = ref<Set<string>>(new Set())
   /** 当前打开审查的回合 + 选中的 traceId */

@@ -169,8 +169,30 @@ interface AcpEventsCacheEntry {
 }
 
 const ACP_EVENTS_CACHE_TTL_MS = 5 * 60 * 1000
+/** ACP 事件缓存最大条目数（LRU 驱逐），防止大型会话事件流在 TTL 窗口内无界增长 */
+const ACP_EVENTS_CACHE_MAX_ENTRIES = 8
 const acpEventsCache = new Map<string, AcpEventsCacheEntry>()
 const pendingReloadSessionIds = new Set<string>()
+
+/** 写入 ACP 事件缓存，超出容量上限时驱逐最旧的条目（基于 fetchedAt） */
+function setAcpEventsCache(sessionId: string, entry: AcpEventsCacheEntry): void {
+  acpEventsCache.set(sessionId, entry)
+  while (acpEventsCache.size > ACP_EVENTS_CACHE_MAX_ENTRIES) {
+    let oldestKey: string | null = null
+    let oldestTime = Infinity
+    for (const [key, val] of acpEventsCache) {
+      if (val.fetchedAt < oldestTime) {
+        oldestTime = val.fetchedAt
+        oldestKey = key
+      }
+    }
+    if (oldestKey) {
+      acpEventsCache.delete(oldestKey)
+    } else {
+      break
+    }
+  }
+}
 
 // 按 sessionId 维度的加载并发控制：支持多会话历史同时加载（每个会话独立去重）。
 // 同一 sessionId 的重复请求（非 force）会等待首发起方完成；force 请求直接覆盖旧请求的结果。
@@ -588,7 +610,7 @@ export const useMessageStore = defineStore('message', () => {
         } else {
           const result = await readSessionDetail(agentCmd, externalSessionId, cwd)
           events = result.events
-          acpEventsCache.set(externalSessionId, { events, fetchedAt: Date.now() })
+          setAcpEventsCache(externalSessionId, { events, fetchedAt: Date.now() })
         }
 
         const correctedSessionMessages = mapAcpEventsToMessages(sessionId, events)

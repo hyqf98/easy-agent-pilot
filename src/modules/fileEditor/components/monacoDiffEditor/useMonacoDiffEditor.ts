@@ -15,6 +15,16 @@ export function useMonacoDiffEditor(props: Readonly<MonacoDiffEditorProps>) {
   const containerRef = ref<HTMLElement | null>(null)
   let editor: monaco.editor.IStandaloneDiffEditor | null = null
 
+  /** 释放当前 diff editor 持有的 original/modified 模型，防止 worker 镜像泄漏 */
+  function disposeCurrentModels(): void {
+    if (!editor) return
+    const currentModel = editor.getModel()
+    if (currentModel) {
+      currentModel.original?.dispose()
+      currentModel.modified?.dispose()
+    }
+  }
+
   function createEditor() {
     if (!containerRef.value) return
     editor = monaco.editor.createDiffEditor(containerRef.value, {
@@ -36,6 +46,8 @@ export function useMonacoDiffEditor(props: Readonly<MonacoDiffEditorProps>) {
 
   function updateModel() {
     if (!editor) return
+    // 先释放旧模型（含 language worker 引用），防止切换 trace 时泄漏
+    disposeCurrentModels()
     const language = props.language || 'plaintext'
     editor.setModel({
       original: monaco.editor.createModel(props.beforeContent || '', language),
@@ -46,7 +58,11 @@ export function useMonacoDiffEditor(props: Readonly<MonacoDiffEditorProps>) {
   onMounted(() => { createEditor() })
   watch(() => [props.beforeContent, props.afterContent], () => { updateModel() })
   watch(() => props.renderSideBySide, (val) => { editor?.updateOptions({ renderSideBySide: val }) })
-  onBeforeUnmount(() => { editor?.dispose(); editor = null })
+  onBeforeUnmount(() => {
+    disposeCurrentModels()
+    editor?.dispose()
+    editor = null
+  })
 
   return { containerRef }
 }

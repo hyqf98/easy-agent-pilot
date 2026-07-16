@@ -79,6 +79,36 @@ pub struct TerminalState {
     sessions: Arc<Mutex<HashMap<String, Arc<TerminalSession>>>>,
 }
 
+impl TerminalState {
+    /// 关闭并释放所有 PTY 会话（应用退出 / 窗口关闭时调用，防止 shell 子进程泄漏）。
+    pub fn close_all_sessions(&self) {
+        let sessions = {
+            let mut map = self.sessions.lock();
+            std::mem::take(&mut *map)
+        };
+
+        if sessions.is_empty() {
+            return;
+        }
+
+        for (session_id, session) in sessions {
+            // 尽力 kill：即使失败也继续清理其余会话
+            if let Err(error) = session.child.lock().kill() {
+                log_error!(
+                    "应用退出清理 PTY 会话失败: session={}, source=app_exit, error={}",
+                    session_id,
+                    error
+                );
+            } else {
+                log_info!(
+                    "应用退出已清理 PTY 会话: session={}, source=app_exit",
+                    session_id
+                );
+            }
+        }
+    }
+}
+
 struct ShellLaunchConfig {
     program: String,
     display_name: String,

@@ -425,6 +425,15 @@ pub fn run() {
             commands::window::is_session_locked,
             commands::window::release_window_sessions,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // 应用退出时清理所有 PTY 终端会话，防止 shell 子进程泄漏
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                use tauri::Manager;
+                if let Some(terminal_state) = app_handle.try_state::<commands::terminal::TerminalState>() {
+                    terminal_state.close_all_sessions();
+                }
+            }
+        });
 }

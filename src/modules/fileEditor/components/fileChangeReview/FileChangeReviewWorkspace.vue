@@ -150,6 +150,7 @@ const {
           class="file-review__diff-editor"
         >
           <MonacoDiffEditor
+            :key="selectedTrace.id"
             :before-content="selectedTrace.beforeContent ?? ''"
             :after-content="selectedTrace.afterContent ?? ''"
             :file-path="selectedTrace.filePath"

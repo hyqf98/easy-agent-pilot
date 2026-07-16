@@ -20,6 +20,8 @@ export const useNotificationStore = defineStore('notification', () => {
   // State
   const notifications = ref<Notification[]>([])
   const defaultDuration = 5000 // 5 seconds
+  /** 通知数组上限，防止错误风暴（duration=0 不自动消失）导致无界增长 */
+  const MAX_NOTIFICATIONS = 50
 
   // Getters
   const visibleNotifications = computed(() => notifications.value.slice(0, 5))
@@ -39,6 +41,11 @@ export const useNotificationStore = defineStore('notification', () => {
     }
 
     notifications.value.push(newNotification)
+
+    // 超出上限时丢弃最旧的通知，防止错误风暴泄漏
+    if (notifications.value.length > MAX_NOTIFICATIONS) {
+      notifications.value = notifications.value.slice(notifications.value.length - MAX_NOTIFICATIONS)
+    }
 
     // Auto-dismiss if duration > 0
     if (newNotification.duration && newNotification.duration > 0) {

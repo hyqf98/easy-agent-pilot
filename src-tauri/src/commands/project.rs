@@ -151,6 +151,8 @@ pub struct FileMentionSearchResult {
 const PROJECT_FILE_CACHE_TTL: Duration = Duration::from_secs(12);
 const DEFAULT_FILE_MENTION_LIMIT: usize = 80;
 const MAX_FILE_MENTION_LIMIT: usize = 200;
+/// 全局文件搜索索引的条目上限（防止 home 目录 10-50 万+ 文件路径占 60MB+ 内存）
+const MAX_GLOBAL_CACHE_ENTRIES: usize = 50_000;
 
 static PROJECT_FILE_CACHE: Lazy<Mutex<HashMap<String, ProjectFileCacheEntry>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
@@ -1133,6 +1135,13 @@ fn ensure_global_cache_initialized(cache: &mut GlobalFileSearchCache) {
         return;
     }
 
+    // 达到上限后立即停止初始化，避免无限制扫描整个文件系统
+    if cache.entries.len() >= MAX_GLOBAL_CACHE_ENTRIES {
+        cache.completed = true;
+        cache.initialized = true;
+        return;
+    }
+
     for root in global_search_roots() {
         let root_key = root.to_string_lossy().to_string();
         if !cache.visited_dirs.insert(root_key.clone()) {
@@ -1154,9 +1163,21 @@ fn scan_global_cache_step(cache: &mut GlobalFileSearchCache, max_dirs: usize) {
         return;
     }
 
+    // 达到条目上限后标记完成，防止内存爆炸（home 目录可达 60MB+）
+    if cache.entries.len() >= MAX_GLOBAL_CACHE_ENTRIES {
+        cache.completed = true;
+        return;
+    }
+
     let mut scanned_dirs = 0usize;
 
     while scanned_dirs < max_dirs {
+        // 扫描过程中持续检查上限
+        if cache.entries.len() >= MAX_GLOBAL_CACHE_ENTRIES {
+            cache.completed = true;
+            break;
+        }
+
         let Some(dir_path) = cache.pending_dirs.pop_front() else {
             cache.completed = true;
             break;
@@ -1168,6 +1189,12 @@ fn scan_global_cache_step(cache: &mut GlobalFileSearchCache, max_dirs: usize) {
         };
 
         for entry in entries.flatten() {
+            // 上限检查放在内层循环，尽早中断
+            if cache.entries.len() >= MAX_GLOBAL_CACHE_ENTRIES {
+                cache.completed = true;
+                break;
+            }
+
             let path = entry.path();
             if is_ignored_global_path(&path) {
                 continue;

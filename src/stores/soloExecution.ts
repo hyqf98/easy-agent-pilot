@@ -95,6 +95,8 @@ import type {
 } from './soloExecutionShared'
 
 export const useSoloExecutionStore = defineStore('soloExecution', () => {
+  /** 单次运行内存中保留的日志上限，超出时丢弃最旧的（DB 仍保留全量） */
+  const MAX_IN_MEMORY_LOGS = 500
   const stepsByRun = ref<Map<string, SoloStep[]>>(new Map())
   const executionStates = ref<Map<string, SoloExecutionState>>(new Map())
   const stopRequestedRunIds = ref<Set<string>>(new Set())
@@ -298,7 +300,12 @@ export const useSoloExecutionStore = defineStore('soloExecution', () => {
       }
     })
     const log = transformLog(rawLog)
-    initExecutionState(input.runId).logs.push(log)
+    const state = initExecutionState(input.runId)
+    state.logs.push(log)
+    // 超出上限时丢弃最旧日志（DB 已持久化全量，内存仅保留最近窗口）
+    if (state.logs.length > MAX_IN_MEMORY_LOGS) {
+      state.logs.splice(0, state.logs.length - MAX_IN_MEMORY_LOGS)
+    }
     return log
   }
 
