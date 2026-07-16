@@ -9,11 +9,10 @@
 .session-list {
   display: flex;
   flex-direction: column;
-  /* 取内容高度，不纵向拉伸，让 .session-more-btn 紧跟最后一条会话。
-     左对齐由外层 .project-content 的 margin-left 统一提供，此处不再额外缩进。 */
+  /* 取内容高度，不纵向拉伸，让 .session-more-btn 紧跟最后一条会话。 */
   flex: 0 1 auto;
   gap: 0;
-  padding: 1px 0 4px;
+  padding: 1px 0 2px;
   width: 100%;
   min-width: 0;
   min-height: 0;
@@ -27,7 +26,10 @@
   display: flex;
   align-items: center;
   container-type: inline-size;
-  padding: 3px 6px;
+  /* padding-left 对齐项目名起始位置(项目 itemLeft6 + padding8 + icon22 + gap6 = 42px；
+     减去 lead 宽 14px + itemLeft 6px + 1px 偏移 = 21px) */
+  padding: 3px 6px 3px 21px;
+  margin-bottom: 2px;
   cursor: pointer;
   border: 1px solid transparent;
   border-radius: 6px;
@@ -51,6 +53,29 @@
 .session-item--active:hover {
   background: var(--workspace-list-active-bg);
   box-shadow: none;
+}
+
+/* 置顶会话：轻微背景区分 */
+.session-item--pinned {
+  background: var(--workspace-control-hover-bg);
+}
+
+.session-item--pinned:hover {
+  background: var(--workspace-control-hover-bg);
+}
+
+.session-item--pinned.session-item--active {
+  background: var(--workspace-list-active-bg);
+}
+
+/* 置顶图标：替代空白的 lead 区域，显示一个小图钉 */
+.session-item__pin-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: var(--workspace-text-tertiary);
 }
 
 /* 左侧强调条：激活态唯一的视觉锚点，用中性主色而非品牌蓝 */
@@ -200,7 +225,14 @@
   font-size: 12px;
   font-weight: 450;
   color: var(--workspace-text-primary);
-  transition: font-weight var(--transition-fast) var(--easing-default);
+  transition: font-weight var(--transition-fast) var(--easing-default),
+    padding-right var(--transition-fast) var(--easing-default);
+}
+
+/* hover 时标题让出右侧空间给操作按钮，避免文字与按钮重叠 */
+.session-item:hover .session-item__name,
+.session-item:focus-within .session-item__name {
+  padding-right: 74px;
 }
 
 .session-item--active .session-item__name {
@@ -215,9 +247,22 @@
 /* ── 时间 / 元信息 / 预览 ───────────────────────────────────────────── */
 .session-item__time {
   flex-shrink: 0;
-  font-size: 11px;
-  color: var(--workspace-text-tertiary);
+  margin-left: auto;
+  font-size: 10px;
+  color: color-mix(in srgb, var(--workspace-text-tertiary) 70%, transparent);
   white-space: nowrap;
+  transition: opacity var(--transition-fast) var(--easing-default);
+}
+
+/* 激活态：时间色加深，确保与激活背景有足够对比度 */
+.session-item--active .session-item__time {
+  color: var(--workspace-text-secondary);
+}
+
+/* hover 时隐藏时间，显示操作按钮 */
+.session-item:hover .session-item__time,
+.session-item:focus-within .session-item__time {
+  opacity: 0;
 }
 
 .session-item__status-text {
@@ -364,20 +409,22 @@
   color: var(--workspace-text-primary);
 }
 
-/* ── 悬停操作按钮 ──────────────────────────────────────────────────── */
+/* ── 悬停操作按钮：绝对定位，不占布局空间，hover 时显示 ────────────── */
 .session-item__actions {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
   align-items: center;
   gap: var(--spacing-1);
-  margin-left: var(--spacing-2);
   flex-shrink: 0;
   opacity: 0;
   transition: opacity var(--transition-fast) var(--easing-default);
 }
 
 .session-item:hover .session-item__actions,
-.session-item:focus-within .session-item__actions,
-.session-item--active .session-item__actions {
+.session-item:focus-within .session-item__actions {
   opacity: 1;
 }
 
@@ -417,7 +464,8 @@
    =================================================================== */
 @container (max-width: 320px) {
   .session-item {
-    padding: 3px 6px;
+    /* 保持左对齐：与项目名起始位置对齐(21px) */
+    padding: 3px 6px 3px 21px;
   }
 
   .session-item__meta {
@@ -430,10 +478,6 @@
 }
 
 @container (max-width: 280px) {
-  .session-item__time {
-    display: none;
-  }
-
   .session-item__meta {
     gap: var(--spacing-1);
   }

@@ -47,30 +47,42 @@
   border-color: var(--color-active-border);
 }
 
-.project-item__arrow {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  color: var(--color-text-tertiary);
-  transition: transform var(--transition-fast) var(--easing-default);
-}
-
-.project-item__arrow--expanded {
-  transform: rotate(90deg);
-}
-
 .project-item__icon {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 22px;
+  height: 22px;
   flex-shrink: 0;
-  border-radius: var(--radius-md);
-  background-color: var(--color-primary-light);
-  color: var(--color-primary);
+}
+
+.project-item__icon-folder,
+.project-item__icon-chevron {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity var(--transition-fast) var(--easing-default);
+}
+
+.project-item__icon-folder {
+  opacity: 1;
+  color: var(--workspace-text-tertiary);
+}
+
+.project-item__icon-chevron {
+  opacity: 0;
+  color: var(--workspace-text-secondary);
+}
+
+.project-item:hover .project-item__icon-folder {
+  opacity: 0;
+}
+
+.project-item:hover .project-item__icon-chevron {
+  opacity: 1;
 }
 
 .project-item--active .project-item__icon,
@@ -84,7 +96,7 @@
   flex: 1;
   min-width: 0;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .project-item__header {
@@ -472,14 +484,9 @@
 }
 
 @container (max-width: 240px) {
-  .project-item__arrow {
-    width: 16px;
-    height: 16px;
-  }
-
   .project-item__icon {
-    width: 32px;
-    height: 32px;
+    width: 20px;
+    height: 20px;
   }
 
   .project-item__name {
@@ -505,8 +512,8 @@
 }
 
 .project-item {
-  gap: 7px;
-  padding: 7px 8px;
+  gap: 6px;
+  padding: 5px 8px;
   border: none;
   border-radius: 8px;
   background: transparent;
@@ -527,28 +534,16 @@
   border-color: transparent;
 }
 
-/* 当前项目：左侧强调条 */
-.project-item--active::before {
-  content: '';
-  position: absolute;
-  left: -2px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 60%;
-  border-radius: 0 3px 3px 0;
-  background: var(--workspace-text-primary, var(--color-text-primary));
-  opacity: 0.5;
-}
-
 .project-item:focus-visible {
   outline: 2px solid var(--workspace-border-strong);
   outline-offset: -2px;
 }
 
-.project-item__arrow {
-  width: 16px;
-  height: 16px;
+.project-item__icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: transparent;
   color: var(--workspace-text-tertiary);
 }
 
@@ -560,14 +555,6 @@
   border-top-color: var(--workspace-text-secondary, var(--color-text-secondary));
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
-}
-
-.project-item__icon {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--workspace-text-tertiary);
 }
 
 .project-item--active .project-item__icon,
@@ -583,7 +570,8 @@
 .project-item__name {
   color: var(--workspace-text-primary);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 0.01em;
   /* 禁止文本选中：避免点击项目时触发 ::selection 蓝色高亮 */
   user-select: none;
   -webkit-user-select: none;
@@ -627,9 +615,8 @@
 .project-content {
   min-height: 0;
   max-width: none;
-  /* margin-left 对齐到项目条目内容（箭头）位置：面板 padding 8px + 此处 8px = 16px，
-     使会话列表与更多按钮均与项目条目左对齐。 */
-  margin: 0 0 3px var(--spacing-2);
+  /* margin-left 归零：项目图标现已移到行首，会话列表直接与图标对齐。 */
+  margin: 0 0 1px 0;
   border: none;
   border-radius: 0;
   background: transparent;

@@ -55,6 +55,11 @@ export function useUnifiedPanelSessionList(_props: UnifiedPanelSessionListProps,
     _emit('select', session.id)
   }
 
+  /** 会话活跃时间（相对格式：刚刚 / N分钟前 / N小时前 / N天前 / N周前 / N月前 / N年前） */
+  function getSessionTime(session: Session) {
+    return formatRelativeTime(session.updatedAt)
+  }
+
   return {
     t,
     EaIcon,
@@ -63,6 +68,7 @@ export function useUnifiedPanelSessionList(_props: UnifiedPanelSessionListProps,
     getStatusBadgeClass,
     shouldShowSessionStatusIcon,
     isSessionExecuting,
-    handleSessionClick
+    handleSessionClick,
+    getSessionTime
   }
 }

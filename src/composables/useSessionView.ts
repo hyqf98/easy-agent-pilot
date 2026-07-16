@@ -103,12 +103,17 @@ export function useSessionView() {
     const minutes = Math.floor(diff / 60000)
     const hours = Math.floor(diff / 3600000)
     const days = Math.floor(diff / 86400000)
+    const weeks = Math.floor(days / 7)
+    const months = Math.floor(days / 30)
+    const years = Math.floor(days / 365)
 
     if (minutes < 1) return t('common.justNow')
     if (minutes < 60) return t('common.minutesAgo', { n: minutes })
     if (hours < 24) return t('common.hoursAgo', { n: hours })
     if (days < 7) return t('common.daysAgo', { n: days })
-    return date.toLocaleDateString()
+    if (weeks < 4) return t('common.weeksAgo', { n: weeks })
+    if (months < 12) return t('common.monthsAgo', { n: months })
+    return t('common.yearsAgo', { n: years })
   }
 
   function formatSessionCreatedAt(dateStr: string) {

@@ -6,7 +6,6 @@ use super::support::now_rfc3339;
 use crate::db;
 use crate::logging::write_log;
 use crate::mappers::settings as settings_mapper;
-use crate::models::AppSettingRow;
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]

@@ -78,7 +78,10 @@ const zhCN = {
     justNow: '刚刚',
     minutesAgo: '{n} 分钟前',
     hoursAgo: '{n} 小时前',
-    daysAgo: '{n} 天前'
+    daysAgo: '{n} 天前',
+    weeksAgo: '{n} 周前',
+    monthsAgo: '{n} 个月前',
+    yearsAgo: '{n} 年前'
   },
   validation: {
     ...enUS.validation,
@@ -263,11 +266,20 @@ const zhCN = {
     selectAllVisible: '全选当前列表',
     selectSession: '选择会话',
     unselectSession: '取消选择会话',
+    source: {
+      chat: '主会话',
+      unattended: '无人值守',
+      plan_split: '计划',
+      task: '任务',
+      solo: 'SOLO',
+      cli: 'CLI'
+    },
     batchDeleteSuccess: '已删除 {count} 个会话',
     sessionName: '会话名称',
     enterSessionName: '请输入会话名称',
     pin: '置顶',
     unpin: '取消置顶',
+    pinned: '已置顶',
     statusIdle: '空闲',
     statusRunning: '运行中',
     statusPaused: '已暂停',

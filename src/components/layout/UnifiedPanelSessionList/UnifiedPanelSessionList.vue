@@ -13,6 +13,7 @@ const {
   t,
   EaIcon,
   shouldShowSessionStatusIcon,
+  getSessionTime,
   handleSessionClick
 } = useUnifiedPanelSessionList(props, emit)
 </script>
@@ -65,6 +66,17 @@ const {
             :size="13"
           />
         </span>
+        <span
+          v-else-if="session.pinned"
+          class="session-item__pin-icon"
+          :title="t('session.pinned')"
+          aria-hidden="true"
+        >
+          <EaIcon
+            name="pin"
+            :size="12"
+          />
+        </span>
       </div>
       <div class="session-item__content">
         <div class="session-item__main">
@@ -106,6 +118,12 @@ const {
               :title="session.name"
             >
               {{ session.name }}
+            </span>
+            <span
+              v-if="editingSessionId !== session.id"
+              class="session-item__time"
+            >
+              {{ getSessionTime(session) }}
             </span>
           </template>
         </div>

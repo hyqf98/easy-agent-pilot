@@ -15,11 +15,11 @@ const {
   UnifiedPanelSessionList,
   projectItemRef,
   isCompactMenuOpen,
+  SESSION_INITIAL_LIMIT,
   isBatchSelectMode,
   selectedSessionIds,
   visibleSessions,
   hiddenSessionCount,
-  hasHiddenSessions,
   isSessionsLoading,
   isAcpSyncing,
   isProjectRowLoading,
@@ -29,7 +29,9 @@ const {
   closeCompactMenu,
   handleProjectMenuToggle,
   handleProjectCompactAction,
-  loadMoreSessions
+  loadMoreSessions,
+  collapseSessions,
+  isAllSessionsVisible
 } = useUnifiedPanelProjectEntry(props, emit)
 </script>
 
@@ -53,26 +55,26 @@ const {
       @keydown.enter="emit('toggleProject', project)"
       @keydown.space.prevent="emit('toggleProject', project)"
     >
-      <div class="project-item__arrow">
+      <div class="project-item__icon">
         <span
           v-if="isProjectRowLoading"
           class="project-item__lead-spinner"
           :title="isAcpSyncing ? t('unified.syncing') : t('common.loading')"
           aria-hidden="true"
         />
-        <EaIcon
-          v-else
-          name="chevron-right"
-          :size="14"
-          :class="{ 'project-item__arrow--expanded': isExpanded }"
-        />
-      </div>
-
-      <div class="project-item__icon">
-        <EaIcon
-          name="folder"
-          :size="18"
-        />
+        <template v-else>
+          <EaIcon
+            class="project-item__icon-folder"
+            name="folder"
+            :size="18"
+          />
+          <EaIcon
+            class="project-item__icon-chevron"
+            :class="{ 'project-item__icon-chevron--expanded': isExpanded }"
+            :name="isExpanded ? 'chevron-down' : 'chevron-right'"
+            :size="18"
+          />
+        </template>
       </div>
 
       <div class="project-item__info">
@@ -182,16 +184,16 @@ const {
         />
 
         <button
-          v-if="!isSessionsLoading && hasHiddenSessions"
+          v-if="!isSessionsLoading && sessions.length > SESSION_INITIAL_LIMIT"
           type="button"
           class="session-more-btn"
-          @click="loadMoreSessions"
+          @click="isAllSessionsVisible ? collapseSessions() : loadMoreSessions()"
         >
           <EaIcon
-            name="chevron-down"
+            :name="isAllSessionsVisible ? 'chevron-up' : 'chevron-down'"
             :size="13"
           />
-          <span>加载更多 {{ hiddenSessionCount }}</span>
+          <span>{{ isAllSessionsVisible ? '收起' : `加载更多 ${hiddenSessionCount}` }}</span>
         </button>
       </div>
     </div>

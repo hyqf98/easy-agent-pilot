@@ -7,7 +7,19 @@
     `coalesce(s.pinned, 0) as pinned, `
     `s.last_message, s.error_message, 0 as message_count, `
     `coalesce(s.plan_mode, 0) as plan_mode, `
-    `s.created_at, s.updated_at `
+    `s.created_at, s.updated_at, `
+    `case `
+    `  when exists(select 1 from unattended_threads ut where ut.session_id = s.id) then 'unattended' `
+    `  when exists(select 1 from agent_cli_usage_records u where u.session_id = s.id and u.execution_mode = 'task_split') then 'plan_split' `
+    `  when exists(select 1 from solo_runtime_bindings srb where srb.external_session_id = s.cli_session_id) then 'solo' `
+    `  when exists(select 1 from task_runtime_bindings trb where trb.external_session_id = s.cli_session_id) then 'task' `
+    `  when exists(select 1 from agent_cli_usage_records u where u.session_id = s.id and u.execution_mode = 'solo_execution') then 'solo' `
+    `  when exists(select 1 from agent_cli_usage_records u where u.session_id = s.id and u.execution_mode = 'task_execution') then 'task' `
+    `  when exists(select 1 from agent_cli_usage_records u where u.session_id = s.id and u.execution_mode = 'chat') then 'chat' `
+    `  when s.name like '无人值守%' then 'unattended' `
+    `  when s.cli_session_id is not null then 'cli' `
+    `  else 'chat' `
+    `end as source `
     `from sessions s `
     `where s.project_id = #{project_id} `
     `order by s.pinned desc, s.updated_at desc`
@@ -20,7 +32,19 @@
     `coalesce(s.pinned, 0) as pinned, `
     `s.last_message, s.error_message, 0 as message_count, `
     `coalesce(s.plan_mode, 0) as plan_mode, `
-    `s.created_at, s.updated_at `
+    `s.created_at, s.updated_at, `
+    `case `
+    `  when exists(select 1 from unattended_threads ut where ut.session_id = s.id) then 'unattended' `
+    `  when exists(select 1 from agent_cli_usage_records u where u.session_id = s.id and u.execution_mode = 'task_split') then 'plan_split' `
+    `  when exists(select 1 from solo_runtime_bindings srb where srb.external_session_id = s.cli_session_id) then 'solo' `
+    `  when exists(select 1 from task_runtime_bindings trb where trb.external_session_id = s.cli_session_id) then 'task' `
+    `  when exists(select 1 from agent_cli_usage_records u where u.session_id = s.id and u.execution_mode = 'solo_execution') then 'solo' `
+    `  when exists(select 1 from agent_cli_usage_records u where u.session_id = s.id and u.execution_mode = 'task_execution') then 'task' `
+    `  when exists(select 1 from agent_cli_usage_records u where u.session_id = s.id and u.execution_mode = 'chat') then 'chat' `
+    `  when s.name like '无人值守%' then 'unattended' `
+    `  when s.cli_session_id is not null then 'cli' `
+    `  else 'chat' `
+    `end as source `
     `from sessions s `
     `where s.id = #{id}`
   </select>

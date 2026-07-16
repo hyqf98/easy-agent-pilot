@@ -277,7 +277,7 @@ pub async fn upsert_weixin_account(
         .ok_or_else(|| "缺少 bot_token".to_string())?;
 
     // 事务：查询已有 id → upsert
-    let mut tx = db::rb()
+    let tx = db::rb()
         .acquire_begin()
         .await
         .map_err(|e| e.to_string())?;
@@ -382,7 +382,7 @@ pub async fn upsert_thread(
 ) -> Result<UnattendedThread, String> {
     let now = now_rfc3339();
 
-    let mut tx = db::rb()
+    let tx = db::rb()
         .acquire_begin()
         .await
         .map_err(|e| e.to_string())?;

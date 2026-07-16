@@ -38,6 +38,7 @@ pub fn init_db(db_path: &str) -> Result<()> {
 /// rbdc-sqlite 连接池每个连接默认 foreign_keys=ON，需要在池初始化后
 /// 对所有现存连接执行 PRAGMA foreign_keys=OFF。新连接由 rbdc-sqlite 内部
 /// 管理，无法逐个设置；因此这里用 acquire 获取连接并设置，主要覆盖首批连接。
+#[allow(dead_code)]
 pub async fn disable_foreign_keys() -> Result<()> {
     let rb = rb();
     rb.exec("PRAGMA foreign_keys = OFF", vec![])

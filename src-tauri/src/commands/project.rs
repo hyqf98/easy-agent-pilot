@@ -287,7 +287,7 @@ pub async fn create_project(input: CreateProjectInput) -> Result<Project, String
     let memory_library_ids = normalize_memory_library_ids(&input.memory_library_ids);
 
     let rb = db::rb();
-    let mut tx = rb.acquire_begin().await.map_err(|e| e.to_string())?;
+    let tx = rb.acquire_begin().await.map_err(|e| e.to_string())?;
 
     project_mapper::insert_project(
         &tx,
@@ -332,7 +332,7 @@ pub async fn update_project(id: String, input: CreateProjectInput) -> Result<Pro
     let now = now_rfc3339();
     let memory_library_ids = normalize_memory_library_ids(&input.memory_library_ids);
 
-    let mut tx = rb.acquire_begin().await.map_err(|e| e.to_string())?;
+    let tx = rb.acquire_begin().await.map_err(|e| e.to_string())?;
 
     project_mapper::update_project_basic(
         &tx,
@@ -474,7 +474,7 @@ pub async fn clear_project_runtime_data(
 
     // 级联删除（事务内）
     let now = now_rfc3339();
-    let mut tx = rb.acquire_begin().await.map_err(|e| e.to_string())?;
+    let tx = rb.acquire_begin().await.map_err(|e| e.to_string())?;
 
     project_mapper::delete_window_locks_by_project_sessions(&tx, &project_id)
         .await

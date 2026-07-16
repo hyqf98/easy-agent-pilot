@@ -361,7 +361,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 11px 10px 7px;
+  padding: 8px 8px 5px;
   color: var(--workspace-text-tertiary);
   font-size: 11px;
   font-weight: 600;
@@ -386,13 +386,13 @@
 }
 
 .unified-panel__content {
-  padding: 0 8px 10px;
+  padding: 0 6px 6px;
   align-items: stretch;
   justify-content: flex-start;
 }
 
 .project-list {
-  gap: 3px;
+  gap: 2px;
   padding-right: 2px;
 }
 

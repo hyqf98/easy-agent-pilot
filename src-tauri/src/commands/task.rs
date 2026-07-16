@@ -60,6 +60,7 @@ pub struct TaskRuntimeBinding {
 ///
 /// 保留 pub 以维持模块对外 API（unattended 等模块历史引用）；迁移到 rbatis 后
 /// 由 [`transform_task`] 直接消费 `TaskRow`，此结构仅作兼容占位。
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RustTask {
     pub id: String,
@@ -736,7 +737,7 @@ pub async fn update_task(id: String, input: UpdateTaskInput) -> Result<Task, Str
 pub async fn reorder_tasks(input: ReorderTasksInput) -> Result<(), String> {
     let rb = db::rb();
     let now = now_rfc3339();
-    let mut tx = rb.acquire_begin().await.map_err(|e| e.to_string())?;
+    let tx = rb.acquire_begin().await.map_err(|e| e.to_string())?;
 
     for item in input.task_orders {
         task_mapper::reorder_one_task(&tx, &item.id, item.order as i64, &now)
@@ -763,7 +764,7 @@ pub async fn delete_task(id: String) -> Result<(), String> {
 
     let plan_id = resolve_plan_id_of_task(rb, &id).await?;
 
-    let mut tx = rb.acquire_begin().await.map_err(|e| e.to_string())?;
+    let tx = rb.acquire_begin().await.map_err(|e| e.to_string())?;
     cleanup_deleted_task_references(&tx, &plan_id, &deleted_task_ids, &now).await?;
 
     // 与原实现一致：仅删除根任务本身（子树 id 仅用于引用清理）
@@ -926,7 +927,7 @@ pub async fn batch_create_tasks(
     let project_id = resolve_task_project_id(rb, &plan_id).await?;
 
     let now = now_rfc3339();
-    let mut tx = rb.acquire_begin().await.map_err(|e| e.to_string())?;
+    let tx = rb.acquire_begin().await.map_err(|e| e.to_string())?;
 
     // 获取当前最大顺序
     let mut max_order: i64 = task_mapper::get_max_task_order_of_plan(&tx, &plan_id)

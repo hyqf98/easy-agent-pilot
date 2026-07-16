@@ -13,6 +13,9 @@ import { useAiEditTraceStore } from './aiEditTrace'
 
 export type SessionStatus = 'idle' | 'running' | 'paused' | 'error' | 'completed'
 
+/** 会话来源标识：标识一条会话由哪个功能产生（后端 JOIN 推断） */
+export type SessionSource = 'chat' | 'unattended' | 'plan_split' | 'task' | 'solo' | 'cli'
+
 export interface Session {
   id: string
   projectId: string
@@ -28,6 +31,7 @@ export interface Session {
   errorMessage?: string
   messageCount: number
   planMode?: boolean
+  source: SessionSource
   createdAt: string
   updatedAt: string
 }
@@ -48,6 +52,7 @@ interface RustSession {
   error_message?: string
   message_count: number
   plan_mode?: boolean
+  source?: string
   created_at: string
   updated_at: string
 }
@@ -69,12 +74,18 @@ function transformSession(rustSession: RustSession): Session {
     errorMessage: rustSession.error_message,
     messageCount: rustSession.message_count,
     planMode: rustSession.plan_mode ?? false,
+    source: (rustSession.source as SessionSource) ?? 'chat',
     createdAt: rustSession.created_at,
     updatedAt: rustSession.updated_at
   }
 }
 
 function shouldDisplaySession(session: Session): boolean {
+  // 左侧会话列表只展示主会话与无人值守会话，过滤掉计划拆分/任务/SOLO/纯 CLI 同步进来的会话
+  if (session.source && session.source !== 'chat' && session.source !== 'unattended') {
+    return false
+  }
+
   const isUnattendedShell = session.name.startsWith('无人值守')
   if (!isUnattendedShell) {
     return true
@@ -291,7 +302,7 @@ export const useSessionStore = defineStore('session', () => {
     syncSessionsFromAcp(projectId, { force }).catch(() => {})
   }
 
-  async function createSession(session: Omit<Session, 'id' | 'createdAt' | 'updatedAt' | 'pinned' | 'messageCount' | 'lastMessage'>) {
+  async function createSession(session: Omit<Session, 'id' | 'createdAt' | 'updatedAt' | 'pinned' | 'messageCount' | 'lastMessage' | 'source'> & { source?: SessionSource }) {
     const notificationStore = useNotificationStore()
     const input = {
       project_id: session.projectId,

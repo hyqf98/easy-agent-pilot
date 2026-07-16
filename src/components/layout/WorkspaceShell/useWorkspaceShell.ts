@@ -17,7 +17,7 @@ export function useWorkspaceShell(props: WorkspaceShellProps) {
   const { t } = useI18n()
 
   const isSidebarVisible = ref(true)
-  const sidebarWidth = ref(props.sidebarWidth ?? 280)
+  const sidebarWidth = ref(props.sidebarWidth ?? 220)
   const isResizing = ref(false)
 
   let resizeStartX = 0

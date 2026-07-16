@@ -61,6 +61,7 @@ pub struct SessionRow {
     pub error_message: Option<String>,
     pub message_count: Option<i64>,
     pub plan_mode: Option<i64>,
+    pub source: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }
@@ -338,6 +339,7 @@ pub struct SubAgentRow {
 }
 
 /// 引用计数查询辅助结构（plans/tasks/sessions 三列 COUNT）。
+#[allow(dead_code)]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SubAgentReferenceCountRow {
     pub plans: Option<i64>,
@@ -958,6 +960,7 @@ pub struct AgentModelPricingRow {
 }
 
 /// 参照存在性检查行映射（reference_exists，单列别名 value）。
+#[allow(dead_code)]
 pub type ReferenceExistsRow = IntColumnRow;
 
 // ============================================================================

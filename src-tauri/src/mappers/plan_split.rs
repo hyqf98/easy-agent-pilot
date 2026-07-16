@@ -315,6 +315,7 @@ pub async fn update_plan_split_log(
 }
 
 /// 按 id 删除单条日志。
+#[allow(dead_code)]
 pub async fn delete_plan_split_log_by_id(
     rb: &dyn Executor,
     id: &str,

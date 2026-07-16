@@ -67,6 +67,14 @@ export function useUnifiedPanelProjectEntry(props: UnifiedPanelProjectEntryProps
     )
   }
 
+  /** 收起会话列表：回到初始显示数量 */
+  function collapseSessions() {
+    visibleSessionCount.value = SESSION_INITIAL_LIMIT
+  }
+
+  /** 是否已展开全部会话（用于切换按钮文案） */
+  const isAllSessionsVisible = computed(() => visibleSessionCount.value >= props.sessions.length)
+
   function handleStartEditSession(session: Session, event: Event) {
     emit('startEditSession', session, event)
   }
@@ -207,6 +215,7 @@ export function useUnifiedPanelProjectEntry(props: UnifiedPanelProjectEntryProps
     UnifiedPanelSessionList,
     projectItemRef,
     isCompactMenuOpen,
+    SESSION_INITIAL_LIMIT,
     visibleSessionCount,
     isBatchSelectMode,
     selectedSessionIds,
@@ -214,6 +223,8 @@ export function useUnifiedPanelProjectEntry(props: UnifiedPanelProjectEntryProps
     hiddenSessionCount,
     hasHiddenSessions,
     loadMoreSessions,
+    collapseSessions,
+    isAllSessionsVisible,
     isProjectRowLoading,
     isSessionsLoading: computed(() => props.isSessionsLoading ?? false),
     isAcpSyncing: computed(() => props.isAcpSyncing ?? false),

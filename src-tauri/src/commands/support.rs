@@ -207,6 +207,7 @@ pub fn now_rfc3339() -> String {
     chrono::Utc::now().to_rfc3339()
 }
 
+#[allow(dead_code)]
 pub fn bool_from_int(value: Option<i32>) -> Option<bool> {
     value.map(|flag| flag != 0)
 }

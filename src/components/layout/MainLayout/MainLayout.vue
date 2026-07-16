@@ -47,7 +47,7 @@ const {
       <!-- 智能体会话：WorkspaceShell 内联（左栏=项目管理，内容=会话+文件管理 dock） -->
       <WorkspaceShell
         v-show="uiStore.appMode === 'chat'"
-        :sidebar-width="280"
+        :sidebar-width="220"
       >
         <template #sidebar="{ hide }">
           <PanelContainer

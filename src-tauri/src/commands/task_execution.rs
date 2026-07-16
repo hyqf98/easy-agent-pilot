@@ -511,7 +511,7 @@ pub async fn save_task_execution_result(
     };
 
     // 多步写入放入事务，保证原子性（原实现为单连接多 execute，这里显式事务更安全）
-    let mut tx = rb.acquire_begin().await.map_err(|e| e.to_string())?;
+    let tx = rb.acquire_begin().await.map_err(|e| e.to_string())?;
 
     exec_mapper::insert_task_execution_result(
         &tx,
@@ -737,7 +737,7 @@ pub async fn get_task_execution_log_stats(task_id: String) -> Result<ExecutionLo
 pub async fn clear_plan_execution_results(plan_id: String) -> Result<i32, String> {
     let rb = db::rb();
     let now = now_rfc3339();
-    let mut tx = rb.acquire_begin().await.map_err(|e| e.to_string())?;
+    let tx = rb.acquire_begin().await.map_err(|e| e.to_string())?;
 
     // 获取计划下所有任务 ID
     let id_rows = exec_mapper::list_task_ids_of_plan(&tx, &plan_id)

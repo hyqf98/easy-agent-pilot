@@ -273,6 +273,7 @@ pub struct CreateSubAgentInput {
     pub permission_mode: Option<String>,
     pub max_turns: Option<i32>,
     pub is_enabled: Option<bool>,
+    #[allow(dead_code)]
     pub sort_order: Option<i32>,
 }
 
@@ -479,8 +480,6 @@ pub(crate) async fn ensure_builtin_sub_agents() -> Result<(), String> {
     if existing > 0 {
         return Ok(());
     }
-
-    let now = now_rfc3339();
 
     for seed in builtin_sub_agent_seeds() {
         let tags_json = serde_json::to_string(seed.tags).unwrap_or_else(|_| "[]".to_string());

@@ -24,6 +24,7 @@ pub struct Session {
     pub error_message: Option<String>,
     pub message_count: i32,
     pub plan_mode: bool,
+    pub source: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -89,6 +90,7 @@ fn session_row_to_session(row: SessionRow) -> Result<Session, String> {
         error_message: row.error_message,
         message_count: row.message_count.unwrap_or(0) as i32,
         plan_mode: row.plan_mode.unwrap_or(0) != 0,
+        source: row.source.unwrap_or_else(|| "chat".to_string()),
         created_at: row.created_at.ok_or("sessions.created_at 缺失")?,
         updated_at: row.updated_at.ok_or("sessions.updated_at 缺失")?,
     })
@@ -170,6 +172,7 @@ pub async fn create_session(input: CreateSessionInput) -> Result<Session, String
         error_message: None,
         message_count: 0,
         plan_mode: false,
+        source: "chat".to_string(),
         created_at: now.clone(),
         updated_at: now,
     })

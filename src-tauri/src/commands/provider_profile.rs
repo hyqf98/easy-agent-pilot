@@ -1028,7 +1028,7 @@ pub fn read_current_cli_config(cli_type: String) -> Result<ProviderProfile, Stri
                         // 如果没有解析到 provider，从 auth.json 取第一个
                         if profile.provider_name.is_none() {
                             if let Some(obj) = auth.as_object() {
-                                for (key, val) in obj {
+                                if let Some((key, val)) = obj.iter().next() {
                                     profile.provider_name = Some(key.clone());
                                     if profile.api_key.is_none() {
                                         profile.api_key = val
@@ -1036,7 +1036,6 @@ pub fn read_current_cli_config(cli_type: String) -> Result<ProviderProfile, Stri
                                             .and_then(|v| v.as_str())
                                             .map(|s| s.to_string());
                                     }
-                                    break;
                                 }
                             }
                         }
@@ -1312,7 +1311,7 @@ pub fn read_cli_connection_info(cli_type: String) -> Result<CliConnectionInfo, S
 
                         if resolved_provider.is_none() {
                             if let Some(obj) = auth.as_object() {
-                                for (key, val) in obj {
+                                if let Some((key, val)) = obj.iter().next() {
                                     resolved_provider = Some(key.clone());
                                     if info.api_key.is_none() {
                                         if let Some(api_key) =
@@ -1322,7 +1321,6 @@ pub fn read_cli_connection_info(cli_type: String) -> Result<CliConnectionInfo, S
                                             info.api_key_masked = Some(mask_api_key(api_key));
                                         }
                                     }
-                                    break;
                                 }
                             }
                             info.is_valid = true;
