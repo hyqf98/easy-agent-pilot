@@ -273,7 +273,17 @@ export default {
       titleReturning: 'Start a new conversation',
       hint: 'Import your repository, then create a session to collaborate with the agent.',
       hintReturning: 'Pick a project from the sidebar, then start a new conversation.',
-      importCta: 'Import Project'
+      importCta: 'Import Project',
+      // Playful greetings keyed by time-of-day slot (24h): emoji + period + text
+      greetings: {
+        lateNight: { emoji: '🌙', period: 'Late Night', text: 'Coding this late? Save your hair — hand it to me and go to sleep' },
+        morning: { emoji: '☕', period: 'Morning', text: 'Good morning! Bugs are mine, coffee is yours, slacking off is ours' },
+        noon: { emoji: '🍚', period: 'Noon', text: 'Good noon! You can\'t code on an empty stomach — let me take over' },
+        afternoon: { emoji: '🐟', period: 'Afternoon', text: 'Good afternoon, let me write the code for you — go slack off' },
+        evening: { emoji: '🌆', period: 'Evening', text: 'Good evening! Stop grinding — leave the code to me and knock off early' },
+        night: { emoji: '😴', period: 'Night', text: 'It\'s late — go to sleep before you go bald, I\'ll hold the fort' }
+      },
+      startTip: 'Press Enter to send, Shift + Enter for newline'
     }
   },
 

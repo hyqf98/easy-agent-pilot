@@ -12,6 +12,8 @@ import { loadTodoSnapshot, saveTodoSnapshot } from '@/utils/todoPersistence'
 export interface ConversationTodoPanelProps {
   sessionId: string | null | undefined
   defaultCollapsed?: boolean
+  /** 嵌入 composer 共享扩展槽时隐藏自身标题，并始终展示列表内容。 */
+  embedded?: boolean
 }
 
 export function useConversationTodoPanel(props: ConversationTodoPanelProps) {

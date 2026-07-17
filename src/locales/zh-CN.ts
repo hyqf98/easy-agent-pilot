@@ -199,7 +199,18 @@ const zhCN = {
       titleReturning: '开启新的会话',
       hint: '导入你的代码仓库，然后创建会话即可与智能体协作开发。',
       hintReturning: '从左侧选择一个项目，然后开启新的会话。',
-      importCta: '导入项目'
+      importCta: '导入项目',
+      // 按时段（24h）显示的调皮问候语：emoji + 时段名 + 正文
+      greetings: {
+        lateNight: { emoji: '🌙', period: '凌晨', text: '这么晚了还在写代码？头发还要不要了，快交给我就去睡吧' },
+        morning: { emoji: '☕', period: '早上', text: '早上好呀！新的一天，bug 归我，咖啡归你，摸鱼归我们' },
+        noon: { emoji: '🍚', period: '中午', text: '中午好！吃饱了才有力气写代码，让我来帮你代劳吧' },
+        afternoon: { emoji: '🐟', period: '下午', text: '下午好呀，让我来帮你写代码，你赶紧去摸鱼' },
+        evening: { emoji: '🌆', period: '晚上', text: '晚上好！别卷了别卷了，代码交给我，你早点下班' },
+        night: { emoji: '😴', period: '深夜', text: '夜深了，再不睡明天又要秃了，让我替你扛着' }
+      },
+      // 输入框下方的快捷提示
+      startTip: '按 Enter 发送，Shift + Enter 换行'
     }
   },
   planRecovery: {

@@ -1,5 +1,5 @@
 .token-progress {
-  --token-progress-size: 32px;
+  --token-progress-size: 20px;
   --token-progress-ring-value: 0deg;
   --token-progress-ring-track: color-mix(in srgb, var(--workspace-border, rgba(38, 38, 38, 0.1)) 62%, transparent);
   --token-progress-ring-color: #60a5fa;
@@ -38,12 +38,11 @@
   user-select: none;
   appearance: none;
   text-align: center;
-  transition: transform 0.16s ease;
+  transition: none;
 }
 
 .token-progress:hover,
 .token-progress--open {
-  transform: translateY(-1px);
 }
 
 .token-progress:focus-visible {
@@ -84,24 +83,18 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--workspace-border, rgba(38, 38, 38, 0.1)) 74%, transparent);
 }
 
-.token-progress__ring-core {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: calc(var(--token-progress-size) - 8px);
-  height: calc(var(--token-progress-size) - 8px);
+/* 内环核心：缩小后圆环过细，加一个与背景同色的内圆让进度环视觉更清晰 */
+.token-progress__ring::after {
+  content: "";
+  display: block;
+  width: calc(var(--token-progress-size) - 6px);
+  height: calc(var(--token-progress-size) - 6px);
   border-radius: 999px;
   background: var(--workspace-panel-bg, #ffffff);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--workspace-border, rgba(38, 38, 38, 0.1)) 62%, transparent);
 }
 
-.token-progress__ring-value {
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-  color: var(--workspace-text-primary, var(--color-text-primary, #20201e));
-}
+/* 百分比数字已从 DOM 移除，仅保留 hover popover 中的百分比展示 */
 
 .token-progress__header,
 .token-progress__meta,

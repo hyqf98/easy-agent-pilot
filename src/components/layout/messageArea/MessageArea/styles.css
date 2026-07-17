@@ -54,6 +54,8 @@
   /* 消息列表与输入框之间留间距，使消息滚动条结束在输入框上方，
      不再紧贴/压在输入框顶部，视觉更干净。 */
   gap: 14px;
+  /* 稳定滚动条槽位：避免消息列表滚动条出现/消失时输入框宽度跳动 */
+  scrollbar-gutter: stable;
 }
 
 .message-area__conversation--trace-active {
@@ -976,4 +978,115 @@
   background: var(--workspace-control-bg);
   color: var(--workspace-text-primary);
   box-shadow: var(--workspace-card-shadow);
+}
+
+/* ===== 欢迎模式：居中问候 + 居中输入框 ===== */
+.message-area__welcome-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  padding: 24px;
+  background: var(--workspace-stage-bg, var(--color-bg-primary));
+  overflow-y: auto;
+}
+
+.message-area__welcome-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: 640px;
+  gap: 8px;
+}
+
+.message-area__greeting-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--font-size-sm, 13px);
+  font-weight: 500;
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+  letter-spacing: 0.2px;
+}
+
+.message-area__greeting-emoji {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.message-area__greeting-text {
+  margin: 0;
+  font-size: clamp(20px, 2.4vw, 28px);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+.message-area__welcome-hint {
+  margin: 8px 0 0;
+  max-width: 380px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+}
+
+.message-area__welcome-cta {
+  margin-top: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 20px;
+  border: 1px solid var(--workspace-control-border, var(--color-border));
+  border-radius: 12px;
+  background: var(--workspace-control-active-bg, var(--color-surface));
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--workspace-control-active-shadow, none);
+  transition: transform 0.18s ease, background-color 0.18s ease;
+}
+
+.message-area__welcome-cta:hover {
+  background: var(--workspace-control-hover-bg, var(--color-surface-hover));
+  transform: translateY(-1px);
+}
+
+.message-area__welcome-cta:active {
+  transform: translateY(0);
+}
+
+/* 欢迎态输入框：约束宽度聚焦视觉中心 */
+.message-area__welcome-composer {
+  width: 100%;
+  max-width: 720px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.message-area__welcome-tip {
+  margin: 0;
+  text-align: center;
+  font-size: var(--font-size-xs, 12px);
+  color: var(--workspace-text-secondary, var(--color-text-tertiary));
+  opacity: 0.7;
+}
+
+/* 欢迎态 → 聊天态过渡：问候淡出上移，输入框随布局自然回落到底部 */
+.ea-welcome-switch-enter-active,
+.ea-welcome-switch-leave-active {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.ea-welcome-switch-enter-from,
+.ea-welcome-switch-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
 }

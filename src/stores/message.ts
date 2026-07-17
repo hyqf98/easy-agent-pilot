@@ -146,7 +146,11 @@ export function compareMessagesForRender(left: Message, right: Message): number 
 }
 
 export function isVisibleForRender(message: Message): boolean {
-  if (message.messageType === 'usage' || message.messageType === 'context_window') {
+  if (
+    message.messageType === 'usage'
+    || message.messageType === 'context_window'
+    || message.messageType === 'tool_result'
+  ) {
     return false
   }
   // form_response 用户消息不在右侧渲染，回显到左侧 assistant 表单
@@ -566,6 +570,33 @@ export const useMessageStore = defineStore('message', () => {
         } catch (bindingError) {
           console.warn('[MessageStore] resolve runtime binding failed:', bindingError)
         }
+      }
+
+      // Compatibility for sessions created before runtime bindings were
+      // persisted. ACP sync records are hidden from the main sidebar but keep
+      // the external session id; select the same-project/title record nearest
+      // to the visible chat session's creation time.
+      if (!externalSessionId && session) {
+        const sessionCreatedAt = Date.parse(session.createdAt)
+        const legacyCandidate = sessionStore.sessions
+          .filter(candidate => (
+            candidate.id !== session.id
+            && candidate.projectId === session.projectId
+            && candidate.name.trim() === session.name.trim()
+            && Boolean(candidate.cliSessionId?.trim())
+            && (!session.agentId || !candidate.agentId || candidate.agentId === session.agentId)
+          ))
+          .sort((left, right) => {
+            const leftDistance = Number.isFinite(sessionCreatedAt)
+              ? Math.abs(Date.parse(left.createdAt) - sessionCreatedAt)
+              : 0
+            const rightDistance = Number.isFinite(sessionCreatedAt)
+              ? Math.abs(Date.parse(right.createdAt) - sessionCreatedAt)
+              : 0
+            return leftDistance - rightDistance
+          })[0]
+
+        externalSessionId = legacyCandidate?.cliSessionId?.trim() || ''
       }
 
       if (externalSessionId && session) {

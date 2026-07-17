@@ -13,8 +13,6 @@ export interface AgentPlanPaneProps {
 export interface AgentPlanPaneEmits {
   (e: 'close'): void
   (e: 'minimize'): void
-  (e: 'execute'): void
-  (e: 'modify'): void
 }
 
 /**
@@ -53,9 +51,6 @@ export function useAgentPlanPane(props: AgentPlanPaneProps) {
   /** 是否存在可展示的计划文档 */
   const hasPlanMarkdown = computed(() => planMarkdown.value.trim().length > 0)
 
-  /** 是否待用户确认开始执行（计划模式回合结束、计划就绪） */
-  const isPendingConfirm = computed(() => agentPlanStore.isPendingConfirm(props.sessionId))
-
   const isEmpty = computed(() => !hasPlanMarkdown.value)
 
   function handleClose(): void {
@@ -66,24 +61,13 @@ export function useAgentPlanPane(props: AgentPlanPaneProps) {
     agentPlanStore.minimize(props.sessionId)
   }
 
-  function handleExecute(): void {
-    agentPlanStore.clearConfirm(props.sessionId)
-  }
-
-  function handleModify(): void {
-    agentPlanStore.clearConfirm(props.sessionId)
-  }
-
   return {
     t,
     agentPlanStore,
     planMarkdown,
     hasPlanMarkdown,
-    isPendingConfirm,
     isEmpty,
     handleClose,
-    handleMinimize,
-    handleExecute,
-    handleModify
+    handleMinimize
   }
 }

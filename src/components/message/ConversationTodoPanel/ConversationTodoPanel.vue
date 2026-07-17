@@ -23,9 +23,13 @@ const {
     v-if="todoSnapshot && sortedTodoItems.length > 0"
     ref="panelRef"
     class="conversation-todo-panel"
-    :class="{ 'conversation-todo-panel--expanded': !isCollapsed }"
+    :class="{
+      'conversation-todo-panel--expanded': !isCollapsed || embedded,
+      'conversation-todo-panel--embedded': embedded
+    }"
   >
     <button
+      v-if="!embedded"
       type="button"
       class="conversation-todo-panel__head"
       :aria-expanded="!isCollapsed"
@@ -70,7 +74,7 @@ const {
     </button>
 
     <div
-      v-if="!isCollapsed"
+      v-if="embedded || !isCollapsed"
       class="conversation-todo-panel__items"
     >
       <div class="conversation-todo-panel__items-inner">

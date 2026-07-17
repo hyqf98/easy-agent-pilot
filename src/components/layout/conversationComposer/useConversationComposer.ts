@@ -21,8 +21,12 @@ import { useSettingsStore } from '@/stores/settings'
 import { useThemeStore } from '@/stores/theme'
 import { usePermissionStore } from '@/stores/permission'
 import { useMessageStore } from '@/stores/message'
+import { useProjectStore } from '@/stores/project'
+import { useSafeOutsideClick } from '@/composables/useSafeOutsideClick'
+import { extractTodoSnapshotFromMessages } from '@/utils/todoToolCall'
+import { loadTodoSnapshot } from '@/utils/todoPersistence'
 import type { SlashCommandPanelType } from '@/services/slashCommands'
-import { EaButton, EaIcon } from '@/components/common'
+import { EaIcon } from '@/components/common'
 import TokenProgressBar from '@/components/common/TokenProgressBar/TokenProgressBar.vue'
 import CompressionConfirmDialog from '@/components/common/CompressionConfirmDialog/CompressionConfirmDialog.vue'
 import { ConversationTodoPanel } from '@/components/message'
@@ -33,6 +37,9 @@ import ActiveFormPopup from './ActiveFormPopup.vue'
 import PermissionPromptPopup from './PermissionPromptPopup.vue'
 import FileMentionDropdown from './FileMentionDropdown.vue'
 import SlashCommandDropdown from './SlashCommandDropdown.vue'
+
+type ComposerExtensionTab = 'queue' | 'todo'
+type ComposerPromptCard = 'permission' | 'form'
 
 /** 组件 Props */
 export interface ConversationComposerProps {
@@ -70,9 +77,76 @@ export function useConversationComposer(
   const themeStore = useThemeStore()
   const permissionStore = usePermissionStore()
   const messageStore = useMessageStore()
+  const projectStore = useProjectStore()
+  const currentBranch = computed(() => projectStore.currentBranch)
+
+  // ── 项目快捷选择下拉（输入框上方，分支左侧） ───────────────────────
+  const isProjectDropdownOpen = ref(false)
+  const projectDropdownRef = ref<HTMLElement | null>(null)
+  const projectOptions = computed(() =>
+    projectStore.projects.map(p => ({ value: p.id, label: p.name, path: p.path }))
+  )
+  const currentProjectName = computed(() => projectStore.currentProject?.name ?? '')
+  const currentProjectId = computed(() => projectStore.currentProjectId)
+  const hasProjects = computed(() => projectStore.projects.length > 0)
+
+  const toggleProjectDropdown = () => {
+    isProjectDropdownOpen.value = !isProjectDropdownOpen.value
+  }
+
+  const selectProject = (projectId: string) => {
+    projectStore.setCurrentProject(projectId)
+    isProjectDropdownOpen.value = false
+  }
+
+  // 外部点击关闭项目下拉（独立于 agent/model/reasoning 的 outside-click）
+  useSafeOutsideClick(
+    () => [projectDropdownRef.value],
+    () => { isProjectDropdownOpen.value = false }
+  )
+
+  // ── 分支切换下拉（输入框上方，分支 chip 可点击切换） ──────────────────
+  const isBranchDropdownOpen = ref(false)
+  const branchDropdownRef = ref<HTMLElement | null>(null)
+  const branchList = ref<string[]>([])
+  const isLoadingBranches = ref(false)
+
+  const toggleBranchDropdown = async () => {
+    if (!currentBranch.value) return
+    // 打开时加载分支列表
+    if (!isBranchDropdownOpen.value) {
+      isLoadingBranches.value = true
+      isBranchDropdownOpen.value = true
+      isProjectDropdownOpen.value = false
+      try {
+        branchList.value = await projectStore.listBranches()
+      } catch {
+        branchList.value = []
+      } finally {
+        isLoadingBranches.value = false
+      }
+    } else {
+      isBranchDropdownOpen.value = false
+    }
+  }
+
+  const selectBranch = async (branch: string) => {
+    isBranchDropdownOpen.value = false
+    if (branch === currentBranch.value) return
+    await projectStore.checkoutBranch(branch)
+  }
+
+  useSafeOutsideClick(
+    () => [branchDropdownRef.value],
+    () => { isBranchDropdownOpen.value = false }
+  )
   const rootRef = ref<HTMLElement | null>(null)
   const isDragOver = ref(false)
   const isQueueCollapsed = ref(true)
+  const activeExtensionTab = ref<ComposerExtensionTab>('queue')
+  const activePromptCard = ref<ComposerPromptCard>('form')
+  const isPlanMenuOpen = ref(false)
+  const planMenuRef = ref<HTMLElement | null>(null)
   const editingQueuedDraftId = ref<string | null>(null)
   const queuedDraftEditText = ref('')
   const queuedDraftEditorRefs = new Map<string, HTMLTextAreaElement>()
@@ -83,6 +157,27 @@ export function useConversationComposer(
   const isDarkTheme = computed(() => themeStore.isDark)
   const isPlanMode = computed(() => Boolean(props.sessionId && sessionStore.isPlanMode(props.sessionId)))
   const hasPermissionPrompt = computed(() => Boolean(props.sessionId && permissionStore.getPending(props.sessionId)))
+  const permissionRequestId = computed(() => (
+    props.sessionId ? permissionStore.getPending(props.sessionId)?.requestId ?? null : null
+  ))
+  const activeFormId = computed(() => props.activeForm?.formId ?? null)
+
+  watch(
+    [permissionRequestId, activeFormId],
+    ([permissionId, formId], previous) => {
+      const [previousPermissionId, previousFormId] = previous ?? [null, null]
+      if (formId && !previousFormId) {
+        activePromptCard.value = 'form'
+      } else if (permissionId && !previousPermissionId) {
+        activePromptCard.value = 'permission'
+      } else if (!formId && permissionId) {
+        activePromptCard.value = 'permission'
+      } else if (!permissionId && formId) {
+        activePromptCard.value = 'form'
+      }
+    },
+    { immediate: true }
+  )
 
   const composer = useConversationComposerCore({
     panelType: props.panelType,
@@ -91,6 +186,30 @@ export function useConversationComposer(
     workingDirectory: computed(() => props.workingDirectory || null),
     setWorkingDirectory: props.setWorkingDirectory
   })
+
+  const todoSnapshot = computed(() => {
+    const sessionId = props.sessionId
+    if (!sessionId) return null
+    const derived = extractTodoSnapshotFromMessages(messageStore.messagesBySession(sessionId))
+    return derived ?? loadTodoSnapshot(sessionId)
+  })
+  const todoItemCount = computed(() => todoSnapshot.value?.items.length ?? 0)
+  const completedTodoCount = computed(() => (
+    todoSnapshot.value?.items.filter(item => item.status === 'completed').length ?? 0
+  ))
+  const hasTodoItems = computed(() => todoItemCount.value > 0)
+  const hasQueuedMessages = computed(() => composer.queuedMessages.value.length > 0)
+  const hasExtensionSlot = computed(() => hasTodoItems.value || hasQueuedMessages.value)
+
+  watch([hasQueuedMessages, hasTodoItems], ([hasQueue, hasTodo]) => {
+    if (hasQueue && (!hasTodo || activeExtensionTab.value === 'queue')) {
+      activeExtensionTab.value = 'queue'
+      return
+    }
+    if (hasTodo) {
+      activeExtensionTab.value = 'todo'
+    }
+  }, { immediate: true })
 
   const shouldUseRichTextOverlay = computed(() => (
     composer.parsedInputText.value.some(segment => segment.type === 'file' || segment.type === 'slash' || segment.type === 'attachment')
@@ -138,6 +257,8 @@ export function useConversationComposer(
 
   watch(() => props.sessionId, () => {
     isQueueCollapsed.value = true
+    activeExtensionTab.value = 'queue'
+    isPlanMenuOpen.value = false
     editingQueuedDraftId.value = null
     queuedDraftEditText.value = ''
   })
@@ -145,6 +266,53 @@ export function useConversationComposer(
   const toggleQueueCollapsed = () => {
     isQueueCollapsed.value = !isQueueCollapsed.value
   }
+
+  const selectExtensionTab = (tab: ComposerExtensionTab) => {
+    if (activeExtensionTab.value === tab) {
+      toggleQueueCollapsed()
+      return
+    }
+    activeExtensionTab.value = tab
+    isQueueCollapsed.value = false
+  }
+
+  const selectPromptCard = (card: ComposerPromptCard) => {
+    activePromptCard.value = card
+  }
+
+  const openPlanMenu = () => {
+    isPlanMenuOpen.value = true
+  }
+
+  const closePlanMenu = () => {
+    isPlanMenuOpen.value = false
+  }
+
+  const togglePlanMenu = () => {
+    isPlanMenuOpen.value = !isPlanMenuOpen.value
+  }
+
+  const handlePlanMenuFocusOut = (event: FocusEvent) => {
+    const nextTarget = event.relatedTarget as Node | null
+    if (!nextTarget || !planMenuRef.value?.contains(nextTarget)) {
+      closePlanMenu()
+    }
+  }
+
+  const handlePlanExit = async () => {
+    closePlanMenu()
+    await composer.cancelPlan()
+  }
+
+  const handlePlanExecute = async () => {
+    closePlanMenu()
+    await composer.executeCurrentPlan()
+  }
+
+  useSafeOutsideClick(
+    () => [planMenuRef.value],
+    closePlanMenu
+  )
 
   const startQueuedMessageEdit = (draftId: string, content: string) => {
     editingQueuedDraftId.value = draftId
@@ -216,17 +384,12 @@ export function useConversationComposer(
   })
 
   const sendButtonDisabled = computed(() => (
-    !props.sessionId
-    || isHistoryLoading.value
+    isHistoryLoading.value
     || composer.isUploadingImages.value
     || (!hasDraftContent.value && !isStopButtonMode.value)
   ))
 
   const sendButtonTitle = computed(() => {
-    if (!props.sessionId) {
-      return t('message.noSessionSelected')
-    }
-
     if (composer.isUploadingImages.value) {
       return t('message.uploadingAttachments')
     }
@@ -240,7 +403,6 @@ export function useConversationComposer(
 
   return {
     // 子组件
-    EaButton,
     EaIcon,
     TokenProgressBar,
     CompressionConfirmDialog,
@@ -258,6 +420,21 @@ export function useConversationComposer(
     ...composer,
     // 视图衍生状态
     composerSendShortcutHint,
+    currentBranch,
+    isProjectDropdownOpen,
+    projectDropdownRef,
+    projectOptions,
+    currentProjectName,
+    currentProjectId,
+    hasProjects,
+    toggleProjectDropdown,
+    selectProject,
+    isBranchDropdownOpen,
+    branchDropdownRef,
+    branchList,
+    isLoadingBranches,
+    toggleBranchDropdown,
+    selectBranch,
     editingQueuedDraftId,
     isDarkTheme,
     isDragOver,
@@ -265,8 +442,17 @@ export function useConversationComposer(
     isMiniPanel,
     isPlanMode,
     hasPermissionPrompt,
+    activePromptCard,
+    activeExtensionTab,
+    completedTodoCount,
+    hasExtensionSlot,
+    hasQueuedMessages,
+    hasTodoItems,
+    todoItemCount,
     isHistoryLoading,
     isQueueCollapsed,
+    isPlanMenuOpen,
+    planMenuRef,
     queuedDraftEditText,
     rootRef,
     shouldUseRichTextOverlay,
@@ -274,8 +460,16 @@ export function useConversationComposer(
     saveQueuedMessageEdit,
     setQueuedDraftEditorRef,
     startQueuedMessageEdit,
+    selectExtensionTab,
+    selectPromptCard,
     toggleQueueCollapsed,
     cancelQueuedMessageEdit,
+    closePlanMenu,
+    handlePlanExecute,
+    handlePlanExit,
+    handlePlanMenuFocusOut,
+    openPlanMenu,
+    togglePlanMenu,
     // ActiveForm 弹层
     handleActiveFormSubmit,
     handleActiveFormCancel,

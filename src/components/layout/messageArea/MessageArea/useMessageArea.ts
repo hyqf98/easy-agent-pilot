@@ -41,7 +41,7 @@ export function useMessageArea() {
     ) => Promise<boolean>
   }
 
-  const { t } = useI18n()
+  const { t, tm } = useI18n()
   const sessionStore = useSessionStore()
   const messageStore = useMessageStore()
   const aiEditTraceStore = useAiEditTraceStore()
@@ -203,6 +203,17 @@ export function useMessageArea() {
     if (!sessionId) return 0
     return messageStore.messagesBySession(sessionId).length
   })
+
+  // MessageList is not mounted while the empty-session welcome state is shown,
+  // so it cannot own the first history load for a newly selected session.
+  // Start that load at the MessageArea boundary; once loading begins the main
+  // workspace mounts and MessageList reuses the same de-duplicated request.
+  watch(() => sessionStore.currentSessionId, (sessionId) => {
+    if (!sessionId || messageStore.messagesBySession(sessionId).length > 0) {
+      return
+    }
+    void messageStore.loadMessages(sessionId)
+  }, { immediate: true })
 
   const showDesktopTraceHandle = computed(() =>
     Boolean(
@@ -558,20 +569,6 @@ export function useMessageArea() {
     agentPlanStore.minimize(sessionId)
   }
 
-  /** 计划就绪 → 开始执行：退出计划模式并自动发送执行消息 */
-  const handlePlanExecute = () => {
-    void composerRef.value?.startPlanExecution()
-  }
-
-  /** 计划就绪 → 继续修改：收起确认 CTA 并聚焦输入框，供用户继续对话细化 */
-  const handlePlanModify = () => {
-    const sessionId = sessionStore.currentSessionId
-    if (sessionId) {
-      agentPlanStore.clearConfirm(sessionId)
-    }
-    composerRef.value?.focusInput()
-  }
-
   // 切换会话时同步 activeSessionId（清零未读 + 让 store 的 current* 计算生效）
   watch(() => sessionStore.currentSessionId, (sessionId) => {
     agentPlanStore.setActiveSession(sessionId)
@@ -619,6 +616,29 @@ export function useMessageArea() {
     uiStore.openProjectCreateModal()
   }
 
+  // 已选择会话且历史正在加载时先进入主工作区显示 loading；只有确认加载完成后仍为空，
+  // 才展示新会话欢迎态，避免 welcome 与 MessageList 加载职责互相等待。
+  const isWelcomeMode = computed(() => {
+    const sessionId = sessionStore.currentSessionId
+    if (!sessionId) return true
+    return currentMessageCount.value === 0 && !messageStore.isLoadingSession(sessionId)
+  })
+
+  // 按时段（24h）选择调皮问候语；6 分段：00-04 / 05-10 / 11-13 / 14-17 / 18-22 / 23
+  const greeting = computed((): { emoji: string; period: string; text: string } => {
+    const hour = new Date().getHours()
+    let slot: 'lateNight' | 'morning' | 'noon' | 'afternoon' | 'evening' | 'night'
+    if (hour >= 0 && hour < 5) slot = 'lateNight'
+    else if (hour < 11) slot = 'morning'
+    else if (hour < 14) slot = 'noon'
+    else if (hour < 18) slot = 'afternoon'
+    else if (hour < 23) slot = 'evening'
+    else slot = 'night'
+    // tm() 返回原始消息对象（支持嵌套对象值），t() 仅用于 string 翻译
+    const greetings = tm('messageArea.welcome.greetings') as Record<string, { emoji: string; period: string; text: string }>
+    return greetings[slot] ?? { emoji: '👋', period: '', text: t('messageArea.welcome.titleReturning') }
+  })
+
   return {
     sessionStore,
     messageStore,
@@ -631,6 +651,8 @@ export function useMessageArea() {
     projectStore,
     hasProjects,
     handleImportProject,
+    isWelcomeMode,
+    greeting,
     showCompressionDialog,
     isCompressing,
     isMobileViewport,
@@ -680,7 +702,5 @@ export function useMessageArea() {
     handleTogglePlanPane,
     handleHidePlanPane,
     handleMinimizePlanPane,
-    handlePlanExecute,
-    handlePlanModify,
   }
 }

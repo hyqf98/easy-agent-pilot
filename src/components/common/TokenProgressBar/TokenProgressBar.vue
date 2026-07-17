@@ -39,11 +39,7 @@ const {
       class="token-progress__ring"
       :style="ringProgressStyle"
       aria-hidden="true"
-    >
-      <span class="token-progress__ring-core">
-        <span class="token-progress__ring-value">{{ displayPercentage }}</span>
-      </span>
-    </div>
+    />
 
     <Teleport to="body">
       <Transition name="fade">

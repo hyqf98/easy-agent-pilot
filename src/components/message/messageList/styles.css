@@ -17,6 +17,8 @@
   --conversation-stream-align-offset: 6px;
   flex: 1;
   overflow-y: auto;
+  /* 稳定滚动条槽位：滚动条出现/消失不挤压内容宽度，杜绝输入框宽度跳动 */
+  scrollbar-gutter: stable;
   padding:
     var(--spacing-3)
     max(var(--spacing-3), calc((100% - var(--conversation-stream-width)) / 2 - var(--conversation-stream-align-offset)))

@@ -17,7 +17,6 @@ const props = withDefaults(defineProps<ConversationComposerProps>(), {
 const emit = defineEmits<ConversationComposerEmits>()
 
 const {
-  EaButton,
   EaIcon,
   TokenProgressBar,
   CompressionConfirmDialog,
@@ -42,11 +41,12 @@ const {
   currentAgent,
   currentAgentId,
   currentAgentName,
+  currentBranch,
+  currentProjectName,
+  currentProjectId,
   currentProjectPath,
   currentWorkingDirectory,
-  executePlan,
   executeCurrentPlan,
-  cancelPlan,
   editingQueuedDraftId,
   fileInputRef,
   fileMentionPosition,
@@ -68,6 +68,13 @@ const {
   handlePaste,
   handleSlashCommandSelect,
   hasPermissionPrompt,
+  activeExtensionTab,
+  activePromptCard,
+  completedTodoCount,
+  hasExtensionSlot,
+  hasQueuedMessages,
+  hasTodoItems,
+  todoItemCount,
   inputPlaceholder,
   inputText,
   isAgentDropdownOpen,
@@ -78,6 +85,8 @@ const {
   isMiniPanel,
   isModelDropdownOpen,
   isPlanMode,
+  isPlanMenuOpen,
+  planMenuRef,
   isReasoningDropdownOpen,
   isQueueCollapsed,
   isUploadingImages,
@@ -117,6 +126,8 @@ const {
   slashCommandQuery,
   slashCommands,
   startQueuedMessageEdit,
+  selectExtensionTab,
+  selectPromptCard,
   syncScroll,
   t,
   textareaRef,
@@ -124,13 +135,31 @@ const {
   toggleModelDropdown,
   toggleReasoningDropdown,
   toggleQueueCollapsed,
+  togglePlanMenu,
   tokenUsage,
   handleActiveFormSubmit,
   handleActiveFormCancel,
+  hasProjects,
+  isProjectDropdownOpen,
+  projectDropdownRef,
+  projectOptions,
+  toggleProjectDropdown,
+  selectProject,
+  isBranchDropdownOpen,
+  branchDropdownRef,
+  branchList,
+  isLoadingBranches,
+  toggleBranchDropdown,
+  selectBranch,
   isHistoryLoading,
   isStopButtonMode,
   sendButtonDisabled,
-  sendButtonTitle
+  sendButtonTitle,
+  closePlanMenu,
+  handlePlanExecute,
+  handlePlanExit,
+  handlePlanMenuFocusOut,
+  openPlanMenu
 } = useConversationComposer(props, emit)
 
 defineExpose({
@@ -156,22 +185,6 @@ defineExpose({
       'conversation-composer--plan-mode': isPlanMode
     }"
   >
-    <div
-      v-if="hideStatusBar && showWorkingDirectory && currentWorkingDirectory"
-      class="conversation-composer__path-row"
-    >
-      <div
-        class="conversation-composer__path"
-        :title="currentWorkingDirectory"
-      >
-        <EaIcon
-          name="folder-open"
-          :size="12"
-        />
-        <span>{{ currentWorkingDirectory }}</span>
-      </div>
-    </div>
-
     <div
       v-if="!isMainPanel && !hideStatusBar"
       class="conversation-composer__status"
@@ -199,6 +212,18 @@ defineExpose({
           />
           <span>{{ currentWorkingDirectory }}</span>
         </div>
+
+        <span
+          v-if="currentBranch"
+          class="conversation-composer__branch"
+          :title="`git: ${currentBranch}`"
+        >
+          <EaIcon
+            name="git-branch"
+            :size="12"
+          />
+          <span>{{ currentBranch }}</span>
+        </span>
       </div>
 
       <div class="conversation-composer__status-right">
@@ -249,152 +274,332 @@ defineExpose({
     </div>
 
     <div class="conversation-composer__dock">
-      <PermissionPromptPopup
-        v-if="isMainPanel && sessionId && hasPermissionPrompt"
-        :session-id="sessionId"
-      />
-
-      <ActiveFormPopup
-        v-else-if="isMainPanel && activeForm"
-        :question="activeForm.question"
-        :form-schema="activeForm.formSchema"
-        @submit="handleActiveFormSubmit"
-        @cancel="handleActiveFormCancel"
-      />
-
       <div
-        v-else-if="queuedMessages.length > 0"
-        class="conversation-composer__queue conversation-composer__queue--priority"
+        v-if="isMainPanel && (hasProjects || currentBranch)"
+        class="conversation-composer__context-bar"
       >
-        <button
-          v-if="isMainPanel"
-          type="button"
-          class="conversation-composer__queue-head"
-          :aria-expanded="!isQueueCollapsed"
-          @click="toggleQueueCollapsed"
+        <div
+          v-if="hasProjects"
+          ref="projectDropdownRef"
+          class="conversation-composer__ctx-chip conversation-composer__ctx-chip--dropdown"
+          :class="{ 'conversation-composer__ctx-chip--open': isProjectDropdownOpen }"
         >
-          <span class="conversation-composer__queue-head-title">
+          <button
+            class="conversation-composer__ctx-button"
+            @click="toggleProjectDropdown"
+          >
             <EaIcon
-              name="clock-3"
-              :size="13"
+              name="folder-open"
+              :size="12"
             />
-            <span>{{ t('message.queueCount', { count: queuedMessages.length }) }}</span>
-          </span>
-          <EaIcon
-            :name="isQueueCollapsed ? 'chevron-down' : 'chevron-up'"
-            :size="14"
-          />
-        </button>
+            <span class="conversation-composer__ctx-label">{{ currentProjectName || t('session.selectProject') }}</span>
+            <EaIcon
+              :name="isProjectDropdownOpen ? 'chevron-up' : 'chevron-down'"
+              :size="10"
+            />
+          </button>
+          <Transition name="dropdown">
+            <div
+              v-if="isProjectDropdownOpen"
+              class="conversation-composer__ctx-menu"
+            >
+              <div
+                v-for="option in projectOptions"
+                :key="option.value"
+                class="conversation-composer__ctx-option"
+                :class="{ 'conversation-composer__ctx-option--active': option.value === currentProjectId }"
+                :title="option.path"
+                @click="selectProject(option.value)"
+              >
+                <EaIcon
+                  name="folder"
+                  :size="12"
+                />
+                <span class="conversation-composer__ctx-option-name">{{ option.label }}</span>
+              </div>
+            </div>
+          </Transition>
+        </div>
 
         <div
-          v-for="(draft, index) in queuedMessages"
-          v-show="!isMainPanel || !isQueueCollapsed"
-          :key="draft.id"
-          class="conversation-composer__queue-item"
-          :class="{ 'conversation-composer__queue-item--editing': editingQueuedDraftId === draft.id }"
+          v-if="currentBranch"
+          ref="branchDropdownRef"
+          class="conversation-composer__ctx-chip conversation-composer__ctx-chip--dropdown conversation-composer__ctx-chip--branch"
+          :class="{ 'conversation-composer__ctx-chip--open': isBranchDropdownOpen }"
         >
-          <div class="conversation-composer__queue-index">
-            {{ index + 1 }}
-          </div>
-          <div class="conversation-composer__queue-body">
-            <div class="conversation-composer__queue-top">
-              <span>{{ draft.status === 'failed' ? t('message.pendingFailed') : t('message.pendingLabel') }}</span>
-              <span v-if="draft.attachments.length > 0">{{ t('message.queueAttachments', { count: draft.attachments.length }) }}</span>
-            </div>
+          <button
+            class="conversation-composer__ctx-button"
+            :title="`git: ${currentBranch}`"
+            @click="toggleBranchDropdown"
+          >
+            <EaIcon
+              name="git-branch"
+              :size="12"
+            />
+            <span>{{ currentBranch }}</span>
+            <EaIcon
+              :name="isBranchDropdownOpen ? 'chevron-up' : 'chevron-down'"
+              :size="10"
+            />
+          </button>
+          <Transition name="dropdown">
             <div
-              class="conversation-composer__queue-preview"
-              :class="{ 'conversation-composer__queue-preview--editing': editingQueuedDraftId === draft.id }"
+              v-if="isBranchDropdownOpen"
+              class="conversation-composer__ctx-menu"
             >
-              <textarea
-                v-if="editingQueuedDraftId === draft.id"
-                :ref="(element) => setQueuedDraftEditorRef(draft.id, element)"
-                v-model="queuedDraftEditText"
-                class="conversation-composer__queue-editor"
-                rows="4"
-                placeholder="编辑待发送内容..."
-                @keydown.stop
-              />
-              <template v-else>
-                {{ buildQueuedMessagePreview(draft) || t('message.pendingEmpty') }}
-              </template>
+              <div
+                v-if="isLoadingBranches"
+                class="conversation-composer__ctx-loading"
+              >
+                {{ t('common.loading') }}
+              </div>
+              <div
+                v-for="branch in branchList"
+                v-else
+                :key="branch"
+                class="conversation-composer__ctx-option"
+                :class="{ 'conversation-composer__ctx-option--active': branch === currentBranch }"
+                @click="selectBranch(branch)"
+              >
+                <EaIcon
+                  :name="branch === currentBranch ? 'check' : 'git-branch'"
+                  :size="12"
+                />
+                <span class="conversation-composer__ctx-option-name">{{ branch }}</span>
+              </div>
             </div>
-            <div
-              v-if="draft.status === 'failed' && draft.errorMessage"
-              class="conversation-composer__queue-error"
-            >
-              {{ draft.errorMessage }}
-            </div>
-          </div>
-          <div class="conversation-composer__queue-actions">
-            <button
-              v-if="editingQueuedDraftId !== draft.id"
-              class="conversation-composer__queue-action"
-              :title="t('message.sendImmediately')"
-              @click="sendImmediatelyQueuedMessage(draft.id)"
-            >
-              <EaIcon
-                name="send"
-                :size="12"
-              />
-            </button>
-            <button
-              v-if="editingQueuedDraftId !== draft.id"
-              class="conversation-composer__queue-action"
-              @click="startQueuedMessageEdit(draft.id, draft.displayContent || draft.content)"
-            >
-              <EaIcon
-                name="pencil"
-                :size="12"
-              />
-            </button>
-            <button
-              v-else
-              class="conversation-composer__queue-action"
-              @click="saveQueuedMessageEdit(draft.id)"
-            >
-              <EaIcon
-                name="check"
-                :size="12"
-              />
-            </button>
-            <button
-              v-if="editingQueuedDraftId === draft.id"
-              class="conversation-composer__queue-action"
-              @click="cancelQueuedMessageEdit"
-            >
-              <EaIcon
-                name="x"
-                :size="12"
-              />
-            </button>
-            <button
-              v-else-if="draft.status === 'failed'"
-              class="conversation-composer__queue-action"
-              @click="retryQueuedMessage(draft.id)"
-            >
-              <EaIcon
-                name="refresh-cw"
-                :size="12"
-              />
-            </button>
-            <button
-              class="conversation-composer__queue-action"
-              @click="removeQueuedMessage(draft.id)"
-            >
-              <EaIcon
-                name="x"
-                :size="12"
-              />
-            </button>
-          </div>
+          </Transition>
         </div>
       </div>
+      <div
+        v-if="isMainPanel && (hasPermissionPrompt || activeForm || hasExtensionSlot)"
+        class="conversation-composer__extension-stage"
+      >
+        <div
+          v-if="hasPermissionPrompt || activeForm"
+          class="conversation-composer__floating-prompts"
+          :class="{
+            'conversation-composer__floating-prompts--stacked': hasPermissionPrompt && activeForm,
+            'conversation-composer__floating-prompts--permission-active': hasPermissionPrompt && activeForm && activePromptCard === 'permission'
+          }"
+        >
+          <div
+            v-if="activeForm"
+            class="conversation-composer__prompt-card"
+            :class="{
+              'conversation-composer__prompt-card--active': activePromptCard === 'form',
+              'conversation-composer__prompt-card--back': activePromptCard !== 'form'
+            }"
+            :role="activePromptCard !== 'form' ? 'button' : undefined"
+            :tabindex="activePromptCard !== 'form' ? 0 : -1"
+            @click="selectPromptCard('form')"
+            @keydown.enter.prevent="selectPromptCard('form')"
+            @keydown.space.prevent="selectPromptCard('form')"
+          >
+            <ActiveFormPopup
+              :question="activeForm.question"
+              :form-schema="activeForm.formSchema"
+              @submit="handleActiveFormSubmit"
+              @cancel="handleActiveFormCancel"
+            />
+          </div>
+          <div
+            v-if="sessionId && hasPermissionPrompt && activePromptCard === 'permission'"
+            class="conversation-composer__prompt-card conversation-composer__prompt-card--active"
+          >
+            <PermissionPromptPopup :session-id="sessionId" />
+          </div>
+          <div
+            v-else-if="sessionId && hasPermissionPrompt"
+            class="conversation-composer__prompt-card conversation-composer__prompt-card--back"
+            role="button"
+            tabindex="0"
+            @click="selectPromptCard('permission')"
+            @keydown.enter.prevent="selectPromptCard('permission')"
+            @keydown.space.prevent="selectPromptCard('permission')"
+          >
+            <PermissionPromptPopup :session-id="sessionId" />
+          </div>
+        </div>
 
-      <ConversationTodoPanel
-        v-else-if="sessionId"
-        :session-id="sessionId"
-        :default-collapsed="true"
-      />
+        <section
+          v-if="hasExtensionSlot"
+          class="conversation-composer__extension-slot"
+        >
+          <header class="conversation-composer__extension-head">
+            <div
+              class="conversation-composer__extension-tabs"
+              role="tablist"
+            >
+              <button
+                v-if="hasQueuedMessages"
+                type="button"
+                role="tab"
+                class="conversation-composer__extension-tab"
+                :class="{ 'conversation-composer__extension-tab--active': activeExtensionTab === 'queue' }"
+                :aria-selected="activeExtensionTab === 'queue'"
+                @click="selectExtensionTab('queue')"
+              >
+                <EaIcon
+                  name="clock-3"
+                  :size="13"
+                />
+                <span>{{ t('message.pendingLabel') }}</span>
+                <span class="conversation-composer__extension-count">{{ queuedMessages.length }}</span>
+              </button>
+              <button
+                v-if="hasTodoItems"
+                type="button"
+                role="tab"
+                class="conversation-composer__extension-tab"
+                :class="{ 'conversation-composer__extension-tab--active': activeExtensionTab === 'todo' }"
+                :aria-selected="activeExtensionTab === 'todo'"
+                @click="selectExtensionTab('todo')"
+              >
+                <EaIcon
+                  name="list-todo"
+                  :size="13"
+                />
+                <span>{{ t('message.agentPlan.status.pending') }}</span>
+                <span class="conversation-composer__extension-count">{{ completedTodoCount }}/{{ todoItemCount }}</span>
+              </button>
+            </div>
+            <button
+              type="button"
+              class="conversation-composer__extension-collapse"
+              :aria-expanded="!isQueueCollapsed"
+              @click="toggleQueueCollapsed"
+            >
+              <EaIcon
+                :name="isQueueCollapsed ? 'chevron-down' : 'chevron-up'"
+                :size="14"
+              />
+            </button>
+          </header>
+
+          <div
+            v-show="!isQueueCollapsed"
+            class="conversation-composer__extension-body"
+          >
+            <div
+              v-if="activeExtensionTab === 'queue' && hasQueuedMessages"
+              class="conversation-composer__queue conversation-composer__queue--integrated"
+            >
+              <div
+                v-for="(draft, index) in queuedMessages"
+                :key="draft.id"
+                class="conversation-composer__queue-item"
+                :class="{
+                  'conversation-composer__queue-item--editing': editingQueuedDraftId === draft.id,
+                  'conversation-composer__queue-item--failed': draft.status === 'failed'
+                }"
+              >
+                <div class="conversation-composer__queue-index">
+                  {{ index + 1 }}
+                </div>
+                <div class="conversation-composer__queue-body">
+                  <div class="conversation-composer__queue-top">
+                    <span>{{ draft.status === 'failed' ? t('message.pendingFailed') : t('message.pendingLabel') }}</span>
+                    <span v-if="draft.attachments.length > 0">{{ t('message.queueAttachments', { count: draft.attachments.length }) }}</span>
+                  </div>
+                  <div
+                    class="conversation-composer__queue-preview"
+                    :class="{ 'conversation-composer__queue-preview--editing': editingQueuedDraftId === draft.id }"
+                  >
+                    <textarea
+                      v-if="editingQueuedDraftId === draft.id"
+                      :ref="(element) => setQueuedDraftEditorRef(draft.id, element)"
+                      v-model="queuedDraftEditText"
+                      class="conversation-composer__queue-editor"
+                      rows="4"
+                      placeholder="编辑待发送内容..."
+                      @keydown.stop
+                    />
+                    <template v-else>
+                      {{ buildQueuedMessagePreview(draft) || t('message.pendingEmpty') }}
+                    </template>
+                  </div>
+                  <div
+                    v-if="draft.status === 'failed' && draft.errorMessage"
+                    class="conversation-composer__queue-error"
+                  >
+                    {{ draft.errorMessage }}
+                  </div>
+                </div>
+                <div class="conversation-composer__queue-actions">
+                  <button
+                    v-if="editingQueuedDraftId !== draft.id"
+                    class="conversation-composer__queue-action"
+                    :title="t('message.sendImmediately')"
+                    @click="sendImmediatelyQueuedMessage(draft.id)"
+                  >
+                    <EaIcon
+                      name="send"
+                      :size="12"
+                    />
+                  </button>
+                  <button
+                    v-if="editingQueuedDraftId !== draft.id"
+                    class="conversation-composer__queue-action"
+                    @click="startQueuedMessageEdit(draft.id, draft.displayContent || draft.content)"
+                  >
+                    <EaIcon
+                      name="pencil"
+                      :size="12"
+                    />
+                  </button>
+                  <button
+                    v-else
+                    class="conversation-composer__queue-action"
+                    @click="saveQueuedMessageEdit(draft.id)"
+                  >
+                    <EaIcon
+                      name="check"
+                      :size="12"
+                    />
+                  </button>
+                  <button
+                    v-if="editingQueuedDraftId === draft.id"
+                    class="conversation-composer__queue-action"
+                    @click="cancelQueuedMessageEdit"
+                  >
+                    <EaIcon
+                      name="x"
+                      :size="12"
+                    />
+                  </button>
+                  <button
+                    v-else-if="draft.status === 'failed'"
+                    class="conversation-composer__queue-action"
+                    @click="retryQueuedMessage(draft.id)"
+                  >
+                    <EaIcon
+                      name="refresh-cw"
+                      :size="12"
+                    />
+                  </button>
+                  <button
+                    class="conversation-composer__queue-action"
+                    @click="removeQueuedMessage(draft.id)"
+                  >
+                    <EaIcon
+                      name="x"
+                      :size="12"
+                    />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <ConversationTodoPanel
+              v-else-if="sessionId && hasTodoItems"
+              :session-id="sessionId"
+              :default-collapsed="false"
+              embedded
+            />
+          </div>
+        </section>
+      </div>
 
       <div class="conversation-composer__panel">
         <ConversationComposerAttachments
@@ -420,45 +625,6 @@ defineExpose({
         />
 
         <div class="conversation-composer__editor-stack">
-          <div
-            v-if="isPlanMode"
-            class="conversation-composer__plan-footer"
-          >
-            <div class="conversation-composer__plan-footer-info">
-              <EaIcon
-                name="eye"
-                :size="13"
-                class="conversation-composer__plan-footer-icon"
-              />
-              <span class="conversation-composer__plan-footer-label">{{ t('message.planModeBanner.title') }}</span>
-              <span class="conversation-composer__plan-footer-hint">{{ t('message.planModeBanner.hint') }}</span>
-            </div>
-            <div class="conversation-composer__plan-footer-actions">
-              <EaButton
-                type="secondary"
-                size="small"
-                @click="cancelPlan"
-              >
-                <EaIcon
-                  name="x"
-                  :size="12"
-                />
-                <span>{{ t('message.planModeBanner.cancel') }}</span>
-              </EaButton>
-              <EaButton
-                type="primary"
-                size="small"
-                @click="executePlan"
-              >
-                <EaIcon
-                  name="play"
-                  :size="12"
-                />
-                <span>{{ t('message.planModeBanner.execute') }}</span>
-              </EaButton>
-            </div>
-          </div>
-
           <div
             class="conversation-composer__editor-shell"
             :class="{ 'conversation-composer__editor-shell--plan-mode': isPlanMode }"
@@ -559,6 +725,64 @@ defineExpose({
                         <span>{{ option.label }}</span>
                         <span class="composer-chip__tag">{{ option.provider ? option.provider.toUpperCase() : 'ACP' }}</span>
                       </div>
+                    </div>
+                  </Transition>
+                </div>
+
+                <div
+                  v-if="isPlanMode"
+                  ref="planMenuRef"
+                  class="composer-chip composer-chip--dropdown conversation-composer__plan-chip"
+                  :class="{ 'composer-chip--open': isPlanMenuOpen }"
+                  @mouseenter="openPlanMenu"
+                  @mouseleave="closePlanMenu"
+                  @focusout="handlePlanMenuFocusOut"
+                  @keydown.esc.stop="closePlanMenu"
+                >
+                  <button
+                    type="button"
+                    class="composer-chip__button"
+                    :aria-expanded="isPlanMenuOpen"
+                    @click="togglePlanMenu"
+                    @focus="openPlanMenu"
+                  >
+                    <EaIcon
+                      name="eye"
+                      :size="11"
+                    />
+                    <span>{{ t('message.agentPlan.toggle') }}</span>
+                    <EaIcon
+                      :name="isPlanMenuOpen ? 'chevron-up' : 'chevron-down'"
+                      :size="9"
+                    />
+                  </button>
+                  <Transition name="dropdown">
+                    <div
+                      v-if="isPlanMenuOpen"
+                      class="composer-chip__menu conversation-composer__plan-menu"
+                    >
+                      <button
+                        type="button"
+                        class="conversation-composer__plan-menu-action"
+                        @click="handlePlanExit"
+                      >
+                        <EaIcon
+                          name="x"
+                          :size="12"
+                        />
+                        <span>{{ t('message.planModeBanner.cancel') }}</span>
+                      </button>
+                      <button
+                        type="button"
+                        class="conversation-composer__plan-menu-action conversation-composer__plan-menu-action--primary"
+                        @click="handlePlanExecute"
+                      >
+                        <EaIcon
+                          name="play"
+                          :size="12"
+                        />
+                        <span>{{ t('message.planModeBanner.execute') }}</span>
+                      </button>
                     </div>
                   </Transition>
                 </div>

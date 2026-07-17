@@ -563,7 +563,7 @@ export function useComposerSender(
 
   const handleSend = async () => {
     const sessionId = currentSessionId.value
-    if (!sessionId || isUploadingImages.value) return
+    if (isUploadingImages.value) return
 
     const rawInput = inputText.value
     const expandedInput = fileMentions.expandComposerMentions(rawInput, ctx.currentFileMentions.value).trim()
@@ -578,8 +578,25 @@ export function useComposerSender(
     composerDebug('send', { rawLen: rawInput.length, expandedLen: expandedInput.length, attachCount: attachmentsPayload.length })
 
     if (!displayInput && attachmentsPayload.length === 0) {
-      if (isSending.value) {
+      if (sessionId && isSending.value) {
         await conversationService.abort(sessionId)
+      }
+      return
+    }
+
+    // 欢迎模式（无会话）：走"创建并发送"流程，建会话 → 开 tab → 发首条消息
+    if (!sessionId) {
+      if (!projectStore.currentProjectId) {
+        notificationStore.smartError('发送失败', new Error('当前没有可用项目，请先导入项目'))
+        return
+      }
+      dispatchingSessionId.value = null
+      try {
+        await createSessionAndSend(userInput, displayInput)
+      } catch (error) {
+        const normalizedError = error instanceof Error ? error : new Error(getErrorMessage(error, '创建会话失败'))
+        notificationStore.smartError('创建会话失败', normalizedError)
+        inputText.value = rawInput
       }
       return
     }

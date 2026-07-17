@@ -560,6 +560,32 @@ export const useProjectStore = defineStore('project', () => {
     void loadCurrentBranch()
   })
 
+  // 列出当前项目的所有本地分支（供输入框上方分支切换下拉使用）
+  async function listBranches(): Promise<string[]> {
+    const projectPath = currentProject.value?.path
+    if (!projectPath) return []
+    try {
+      return await invoke<string[]>('list_project_git_branches', { projectPath })
+    } catch (error) {
+      console.error('Failed to list git branches:', error)
+      return []
+    }
+  }
+
+  // 切换当前项目到目标分支（供输入框上方分支切换使用）
+  async function checkoutBranch(branch: string): Promise<boolean> {
+    const projectPath = currentProject.value?.path
+    if (!projectPath) return false
+    try {
+      await invoke<string>('checkout_git_branch', { projectPath, branch })
+      currentBranch.value = branch
+      return true
+    } catch (error) {
+      console.error('Failed to checkout branch:', error)
+      return false
+    }
+  }
+
   return {
     // State
     projects,
@@ -602,6 +628,8 @@ export const useProjectStore = defineStore('project', () => {
     getRecentProjectIds,
     // Git 分支
     currentBranch,
-    loadCurrentBranch
+    loadCurrentBranch,
+    listBranches,
+    checkoutBranch
   }
 })

@@ -10,12 +10,9 @@ const emit = defineEmits<AgentPlanPaneEmits>()
 const {
   t,
   planMarkdown,
-  isPendingConfirm,
   isEmpty,
   handleClose,
-  handleMinimize,
-  handleExecute,
-  handleModify
+  handleMinimize
 } = useAgentPlanPane(props)
 </script>
 
@@ -50,32 +47,6 @@ const {
         </button>
       </div>
     </header>
-
-    <!-- 计划就绪确认 CTA：计划模式回合结束、计划就绪时显示 -->
-    <Transition name="agent-plan-cta">
-      <div
-        v-if="isPendingConfirm && !isEmpty"
-        class="agent-plan-pane__cta"
-      >
-        <span class="agent-plan-pane__cta-text">{{ t('message.agentPlan.ready') }}</span>
-        <div class="agent-plan-pane__cta-actions">
-          <button
-            type="button"
-            class="agent-plan-pane__cta-btn agent-plan-pane__cta-btn--modify"
-            @click="handleModify(); emit('modify')"
-          >
-            {{ t('message.agentPlan.modify') }}
-          </button>
-          <button
-            type="button"
-            class="agent-plan-pane__cta-btn agent-plan-pane__cta-btn--execute"
-            @click="handleExecute(); emit('execute')"
-          >
-            {{ t('message.agentPlan.execute') }}
-          </button>
-        </div>
-      </div>
-    </Transition>
 
     <div class="agent-plan-pane__body">
       <div

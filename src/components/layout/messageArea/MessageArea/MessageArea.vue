@@ -46,8 +46,10 @@ const {
   handleTogglePlanPane,
   handleHidePlanPane,
   handleMinimizePlanPane,
-  handlePlanExecute,
-  handlePlanModify
+  isWelcomeMode,
+  greeting,
+  hasProjects,
+  handleImportProject
 } = useMessageArea()
 
 // 主会话：计算最新未回答的 AI 表单请求，在输入框上方弹出（Cursor 风格）
@@ -89,162 +91,201 @@ function handleComposerFormSubmit(values: Record<string, unknown>) {
 
 <template>
   <div class="message-area">
-    <template v-if="sessionStore.currentSessionId">
-      <div
-        ref="workspaceRef"
-        class="message-area__workspace"
-        :class="{
-          'message-area__workspace--trace-active': showDesktopTracePane
-        }"
-      >
-        <div
-          v-if="showDesktopTracePane"
-          class="message-area__trace-pane"
-          :style="{ width: `${currentTraceState?.paneWidth ?? 640}px` }"
+    <div
+      v-if="isWelcomeMode"
+      key="welcome"
+      class="message-area__welcome-stage"
+    >
+      <div class="message-area__welcome-card">
+        <p class="message-area__greeting-kicker">
+          <span class="message-area__greeting-emoji">{{ greeting.emoji }}</span>
+          {{ greeting.period }}
+        </p>
+        <h2 class="message-area__greeting-text">
+          {{ greeting.text }}
+        </h2>
+        <p
+          v-if="!hasProjects"
+          class="message-area__welcome-hint"
         >
-          <AiEditTracePane
-            :session-id="sessionStore.currentSessionId"
-            @close="handleHideTracePane"
-          />
-        </div>
-
-        <PanelResizer
-          v-if="showDesktopTracePane"
-          class="message-area__trace-resizer"
-          :current-width="currentTraceState?.paneWidth ?? 640"
-          :min-width="TRACE_PANE_MIN_WIDTH"
-          :max-width="getTracePaneMaxWidth()"
-          @resize="handleTracePaneResize"
-          @resize-end="handleTracePaneResizeEnd"
-        />
-
+          {{ t('messageArea.welcome.hint') }}
+        </p>
         <button
-          v-if="showDesktopTraceHandle"
-          class="message-area__trace-handle"
-          @click="handleShowTracePane"
+          v-if="!hasProjects"
+          class="message-area__welcome-cta"
+          @click="handleImportProject"
         >
-          <EaIcon
-            name="panel-left-open"
-            :size="16"
-          />
-          <span>文件追踪</span>
-          <span
-            v-if="currentTraceState && currentTraceState.unseenCount > 0"
-            class="message-area__trace-handle-badge"
-          >
-            {{ currentTraceState.unseenCount }}
-          </span>
-        </button>
-
-        <div
-          class="message-area__conversation"
-          :class="{
-            'message-area__conversation--trace-active': showDesktopTracePane
-          }"
-        >
-          <div
-            v-if="isSessionLoading"
-            class="message-area__loading"
-          >
-            <span class="message-area__loading-spinner" />
-            <span class="message-area__loading-text">{{ t('message.loadingSession') }}</span>
-          </div>
-          <MessageList
-            v-else
-            :key="sessionStore.currentSessionId || 'empty'"
-            class="message-area__list"
-            :session-id="sessionStore.currentSessionId || undefined"
-            :hide-latest-plan-doc="shouldHideLatestPlanDoc"
-            :hide-context-strategy-notice="true"
-            :top-safe-inset="0"
-            :waiting-permission="hasPermissionPrompt"
-            :waiting-form="Boolean(activeForm)"
-            @retry="handleRetry"
-            @edit="handleEdit"
-            @form-submit="handleMessageFormSubmit"
-            @open-edit-trace="handleOpenEditTrace"
-          />
-
-          <ConversationComposer
-            ref="composerRef"
-            :session-id="sessionStore.currentSessionId"
-            panel-type="main"
-            :active-form="activeForm"
-            @focus="handleComposerFocus"
-            @form-submit="handleComposerFormSubmit"
-          />
-        </div>
-
-        <Transition name="agent-plan-pane">
-          <div
-            v-if="showDesktopPlanPane && sessionStore.currentSessionId"
-            class="message-area__plan-pane"
-            :style="{ width: `${planPaneWidth}px` }"
-          >
-            <AgentPlanPane
-              :session-id="sessionStore.currentSessionId"
-              @minimize="handleMinimizePlanPane"
-              @close="handleHidePlanPane"
-              @execute="handlePlanExecute"
-              @modify="handlePlanModify"
-            />
-          </div>
-        </Transition>
-
-        <button
-          v-if="showDesktopPlanHandle"
-          class="message-area__plan-handle"
-          @click="handleTogglePlanPane"
-        >
-          <EaIcon
-            name="clipboard-list"
-            :size="16"
-          />
-          <span>{{ t('message.agentPlan.toggle') }}</span>
-          <span
-            v-if="planUnseenCount > 0"
-            class="message-area__plan-handle-badge"
-          >
-            {{ planUnseenCount }}
-          </span>
+          {{ t('messageArea.welcome.importCta') }}
         </button>
       </div>
 
-      <Transition name="trace-drawer">
-        <div
-          v-if="showMobileTraceDrawer"
-          class="message-area__trace-drawer-backdrop"
-          @pointerdown.capture="handleTraceOverlayPointerDown"
-          @click.self="handleTraceOverlayClick"
-        >
-          <div class="message-area__trace-drawer">
-            <AiEditTracePane
-              :session-id="sessionStore.currentSessionId"
-              mobile
-              @close="handleHideTracePane"
-            />
-          </div>
-        </div>
-      </Transition>
+      <div class="message-area__welcome-composer">
+        <ConversationComposer
+          ref="composerRef"
+          :session-id="sessionStore.currentSessionId"
+          panel-type="main"
+          @focus="handleComposerFocus"
+        />
+        <p class="message-area__welcome-tip">
+          {{ t('messageArea.welcome.startTip') }}
+        </p>
+      </div>
+    </div>
+
+    <div
+      v-else
+      key="chat"
+      ref="workspaceRef"
+      class="message-area__workspace"
+      :class="{
+        'message-area__workspace--trace-active': showDesktopTracePane
+      }"
+    >
+      <div
+        v-if="showDesktopTracePane"
+        class="message-area__trace-pane"
+        :style="{ width: `${currentTraceState?.paneWidth ?? 640}px` }"
+      >
+        <AiEditTracePane
+          :session-id="sessionStore.currentSessionId!"
+          @close="handleHideTracePane"
+        />
+      </div>
+
+      <PanelResizer
+        v-if="showDesktopTracePane"
+        class="message-area__trace-resizer"
+        :current-width="currentTraceState?.paneWidth ?? 640"
+        :min-width="TRACE_PANE_MIN_WIDTH"
+        :max-width="getTracePaneMaxWidth()"
+        @resize="handleTracePaneResize"
+        @resize-end="handleTracePaneResizeEnd"
+      />
 
       <button
-        v-if="showMobileTraceButton"
-        class="message-area__trace-fab"
-        @click="handleOpenMobileTrace"
+        v-if="showDesktopTraceHandle"
+        class="message-area__trace-handle"
+        @click="handleShowTracePane"
       >
         <EaIcon
-          name="file-code"
+          name="panel-left-open"
           :size="16"
         />
-        <span>文件变更</span>
+        <span>文件追踪</span>
         <span
           v-if="currentTraceState && currentTraceState.unseenCount > 0"
-          class="message-area__trace-badge"
+          class="message-area__trace-handle-badge"
         >
           {{ currentTraceState.unseenCount }}
         </span>
       </button>
-    </template>
+
+      <div
+        class="message-area__conversation"
+        :class="{
+          'message-area__conversation--trace-active': showDesktopTracePane
+        }"
+      >
+        <div
+          v-if="isSessionLoading"
+          class="message-area__loading"
+        >
+          <span class="message-area__loading-spinner" />
+          <span class="message-area__loading-text">{{ t('message.loadingSession') }}</span>
+        </div>
+        <MessageList
+          v-else
+          :key="sessionStore.currentSessionId || 'empty'"
+          class="message-area__list"
+          :session-id="sessionStore.currentSessionId || undefined"
+          :hide-latest-plan-doc="shouldHideLatestPlanDoc"
+          :hide-context-strategy-notice="true"
+          :top-safe-inset="0"
+          :waiting-permission="hasPermissionPrompt"
+          :waiting-form="Boolean(activeForm)"
+          @retry="handleRetry"
+          @edit="handleEdit"
+          @form-submit="handleMessageFormSubmit"
+          @open-edit-trace="handleOpenEditTrace"
+        />
+
+        <ConversationComposer
+          ref="composerRef"
+          :session-id="sessionStore.currentSessionId"
+          panel-type="main"
+          :active-form="activeForm"
+          @focus="handleComposerFocus"
+          @form-submit="handleComposerFormSubmit"
+        />
+      </div>
+
+      <Transition name="agent-plan-pane">
+        <div
+          v-if="showDesktopPlanPane && sessionStore.currentSessionId"
+          class="message-area__plan-pane"
+          :style="{ width: `${planPaneWidth}px` }"
+        >
+          <AgentPlanPane
+            :session-id="sessionStore.currentSessionId!"
+            @minimize="handleMinimizePlanPane"
+            @close="handleHidePlanPane"
+          />
+        </div>
+      </Transition>
+
+      <button
+        v-if="showDesktopPlanHandle"
+        class="message-area__plan-handle"
+        @click="handleTogglePlanPane"
+      >
+        <EaIcon
+          name="clipboard-list"
+          :size="16"
+        />
+        <span>{{ t('message.agentPlan.toggle') }}</span>
+        <span
+          v-if="planUnseenCount > 0"
+          class="message-area__plan-handle-badge"
+        >
+          {{ planUnseenCount }}
+        </span>
+      </button>
+    </div>
+
+    <Transition name="trace-drawer">
+      <div
+        v-if="showMobileTraceDrawer"
+        class="message-area__trace-drawer-backdrop"
+        @pointerdown.capture="handleTraceOverlayPointerDown"
+        @click.self="handleTraceOverlayClick"
+      >
+        <div class="message-area__trace-drawer">
+          <AiEditTracePane
+            :session-id="sessionStore.currentSessionId!"
+            mobile
+            @close="handleHideTracePane"
+          />
+        </div>
+      </div>
+    </Transition>
+
+    <button
+      v-if="showMobileTraceButton"
+      class="message-area__trace-fab"
+      @click="handleOpenMobileTrace"
+    >
+      <EaIcon
+        name="file-code"
+        :size="16"
+      />
+      <span>文件变更</span>
+      <span
+        v-if="currentTraceState && currentTraceState.unseenCount > 0"
+        class="message-area__trace-badge"
+      >
+        {{ currentTraceState.unseenCount }}
+      </span>
+    </button>
   </div>
 </template>
 

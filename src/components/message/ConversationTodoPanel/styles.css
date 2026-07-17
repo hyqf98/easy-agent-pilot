@@ -23,6 +23,48 @@
   box-shadow: 0 -8px 26px rgba(15, 23, 42, 0.06), 0 10px 28px rgba(96, 165, 250, 0.08);
 }
 
+.conversation-todo-panel--embedded {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.conversation-todo-panel--embedded .conversation-todo-panel__items {
+  max-height: min(28vh, 220px);
+  padding: 0;
+}
+
+.conversation-todo-panel--embedded .conversation-todo-panel__items-inner {
+  gap: 0;
+}
+
+.conversation-todo-panel--embedded .conversation-todo-panel__item {
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 62%, transparent);
+  border-radius: 0;
+  background: transparent;
+  padding: 9px 10px;
+  transition: background-color 0.15s ease;
+}
+
+.conversation-todo-panel--embedded .conversation-todo-panel__item:last-child {
+  border-bottom: 0;
+}
+
+.conversation-todo-panel--embedded .conversation-todo-panel__item:hover {
+  transform: none;
+  box-shadow: none;
+  background: color-mix(in srgb, var(--color-primary) 5%, transparent);
+}
+
+.conversation-todo-panel--embedded .conversation-todo-panel__item--in_progress::before {
+  content: none;
+}
+
 .conversation-todo-panel__head {
   display: flex;
   align-items: center;

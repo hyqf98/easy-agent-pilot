@@ -96,6 +96,7 @@
 }
 
 .conversation-composer__path,
+.conversation-composer__branch,
 .conversation-composer__queue-pill,
 .composer-chip,
 .conversation-composer__send {
@@ -118,6 +119,23 @@
   font-size: var(--font-size-xs);
 }
 
+/* Git 分支 chip：与路径 pill 同高同风格，中性主题色不抢输入框视觉 */
+.conversation-composer__branch {
+  max-width: 200px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--font-size-xs);
+  color: var(--composer-chip-text);
+  border-color: var(--composer-chip-border);
+  background: var(--composer-chip-bg);
+}
+
+.conversation-composer__branch svg {
+  flex-shrink: 0;
+  color: var(--composer-chip-text);
+}
+
 .conversation-composer__queue-pill {
   font-size: var(--font-size-xs);
 }
@@ -131,7 +149,7 @@
 
 .conversation-composer--main .conversation-composer__dock {
   width: 100%;
-  max-width: min(100%, 900px);
+  max-width: var(--conversation-stream-width, min(100%, 980px));
   margin: 0 auto;
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--workspace-border, var(--color-border)) 74%, transparent);
@@ -645,63 +663,16 @@
   box-shadow: none;
 }
 
+.conversation-composer--main .conversation-composer__textarea:focus,
+.conversation-composer--main .conversation-composer__textarea:focus-visible {
+  outline: none;
+  border-color: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
 /* 计划模式高亮规则见 .conversation-composer__panel（main 视觉容器）处。 */
 
-/* 计划模式底部紧凑操作栏：徽章 + 执行/退出按钮 */
-.conversation-composer__plan-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  flex-shrink: 0;
-  margin-bottom: 6px;
-  padding: 6px 12px;
-  border-radius: var(--radius-md);
-  border: 1px solid color-mix(in srgb, var(--color-primary, #2563eb) 24%, var(--workspace-border, rgba(38, 38, 38, 0.1)));
-  background: color-mix(in srgb, var(--color-primary, #2563eb) 8%, var(--color-bg-secondary));
-}
-
-.conversation-composer__plan-footer-info {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-}
-
-.conversation-composer__plan-footer-icon {
-  color: #3b82f6;
-  flex-shrink: 0;
-}
-
-.conversation-composer--dark .conversation-composer__plan-footer-icon {
-  color: #60a5fa;
-}
-
-.conversation-composer__plan-footer-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: #3b82f6;
-  white-space: nowrap;
-}
-
-.conversation-composer--dark .conversation-composer__plan-footer-label {
-  color: #93c5fd;
-}
-
-.conversation-composer__plan-footer-hint {
-  font-size: 11px;
-  color: var(--color-text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.conversation-composer__plan-footer-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
 
 .conversation-composer__render,
 .conversation-composer__textarea {
@@ -1010,11 +981,10 @@
   background: color-mix(in srgb, var(--color-primary-light) 35%, white);
   color: var(--color-text-primary);
   font-size: var(--font-size-xs);
-  transition: transform 0.16s ease, border-color 0.16s ease, background-color 0.16s ease;
+  transition: border-color 0.16s ease, background-color 0.16s ease;
 }
 
 .conversation-composer__memory-chip:hover {
-  transform: translateY(-1px);
   border-color: color-mix(in srgb, var(--color-primary) 32%, var(--color-border));
 }
 
@@ -1284,11 +1254,10 @@
   border-radius: 999px;
   font-size: clamp(11px, 0.72rem + 0.1vw, var(--font-size-xs));
   font-weight: 600;
-  transition: transform 0.16s ease, background-color 0.16s ease, border-color 0.16s ease;
+  transition: background-color 0.16s ease, border-color 0.16s ease;
 }
 
 .conversation-composer__memory-action:hover {
-  transform: translateY(-1px);
 }
 
 .conversation-composer__memory-action--ghost {
@@ -1919,15 +1888,19 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 32px;
-  width: 32px;
-  min-width: 32px;
+  flex: 0 0 18px;
+  width: 18px;
+  min-width: 18px;
 }
 
 .conversation-composer--main .token-progress {
-  --token-progress-size: 32px;
+  --token-progress-size: 14px;
   --token-progress-popover-shadow: 0 18px 36px rgba(24, 24, 22, 0.12);
   --token-progress-action-height: 36px;
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  min-height: 20px;
 }
 
 .conversation-composer--main .conversation-composer__editor-field {
@@ -2078,16 +2051,15 @@
   background: var(--color-primary, #2563eb) !important;
   color: #fff !important;
   box-shadow: 0 1px 3px color-mix(in srgb, var(--color-primary, #2563eb) 30%, transparent) !important;
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition: opacity 0.15s ease;
 }
 
 .conversation-composer__send--main:hover:not(:disabled) {
   opacity: 0.92;
-  transform: translateY(-1px);
 }
 
 .conversation-composer__send--main:active:not(:disabled) {
-  transform: translateY(0);
+  opacity: 0.85;
 }
 
 .conversation-composer__send--stop {
@@ -2121,15 +2093,6 @@
   box-shadow: 0 6px 14px color-mix(in srgb, var(--workspace-text-primary, var(--color-text-primary)) 18%, transparent);
 }
 
-.conversation-composer--main .conversation-composer__plan-footer {
-  padding: 6px 10px;
-  border-color: color-mix(in srgb, var(--color-primary, #2563eb) 22%, var(--workspace-border, rgba(38, 38, 38, 0.1)));
-  background: color-mix(in srgb, var(--color-primary, #2563eb) 7%, var(--workspace-panel-bg, #ffffff));
-}
-
-.conversation-composer--main .conversation-composer__plan-footer-hint {
-  color: var(--color-text-secondary, var(--color-text-tertiary));
-}
 
 @media (max-width: 900px) {
   .conversation-composer--main {
@@ -2154,13 +2117,7 @@
   }
 
   .conversation-composer__control-row {
-    flex-direction: column;
-    align-items: stretch;
     padding: 2px 6px 4px;
-  }
-
-  .conversation-composer__control-group--end {
-    justify-content: space-between;
   }
 }
 
@@ -2169,8 +2126,14 @@
     border-radius: 18px;
   }
 
+  .conversation-composer__control-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
   .conversation-composer__control-group--end {
     width: 100%;
+    justify-content: space-between;
   }
 
   .conversation-composer--main .composer-chip__text {
@@ -2252,6 +2215,7 @@
   padding: 3px 4px 2px;
   background: transparent;
   border-radius: 0;
+  transition: none;
 }
 
 .conversation-composer--main .composer-chip {
@@ -2261,7 +2225,7 @@
   background: transparent;
   color: var(--workspace-text-secondary, var(--color-text-secondary));
   box-shadow: none;
-  transition: background 0.16s ease, color 0.16s ease, transform 0.16s ease;
+  transition: background 0.16s ease, color 0.16s ease;
 }
 
 .conversation-composer--main .composer-chip:hover,
@@ -2300,7 +2264,6 @@
 }
 
 .conversation-composer__send--main:hover:not(:disabled) {
-  transform: translateY(-1px);
   color: var(--workspace-text-primary, var(--color-text-primary)) !important;
   border-color: transparent !important;
   background: color-mix(in srgb, var(--workspace-control-hover-bg, var(--color-surface-hover)) 88%, var(--workspace-text-primary, var(--color-text-primary)) 6%) !important;
@@ -2314,7 +2277,6 @@
 }
 
 .conversation-composer__send--main.conversation-composer__send--stop:hover:not(:disabled) {
-  transform: translateY(-1px);
   color: color-mix(in srgb, var(--color-error, #ef4444) 86%, var(--workspace-text-primary, var(--color-text-primary))) !important;
   background: color-mix(in srgb, var(--workspace-control-hover-bg, var(--color-surface-hover)) 84%, var(--color-error, #ef4444) 10%) !important;
 }
@@ -2387,7 +2349,7 @@
   color: var(--workspace-text-primary, #f4f4f0);
 }
 
-/* Main composer dock: one visual container with a protruding priority panel. */
+/* Main composer dock: context, priority content and editor share one surface. */
 .conversation-composer--main .conversation-composer__dock {
   width: 100%;
   max-width: var(--conversation-stream-width, min(100%, 980px));
@@ -2396,12 +2358,52 @@
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--workspace-border, var(--color-border)) 92%, transparent);
   border-radius: 16px;
-  background: color-mix(in srgb, var(--workspace-panel-bg, var(--color-surface)) 88%, transparent);
-  box-shadow: 0 18px 40px rgba(24, 24, 22, 0.055);
-  backdrop-filter: blur(18px);
+  /* A translucent backdrop-filter surface is re-composited by WKWebView when
+     the textarea caret is attached/detached. Keep the card on one stable,
+     opaque paint layer so focus and blur cannot look like a scale animation. */
+  background: var(--workspace-panel-bg, var(--color-surface));
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   overflow: visible;
-  /* 聚焦/失焦不做任何过渡：杜绝输入框点击时的放大缩小错觉 */
+  transform: none;
   transition: none;
+}
+
+/* Focus-stable structural layers. These elements never animate as focus moves
+   between the context controls and the editor; only menus and buttons retain
+   their own local interaction transitions. */
+.conversation-composer--main,
+.conversation-composer--main .conversation-composer__dock,
+.conversation-composer--main .conversation-composer__panel,
+.conversation-composer--main .conversation-composer__editor-stack,
+.conversation-composer--main .conversation-composer__editor-field,
+.conversation-composer--main .conversation-composer__editor-shell,
+.conversation-composer--main .conversation-composer__textarea {
+  animation: none;
+  transform: none;
+  transition: none;
+}
+
+.conversation-composer--main .conversation-composer__textarea {
+  -webkit-appearance: none;
+  appearance: none;
+  -webkit-tap-highlight-color: transparent;
+  border: 0;
+  outline: 0 !important;
+  box-shadow: none !important;
+}
+
+.conversation-composer--main .conversation-composer__editor-stack {
+  isolation: auto;
+}
+
+.conversation-composer--main .conversation-composer__editor-shell,
+.conversation-composer--main .conversation-composer__editor-shell:focus-within {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .conversation-composer--main .conversation-composer__panel {
@@ -2421,19 +2423,16 @@
 .conversation-composer--main .conversation-composer__dock > :deep(.active-form-popup),
 .conversation-composer--main .conversation-composer__dock > .conversation-composer__queue--priority,
 .conversation-composer--main .conversation-composer__dock > :deep(.conversation-todo-panel) {
-  width: calc(100% + 2px);
+  width: 100%;
   max-width: none;
-  margin: -10px -1px 0;
-  border: 1px solid color-mix(in srgb, var(--workspace-border, var(--color-border)) 88%, transparent);
-  border-bottom-color: color-mix(in srgb, var(--workspace-border, var(--color-border)) 58%, transparent);
-  border-radius: 16px 16px 10px 10px;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--workspace-panel-bg, var(--color-surface)) 98%, white 2%),
-      color-mix(in srgb, var(--workspace-panel-bg, var(--color-surface)) 90%, transparent)
-    );
-  box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.05);
+  margin: 0;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--workspace-border, var(--color-border)) 72%, transparent);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+  transition: none;
 }
 
 .conversation-composer--main .conversation-composer__dock > :deep(.permission-popup),
@@ -2443,11 +2442,11 @@
 
 .conversation-composer--main .conversation-composer__dock > .conversation-composer__queue--priority {
   gap: 7px;
-  padding: 9px 12px 10px;
+  padding: 8px 10px 9px;
 }
 
 .conversation-composer--main .conversation-composer__dock > :deep(.conversation-todo-panel) {
-  padding: 9px 13px 10px;
+  padding: 8px 10px 9px;
 }
 
 .conversation-composer--main .conversation-composer__dock > :deep(.permission-popup + *),
@@ -2481,9 +2480,9 @@
 
 :global([data-theme='dark']) .conversation-composer--main .conversation-composer__dock,
 :global(.dark) .conversation-composer--main .conversation-composer__dock {
-  background: color-mix(in srgb, var(--workspace-panel-bg, #1b1b1b) 82%, transparent);
+  background: var(--workspace-panel-bg, #1b1b1b);
   border-color: color-mix(in srgb, var(--workspace-border, rgba(255, 255, 255, 0.1)) 92%, transparent);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+  box-shadow: none;
 }
 
 :global([data-theme='dark']) .conversation-composer--main .conversation-composer__panel,
@@ -2501,14 +2500,10 @@
 :global(.dark) .conversation-composer--main .conversation-composer__dock > .conversation-composer__queue--priority,
 :global([data-theme='dark']) .conversation-composer--main .conversation-composer__dock > :deep(.conversation-todo-panel),
 :global(.dark) .conversation-composer--main .conversation-composer__dock > :deep(.conversation-todo-panel) {
-  border-color: color-mix(in srgb, var(--workspace-border, rgba(255, 255, 255, 0.1)) 92%, transparent);
-  border-bottom-color: color-mix(in srgb, var(--workspace-border, rgba(255, 255, 255, 0.1)) 58%, transparent);
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--workspace-panel-bg, #1b1b1b) 92%, rgba(255, 255, 255, 0.06)),
-      color-mix(in srgb, var(--workspace-panel-bg, #1b1b1b) 82%, transparent)
-    );
+  border-color: transparent;
+  border-bottom-color: color-mix(in srgb, var(--workspace-border, rgba(255, 255, 255, 0.1)) 72%, transparent);
+  background: transparent;
+  box-shadow: none;
 }
 
 :global([data-theme='dark']) .conversation-composer--plan-mode.conversation-composer--main .conversation-composer__dock,
@@ -2517,4 +2512,499 @@
   box-shadow:
     0 18px 40px rgba(0, 0, 0, 0.28),
     0 0 0 2px color-mix(in srgb, var(--color-border-focus, var(--color-primary)) 18%, transparent);
+}
+
+/* ===== Integrated context row: project shortcut + Git branch ===== */
+.conversation-composer--main .conversation-composer__context-bar {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  margin: 0;
+  padding: 7px 10px 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--workspace-border, var(--color-border)) 72%, transparent);
+  border-radius: 0;
+  background: transparent;
+  position: relative;
+  z-index: 2;
+  box-sizing: border-box;
+  transform: none;
+  transition: none;
+}
+
+/* 上下文条 chip 基础样式：小号、融入背景、无边框（靠 hover 区分） */
+.conversation-composer__ctx-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 0 8px;
+  font-size: var(--font-size-xs, 12px);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+  border-radius: 7px;
+  background: transparent;
+  border: 1px solid transparent;
+  min-width: 0;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  user-select: none;
+}
+
+.conversation-composer__ctx-chip svg {
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+.conversation-composer__ctx-chip span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: min(32vw, 240px);
+}
+
+/* 项目下拉 chip：可点击，hover 时浮现微弱背景 */
+.conversation-composer__ctx-chip--dropdown {
+  position: relative;
+  cursor: pointer;
+}
+
+.conversation-composer__ctx-chip--dropdown:hover {
+  background: var(--workspace-list-hover-bg, color-mix(in srgb, var(--color-border) 24%, transparent));
+}
+
+.conversation-composer__ctx-chip--open {
+  background: var(--workspace-list-hover-bg, color-mix(in srgb, var(--color-border) 24%, transparent));
+}
+
+.conversation-composer__ctx-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.conversation-composer__ctx-label {
+  font-weight: 500;
+}
+
+/* Git 分支 chip：与项目 chip 同色系，微弱点缀不抢眼，融入主题 */
+.conversation-composer__ctx-chip--branch {
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+  background: transparent;
+}
+
+.conversation-composer__ctx-chip--branch svg {
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+}
+
+/* 项目下拉菜单：与 agent/model 下拉风格一致 */
+.conversation-composer__ctx-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  min-width: 200px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 5px;
+  border-radius: 12px;
+  border: 1px solid var(--composer-menu-border);
+  background: var(--composer-menu-bg);
+  box-shadow: var(--composer-menu-shadow);
+  backdrop-filter: blur(14px);
+  z-index: calc(var(--z-dropdown, 1000) + 2);
+}
+
+.conversation-composer__ctx-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: var(--font-size-xs, 12px);
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.conversation-composer__ctx-option:hover {
+  background: var(--composer-menu-option-hover);
+}
+
+.conversation-composer__ctx-option--active {
+  background: var(--workspace-list-active-bg, color-mix(in srgb, var(--color-text-primary) 8%, transparent));
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  font-weight: 600;
+}
+
+.conversation-composer__ctx-option--active svg {
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+.conversation-composer__ctx-option-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.conversation-composer__ctx-loading {
+  padding: 10px 12px;
+  font-size: var(--font-size-xs, 12px);
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary));
+  text-align: center;
+}
+
+/* 暗色主题：上下文条 */
+:global([data-theme='dark']) .conversation-composer--main .conversation-composer__context-bar,
+:global(.dark) .conversation-composer--main .conversation-composer__context-bar {
+  background: transparent;
+  border-bottom-color: color-mix(in srgb, var(--workspace-border, rgba(255, 255, 255, 0.1)) 72%, transparent);
+}
+
+:global([data-theme='dark']) .conversation-composer__ctx-chip,
+:global(.dark) .conversation-composer__ctx-chip {
+  color: #94a3b8;
+}
+
+:global([data-theme='dark']) .conversation-composer__ctx-chip--dropdown:hover,
+:global(.dark) .conversation-composer__ctx-chip--dropdown:hover,
+:global([data-theme='dark']) .conversation-composer__ctx-chip--open,
+:global(.dark) .conversation-composer__ctx-chip--open {
+  background: rgba(51, 65, 85, 0.6);
+}
+
+:global([data-theme='dark']) .conversation-composer__ctx-option,
+:global(.dark) .conversation-composer__ctx-option {
+  color: #e2e8f0;
+}
+
+:global([data-theme='dark']) .conversation-composer__ctx-option:hover,
+:global(.dark) .conversation-composer__ctx-option:hover {
+  background: rgba(51, 65, 85, 0.88);
+}
+
+@media (max-width: 720px) {
+  .conversation-composer--main .conversation-composer__context-bar {
+    gap: 4px;
+    padding-inline: 7px;
+  }
+
+  .conversation-composer__ctx-chip {
+    flex: 1 1 0;
+    padding-inline: 6px;
+  }
+
+  .conversation-composer__ctx-button {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .conversation-composer__ctx-chip span {
+    max-width: none;
+  }
+}
+
+/* ===== Shared extension slot: Todo and queued drafts occupy one priority level. ===== */
+.conversation-composer--main .conversation-composer__extension-stage {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  z-index: 4;
+}
+
+.conversation-composer--main .conversation-composer__extension-slot {
+  width: 100%;
+  min-width: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--workspace-border, var(--color-border)) 72%, transparent);
+  background: transparent;
+}
+
+.conversation-composer__extension-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 36px;
+  padding: 4px 8px;
+}
+
+.conversation-composer__extension-tabs {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+
+.conversation-composer__extension-tab,
+.conversation-composer__extension-collapse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+  cursor: pointer;
+}
+
+.conversation-composer__extension-tab {
+  gap: 6px;
+  min-width: 0;
+  min-height: 27px;
+  padding: 0 8px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.conversation-composer__extension-tab:hover,
+.conversation-composer__extension-tab--active {
+  background: var(--workspace-list-hover-bg, color-mix(in srgb, var(--color-border) 24%, transparent));
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+.conversation-composer__extension-tab--active {
+  font-weight: 600;
+}
+
+.conversation-composer__extension-count {
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--workspace-text-secondary, var(--color-text-secondary)) 10%, transparent);
+  color: inherit;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.conversation-composer__extension-collapse {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  border-radius: 7px;
+}
+
+.conversation-composer__extension-collapse:hover {
+  background: var(--workspace-list-hover-bg, color-mix(in srgb, var(--color-border) 24%, transparent));
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+.conversation-composer__extension-body {
+  max-height: min(30vh, 250px);
+  overflow-y: auto;
+  border-top: 1px solid color-mix(in srgb, var(--workspace-border, var(--color-border)) 58%, transparent);
+  overscroll-behavior: contain;
+}
+
+.conversation-composer--main .conversation-composer__queue--integrated {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+}
+
+.conversation-composer--main .conversation-composer__queue--integrated .conversation-composer__queue-item {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 9px 10px;
+  gap: 9px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--workspace-border, var(--color-border)) 58%, transparent);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.conversation-composer--main .conversation-composer__queue--integrated .conversation-composer__queue-item:last-child {
+  border-bottom: 0;
+}
+
+.conversation-composer--main .conversation-composer__queue--integrated .conversation-composer__queue-item:hover {
+  background: color-mix(in srgb, var(--color-primary) 4%, transparent);
+}
+
+.conversation-composer--main .conversation-composer__queue--integrated .conversation-composer__queue-item--failed {
+  background: color-mix(in srgb, var(--color-error) 4%, transparent);
+}
+
+.conversation-composer--main .conversation-composer__queue--integrated .conversation-composer__queue-index {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--workspace-text-secondary, var(--color-text-secondary)) 10%, transparent);
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+  font-size: 10px;
+  line-height: 18px;
+}
+
+.conversation-composer--main .conversation-composer__queue--integrated .conversation-composer__queue-index::before,
+.conversation-composer--main .conversation-composer__queue--integrated .conversation-composer__queue-index::after {
+  content: none;
+}
+
+.conversation-composer--main .conversation-composer__queue--integrated .conversation-composer__queue-top {
+  color: var(--workspace-text-tertiary, var(--color-text-tertiary));
+}
+
+.conversation-composer--main .conversation-composer__queue--integrated .conversation-composer__queue-actions {
+  align-self: center;
+}
+
+/* Permission and active form are anchored above the shared slot without taking layout height. */
+.conversation-composer__floating-prompts {
+  --prompt-stack-offset: 36px;
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  bottom: calc(100% + 4px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  max-height: min(62vh, 520px);
+  overflow: visible;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  box-shadow: none;
+  z-index: calc(var(--z-dropdown, 1000) - 2);
+  pointer-events: auto;
+}
+
+.conversation-composer__floating-prompts--stacked {
+  isolation: isolate;
+}
+
+.conversation-composer__prompt-card {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  grid-area: 1 / 1;
+  align-self: start;
+}
+
+.conversation-composer__floating-prompts--stacked .conversation-composer__prompt-card--active {
+  margin-top: var(--prompt-stack-offset);
+}
+
+.conversation-composer__prompt-card--active {
+  align-self: end;
+  z-index: 2;
+}
+
+.conversation-composer__floating-prompts--permission-active .conversation-composer__prompt-card--active {
+  align-self: stretch;
+}
+
+.conversation-composer__floating-prompts--permission-active .conversation-composer__prompt-card--active > :deep(.permission-popup) {
+  height: 100%;
+}
+
+.conversation-composer__prompt-card--back {
+  z-index: 1;
+  cursor: pointer;
+}
+
+.conversation-composer__prompt-card--back > :deep(*) {
+  pointer-events: none;
+}
+
+.conversation-composer__prompt-card--back:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 42%, transparent);
+  outline-offset: -2px;
+  border-radius: 16px;
+}
+
+.conversation-composer__prompt-card > :deep(.permission-popup),
+.conversation-composer__prompt-card > :deep(.active-form-popup) {
+  width: 100%;
+  margin: 0;
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--workspace-border-strong, var(--workspace-border, var(--color-border))) 84%, transparent);
+  border-radius: 16px;
+  background: var(--workspace-panel-bg, var(--color-surface));
+  box-shadow: var(--composer-menu-shadow);
+  transform: none;
+}
+
+.conversation-composer__prompt-card > :deep(.active-form-popup-enter-active),
+.conversation-composer__prompt-card > :deep(.active-form-popup-leave-active) {
+  transition: opacity 0.15s ease;
+}
+
+.conversation-composer__prompt-card > :deep(.active-form-popup-enter-from),
+.conversation-composer__prompt-card > :deep(.active-form-popup-leave-to) {
+  transform: none;
+}
+
+.conversation-composer__plan-chip {
+  position: relative;
+}
+
+.conversation-composer__plan-menu {
+  left: 0;
+  right: auto;
+  min-width: 150px;
+  padding: 5px;
+}
+
+.conversation-composer__plan-menu-action {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 30px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--workspace-text-secondary, var(--color-text-secondary));
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.conversation-composer__plan-menu-action:hover,
+.conversation-composer__plan-menu-action:focus-visible {
+  outline: none;
+  background: var(--composer-menu-option-hover);
+  color: var(--workspace-text-primary, var(--color-text-primary));
+}
+
+.conversation-composer__plan-menu-action--primary {
+  color: var(--workspace-text-primary, var(--color-text-primary));
+  font-weight: 600;
+}
+
+@media (max-width: 900px) {
+  .conversation-composer__floating-prompts {
+    right: -1px;
+    max-height: min(40vh, 300px);
+  }
+}
+
+@media (max-width: 720px) {
+  .conversation-composer__floating-prompts {
+    left: -1px;
+    right: -1px;
+    max-height: min(38vh, 280px);
+  }
+
+  .conversation-composer__extension-tab {
+    padding-inline: 6px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conversation-composer__floating-prompts *,
+  .conversation-composer__plan-menu * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }

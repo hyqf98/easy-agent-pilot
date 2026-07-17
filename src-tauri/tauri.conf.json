@@ -15,8 +15,8 @@
     "windows": [
       {
         "title": "Easy Agent Pilot",
-        "width": 800,
-        "height": 600,
+        "width": 1200,
+        "height": 900,
         "minWidth": 640,
         "minHeight": 480,
         "center": true,
